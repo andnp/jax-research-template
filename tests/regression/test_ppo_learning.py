@@ -6,7 +6,6 @@ from components.types import PPOConfig
 
 def test_ppo_cartpole_learns():
     # Simple PPO configuration for a quick test
-    config = PPOConfig(TOTAL_TIMESTEPS=200_000, NUM_ENVS=32, NUM_STEPS=64, UPDATE_EPOCHS=4, NUM_MINIBATCHES=4, LR=1e-3, ENV_NAME="CartPole-v1", SEED=42)
 
     rng = jax.random.PRNGKey(config.SEED)
     train_fn = make_train(config)

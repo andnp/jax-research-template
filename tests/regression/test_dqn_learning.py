@@ -5,7 +5,6 @@ from agents.dqn import DQNConfig, make_train
 
 def test_dqn_cartpole_learns():
     config = DQNConfig(
-        TOTAL_TIMESTEPS=100_000, NUM_ENVS=4, BUFFER_SIZE=50000, BATCH_SIZE=128, LEARNING_STARTS=1000, TARGET_NETWORK_FREQUENCY=500, LR=1e-3, ENV_NAME="CartPole-v1", SEED=42
     )
 
     rng = jax.random.PRNGKey(config.SEED)

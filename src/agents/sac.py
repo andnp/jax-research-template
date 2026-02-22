@@ -1,6 +1,3 @@
-from typing import Optional, Tuple
-
-import distrax
 import flax.linen as nn
 import gymnax
 import gymnax.wrappers
@@ -9,6 +6,8 @@ import jax.numpy as jnp
 import optax
 from chex import dataclass
 from flax.training.train_state import TrainState
+from typing import Tuple, Optional
+import distrax
 
 from components.buffers import ReplayBuffer
 
@@ -16,7 +15,6 @@ from components.buffers import ReplayBuffer
 @dataclass(frozen=True)
 class SACConfig:
     LR: float = 3e-4
-    NUM_ENVS: int = 4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
@@ -88,7 +86,9 @@ def make_train(config: SACConfig):
 
         critic = Critic()
         rng, _rng_critic = jax.random.split(rng)
-        critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,)))
+        critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
+            jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,))
+        )
         critic_target_params = critic_params
         critic_state = TrainState.create(apply_fn=critic.apply, params=critic_params, tx=optax.adam(config.LR))
 
@@ -108,35 +108,49 @@ def make_train(config: SACConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)
 
         def _update_step(runner_state, t):
-            (actor_state, critic_state, critic_target_params, alpha_state, buffer_state, env_state, last_obs, rng) = runner_state
+            (
+                actor_state,
+                critic_state,
+                critic_target_params,
+                alpha_state,
+                buffer_state,
+                env_state,
+                last_obs,
+                rng,
+            ) = runner_state
 
             # SELECT ACTION
             rng, _rng = jax.random.split(rng)
 
             def _random_action():
-                return jax.random.uniform(_rng, (config.NUM_ENVS, action_dim), minval=-1, maxval=1)
+                return jax.random.uniform(_rng, (action_dim,), minval=-1, maxval=1)
 
             def _policy_action():
-                action, _ = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_state.params, last_obs, jax.random.split(_rng, config.NUM_ENVS))
+                action, _ = actor.sample(actor_state.params, last_obs, _rng)
                 return action
 
             action = jax.lax.cond(
-                t < config.LEARNING_STARTS // config.NUM_ENVS,
+                t < config.LEARNING_STARTS,
                 _random_action,
                 _policy_action,
             )
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)
-            rng_step = jax.random.split(_rng, config.NUM_ENVS)
-            obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(rng_step, env_state, action, env_params)
+            obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
 
             # ADD TO BUFFER
-            buffer_state = buffer.add(buffer_state, last_obs, action, reward, obsv, done)
+            buffer_state = buffer.add(
+                buffer_state,
+                last_obs[None, ...],
+                action[None, ...],
+                reward[None, ...],
+                obsv[None, ...],
+                done[None, ...],
+            )
 
             # TRAIN
             def _do_train(actor_state, critic_state, critic_target_params, alpha_state, buffer_state, rng):
@@ -148,7 +162,9 @@ def make_train(config: SACConfig):
                 # CRITIC UPDATE
                 def _critic_loss_fn(critic_params, actor_params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng):
                     rng, _rng = jax.random.split(rng)
-                    next_actions, next_log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, next_obs, jax.random.split(_rng, config.BATCH_SIZE))
+                    next_actions, next_log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
+                        actor_params, next_obs, jax.random.split(_rng, config.BATCH_SIZE)
+                    )
 
                     # Twin Q targets
                     next_q_values = jax.vmap(critic.apply, in_axes=(0, None, None))(critic_target_params, next_obs, next_actions)
@@ -163,13 +179,17 @@ def make_train(config: SACConfig):
                     return loss
 
                 grad_fn = jax.value_and_grad(_critic_loss_fn)
-                critic_loss, critic_grads = grad_fn(critic_state.params, actor_state.params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng)
+                critic_loss, critic_grads = grad_fn(
+                    critic_state.params, actor_state.params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng
+                )
                 critic_state = critic_state.apply_gradients(grads=critic_grads)
 
                 # ACTOR UPDATE
                 def _actor_loss_fn(actor_params, critic_params, alpha, obs, rng):
                     rng, _rng = jax.random.split(rng)
-                    new_actions, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE))
+                    new_actions, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
+                        actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE)
+                    )
 
                     q_values = jax.vmap(critic.apply, in_axes=(0, None, None))(critic_params, obs, new_actions)
                     q_min = jnp.min(q_values, axis=0)
@@ -201,7 +221,7 @@ def make_train(config: SACConfig):
 
                 return actor_state, critic_state, critic_target_params, alpha_state
 
-            can_train = (t > config.LEARNING_STARTS // config.NUM_ENVS) & (t % config.TRAIN_FREQUENCY == 0)
+            can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
             actor_state, critic_state, critic_target_params, alpha_state = jax.lax.cond(
                 can_train,
                 lambda: _do_train(actor_state, critic_state, critic_target_params, alpha_state, buffer_state, rng),
@@ -213,7 +233,7 @@ def make_train(config: SACConfig):
 
         # RUNNER
         runner_state = (actor_state, critic_state, critic_target_params, alpha_state, buffer_state, env_state, obsv, rng)
-        runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS // config.NUM_ENVS))
+        runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
         return {"runner_state": runner_state, "metrics": metrics}
 
     return train

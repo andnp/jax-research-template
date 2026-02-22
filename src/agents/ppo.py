@@ -44,8 +44,7 @@ def make_train(config: PPOConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
@@ -64,8 +63,7 @@ def make_train(config: PPOConfig):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config.NUM_ENVS)
-                obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(rng_step, env_state, action, env_params)
+                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
                 transition = Transition(done, action, value, reward, log_prob, last_obs, info)
                 runner_state = (train_state, env_state, obsv, rng)
                 return runner_state, transition
@@ -142,10 +140,9 @@ def make_train(config: PPOConfig):
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
-                batch_size = config.NUM_STEPS * config.NUM_ENVS
+                batch_size = config.NUM_STEPS
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
-                batch = jax.tree_util.tree_map(lambda x: x.reshape((batch_size,) + x.shape[2:]), batch)
                 shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=0), batch)
                 minibatches = jax.tree_util.tree_map(
                     lambda x: jnp.reshape(x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])),
@@ -164,7 +161,7 @@ def make_train(config: PPOConfig):
             runner_state = (train_state, env_state, last_obs, update_state[-1])
             return runner_state, metric
 
-        num_updates = config.TOTAL_TIMESTEPS // config.NUM_STEPS // config.NUM_ENVS
+        num_updates = config.TOTAL_TIMESTEPS // config.NUM_STEPS
         runner_state = (train_state, env_state, obsv, rng)
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, None, num_updates)
         return {"runner_state": runner_state, "metrics": metrics}

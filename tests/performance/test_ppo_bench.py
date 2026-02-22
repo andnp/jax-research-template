@@ -7,7 +7,6 @@ from components.types import PPOConfig
 def test_ppo_speed(benchmark):
     config = PPOConfig(
         TOTAL_TIMESTEPS=100_000,
-        NUM_ENVS=32,
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,

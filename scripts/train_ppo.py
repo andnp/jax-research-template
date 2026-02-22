@@ -10,7 +10,6 @@ from components.types import PPOConfig
 def main():
     config = PPOConfig(
         TOTAL_TIMESTEPS=500_000,
-        NUM_ENVS=32,
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,

@@ -13,7 +13,6 @@ from components.buffers import ReplayBuffer
 @dataclass(frozen=True)
 class DQNConfig:
     LR: float = 3e-4
-    NUM_ENVS: int = 4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
@@ -73,32 +72,40 @@ def make_train(config: DQNConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config.NUM_ENVS)
-        obsv, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)
 
         def _update_step(runner_state, t):
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
 
             # EPSILON GREEDY
-            current_t = t * config.NUM_ENVS
             epsilon = jnp.maximum(
                 config.EPSILON_END,
-                config.EPSILON_START - (config.EPSILON_START - config.EPSILON_END) * (current_t / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
+                config.EPSILON_START
+                - (config.EPSILON_START - config.EPSILON_END)
+                * (t / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
             q_values = jnp.asarray(network.apply(train_state.params, last_obs))
-            greedy_actions = jnp.argmax(q_values, axis=-1)
-            random_actions = jax.random.randint(_rng_action, (config.NUM_ENVS,), 0, env.action_space(env_params).n)
-            chose_random = jax.random.uniform(_rng_action, (config.NUM_ENVS,)) < epsilon
-            action = jnp.where(chose_random, random_actions, greedy_actions)
+            greedy_action = jnp.argmax(q_values)
+            random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
+            chose_random = jax.random.uniform(_rng_action, ()) < epsilon
+            action = jnp.where(chose_random, random_action, greedy_action)
 
             # STEP ENV
-            rng_step = jax.random.split(_rng_step, config.NUM_ENVS)
-            obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(rng_step, env_state, action, env_params)
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
 
             # ADD TO BUFFER
-            buffer_state = buffer.add(buffer_state, last_obs, action, reward, obsv, done)
+            # ReplayBuffer.add expects vectorized inputs, let's update it or wrap it
+            # For "One Agent, One World", we can just expand dims here.
+            buffer_state = buffer.add(
+                buffer_state, 
+                last_obs[None, ...], 
+                action[None, ...], 
+                reward[None, ...], 
+                obsv[None, ...], 
+                done[None, ...]
+            )
 
             # TRAIN
             def _do_train(train_state, target_params, buffer_state, rng):
@@ -145,7 +152,9 @@ def make_train(config: DQNConfig):
 
         # RUNNER
         runner_state = (train_state, target_params, buffer_state, env_state, obsv, rng)
-        runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS // config.NUM_ENVS))
+        runner_state, metrics = jax.lax.scan(
+            _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
+        )
         return {"runner_state": runner_state, "metrics": metrics}
 
     return train
