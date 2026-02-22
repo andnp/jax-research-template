@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: jax-research-template
+Version: 0.1.0
+Summary: A clean, E2E JIT-able JAX RL research template.
+Author-email: Andy Patterson <andnpatterson@gmail.com>
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: chex>=0.1.91
+Requires-Dist: distrax>=0.1.7
+Requires-Dist: flax>=0.12.4
+Requires-Dist: gymnax>=0.0.9
+Requires-Dist: jax>=0.9.0.1
+Requires-Dist: jaxlib>=0.9.0.1
+Requires-Dist: jaxtyping>=0.3.9
+Requires-Dist: ml-collections>=1.1.0
+Requires-Dist: optax>=0.2.6
+Requires-Dist: pydantic>=2.12.5

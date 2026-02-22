@@ -1,0 +1,50 @@
+[project]
+name = "jax-research-template"
+version = "0.1.0"
+description = "A clean, E2E JIT-able JAX RL research template."
+readme = "README.md"
+authors = [
+    { name = "Andy Patterson", email = "andnpatterson@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "chex>=0.1.91",
+    "distrax>=0.1.7",
+    "flax>=0.12.4",
+    "gymnax>=0.0.9",
+    "jax>=0.9.0.1",
+    "jaxlib>=0.9.0.1",
+    "jaxtyping>=0.3.9",
+    "ml-collections>=1.1.0",
+    "optax>=0.2.6",
+    "pydantic>=2.12.5",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-benchmark>=5.2.3",
+    "ruff>=0.15.2",
+    "ty>=0.0.18",
+]
+
+[tool.ruff]
+line-length = 180
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = ["E731"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ty]
+# Configuration for ty type-checker
