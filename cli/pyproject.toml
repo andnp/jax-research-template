@@ -1,0 +1,15 @@
+[project]
+name = "research-cli"
+version = "0.1.0"
+description = "Management CLI for the RL research monorepo"
+dependencies = [
+    "typer~=0.12",
+    "copier~=9.4",
+]
+
+[project.scripts]
+research = "research_cli.main:app"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

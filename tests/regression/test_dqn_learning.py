@@ -1,6 +1,6 @@
 import jax
 
-from agents.dqn import DQNConfig, make_train
+from rl_agents.dqn import DQNConfig, make_train
 
 
 def test_dqn_cartpole_learns():

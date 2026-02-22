@@ -1,12 +1,12 @@
 import jax
 import pytest
 
-from agents.dqn import DQNConfig
-from agents.dqn import make_train as make_dqn
-from agents.ppo import make_train as make_ppo
-from agents.sac import SACConfig
-from agents.sac import make_train as make_sac
-from components.types import PPOConfig
+from rl_agents.dqn import DQNConfig
+from rl_agents.dqn import make_train as make_dqn
+from rl_agents.ppo import make_train as make_ppo
+from rl_agents.sac import SACConfig
+from rl_agents.sac import make_train as make_sac
+from rl_components.types import PPOConfig
 
 
 @pytest.mark.benchmark(group="ppo")

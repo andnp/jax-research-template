@@ -1,6 +1,6 @@
 import jax
 
-from agents.sac import SACConfig, make_train
+from rl_agents.sac import SACConfig, make_train
 
 
 def test_sac_mountaincar_continuous_learns():

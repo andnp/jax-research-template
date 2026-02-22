@@ -1,7 +1,7 @@
 import jax
 
-from agents.ppo import make_train
-from components.types import PPOConfig
+from rl_agents.ppo import make_train
+from rl_components.types import PPOConfig
 
 
 def test_ppo_speed(benchmark):
