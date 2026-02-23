@@ -39,7 +39,17 @@ We utilize `pytest` with a directory-based tiering system.
 - **Goal:** Performance regression.
 - **Content:** `pytest-benchmark` runs measuring SPS and memory throughput.
 
-## 4. Documentation
+## 4. Empirical Science Standards
+All research code and experiments must adhere to the **[Empirical Design & Analysis Guide](science_guide.md)**.
+
+- **Understanding over Winning:** The goal of an experiment is to understand an algorithm's properties, not just to show it is "good."
+- **Scientific Studies vs. Demonstrations:** We prioritize scientific studies (falsifiable hypotheses, controlled confounding effects) over engineering demonstrations.
+- **Statistical Rigor:** No results should be reported without appropriate non-parametric confidence intervals and significance tests.
+- **Reproducible Data:** Experiments must be declarative and stored in the master database to ensure perfect traceability.
+
+## 5. Documentation Policy
 - **Google-Style:** All public functions must have docstrings.
 - **Math:** Use LaTeX in docstrings for algorithmic explanations.
 - **PRD First:** Major features must have a spec in `docs/specs/` before implementation begins.
+- **ADRs:** Record significant architectural decisions in `docs/adrs/`.
+
