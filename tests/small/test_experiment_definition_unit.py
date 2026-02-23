@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from experiment_definition import (
     AblationSpec,
@@ -18,15 +20,15 @@ from experiment_definition import (
 
 class TestComponent:
     def test_defaults(self) -> None:
-        c = Component(name="PPO", path="libs/rl-agents/src/rl_agents/ppo.py")
+        c = Component(name="PPO", path=Path("libs/rl-agents/src/rl_agents/ppo.py"))
         assert c.type == ComponentType.OTHER
 
     def test_explicit_type(self) -> None:
-        c = Component(name="PPO", path="p.py", type=ComponentType.ALGO)
+        c = Component(name="PPO", path=Path("p.py"), type=ComponentType.ALGO)
         assert c.type == ComponentType.ALGO
 
     def test_code_hash_missing_file_returns_empty(self) -> None:
-        c = Component(name="X", path="/nonexistent/path.py")
+        c = Component(name="X", path=Path("/nonexistent/path.py"))
         assert c.code_hash() == ""
 
 
@@ -84,7 +86,7 @@ class TestExperimentBuilder:
 
     def test_for_component_scopes_parameter(self) -> None:
         exp = Experiment("Test")
-        ppo = Component(name="PPO", path="p.py", type=ComponentType.ALGO)
+        ppo = Component(name="PPO", path=Path("p.py"), type=ComponentType.ALGO)
         with exp.for_component(ppo):
             exp.add_parameter("lr", [1e-3])
         p = exp._state.parameters[0]
@@ -93,14 +95,14 @@ class TestExperimentBuilder:
 
     def test_for_component_registers_component(self) -> None:
         exp = Experiment("Test")
-        ppo = Component(name="PPO", path="p.py")
+        ppo = Component(name="PPO", path=Path("p.py"))
         with exp.for_component(ppo):
             pass
         assert ppo in exp._state.components
 
     def test_for_component_restores_scope(self) -> None:
         exp = Experiment("Test")
-        ppo = Component(name="PPO", path="p.py")
+        ppo = Component(name="PPO", path=Path("p.py"))
         with exp.for_component(ppo):
             pass
         assert exp._component_scope is None

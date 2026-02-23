@@ -33,7 +33,7 @@ from typing import Generator, Iterable
 from .ablation import AblationSpec
 from .component import Component
 from .metric import MetricFrequency, MetricSpec, MetricType
-from .parameter import ParameterSpec
+from .parameter import ParameterSpec, ParameterValue
 
 
 @dataclass
@@ -66,14 +66,14 @@ class Experiment:
     def __init__(self, name: str, description: str | None = None) -> None:
         self._state = _ExperimentState(name=name, description=description)
         self._component_scope: Component | None = None
-        self._condition_stack: list[dict[str, object]] = []
+        self._condition_stack: list[dict[str, ParameterValue]] = []
 
     # ── Parameter API ─────────────────────────────────────────────────────────
 
     def add_parameter(
         self,
         name: str,
-        values: Iterable[object],
+        values: Iterable[ParameterValue],
         *,
         is_static: bool = False,
     ) -> "Experiment":
@@ -89,7 +89,7 @@ class Experiment:
         Returns:
             ``self`` for optional chaining.
         """
-        conditions: dict[str, object] = {}
+        conditions: dict[str, ParameterValue] = {}
         for frame in self._condition_stack:
             conditions.update(frame)
 
@@ -129,7 +129,7 @@ class Experiment:
             self._component_scope = previous
 
     @contextmanager
-    def when(self, **conditions: object) -> Generator[None, None, None]:
+    def when(self, **conditions: ParameterValue) -> Generator[None, None, None]:
         """Add conditional parameters triggered only when ``conditions`` match.
 
         Args:
@@ -147,7 +147,7 @@ class Experiment:
 
     # ── Ablations ─────────────────────────────────────────────────────────────
 
-    def add_ablation(self, name: str, overrides: dict[str, object]) -> "Experiment":
+    def add_ablation(self, name: str, overrides: dict[str, ParameterValue]) -> "Experiment":
         """Register a named ablation that clones the search space with fixed overrides.
 
         Args:

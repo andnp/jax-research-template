@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from .parameter import ParameterValue
+
 
 class AblationSpec(BaseModel):
     """Represents a named ablation that fixes one or more parameters.
@@ -14,4 +16,4 @@ class AblationSpec(BaseModel):
     """
 
     name: str
-    overrides: dict[str, object]
+    overrides: dict[str, ParameterValue]

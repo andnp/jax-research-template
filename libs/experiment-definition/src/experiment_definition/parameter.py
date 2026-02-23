@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from .component import Component
 
+ParameterValue = int | float | str | bool | None
+
 
 class ParameterSpec(BaseModel):
     """Specifies a single hyperparameter sweep axis.
@@ -22,9 +24,9 @@ class ParameterSpec(BaseModel):
     """
 
     name: str
-    values: list[object]
+    values: list[ParameterValue]
     is_static: bool = False
     component: Component | None = None
-    conditions: dict[str, object] = {}
+    conditions: dict[str, ParameterValue] = {}
 
     model_config = {"arbitrary_types_allowed": True}

@@ -25,6 +25,8 @@ class Component(BaseModel):
         type: Logical role of the component.
     """
 
+    model_config = {"frozen": True}
+
     name: str
     path: Path
     type: ComponentType = ComponentType.OTHER
