@@ -1,8 +1,21 @@
+# Python build artifacts
+*.egg-info/
+*.egg
+*.dist-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+
+# Tool caches
 .benchmarks/
 .pytest_cache/
+.ruff_cache/
+.codanna/
+
+# Byte-compiled files
 **/__pycache__/
 **/*.pyc
 **/*.pyo
 **/*.pyd
-.ruff_cache/
-.codanna/

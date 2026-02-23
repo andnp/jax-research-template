@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-
 from rl_components.networks import ActorCritic
 from rl_components.types import PPOConfig
 

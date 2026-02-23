@@ -1,5 +1,4 @@
 import jax
-
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 

@@ -1,9 +1,10 @@
+import argparse
+import os
+
 import jax
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
-import time
-import argparse
-import os
+
 
 def profile_ppo(steps=1000):
     config = PPOConfig(

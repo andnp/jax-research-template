@@ -1,14 +1,14 @@
 import jax
-
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
+
+_config = PPOConfig(TOTAL_TIMESTEPS=50_000, ENV_NAME="CartPole-v1")
 
 
 def test_ppo_cartpole_learns():
     # Simple PPO configuration for a quick test
-
-    rng = jax.random.PRNGKey(config.SEED)
-    train_fn = make_train(config)
+    rng = jax.random.PRNGKey(_config.SEED)
+    train_fn = make_train(_config)
     train_jit = jax.jit(train_fn)
 
     out = train_jit(rng)

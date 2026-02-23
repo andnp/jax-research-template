@@ -1,8 +1,10 @@
+import time
+
 import jax
+import pandas as pd
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
-import time
-import pandas as pd
+
 
 def sweep_vmap_ppo():
     batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
@@ -47,8 +49,7 @@ def sweep_vmap_ppo():
     
     df = pd.DataFrame(results)
     df.to_csv("vmap_sweep_results.csv", index=False)
-    print("
-Results saved to vmap_sweep_results.csv")
+    print("\nResults saved to vmap_sweep_results.csv")
 
 if __name__ == "__main__":
     sweep_vmap_ppo()

@@ -1,10 +1,10 @@
+import time
+
 import jax
-import jax.numpy as jnp
+import matplotlib.pyplot as plt
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
-import matplotlib.pyplot as plt
-import time
-import numpy as np
+
 
 def main():
     # Philosophical constraint: NUM_ENVS is now implicitly 1 in the agent logic.
@@ -25,10 +25,10 @@ def main():
     rng_seeds = jax.random.split(rng, NUM_SEEDS)
     
     train_fn = make_train(config)
-    
-    # VMAP over the seeds! 
+
+    # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.
-    parallel_train = jax.vmap(train_jit := jax.jit(train_fn))
+    parallel_train = jax.vmap(jax.jit(train_fn))
     
     print(f"--- Running {NUM_SEEDS} independent PPO agents in parallel ---")
     print("Compiling & Executing...")

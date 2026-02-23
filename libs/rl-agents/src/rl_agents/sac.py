@@ -1,3 +1,6 @@
+from typing import Optional, Tuple
+
+import distrax
 import flax.linen as nn
 import gymnax
 import gymnax.wrappers
@@ -6,9 +9,6 @@ import jax.numpy as jnp
 import optax
 from chex import dataclass
 from flax.training.train_state import TrainState
-from typing import Tuple, Optional
-import distrax
-
 from rl_components.buffers import ReplayBuffer
 
 

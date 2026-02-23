@@ -1,5 +1,4 @@
 import jax
-
 from rl_agents.dqn import DQNConfig, make_train
 
 

@@ -1,8 +1,10 @@
+import argparse
+import os
+
 import jax
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
-import argparse
-import os
+
 
 def dump_hlo(agent="ppo"):
     if agent == "ppo":
