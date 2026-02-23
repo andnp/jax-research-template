@@ -28,9 +28,11 @@
 - Utilities for creating and managing statistically sound baselines for comparative studies.
 
 ## 3. Technical Constraints
-- Must interface directly with the relational SQLite schema defined in ADR 008.
-- Should be optimized for analyzing data from large-scale JAX `vmap` runs.
+- **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.
+- **Data Engine:** **Polars** is the exclusive first-class citizen for data management. All data ingestion from SQLite must go through Polars DataFrames. No Pandas support will be implemented.
+- **Database:** Must interface directly with the relational SQLite schema defined in ADR 008.
 - **Exclusion Policy:** No implementation or support for Inter-Quantile Mean (IQM) shall be included in this library.
+
 
 ## 4. Proposed Usage
 
