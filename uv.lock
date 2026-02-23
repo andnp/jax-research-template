@@ -302,7 +302,7 @@ epy = [
 [[package]]
 name = "experiment-definition"
 version = "0.1.0"
-source = { virtual = "libs/experiment-definition" }
+source = { editable = "libs/experiment-definition" }
 
 [[package]]
 name = "farama-notifications"
@@ -472,17 +472,17 @@ wheels = [
 [[package]]
 name = "jax-nn"
 version = "0.1.0"
-source = { virtual = "libs/jax-nn" }
+source = { editable = "libs/jax-nn" }
 
 [[package]]
 name = "jax-replay"
 version = "0.1.0"
-source = { virtual = "libs/jax-replay" }
+source = { editable = "libs/jax-replay" }
 
 [[package]]
 name = "jax-utils"
 version = "0.1.0"
-source = { virtual = "libs/jax-utils" }
+source = { editable = "libs/jax-utils" }
 
 [[package]]
 name = "jaxlib"
@@ -1375,7 +1375,7 @@ wheels = [
 [[package]]
 name = "research-analysis"
 version = "0.1.0"
-source = { virtual = "libs/research-analysis" }
+source = { editable = "libs/research-analysis" }
 
 [[package]]
 name = "research-cli"
@@ -1395,7 +1395,7 @@ requires-dist = [
 [[package]]
 name = "research-cluster"
 version = "0.1.0"
-source = { virtual = "libs/research-cluster" }
+source = { editable = "libs/research-cluster" }
 
 [[package]]
 name = "research-core"
@@ -1453,17 +1453,27 @@ dev = [
 [[package]]
 name = "research-instrument"
 version = "0.1.0"
-source = { virtual = "libs/research-instrument" }
+source = { editable = "libs/research-instrument" }
 
 [[package]]
 name = "research-plot"
 version = "0.1.0"
-source = { virtual = "libs/research-plot" }
+source = { editable = "libs/research-plot" }
 
 [[package]]
 name = "research-store"
 version = "0.1.0"
-source = { virtual = "libs/research-store" }
+source = { editable = "libs/research-store" }
+dependencies = [
+    { name = "jax" },
+    { name = "orbax-checkpoint" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jax", specifier = "~=0.9" },
+    { name = "orbax-checkpoint", specifier = "~=0.11" },
+]
 
 [[package]]
 name = "rich"

@@ -7,14 +7,26 @@ dependencies = []
 
 
 
+
+
+
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 
 
+
+
+
+
 [tool.uv]
 package = false
+
+
+
+
 
 
 [project]
@@ -28,3 +40,16 @@ dependencies = [
 ]
 
 
+
+
+
+
+[project]
+name = "research-instrument"
+version = "0.1.0"
+description = "Stub — not yet implemented"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
