@@ -21,7 +21,6 @@ import pickle
 import uuid
 from pathlib import Path
 
-import jax
 import orbax.checkpoint as ocp
 
 from research_store.types import ArtifactKind, StoreURI
@@ -29,6 +28,10 @@ from research_store.types import ArtifactKind, StoreURI
 
 def _has_jax_arrays(obj: object) -> bool:
     """Return True if *obj* is a JAX pytree containing at least one ``jax.Array``."""
+    try:
+        import jax
+    except ImportError:
+        return False
     leaves = jax.tree_util.tree_leaves(obj)
     return any(isinstance(leaf, jax.Array) for leaf in leaves)
 
