@@ -1,55 +1,17 @@
 [project]
 name = "research-instrument"
 version = "0.1.0"
-description = "Planned library: research-instrument"
-requires-python = ">=3.13"
-dependencies = []
-
-
-
-
-
-
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
-
-
-
-
-
-
-[tool.uv]
-package = false
-
-
-
-
-
-
-[project]
-name = "research-instrument"
-version = "0.1.0"
 description = "JAX-native metrics collection for RL research experiments"
+requires-python = ">=3.13"
 dependencies = [
     "jax~=0.9",
     "jaxlib~=0.9",
     "numpy>=2.0",
 ]
 
-
-
-
-
-
-[project]
-name = "research-instrument"
-version = "0.1.0"
-description = "Stub — not yet implemented"
-dependencies = []
-
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = false

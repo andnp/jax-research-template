@@ -303,6 +303,12 @@ epy = [
 name = "experiment-definition"
 version = "0.1.0"
 source = { editable = "libs/experiment-definition" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = "~=2.12" }]
 
 [[package]]
 name = "farama-notifications"
@@ -472,17 +478,17 @@ wheels = [
 [[package]]
 name = "jax-nn"
 version = "0.1.0"
-source = { editable = "libs/jax-nn" }
+source = { virtual = "libs/jax-nn" }
 
 [[package]]
 name = "jax-replay"
 version = "0.1.0"
-source = { editable = "libs/jax-replay" }
+source = { virtual = "libs/jax-replay" }
 
 [[package]]
 name = "jax-utils"
 version = "0.1.0"
-source = { editable = "libs/jax-utils" }
+source = { virtual = "libs/jax-utils" }
 
 [[package]]
 name = "jaxlib"
@@ -1375,7 +1381,7 @@ wheels = [
 [[package]]
 name = "research-analysis"
 version = "0.1.0"
-source = { editable = "libs/research-analysis" }
+source = { virtual = "libs/research-analysis" }
 
 [[package]]
 name = "research-cli"
@@ -1395,7 +1401,7 @@ requires-dist = [
 [[package]]
 name = "research-cluster"
 version = "0.1.0"
-source = { editable = "libs/research-cluster" }
+source = { virtual = "libs/research-cluster" }
 
 [[package]]
 name = "research-core"
@@ -1453,17 +1459,29 @@ dev = [
 [[package]]
 name = "research-instrument"
 version = "0.1.0"
-source = { editable = "libs/research-instrument" }
+source = { virtual = "libs/research-instrument" }
+dependencies = [
+    { name = "jax" },
+    { name = "jaxlib" },
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jax", specifier = "~=0.9" },
+    { name = "jaxlib", specifier = "~=0.9" },
+    { name = "numpy", specifier = ">=2.0" },
+]
 
 [[package]]
 name = "research-plot"
 version = "0.1.0"
-source = { editable = "libs/research-plot" }
+source = { virtual = "libs/research-plot" }
 
 [[package]]
 name = "research-store"
 version = "0.1.0"
-source = { editable = "libs/research-store" }
+source = { virtual = "libs/research-store" }
 dependencies = [
     { name = "jax" },
     { name = "orbax-checkpoint" },

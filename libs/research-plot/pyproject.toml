@@ -1,26 +1,15 @@
 [project]
 name = "research-plot"
 version = "0.1.0"
-description = "Planned library: research-plot"
+description = "Stub — not yet implemented"
 requires-python = ">=3.13"
 dependencies = []
-
-
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-
-
 [tool.uv]
 package = false
-
-
-[project]
-name = "research-plot"
-version = "0.1.0"
-description = "Stub — not yet implemented"
-dependencies = []
 
 

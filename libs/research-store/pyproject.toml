@@ -1,29 +1,18 @@
 [project]
 name = "research-store"
 version = "0.1.0"
-description = "Planned library: research-store"
+description = "Unified artifact and checkpoint storage with Research URI abstraction"
 requires-python = ">=3.13"
-dependencies = []
-
-
+dependencies = [
+    "orbax-checkpoint~=0.11",
+    "jax~=0.9",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-
-
 [tool.uv]
 package = false
-
-
-[project]
-name = "research-store"
-version = "0.1.0"
-description = "Unified artifact and checkpoint storage with Research URI abstraction"
-dependencies = [
-    "orbax-checkpoint~=0.11",
-    "jax~=0.9",
-]
 
 
