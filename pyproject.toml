@@ -52,5 +52,16 @@ ignore = ["E731"]
 quote-style = "double"
 indent-style = "space"
 
-[tool.ty]
-# Configuration for ty type-checker
+[tool.ty.environment]
+extra-paths = [
+    "libs/jax-nn/src",
+    "libs/jax-replay/src",
+    "libs/jax-utils/src",
+    "libs/research-analysis/src",
+    "libs/research-cluster/src",
+    "libs/research-instrument/src",
+    "libs/research-plot/src",
+    "libs/research-store/src",
+    "libs/rl-agents/src",
+    "libs/rl-components/src",
+]

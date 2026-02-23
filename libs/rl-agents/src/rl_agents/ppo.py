@@ -43,7 +43,7 @@ def make_train(config: PPOConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
@@ -62,7 +62,7 @@ def make_train(config: PPOConfig):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
+                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
                 transition = Transition(done, action, value, reward, log_prob, last_obs, info)
                 runner_state = (train_state, env_state, obsv, rng)
                 return runner_state, transition

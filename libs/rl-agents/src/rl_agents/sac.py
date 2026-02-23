@@ -108,7 +108,7 @@ def make_train(config: SACConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
 
         def _update_step(runner_state, t):
             (
@@ -140,7 +140,7 @@ def make_train(config: SACConfig):
 
             # STEP ENV
             rng, _rng = jax.random.split(rng)
-            obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
+            obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
 
             # ADD TO BUFFER
             buffer_state = buffer.add(

@@ -71,7 +71,7 @@ def make_train(config: DQNConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
+        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
 
         def _update_step(runner_state, t):
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
@@ -92,7 +92,7 @@ def make_train(config: DQNConfig):
             action = jnp.where(chose_random, random_action, greedy_action)
 
             # STEP ENV
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
 
             # ADD TO BUFFER
             # ReplayBuffer.add expects vectorized inputs, let's update it or wrap it
