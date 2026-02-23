@@ -121,7 +121,7 @@ class TestSyncToDb:
 
     def test_component_version_created(self, db_path: Path) -> None:
         exp = Experiment("Test")
-        ppo = Component(name="PPO", path="/nonexistent.py", type=ComponentType.ALGO)
+        ppo = Component(name="PPO", path=Path("/nonexistent.py"), type=ComponentType.ALGO)
         with exp.for_component(ppo):
             exp.add_parameter("lr", [1e-3])
         exp.sync(db_path)
@@ -134,7 +134,10 @@ class TestSyncToDb:
         exp.add_parameter("seed", [0])
         exp.add_parameter("lr", [1e-3])
         exp.sync(db_path)
-        exp.sync(db_path)  # second sync inserts a new experiment but reuses HyperparamConfig
+        exp2 = Experiment("Test2")
+        exp2.add_parameter("seed", [0])
+        exp2.add_parameter("lr", [1e-3])
+        exp2.sync(db_path)  # second sync inserts a new experiment but reuses HyperparamConfig
         with sqlite3.connect(db_path) as con:
             count = con.execute("SELECT COUNT(*) FROM HyperparamConfigs").fetchone()[0]
         assert count == 1

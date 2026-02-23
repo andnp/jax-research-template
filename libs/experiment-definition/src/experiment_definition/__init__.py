@@ -13,8 +13,8 @@ from .db import (
 )
 from .experiment import Experiment
 from .metric import MetricFrequency, MetricSpec, MetricType
-from .parameter import ParameterSpec
-from .schema import COMPONENT_TYPES, EXECUTION_STATUSES
+from .parameter import ParameterSpec, ParameterValue
+from .schema import COMPONENT_TYPES, DEFAULT_DB_NAME, EXECUTION_STATUSES
 
 __all__ = [
     "AblationSpec",
@@ -22,6 +22,7 @@ __all__ = [
     "ComponentType",
     "ComponentRow",
     "ComponentVersionRow",
+    "DEFAULT_DB_NAME",
     "DatabaseManager",
     "ExecutionRow",
     "ExperimentRow",
@@ -31,6 +32,7 @@ __all__ = [
     "MetricSpec",
     "MetricType",
     "ParameterSpec",
+    "ParameterValue",
     "RunRow",
     "COMPONENT_TYPES",
     "EXECUTION_STATUSES",

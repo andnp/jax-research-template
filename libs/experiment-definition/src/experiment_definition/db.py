@@ -18,87 +18,8 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from .experiment import _ExperimentState
 
-from .schema import ALL_DDL
-
-_DDL = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
-
-CREATE TABLE IF NOT EXISTS Components (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    name    TEXT NOT NULL UNIQUE,
-    type    TEXT NOT NULL DEFAULT 'OTHER'
-);
-
-CREATE TABLE IF NOT EXISTS ComponentVersions (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    component_id        INTEGER NOT NULL REFERENCES Components(id),
-    version_number      INTEGER NOT NULL DEFAULT 1,
-    created_at          TEXT NOT NULL,
-    code_snapshot_hash  TEXT NOT NULL,
-    notes               TEXT,
-    UNIQUE(component_id, version_number)
-);
-
-CREATE TABLE IF NOT EXISTS HyperparamConfigs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash        TEXT NOT NULL UNIQUE,
-    json_blob   TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS Experiments (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    description TEXT
-);
-
-CREATE TABLE IF NOT EXISTS Runs (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id    INTEGER NOT NULL REFERENCES Experiments(id),
-    algo_version_id  INTEGER REFERENCES ComponentVersions(id),
-    env_version_id   INTEGER REFERENCES ComponentVersions(id),
-    hyper_id         INTEGER NOT NULL REFERENCES HyperparamConfigs(id),
-    seed             INTEGER NOT NULL,
-    ablation         TEXT,
-    UNIQUE(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation)
-);
-
-CREATE TABLE IF NOT EXISTS Executions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    status          TEXT NOT NULL DEFAULT 'PENDING',
-    hostname        TEXT,
-    start_time      TEXT,
-    end_time        TEXT,
-    git_commit      TEXT,
-    git_diff_blob   TEXT,
-    jax_config_json TEXT
-);
-
-CREATE TABLE IF NOT EXISTS ExecutionRuns (
-    execution_id    INTEGER NOT NULL REFERENCES Executions(id),
-    run_id          INTEGER NOT NULL REFERENCES Runs(id),
-    PRIMARY KEY (execution_id, run_id)
-);
-
-CREATE TABLE IF NOT EXISTS ParameterSpecs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id   INTEGER NOT NULL REFERENCES Experiments(id),
-    name            TEXT NOT NULL,
-    values_json     TEXT NOT NULL,
-    is_static       INTEGER NOT NULL DEFAULT 0,
-    component_id    INTEGER REFERENCES Components(id),
-    conditions_json TEXT NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS MetricSpecs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id   INTEGER NOT NULL REFERENCES Experiments(id),
-    name            TEXT NOT NULL,
-    type            TEXT NOT NULL,
-    frequency       TEXT NOT NULL,
-    UNIQUE(experiment_id, name)
-);
-"""
+from .parameter import ParameterValue
+from .schema import ALL_DDL, DEFAULT_DB_NAME
 
 
 def _json_stable(obj: object) -> str:
@@ -168,8 +89,11 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
     """
     con = sqlite3.connect(db_path)
     try:
-        con.executescript(_DDL)
+        con.execute("PRAGMA journal_mode=WAL;")
+        con.execute("PRAGMA foreign_keys=ON;")
         with con:
+            for ddl in ALL_DDL:
+                con.execute(ddl)
             cur = con.cursor()
 
             # ── Experiment row ────────────────────────────────────────────────
@@ -177,7 +101,9 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
                 "INSERT INTO Experiments(name, description) VALUES (?, ?)",
                 (state.name, state.description),
             )
-            exp_id: int = cur.lastrowid  # type: ignore[assignment]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no experiment ID returned.")
+            exp_id: int = cur.lastrowid
 
             # ── Components ───────────────────────────────────────────────────
             comp_version_ids: dict[str, int] = {}  # component.name → version_id
@@ -298,7 +224,7 @@ def _insert_runs(
         if env_vid is None and comp.type == ComponentType.ENV:
             env_vid = comp_version_ids.get(comp.name)
 
-    ablation_list: list[tuple[str | None, dict[str, object]]] = [(None, {})]
+    ablation_list: list[tuple[str | None, dict[str, ParameterValue]]] = [(None, {})]
     for abl in state.ablations:
         ablation_list.append((abl.name, abl.overrides))
 
@@ -390,7 +316,7 @@ class DatabaseManager:
         >>> ver_id = db.add_component_version(comp_id, "abc123")
     """
 
-    def __init__(self, db_path: str | Path = "experiments.sqlite") -> None:
+    def __init__(self, db_path: str | Path = DEFAULT_DB_NAME) -> None:
         self._db_path = str(db_path)
         self._conn: sqlite3.Connection | None = None
 
@@ -462,7 +388,9 @@ class DatabaseManager:
                 "INSERT INTO Components(name, type) VALUES (?, ?)",
                 (name, component_type),
             )
-            return int(cur.lastrowid)  # type: ignore[arg-type]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no component ID returned.")
+            return int(cur.lastrowid)
 
     def get_component(self, name: str) -> ComponentRow | None:
         """Fetch a component by name."""
@@ -504,7 +432,9 @@ class DatabaseManager:
                 "VALUES (?, ?, ?, ?)",
                 (component_id, next_version, code_snapshot_hash, notes),
             )
-            return int(cur.lastrowid)  # type: ignore[arg-type]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no component version ID returned.")
+            return int(cur.lastrowid)
 
     def get_latest_version(self, component_id: int) -> ComponentVersionRow | None:
         """Resolve the "latest" virtual pointer for a component.
@@ -595,7 +525,9 @@ class DatabaseManager:
                 "INSERT INTO Experiments(name, description) VALUES (?, ?)",
                 (name, description),
             )
-            return int(cur.lastrowid)  # type: ignore[arg-type]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no experiment ID returned.")
+            return int(cur.lastrowid)
 
     def get_experiment(self, name: str) -> ExperimentRow | None:
         """Fetch an experiment by name."""
@@ -616,6 +548,7 @@ class DatabaseManager:
         env_version_id: int,
         hyper_id: int,
         seed: int,
+        ablation: str | None = None,
     ) -> int:
         """Insert a logical Run (intent record) and return its id.
 
@@ -623,11 +556,13 @@ class DatabaseManager:
         """
         with self.conn:
             cur = self.conn.execute(
-                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (experiment_id, algo_version_id, env_version_id, hyper_id, seed),
+                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation),
             )
-            return int(cur.lastrowid)  # type: ignore[arg-type]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no run ID returned.")
+            return int(cur.lastrowid)
 
     # ------------------------------------------------------------------
     # Executions
@@ -657,7 +592,9 @@ class DatabaseManager:
                 "VALUES (?, ?, ?, ?)",
                 (hostname, git_commit, git_diff_blob, jax_json),
             )
-            return int(cur.lastrowid)  # type: ignore[arg-type]
+            if cur.lastrowid is None:
+                raise RuntimeError("Insert failed: no execution ID returned.")
+            return int(cur.lastrowid)
 
     def update_execution_status(
         self,

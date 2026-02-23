@@ -35,7 +35,7 @@ def test_initialize_creates_all_tables(db: DatabaseManager) -> None:
         row[0]
         for row in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
-    required = {"Components", "ComponentVersions", "HyperparamConfigs", "Experiments", "Runs", "Executions", "ExecutionRuns"}
+    required = {"Components", "ComponentVersions", "HyperparamConfigs", "Experiments", "Runs", "Executions", "ExecutionRuns", "ParameterSpecs", "MetricSpecs"}
     assert required.issubset(tables)
 
 
@@ -238,9 +238,9 @@ def test_add_run_duplicate_raises(populated_db: DatabaseManager) -> None:
     env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
     exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")  # type: ignore[union-attr]
     with pytest.raises(sqlite3.IntegrityError):
-        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
