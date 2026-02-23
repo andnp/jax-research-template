@@ -1,5 +1,6 @@
 """Workspace management commands for the research CLI."""
 
+import importlib.resources
 import subprocess
 from pathlib import Path
 
@@ -7,44 +8,14 @@ import typer
 
 workspace_app = typer.Typer(help="Manage research shell workspaces.")
 
-_PYPROJECT_TOML_TEMPLATE = """\
-[project]
-name = "{name}"
-version = "0.1.0"
-description = "Research shell workspace"
-requires-python = ">=3.13"
-dependencies = []
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+def _load_template(filename: str) -> str:
+    """Load a template file from the templates package.
 
-[tool.uv]
-package = false
-
-[tool.uv.workspace]
-members = [
-    "core/libs/*",
-    "projects/*",
-]
-"""
-
-_RESEARCH_YAML_TEMPLATE = """\
-# research.yaml — workspace configuration
-core_path: core
-default_github_org: null
-storage_backend: local
-"""
-
-_GITIGNORE_TEMPLATE = """\
-__pycache__/
-*.py[cod]
-.venv/
-dist/
-*.egg-info/
-.uv/
-research.db
-"""
+    Args:
+        filename: Template filename within the templates package.
+    """
+    return importlib.resources.files("research_cli.templates").joinpath(filename).read_text(encoding="utf-8")
 
 
 def _run(args: list[str], cwd: Path, dry_run: bool) -> None:
@@ -130,13 +101,13 @@ def init(
         typer.echo("  Skipping submodule setup (no --core-url provided). Run `git submodule add <url> core` later.")
 
     # Write the root pyproject.toml.
-    _write(workspace_dir / "pyproject.toml", _PYPROJECT_TOML_TEMPLATE.format(name=name), dry_run=dry_run)
+    _write(workspace_dir / "pyproject.toml", _load_template("pyproject.toml.tpl").format(name=name), dry_run=dry_run)
 
     # Write the research.yaml configuration stub.
-    _write(workspace_dir / "research.yaml", _RESEARCH_YAML_TEMPLATE, dry_run=dry_run)
+    _write(workspace_dir / "research.yaml", _load_template("research.yaml.tpl"), dry_run=dry_run)
 
     # Write .gitignore.
-    _write(workspace_dir / ".gitignore", _GITIGNORE_TEMPLATE, dry_run=dry_run)
+    _write(workspace_dir / ".gitignore", _load_template("gitignore.tpl"), dry_run=dry_run)
 
     typer.echo(f"{'[dry-run] ' if dry_run else ''}✓ Workspace '{name}' ready.")
     if not core_url:
