@@ -1,4 +1,4 @@
-from typing import Dict, NamedTuple
+from typing import NamedTuple
 
 import gymnax
 import gymnax.wrappers
@@ -17,7 +17,7 @@ class Transition(NamedTuple):
     reward: jnp.ndarray
     log_prob: jnp.ndarray
     obs: jnp.ndarray
-    info: Dict
+    info: dict
 
 
 def make_train(config: PPOConfig):

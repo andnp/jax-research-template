@@ -13,7 +13,15 @@ You are an expert AI software engineer and RL researcher working in the Research
     - No `Any` or `Unknown` allowed in shared libraries.
     - Use modern Python 3.12+ syntax: `list[T]` instead of `List[T]`, `dict[K, V]` instead of `Dict`.
     - Use PEP 695 generics: `def function[T](arg: T) -> T:` instead of `TypeVar`.
+    - Use PEP 604 unions: `X | None` instead of `Optional[X]`.
+    - Use lowercase builtins: `tuple[A, B]` instead of `Tuple[A, B]`, `dict[K, V]` instead of `Dict[K, V]`.
+    - `from typing import NamedTuple` is acceptable since `NamedTuple` has no builtin equivalent.
 - **Naming:** standard Python conventions (snake_case functions, PascalCase classes).
+
+### Python Module Rules
+- **No `__all__`:** Do not define `__all__` in any module. Every public name (no leading underscore) is part of the API.
+- **No re-exports in `__init__.py`:** Keep `__init__.py` files empty (or with only a module-level docstring). Users import from the specific submodule: `from rl_agents.ppo import make_train`, never `from rl_agents import make_train`.
+- **Rationale:** Explicit imports make dependency graphs clear, enable precise refactoring, and eliminate circular-import risks.
 
 ## 3. Testing Tiers
 All shared components must have tests in `tests/` categorized by duration:

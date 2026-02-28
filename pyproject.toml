@@ -15,9 +15,19 @@ dependencies = [
     "jax~=0.9",
     "jaxlib~=0.9",
     "jaxtyping~=0.3",
+    "matplotlib>=3.9",
     "ml-collections~=1.1",
     "optax~=0.2",
+    "pandas>=2.0",
     "pydantic~=2.12",
+    "experiment-definition",
+    "jax-nn",
+    "jax-replay",
+    "research-cli",
+    "research-instrument",
+    "research-store",
+    "rl-agents",
+    "rl-components",
 ]
 
 [build-system]
@@ -26,6 +36,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+experiment-definition = { workspace = true }
+jax-nn = { workspace = true }
+jax-replay = { workspace = true }
+research-cli = { workspace = true }
+research-instrument = { workspace = true }
+research-store = { workspace = true }
+rl-agents = { workspace = true }
+rl-components = { workspace = true }
 
 [tool.uv.workspace]
 members = ["libs/*", "cli"]

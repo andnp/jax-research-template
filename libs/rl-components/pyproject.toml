@@ -2,6 +2,7 @@
 name = "rl-components"
 version = "0.1.0"
 description = "Shared RL components (buffers, networks, types)"
+requires-python = ">=3.13"
 dependencies = [
     "jax~=0.9",
     "flax~=0.12",
@@ -11,3 +12,6 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

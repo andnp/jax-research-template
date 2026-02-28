@@ -188,5 +188,3 @@ class LocalBackend:
         """Deserialize a pickle artifact."""
         with path.open("rb") as fh:
             return pickle.load(fh)  # noqa: S301
-
-

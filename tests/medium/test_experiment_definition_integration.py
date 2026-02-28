@@ -6,8 +6,9 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from experiment_definition import Component, ComponentType, Experiment
+from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import _generate_configs, _hash_dict
+from experiment_definition.experiment import Experiment
 
 # ── Config generation ─────────────────────────────────────────────────────────
 

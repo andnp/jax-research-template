@@ -488,7 +488,7 @@ class DatabaseManager:
 
                     {"static_keys": ["arch"], "dynamic_keys": ["lr", "seed"]}
 
-                ``static_keys`` require recompilation when changed; 
+                ``static_keys`` require recompilation when changed;
                 ``dynamic_keys`` can be batched via ``jax.vmap``.
 
         Returns:

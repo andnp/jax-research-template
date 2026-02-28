@@ -1,5 +1,3 @@
-from typing import Optional, Tuple
-
 import distrax
 import flax.linen as nn
 import gymnax
@@ -23,7 +21,7 @@ class SACConfig:
     GAMMA: float = 0.99
     TAU: float = 0.005
     ALPHA: float = 0.2
-    TARGET_ENTROPY: Optional[float] = None
+    TARGET_ENTROPY: float | None = None
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
 
@@ -44,7 +42,7 @@ class Actor(nn.Module):
     action_dim: int
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    def __call__(self, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         x = nn.Dense(256)(x)
         x = nn.relu(x)
         x = nn.Dense(256)(x)

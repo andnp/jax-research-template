@@ -12,7 +12,7 @@ from pathlib import Path
 
 import jax.numpy as jnp
 import pytest
-from research_store import Store
+from research_store.store import Store
 from research_store.types import ArtifactKind
 
 

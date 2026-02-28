@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import distrax
 import flax.linen as nn
 import jax.numpy as jnp
@@ -10,7 +8,7 @@ class ActorCritic(nn.Module):
     activation: str = "tanh"
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> Tuple[distrax.Categorical, jnp.ndarray]:
+    def __call__(self, x: jnp.ndarray) -> tuple[distrax.Categorical, jnp.ndarray]:
         if self.activation == "relu":
             activation = nn.relu
         else:

@@ -9,7 +9,7 @@ import json
 import sqlite3
 
 import pytest
-from experiment_definition import DatabaseManager
+from experiment_definition.db import DatabaseManager
 
 # ---------------------------------------------------------------------------
 # Fixtures

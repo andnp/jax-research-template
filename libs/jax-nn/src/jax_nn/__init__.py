@@ -1,3 +1,1 @@
-"""jax_nn: stub library — not yet implemented."""
-
-__all__: list[str] = []
+"""jax_nn: stable RL layers and initializers for Flax Linen."""

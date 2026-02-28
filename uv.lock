@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "experiment-definition",
+    "jax-eval",
     "jax-nn",
     "jax-replay",
     "jax-utils",
@@ -476,14 +477,35 @@ wheels = [
 ]
 
 [[package]]
+name = "jax-eval"
+version = "0.1.0"
+source = { virtual = "libs/jax-eval" }
+
+[[package]]
 name = "jax-nn"
 version = "0.1.0"
-source = { virtual = "libs/jax-nn" }
+source = { editable = "libs/jax-nn" }
+dependencies = [
+    { name = "flax" },
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flax", specifier = "~=0.12" },
+    { name = "jax", specifier = "~=0.9" },
+]
 
 [[package]]
 name = "jax-replay"
 version = "0.1.0"
-source = { virtual = "libs/jax-replay" }
+source = { editable = "libs/jax-replay" }
+dependencies = [
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jax", specifier = "~=0.9" }]
 
 [[package]]
 name = "jax-utils"
@@ -1410,14 +1432,24 @@ source = { virtual = "." }
 dependencies = [
     { name = "chex" },
     { name = "distrax" },
+    { name = "experiment-definition" },
     { name = "flax" },
     { name = "gymnax" },
     { name = "jax" },
+    { name = "jax-nn" },
+    { name = "jax-replay" },
     { name = "jaxlib" },
     { name = "jaxtyping" },
+    { name = "matplotlib" },
     { name = "ml-collections" },
     { name = "optax" },
+    { name = "pandas" },
     { name = "pydantic" },
+    { name = "research-cli" },
+    { name = "research-instrument" },
+    { name = "research-store" },
+    { name = "rl-agents" },
+    { name = "rl-components" },
 ]
 
 [package.dev-dependencies]
@@ -1435,14 +1467,24 @@ dev = [
 requires-dist = [
     { name = "chex", specifier = "~=0.1" },
     { name = "distrax", specifier = "~=0.1" },
+    { name = "experiment-definition", editable = "libs/experiment-definition" },
     { name = "flax", specifier = "~=0.12" },
     { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
+    { name = "jax-nn", editable = "libs/jax-nn" },
+    { name = "jax-replay", editable = "libs/jax-replay" },
     { name = "jaxlib", specifier = "~=0.9" },
     { name = "jaxtyping", specifier = "~=0.3" },
+    { name = "matplotlib", specifier = ">=3.9" },
     { name = "ml-collections", specifier = "~=1.1" },
     { name = "optax", specifier = "~=0.2" },
+    { name = "pandas", specifier = ">=2.0" },
     { name = "pydantic", specifier = "~=2.12" },
+    { name = "research-cli", editable = "cli" },
+    { name = "research-instrument", editable = "libs/research-instrument" },
+    { name = "research-store", editable = "libs/research-store" },
+    { name = "rl-agents", editable = "libs/rl-agents" },
+    { name = "rl-components", editable = "libs/rl-components" },
 ]
 
 [package.metadata.requires-dev]
@@ -1459,7 +1501,7 @@ dev = [
 [[package]]
 name = "research-instrument"
 version = "0.1.0"
-source = { virtual = "libs/research-instrument" }
+source = { editable = "libs/research-instrument" }
 dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
@@ -1481,7 +1523,7 @@ source = { virtual = "libs/research-plot" }
 [[package]]
 name = "research-store"
 version = "0.1.0"
-source = { virtual = "libs/research-store" }
+source = { editable = "libs/research-store" }
 dependencies = [
     { name = "jax" },
     { name = "orbax-checkpoint" },

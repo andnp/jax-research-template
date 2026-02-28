@@ -98,11 +98,11 @@ def make_train(config: DQNConfig):
             # ReplayBuffer.add expects vectorized inputs, let's update it or wrap it
             # For "One Agent, One World", we can just expand dims here.
             buffer_state = buffer.add(
-                buffer_state, 
-                last_obs[None, ...], 
-                action[None, ...], 
-                reward[None, ...], 
-                obsv[None, ...], 
+                buffer_state,
+                last_obs[None, ...],
+                action[None, ...],
+                reward[None, ...],
+                obsv[None, ...],
                 done[None, ...]
             )
 

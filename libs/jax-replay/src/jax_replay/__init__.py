@@ -1,3 +1,1 @@
-"""jax_replay: stub library — not yet implemented."""
-
-__all__: list[str] = []
+"""jax_replay: High-performance, JIT-native replay buffers."""
