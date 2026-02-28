@@ -17,12 +17,16 @@ dependencies = [
     "jaxtyping~=0.3",
     "matplotlib>=3.9",
     "ml-collections~=1.1",
+    "numpy>=2.0",
     "optax~=0.2",
     "pandas>=2.0",
     "pydantic~=2.12",
+    "scipy>=1.14",
     "experiment-definition",
     "jax-nn",
     "jax-replay",
+    "jax-utils",
+    "research-analysis",
     "research-cli",
     "research-instrument",
     "research-store",
@@ -41,6 +45,8 @@ package = false
 experiment-definition = { workspace = true }
 jax-nn = { workspace = true }
 jax-replay = { workspace = true }
+jax-utils = { workspace = true }
+research-analysis = { workspace = true }
 research-cli = { workspace = true }
 research-instrument = { workspace = true }
 research-store = { workspace = true }

@@ -1,2 +1,2 @@
-"""jax_utils: stub library — not yet implemented."""
+"""Pytree math helpers and typed JAX wrappers."""
 

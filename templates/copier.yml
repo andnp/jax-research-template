@@ -1,0 +1,47 @@
+_min_copier_version: "9.0"
+_subdirectory: ""
+_answers_file: .copier-answers.yml
+
+project_name:
+  type: str
+  help: "Name of the experiment project (e.g. ppo-cartpole-sweep)"
+  validator: "{% if not project_name %}Required{% endif %}"
+
+description:
+  type: str
+  help: "Short description of the experiment"
+  default: "A new research experiment"
+
+author:
+  type: str
+  help: "Author name"
+  default: "Researcher"
+
+python_version:
+  type: str
+  help: "Minimum Python version"
+  default: "3.13"
+  choices:
+    - "3.13"
+    - "3.12"
+
+algorithm:
+  type: str
+  help: "Primary RL algorithm for this experiment"
+  default: "ppo"
+  choices:
+    - "ppo"
+    - "dqn"
+    - "double_dqn"
+    - "dueling_dqn"
+    - "sac"
+
+env_name:
+  type: str
+  help: "Gymnax environment name"
+  default: "CartPole-v1"
+
+num_seeds:
+  type: int
+  help: "Number of random seeds for the sweep"
+  default: 5

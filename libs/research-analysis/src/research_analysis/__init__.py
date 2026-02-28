@@ -1,2 +1,2 @@
-"""research_analysis: stub library — not yet implemented."""
+"""Statistical analysis tools for RL experiments."""
 

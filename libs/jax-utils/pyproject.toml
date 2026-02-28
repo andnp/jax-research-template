@@ -1,13 +1,15 @@
 [project]
 name = "jax-utils"
 version = "0.1.0"
-description = "Stub — not yet implemented"
+description = "Pytree math helpers and typed JAX wrappers."
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "jax~=0.9",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv]
-package = false
+[tool.setuptools.packages.find]
+where = ["src"]

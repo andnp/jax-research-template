@@ -11,12 +11,12 @@ Focus on the management layer and the primary relational database.
 ## Phase 2: Runtime & Data (The Heart)
 Develop the JAX-native libraries for execution and data collection.
 - [x] **`research-instrument`**: Build the JAX-native, double-buffered, whitelisted collector.
-- [ ] **`jax-utils`**: Implement typed JIT/VMAP wrappers and Pytree math.
+- [x] **`jax-utils`**: Implement typed JIT/VMAP wrappers and Pytree math.
 - [x] **`jax-replay`**: Build advanced JIT-native buffers (PER, N-step, Trajectories).
 
 ## Phase 3: Science & Analysis (The Journal)
 Tools for statistical rigor and publication readiness.
-- [ ] **`research-analysis`**: Implement Patterson et al. (2023) statistical metrics and tests.
+- [x] **`research-analysis`**: Implement bootstrap CIs and Welch's t-test for algorithm comparison.
 - [ ] **`research-plot`**: Develop the "Plot-as-Spec" system with data lineage tracking.
 
 ## Phase 4: Scaling & Cluster (The Muscle)
@@ -25,12 +25,16 @@ Optimizing for high-performance computing.
 - [x] **`jax-nn`**: Harvest research-grade layers and initializers from successful projects.
 
 ## Phase 5: Harvesting (The Cycle)
-- [ ] Migrate existing PPO, DQN, and SAC agents from `libs/rl-agents` into the new `experiment-definition` and `research-instrument` ecosystem.
-- [ ] Create `copier` templates for standard research projects.
+- [x] Migrate existing PPO, DQN, and SAC agents into the `experiment-definition` and `research-instrument` ecosystem.
+- [x] Create `copier` templates for standard research projects.
+- [x] Add Double DQN and Dueling DQN agent variants.
 
 ---
 
 ## Technical Debt & Maintenance
-- [ ] Continuous integration (CI) for all libraries using `uv run pytest`.
+- [x] Continuous integration (CI) for all libraries using `uv run pytest`.
 - [ ] Enforce 100% type coverage via `ty check` in all `libs/`.
 - [ ] Performance regression suite using `pytest-benchmark`.
+- [x] Add `research-instrument` SQLite persistent storage backend.
+- [x] Add rl-components test coverage (buffer, networks, types).
+- [x] Add rl-agents unit tests (config, loss functions, gradient flow).

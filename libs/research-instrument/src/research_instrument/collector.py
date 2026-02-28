@@ -250,12 +250,4 @@ def configure(
     return collector
 
 
-__all__ = [
-    "Collector",
-    "InMemoryBackend",
-    "MetricFrame",
-    "StorageBackend",
-    "collector",
-    "configure",
-]
 

@@ -510,7 +510,13 @@ requires-dist = [{ name = "jax", specifier = "~=0.9" }]
 [[package]]
 name = "jax-utils"
 version = "0.1.0"
-source = { virtual = "libs/jax-utils" }
+source = { editable = "libs/jax-utils" }
+dependencies = [
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jax", specifier = "~=0.9" }]
 
 [[package]]
 name = "jaxlib"
@@ -1403,7 +1409,17 @@ wheels = [
 [[package]]
 name = "research-analysis"
 version = "0.1.0"
-source = { virtual = "libs/research-analysis" }
+source = { editable = "libs/research-analysis" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "scipy", specifier = ">=1.14" },
+]
 
 [[package]]
 name = "research-cli"
@@ -1438,18 +1454,22 @@ dependencies = [
     { name = "jax" },
     { name = "jax-nn" },
     { name = "jax-replay" },
+    { name = "jax-utils" },
     { name = "jaxlib" },
     { name = "jaxtyping" },
     { name = "matplotlib" },
     { name = "ml-collections" },
+    { name = "numpy" },
     { name = "optax" },
     { name = "pandas" },
     { name = "pydantic" },
+    { name = "research-analysis" },
     { name = "research-cli" },
     { name = "research-instrument" },
     { name = "research-store" },
     { name = "rl-agents" },
     { name = "rl-components" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -1473,18 +1493,22 @@ requires-dist = [
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "jax-replay", editable = "libs/jax-replay" },
+    { name = "jax-utils", editable = "libs/jax-utils" },
     { name = "jaxlib", specifier = "~=0.9" },
     { name = "jaxtyping", specifier = "~=0.3" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "ml-collections", specifier = "~=1.1" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "optax", specifier = "~=0.2" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pydantic", specifier = "~=2.12" },
+    { name = "research-analysis", editable = "libs/research-analysis" },
     { name = "research-cli", editable = "cli" },
     { name = "research-instrument", editable = "libs/research-instrument" },
     { name = "research-store", editable = "libs/research-store" },
     { name = "rl-agents", editable = "libs/rl-agents" },
     { name = "rl-components", editable = "libs/rl-components" },
+    { name = "scipy", specifier = ">=1.14" },
 ]
 
 [package.metadata.requires-dev]
@@ -1555,6 +1579,7 @@ source = { editable = "libs/rl-agents" }
 dependencies = [
     { name = "flax" },
     { name = "jax" },
+    { name = "jax-nn" },
     { name = "rl-components" },
 ]
 
@@ -1562,6 +1587,7 @@ dependencies = [
 requires-dist = [
     { name = "flax", specifier = "~=0.12" },
     { name = "jax", specifier = "~=0.9" },
+    { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "rl-components", editable = "libs/rl-components" },
 ]
 

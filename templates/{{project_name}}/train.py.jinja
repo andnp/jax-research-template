@@ -1,0 +1,105 @@
+"""{{ description }}"""
+{% if algorithm == "ppo" %}
+import jax
+import matplotlib.pyplot as plt
+
+from rl_agents.ppo import make_train
+from rl_components.types import PPOConfig
+
+
+def main():
+    config = PPOConfig(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=500_000,
+        SEED=42,
+    )
+    train_fn = make_train(config)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.key(config.SEED)
+    result = train_fn(rng)
+
+    returns = result["metrics"]["returned_episode_returns"]
+    plt.plot(returns)
+    plt.xlabel("Update")
+    plt.ylabel("Episode Return")
+    plt.title("{{ project_name }} — PPO on {{ env_name }}")
+    plt.savefig("results.png")
+    print(f"Final mean return: {returns[-1]:.2f}")
+{% elif algorithm == "dqn" %}
+import jax
+
+from rl_agents.dqn import DQNConfig, make_train
+
+
+def main():
+    config = DQNConfig(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=200_000,
+        SEED=42,
+    )
+    train_fn = make_train(config)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.key(config.SEED)
+    result = train_fn(rng)
+    print("Training complete")
+{% elif algorithm == "double_dqn" %}
+import jax
+
+from rl_agents.double_dqn import DoubleDQNConfig, make_train
+
+
+def main():
+    config = DoubleDQNConfig(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=200_000,
+        SEED=42,
+    )
+    train_fn = make_train(config)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.key(config.SEED)
+    result = train_fn(rng)
+    print("Training complete")
+{% elif algorithm == "dueling_dqn" %}
+import jax
+
+from rl_agents.dueling_dqn import DuelingDQNConfig, make_train
+
+
+def main():
+    config = DuelingDQNConfig(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=200_000,
+        SEED=42,
+    )
+    train_fn = make_train(config)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.key(config.SEED)
+    result = train_fn(rng)
+    print("Training complete")
+{% elif algorithm == "sac" %}
+import jax
+
+from rl_agents.sac import SACConfig, make_train
+
+
+def main():
+    config = SACConfig(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=100_000,
+        SEED=42,
+    )
+    train_fn = make_train(config)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.key(config.SEED)
+    result = train_fn(rng)
+    print("Training complete")
+{% endif %}
+
+
+if __name__ == "__main__":
+    main()
