@@ -55,8 +55,7 @@ def make_train(config: PPOConfig):
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
-                probs, value_out = network.apply(train_state.params, last_obs)
-                value = jnp.asarray(value_out)
+                probs, value = network.apply(train_state.params, last_obs)
                 action = probs.sample(seed=_rng)
                 log_prob = probs.log_prob(action)
 
@@ -81,8 +80,9 @@ def make_train(config: PPOConfig):
                         transition.value,
                         transition.reward,
                     )
-                    delta = reward + config.GAMMA * next_value * (1 - done) - value
-                    gae = delta + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
+                    not_done = 1.0 - done
+                    delta = reward + config.GAMMA * next_value * not_done - value
+                    gae = delta + config.GAMMA * config.GAE_LAMBDA * not_done * gae
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -142,12 +142,11 @@ def make_train(config: PPOConfig):
                 batch_size = config.NUM_STEPS
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
-                shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=0), batch)
-                minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, [config.NUM_MINIBATCHES, -1] + list(x.shape[1:])),
-                    shuffled_batch,
+                shuffled_batch = jax.tree_util.tree_map(
+                    lambda x: jnp.take(x, permutation, axis=0).reshape([config.NUM_MINIBATCHES, -1] + list(x.shape[1:])),
+                    batch,
                 )
-                train_state, losses = jax.lax.scan(_update_minbatch, train_state, minibatches)
+                train_state, losses = jax.lax.scan(_update_minbatch, train_state, shuffled_batch)
                 update_state = (train_state, traj_batch, advantages, targets, rng)
                 return update_state, losses
 

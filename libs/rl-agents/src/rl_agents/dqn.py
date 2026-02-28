@@ -85,7 +85,7 @@ def make_train(config: DQNConfig):
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = jnp.asarray(network.apply(train_state.params, last_obs))
+            q_values = network.apply(train_state.params, last_obs)
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
@@ -112,10 +112,10 @@ def make_train(config: DQNConfig):
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = jnp.asarray(network.apply(params, obs))
+                    q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
-                    next_q_values = jnp.asarray(network.apply(target_params, next_obs))
+                    next_q_values = network.apply(target_params, next_obs)
                     next_q_max = jnp.max(next_q_values, axis=-1)
                     target = rewards + config.GAMMA * next_q_max * (1.0 - dones)
 

@@ -53,8 +53,7 @@ class Actor(nn.Module):
         return mean, log_std
 
     def sample(self, params, x, rng):
-        mean_out, log_std_out = self.apply(params, x)
-        mean, log_std = jnp.asarray(mean_out), jnp.asarray(log_std_out)
+        mean, log_std = self.apply(params, x)
         std = jnp.exp(log_std)
         normal = distrax.Normal(mean, std)
         x_t = normal.sample(seed=rng)

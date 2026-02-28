@@ -56,9 +56,9 @@ class ReplayBuffer:
     def sample(self, state: ReplayBufferState, key, batch_size: int):
         indices = jax.random.randint(key, (batch_size,), 0, state.count)
         return (
-            jnp.take(state.obs, indices, axis=0),
-            jnp.take(state.actions, indices, axis=0),
-            jnp.take(state.rewards, indices, axis=0),
-            jnp.take(state.next_obs, indices, axis=0),
-            jnp.take(state.dones, indices, axis=0),
+            state.obs[indices],
+            state.actions[indices],
+            state.rewards[indices],
+            state.next_obs[indices],
+            state.dones[indices],
         )
