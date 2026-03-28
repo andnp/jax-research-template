@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "Statistical analysis tools for RL experiments."
 requires-python = ">=3.13"
 dependencies = [
-    "numpy>=2.0",
-    "scipy>=1.14",
+    "numba~=0.61",
+    "numpy~=2.0",
+    "polars~=1.22",
+    "scipy~=1.14",
 ]
 
 [build-system]

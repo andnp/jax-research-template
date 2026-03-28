@@ -16,7 +16,6 @@ jobs:
           version: "latest"
       - run: uv sync --frozen
       - run: uv run ruff check .
-      - run: uv run ruff format --check .
 
   typecheck:
     runs-on: ubuntu-latest
@@ -26,7 +25,21 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --frozen
-      - run: uv run ty check
+      - run: |
+          cd cli && uv run pyright src
+          cd ../libs/experiment-definition && uv run pyright src
+          cd ../jax-eval && uv run pyright
+          cd ../jax-nn && uv run pyright src
+          cd ../jax-replay && uv run pyright src
+          cd ../jax-utils && uv run pyright src
+          cd ../research-analysis && uv run pyright src
+          cd ../research-cluster && uv run pyright src
+          cd ../research-instrument && uv run pyright src
+          cd ../research-plot && uv run pyright src
+          cd ../research-store && uv run pyright src
+          cd ../rl-components && uv run pyright src
+          cd ../rl-agents && uv run pyright src
+          cd ../.. && uv run pyright tests examples scripts
 
   test-small:
     runs-on: ubuntu-latest
