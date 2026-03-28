@@ -11,6 +11,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from research_analysis._kernels import bootstrap_resample_means, mean_axis0, percentile_axis0
+
+type BootstrapStatistic = NDArray[np.float64] | np.float64
+
 
 @dataclass(frozen=True)
 class BootstrapCI:
@@ -23,10 +27,19 @@ class BootstrapCI:
         confidence: Confidence level (e.g. 0.95).
     """
 
-    mean: NDArray[np.floating]
-    ci_low: NDArray[np.floating]
-    ci_high: NDArray[np.floating]
+    mean: BootstrapStatistic
+    ci_low: BootstrapStatistic
+    ci_high: BootstrapStatistic
     confidence: float
+
+
+def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
+    array = np.asarray(data, dtype=np.float64)
+    squeeze = array.ndim == 1
+    if squeeze:
+        array = array[:, np.newaxis]
+
+    return np.ascontiguousarray(array), squeeze
 
 
 def bootstrap_ci(
@@ -55,13 +68,9 @@ def bootstrap_ci(
     Raises:
         ValueError: If data has fewer than 2 seeds or invalid confidence.
     """
-    if data.ndim == 1:
-        data = data[:, np.newaxis]
-        squeeze = True
-    else:
-        squeeze = False
+    working_data, squeeze = _as_bootstrap_input(data)
 
-    n_seeds = data.shape[0]
+    n_seeds = working_data.shape[0]
     if n_seeds < 2:
         raise ValueError(f"Need at least 2 seeds for bootstrap, got {n_seeds}")
     if not 0 < confidence < 1:
@@ -73,16 +82,17 @@ def bootstrap_ci(
     # Resample seed indices: (n_resamples, n_seeds)
     indices = rng.integers(0, n_seeds, size=(n_resamples, n_seeds))
     # Bootstrap means: (n_resamples, n_steps)
-    boot_means = data[indices].mean(axis=1)
+    boot_means = bootstrap_resample_means(working_data, indices)
+    sorted_boot_means = np.sort(boot_means, axis=0)
 
     alpha = 1.0 - confidence
-    ci_low = np.percentile(boot_means, 100 * alpha / 2, axis=0)
-    ci_high = np.percentile(boot_means, 100 * (1 - alpha / 2), axis=0)
-    mean = data.mean(axis=0)
+    ci_low = percentile_axis0(sorted_boot_means, 100 * alpha / 2)
+    ci_high = percentile_axis0(sorted_boot_means, 100 * (1 - alpha / 2))
+    mean = mean_axis0(working_data)
 
     if squeeze:
-        mean = mean.squeeze()
-        ci_low = ci_low.squeeze()
-        ci_high = ci_high.squeeze()
+        mean = np.float64(mean[0])
+        ci_low = np.float64(ci_low[0])
+        ci_high = np.float64(ci_high[0])
 
     return BootstrapCI(mean=mean, ci_low=ci_low, ci_high=ci_high, confidence=confidence)

@@ -5,6 +5,24 @@ import pytest
 from research_analysis.bootstrap import BootstrapCI, bootstrap_ci
 
 
+def _reference_bootstrap_ci(
+    data: np.ndarray,
+    *,
+    confidence: float,
+    n_resamples: int,
+    rng: np.random.Generator,
+) -> BootstrapCI:
+    indices = rng.integers(0, data.shape[0], size=(n_resamples, data.shape[0]))
+    boot_means = data[indices].mean(axis=1)
+    alpha = 1.0 - confidence
+    return BootstrapCI(
+        mean=data.mean(axis=0),
+        ci_low=np.percentile(boot_means, 100 * alpha / 2, axis=0),
+        ci_high=np.percentile(boot_means, 100 * (1 - alpha / 2), axis=0),
+        confidence=confidence,
+    )
+
+
 class TestBootstrapCI:
     def test_basic_shape(self):
         rng = np.random.default_rng(42)
@@ -60,3 +78,32 @@ class TestBootstrapCI:
     def test_invalid_confidence_raises(self):
         with pytest.raises(ValueError, match="Confidence must be in"):
             bootstrap_ci(np.ones((3, 5)), confidence=1.5)
+
+    def test_matches_reference_numpy_bootstrap(self):
+        data = np.array(
+            [
+                [1.0, 2.0, 3.0],
+                [2.0, 4.0, 6.0],
+                [3.0, 6.0, 9.0],
+                [4.0, 8.0, 12.0],
+            ]
+        )
+        confidence = 0.9
+        n_resamples = 512
+
+        result = bootstrap_ci(
+            data,
+            confidence=confidence,
+            n_resamples=n_resamples,
+            rng=np.random.default_rng(1234),
+        )
+        expected = _reference_bootstrap_ci(
+            data,
+            confidence=confidence,
+            n_resamples=n_resamples,
+            rng=np.random.default_rng(1234),
+        )
+
+        np.testing.assert_allclose(result.mean, expected.mean)
+        np.testing.assert_allclose(result.ci_low, expected.ci_low)
+        np.testing.assert_allclose(result.ci_high, expected.ci_high)
