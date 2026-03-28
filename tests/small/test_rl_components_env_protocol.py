@@ -1,0 +1,73 @@
+"""Small tests for rl_components.env_protocol substrate semantics."""
+
+import chex
+import jax
+import jax.numpy as jnp
+from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
+
+
+class DummyEnv:
+    def spec(self, params: None = None) -> EnvSpec:
+        del params
+        return EnvSpec(
+            id="dummy",
+            observation_shape=(84, 84, 4),
+            action_shape=(),
+            num_actions=4,
+        )
+
+    def reset(self, key: chex.PRNGKey, params: None = None) -> EnvReset[jax.Array, jax.Array]:
+        del key, params
+        observation = jnp.zeros((84, 84, 4), dtype=jnp.uint8)
+        state = jnp.array(0, dtype=jnp.int32)
+        return EnvReset(observation=observation, state=state)
+
+    def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
+        del key, action, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        observation = jnp.full((84, 84, 4), fill_value=next_state, dtype=jnp.uint8)
+        return EnvStep(
+            observation=observation,
+            state=next_state,
+            reward=jnp.array(1.0, dtype=jnp.float32),
+            terminated=jnp.array(False),
+            truncated=jnp.array(False),
+            info={"episode_length": jnp.array(1, dtype=jnp.int32)},
+        )
+
+
+class TestEnvSpec:
+    def test_supports_discrete_and_continuous_metadata(self):
+        discrete = EnvSpec(
+            id="pong",
+            observation_shape=(84, 84, 4),
+            action_shape=(),
+            observation_dtype=jnp.uint8,
+            num_actions=6,
+        )
+        continuous = EnvSpec(
+            id="ant",
+            observation_shape=(27,),
+            action_shape=(8,),
+            action_dtype=jnp.float32,
+        )
+
+        assert discrete.num_actions == 6
+        assert discrete.action_shape == ()
+        assert continuous.num_actions is None
+        assert continuous.action_shape == (8,)
+
+
+class TestEnvProtocol:
+    def test_runtime_protocol_matches_expected_methods(self):
+        env: EnvProtocol[jax.Array, jax.Array, jax.Array, None] = DummyEnv()
+        reset = env.reset(jax.random.key(0))
+        transition = env.step(jax.random.key(1), reset.state, jnp.array(2, dtype=jnp.int32))
+
+        assert isinstance(env, EnvProtocol)
+        assert reset.observation.shape == (84, 84, 4)
+        assert int(transition.state) == 1
+        assert float(transition.reward) == 1.0
+        assert bool(transition.terminated) is False
+        assert bool(transition.truncated) is False
+        assert int(transition.info["episode_length"]) == 1
