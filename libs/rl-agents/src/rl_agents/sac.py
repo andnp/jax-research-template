@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import distrax
 import flax.linen as nn
 import gymnax
@@ -25,8 +27,36 @@ class SACConfig:
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
 
+    if TYPE_CHECKING:
+        def __init__(
+            self,
+            *,
+            LR: float = 3e-4,
+            BUFFER_SIZE: int = 100_000,
+            BATCH_SIZE: int = 256,
+            TOTAL_TIMESTEPS: int = 1_000_000,
+            LEARNING_STARTS: int = 5_000,
+            TRAIN_FREQUENCY: int = 1,
+            GAMMA: float = 0.99,
+            TAU: float = 0.005,
+            ALPHA: float = 0.2,
+            TARGET_ENTROPY: float | None = None,
+            ENV_NAME: str = "MountainCarContinuous-v0",
+            SEED: int = 42,
+        ) -> None: ...
+
 
 class Critic(nn.Module):
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            a: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
+
     @nn.compact
     def __call__(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
         x = jnp.concatenate([x, a], axis=-1)
@@ -40,6 +70,15 @@ class Critic(nn.Module):
 
 class Actor(nn.Module):
     action_dim: int
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> tuple[jax.Array, jax.Array]: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:

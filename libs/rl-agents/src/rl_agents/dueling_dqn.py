@@ -9,6 +9,8 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
+from typing import TYPE_CHECKING
+
 import flax.linen as nn
 import gymnax
 import gymnax.wrappers
@@ -39,6 +41,26 @@ class DuelingDQNConfig:
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
 
+    if TYPE_CHECKING:
+        def __init__(
+            self,
+            *,
+            LR: float = 3e-4,
+            BUFFER_SIZE: int = 100_000,
+            BATCH_SIZE: int = 64,
+            TOTAL_TIMESTEPS: int = 200_000,
+            LEARNING_STARTS: int = 1_000,
+            TRAIN_FREQUENCY: int = 1,
+            TARGET_NETWORK_FREQUENCY: int = 1_000,
+            GAMMA: float = 0.99,
+            TAU: float = 1.0,
+            EPSILON_START: float = 1.0,
+            EPSILON_END: float = 0.05,
+            EPSILON_FRACTION: float = 0.5,
+            ENV_NAME: str = "MountainCar-v0",
+            SEED: int = 42,
+        ) -> None: ...
+
 
 class DuelingQNetwork(nn.Module):
     """Q-network with a dueling architecture.
@@ -48,6 +70,15 @@ class DuelingQNetwork(nn.Module):
     """
 
     action_dim: int
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:

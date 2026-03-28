@@ -11,13 +11,13 @@ from rl_components.types import PPOConfig
 
 
 class Transition(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: dict
+    done: jax.Array
+    action: jax.Array
+    value: jax.Array
+    reward: jax.Array
+    log_prob: jax.Array
+    obs: jax.Array
+    info: dict[str, jax.Array]
 
 
 def make_train(config: PPOConfig):
@@ -57,7 +57,7 @@ def make_train(config: PPOConfig):
                 rng, _rng = jax.random.split(rng)
                 probs, value = network.apply(train_state.params, last_obs)
                 action = probs.sample(seed=_rng)
-                log_prob = probs.log_prob(action)
+                log_prob = jnp.asarray(probs.log_prob(action))
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)

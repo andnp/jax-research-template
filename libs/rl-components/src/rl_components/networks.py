@@ -1,11 +1,23 @@
+from typing import TYPE_CHECKING
+
 import distrax
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 
 class ActorCritic(nn.Module):
     action_dim: int
     activation: str = "tanh"
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> tuple[distrax.Categorical, jax.Array]: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[distrax.Categorical, jnp.ndarray]:

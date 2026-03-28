@@ -9,6 +9,8 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
+from typing import TYPE_CHECKING
+
 import flax.linen as nn
 import gymnax
 import gymnax.wrappers
@@ -37,9 +39,38 @@ class DoubleDQNConfig:
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
 
+    if TYPE_CHECKING:
+        def __init__(
+            self,
+            *,
+            LR: float = 3e-4,
+            BUFFER_SIZE: int = 100_000,
+            BATCH_SIZE: int = 64,
+            TOTAL_TIMESTEPS: int = 200_000,
+            LEARNING_STARTS: int = 1_000,
+            TRAIN_FREQUENCY: int = 1,
+            TARGET_NETWORK_FREQUENCY: int = 1_000,
+            GAMMA: float = 0.99,
+            TAU: float = 1.0,
+            EPSILON_START: float = 1.0,
+            EPSILON_END: float = 0.05,
+            EPSILON_FRACTION: float = 0.5,
+            ENV_NAME: str = "MountainCar-v0",
+            SEED: int = 42,
+        ) -> None: ...
+
 
 class QNetwork(nn.Module):
     action_dim: int
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:

@@ -6,9 +6,19 @@ operations across all leaves and reducing where needed.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import jax
 import jax.numpy as jnp
 from jax import Array
+
+
+def _sum_arrays(values: Iterable[Array]) -> Array:
+    """Accumulate scalar JAX arrays without introducing Python scalar unions."""
+    total = jnp.asarray(0.0)
+    for value in values:
+        total = total + value
+    return total
 
 
 def tree_zeros_like[T](tree: T) -> T:
@@ -43,7 +53,7 @@ def tree_mean(tree: object) -> Array:
     weighting each leaf by its number of elements.
     """
     leaves = jax.tree_util.tree_leaves(tree)
-    total_sum = sum(jnp.sum(leaf) for leaf in leaves)
+    total_sum = _sum_arrays(jnp.sum(leaf) for leaf in leaves)
     total_count = sum(leaf.size for leaf in leaves)
     return total_sum / total_count
 
@@ -56,21 +66,21 @@ def tree_std(tree: object) -> Array:
     leaves = jax.tree_util.tree_leaves(tree)
     total_count = sum(leaf.size for leaf in leaves)
     mean = tree_mean(tree)
-    sq_diff_sum = sum(jnp.sum(jnp.square(leaf - mean)) for leaf in leaves)
+    sq_diff_sum = _sum_arrays(jnp.sum(jnp.square(leaf - mean)) for leaf in leaves)
     return jnp.sqrt(sq_diff_sum / total_count)
 
 
 def tree_norm(tree: object) -> Array:
     """Global L2 norm across all leaves of a pytree."""
     leaves = jax.tree_util.tree_leaves(tree)
-    return jnp.sqrt(sum(jnp.sum(jnp.square(leaf)) for leaf in leaves))
+    return jnp.sqrt(_sum_arrays(jnp.sum(jnp.square(leaf)) for leaf in leaves))
 
 
 def tree_inner_product(a: object, b: object) -> Array:
     """Global inner product (dot product) across all leaves of two pytrees."""
     leaves_a = jax.tree_util.tree_leaves(a)
     leaves_b = jax.tree_util.tree_leaves(b)
-    return sum(jnp.sum(la * lb) for la, lb in zip(leaves_a, leaves_b, strict=True))
+    return _sum_arrays(jnp.sum(la * lb) for la, lb in zip(leaves_a, leaves_b, strict=True))
 
 
 def tree_lerp[T](a: T, b: T, t: float | Array) -> T:

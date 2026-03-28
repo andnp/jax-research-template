@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -31,6 +33,15 @@ class DuelingHead(nn.Module):
     action_dim: int
     hidden_features: int = 512
     dtype: jnp.dtype = jnp.float32
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: Array,
+            *,
+            rngs: object | None = None,
+        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:

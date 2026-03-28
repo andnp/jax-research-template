@@ -69,7 +69,15 @@ def welch_ttest(
     if not 0 < alpha < 1:
         raise ValueError(f"Alpha must be in (0, 1), got {alpha}")
 
-    result = stats.ttest_ind(a, b, equal_var=False)
+    test_result = stats.ttest_ind(a, b, equal_var=False)
+    statistic = test_result[0]
+    pvalue = test_result[1]
+    if not isinstance(statistic, float | np.floating):
+        raise TypeError(f"Expected float-compatible t statistic, got {type(statistic)!r}")
+    if not isinstance(pvalue, float | np.floating):
+        raise TypeError(f"Expected float-compatible p-value, got {type(pvalue)!r}")
+    t_statistic = float(statistic)
+    p_value = float(pvalue)
 
     # Welch–Satterthwaite degrees of freedom
     n_a, n_b = len(a), len(b)
@@ -79,11 +87,11 @@ def welch_ttest(
     df = numerator / denominator if denominator > 0 else 0.0
 
     return WelchResult(
-        t_statistic=float(result.statistic),
-        p_value=float(result.pvalue),
+        t_statistic=t_statistic,
+        p_value=p_value,
         df=float(df),
         mean_a=float(np.mean(a)),
         mean_b=float(np.mean(b)),
-        significant=float(result.pvalue) < alpha,
+        significant=p_value < alpha,
         alpha=alpha,
     )

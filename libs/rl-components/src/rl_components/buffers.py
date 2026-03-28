@@ -11,7 +11,7 @@ class ReplayBufferState(NamedTuple):
     next_obs: jnp.ndarray
     dones: jnp.ndarray
     pointer: jnp.ndarray
-    count: jnp.ndarray
+    count: jnp.ndarray  # pyright: ignore[reportIncompatibleMethodOverride]
 
 
 class ReplayBuffer:
