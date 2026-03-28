@@ -19,3 +19,7 @@ build/
 **/*.pyc
 **/*.pyo
 **/*.pyd
+
+# codanna
+.codannaignore
+.fastembed_cache
