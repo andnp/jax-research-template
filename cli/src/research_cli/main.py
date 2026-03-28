@@ -8,7 +8,7 @@ app = typer.Typer(help="RL Research Monorepo Management CLI")
 app.add_typer(project_app, name="project")
 app.add_typer(workspace_app, name="workspace")
 app.command(help="Eject a shared library into a project-local components/ package.")(eject)
-app.command(help="Preview harvesting a project component into libs/.")(harvest)
+app.command(help="Harvest a project-local component into libs/.")(harvest)
 
 
 @app.command()

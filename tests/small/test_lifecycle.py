@@ -1,5 +1,6 @@
 """Small tests for the lifecycle preview command seam."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -9,12 +10,51 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+def _normalized_output(output: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", output).replace("\r", "")
+
+
 def _create_library(workspace_root: Path, library_name: str) -> Path:
     import_package = library_name.replace("-", "_")
-    module_root = workspace_root / "libs" / library_name / "src" / import_package
+    lib_root = workspace_root / "libs" / library_name
+    module_root = lib_root / "src" / import_package
     module_root.mkdir(parents=True)
+    (lib_root / "pyproject.toml").write_text(
+        "[project]\n"
+        f'name = "{library_name}"\n'
+        'version = "0.1.0"\n'
+        'description = "Test library"\n'
+        'requires-python = ">=3.13"\n'
+        "dependencies = []\n\n"
+        "[build-system]\n"
+        'requires = ["setuptools>=61.0"]\n'
+        'build-backend = "setuptools.build_meta"\n\n'
+        "[tool.setuptools.packages.find]\n"
+        'where = ["src"]\n',
+        encoding="utf-8",
+    )
     (module_root / "__init__.py").write_text("", encoding="utf-8")
     return module_root
+
+
+def _create_library_manifest_only(workspace_root: Path, library_name: str) -> Path:
+    lib_root = workspace_root / "libs" / library_name
+    (lib_root / "src").mkdir(parents=True)
+    (lib_root / "pyproject.toml").write_text(
+        "[project]\n"
+        f'name = "{library_name}"\n'
+        'version = "0.1.0"\n'
+        'description = "Test library"\n'
+        'requires-python = ">=3.13"\n'
+        "dependencies = []\n\n"
+        "[build-system]\n"
+        'requires = ["setuptools>=61.0"]\n'
+        'build-backend = "setuptools.build_meta"\n\n'
+        "[tool.setuptools.packages.find]\n"
+        'where = ["src"]\n',
+        encoding="utf-8",
+    )
+    return lib_root
 
 
 def _create_project(workspace_root: Path, project_name: str) -> Path:
@@ -43,7 +83,7 @@ def test_lifecycle_command_help_lists_dry_run(command: str) -> None:
     """Each lifecycle command must expose the dry-run option."""
     result = runner.invoke(app, [command, "--help"])
     assert result.exit_code == 0, result.output
-    assert "--dry-run" in result.output
+    assert "--dry-run" in _normalized_output(result.output)
 
 
 def test_eject_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,10 +132,8 @@ def test_harvest_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path,
     project_root = _create_project(workspace_root, "demo")
     source_path = _create_component(project_root, "jax_utils")
     monkeypatch.chdir(workspace_root)
-    target_path = _create_library(workspace_root, "jax-utils")
+    target_path = _create_library_manifest_only(workspace_root, "jax-utils") / "src" / "jax_utils"
     source_init = source_path / "__init__.py"
-    target_init = target_path / "__init__.py"
-    target_before = target_init.read_text(encoding="utf-8")
 
     result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
 
@@ -104,9 +142,13 @@ def test_harvest_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path,
     assert f"Workspace root: {workspace_root}" in result.output
     assert f"Source path: {source_path}" in result.output
     assert f"Target path: {target_path}" in result.output
+    assert "Create library manifest: no" in result.output
     assert f"Rewrite scope: {project_root}" in result.output
+    assert "Rewrite scope (Python files):" in result.output
+    assert "projects/demo/components/jax_utils/__init__.py" in result.output
+    assert "libs/jax-utils/src/jax_utils/__init__.py" in result.output
     assert source_init.read_text(encoding="utf-8") == ""
-    assert target_init.read_text(encoding="utf-8") == target_before
+    assert not target_path.exists()
 
 
 def test_eject_fails_when_workspace_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,17 +173,50 @@ def test_eject_fails_when_project_resolution_fails(tmp_path: Path, monkeypatch: 
     assert f"expected project root '{workspace_root / 'projects'}'" in result.output
 
 
-def test_harvest_fails_when_library_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Harvest must fail fast when the library root cannot be resolved."""
+def test_harvest_dry_run_allows_new_library_and_reports_manifest_creation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Harvest dry-run must support creating a brand-new shared library without mutating the workspace."""
     workspace_root = tmp_path.resolve()
-    _create_project(workspace_root, "demo")
     (workspace_root / "libs").mkdir()
+    project_root = _create_project(workspace_root, "demo")
+    source_path = _create_component(project_root, "jax_utils")
+    monkeypatch.chdir(workspace_root)
+
+    result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Source path: {source_path}" in result.output
+    assert f"Target path: {workspace_root / 'libs' / 'jax-utils' / 'src' / 'jax_utils'}" in result.output
+    assert "Create library manifest: yes" in result.output
+    assert not (workspace_root / "libs" / "jax-utils").exists()
+
+
+def test_harvest_fails_when_destination_package_already_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Harvest must fail fast when the destination package already exists in libs/."""
+    workspace_root = tmp_path.resolve()
+    project_root = _create_project(workspace_root, "demo")
+    _create_component(project_root, "jax_utils")
+    target_path = _create_library(workspace_root, "jax-utils")
     monkeypatch.chdir(workspace_root)
 
     result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
 
     assert result.exit_code != 0
-    assert f"library 'jax-utils' was not found under '{workspace_root / 'libs'}'" in result.output
+    assert f"harvest destination '{target_path}' already exists" in result.output
+
+
+def test_harvest_fails_when_destination_library_layout_is_incomplete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Harvest must fail fast when the destination library exists without a real manifest."""
+    workspace_root = tmp_path.resolve()
+    project_root = _create_project(workspace_root, "demo")
+    _create_component(project_root, "jax_utils")
+    incomplete_lib_root = workspace_root / "libs" / "jax-utils"
+    incomplete_lib_root.mkdir(parents=True)
+    monkeypatch.chdir(workspace_root)
+
+    result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
+
+    assert result.exit_code != 0
+    assert f"harvest destination library '{incomplete_lib_root}' is missing 'pyproject.toml'" in result.output
 
 
 def test_harvest_fails_when_module_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
