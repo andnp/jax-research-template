@@ -28,3 +28,17 @@ uv run ruff check .
 - Use **Conventional Commits** (e.g., `feat:`, `fix:`, `refactor:`, `docs:`).
 - Keep PRs focused. One harvested library per PR.
 - Include benchmark results in PR descriptions for performance-sensitive changes.
+
+### 4. Git Hooks
+Install the shared Git hooks once per repository:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+This sets the shared repo Git config to `core.hooksPath=.githooks`, so all linked worktrees use the tracked hooks from their active checkout. The `pre-commit` hook resolves the active worktree root with Git, then runs:
+
+```bash
+uv run ruff check .
+uv run pyright
+```
