@@ -13,6 +13,7 @@ dependencies = [
     "flax~=0.12",
     "gymnax~=0.0",
     "jax~=0.9",
+    "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
     "jaxlib~=0.9",
     "jaxtyping~=0.3",
     "matplotlib>=3.9",
