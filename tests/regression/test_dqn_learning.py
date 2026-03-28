@@ -4,6 +4,8 @@ from rl_agents.dqn import DQNConfig, make_train
 
 def test_dqn_cartpole_learns():
     config = DQNConfig(
+        ENV_NAME="CartPole-v1",
+        TOTAL_TIMESTEPS=50_000,
     )
 
     rng = jax.random.PRNGKey(config.SEED)

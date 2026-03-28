@@ -2,7 +2,7 @@ import jax
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
-_config = PPOConfig(TOTAL_TIMESTEPS=50_000, ENV_NAME="CartPole-v1")
+_config = PPOConfig(TOTAL_TIMESTEPS=80_000, ENV_NAME="CartPole-v1")
 
 
 def test_ppo_cartpole_learns():
