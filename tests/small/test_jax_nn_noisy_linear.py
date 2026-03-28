@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
@@ -29,14 +31,14 @@ class TestNoisyLinearShapes:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        params = variables["params"]
+        params = cast(dict[str, jax.Array], variables["params"])
         assert set(params.keys()) == {"mu_w", "mu_b", "sigma_w", "sigma_b"}
 
     def test_param_shapes(self) -> None:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        params = variables["params"]
+        params = cast(dict[str, jax.Array], variables["params"])
         assert params["mu_w"].shape == (4, 8)
         assert params["mu_b"].shape == (8,)
         assert params["sigma_w"].shape == (4, 8)

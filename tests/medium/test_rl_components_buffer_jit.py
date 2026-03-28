@@ -1,5 +1,7 @@
 """Medium tests for rl_components.buffers — JIT compilation and functional correctness."""
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 from rl_components.buffers import ReplayBuffer
@@ -97,5 +99,5 @@ class TestReplayBufferNetworkShapes:
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         key = jax.random.key(1)
         obs, _, _, _, _ = buf.sample(state, key, batch_size=3)
-        out = net.apply(params, obs)
+        out = cast(jax.Array, net.apply(params, obs))
         assert out.shape == (3, 2)

@@ -23,11 +23,16 @@ def _proto() -> Transition:
     return Transition(obs=jnp.zeros((4,)), action=jnp.zeros((), dtype=jnp.int32), reward=jnp.zeros(()))
 
 
+def _batch_obs_shape(batch: Transition) -> tuple[int, ...]:
+    return batch.obs.shape
+
+
 class TestUniformJit:
     def test_add_sample_loop_under_jit(self) -> None:
         proto = _proto()
         capacity = 64
         state = init_buffer(proto, capacity)
+        batch = Transition(obs=jnp.zeros((8, 4)), action=jnp.zeros((8,), dtype=jnp.int32), reward=jnp.zeros((8,)))
 
         @jax.jit
         def _step(state, key):
@@ -43,7 +48,7 @@ class TestUniformJit:
 
         assert int(state.pointer) == 1000
         assert int(state.count) == capacity  # capped at capacity
-        assert batch.obs.shape == (8, 4)
+        assert _batch_obs_shape(batch) == (8, 4)
 
     def test_pointer_wraps_correctly_after_many_steps(self) -> None:
         proto = _proto()

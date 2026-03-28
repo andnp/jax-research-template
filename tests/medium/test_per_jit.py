@@ -22,10 +22,15 @@ def _proto() -> Transition:
     return Transition(obs=jnp.zeros((2,)), reward=jnp.zeros(()))
 
 
+def _weights_shape(weights: jax.Array) -> tuple[int, ...]:
+    return weights.shape
+
+
 class TestPerJit:
     def test_add_sample_update_under_jit(self) -> None:
         proto = _proto()
         state = init_per_buffer(proto, capacity=16)
+        weights = jnp.zeros((4,))
 
         @jax.jit
         def _step(state, key):
@@ -42,7 +47,7 @@ class TestPerJit:
             state, weights = _step(state, subkey)
 
         assert int(state.count) == 16
-        assert weights.shape == (4,)
+        assert _weights_shape(weights) == (4,)
 
 
 class TestPerSamplingDistribution:
