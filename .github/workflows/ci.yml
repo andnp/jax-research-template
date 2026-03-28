@@ -60,3 +60,22 @@ jobs:
           version: "latest"
       - run: uv sync --frozen
       - run: uv run pytest tests/medium/ -x -q
+
+  test-jaxatari-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      - run: uv sync --frozen
+      - name: Install JAXAtari assets
+        env:
+          JAXATARI_CONFIRM_OWNERSHIP: "1"
+          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+        run: uv run python scripts/install_jaxatari_assets.py
+      - name: Run JAXAtari smoke test
+        env:
+          JAXATARI_RUN_SMOKE: "1"
+          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+        run: uv run pytest tests/regression/test_rl_components_atari_real_smoke.py -x -q
