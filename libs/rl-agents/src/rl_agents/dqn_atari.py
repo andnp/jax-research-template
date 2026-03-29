@@ -1,22 +1,18 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import jax
 import jax.numpy as jnp
 import optax
-from chex import dataclass
 from flax.training.train_state import TrainState
 from jax_nn.heads import epsilon_greedy_action
-from rl_components.atari import JAXAtariConfig, make_atari_adapter
-from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.env_protocol import EnvProtocol
-from rl_components.gymnax_bridge import make_gymnax_compat_env
+from rl_components.buffers import ReplayBuffer
+from rl_components.structs import chex_struct
 
 from rl_agents.dqn import NatureQNetwork, _EnvLike, _infer_nature_observation_layout
 
 
-@dataclass(frozen=True)
+@chex_struct(frozen=True, kw_only=True)
 class DQNAtariConfig:
-    GAME: str = "pong"
     REPLAY_CAPACITY: int = 1_000_000
     MIN_REPLAY_CAPACITY_FRACTION: float = 0.05
     BATCH_SIZE: int = 32
@@ -35,31 +31,6 @@ class DQNAtariConfig:
     EVAL_EXPLORATION_EPSILON: float = 0.05
     ADDITIONAL_DISCOUNT: float = 0.99
     SEED: int = 42
-
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            GAME: str = "pong",
-            REPLAY_CAPACITY: int = 1_000_000,
-            MIN_REPLAY_CAPACITY_FRACTION: float = 0.05,
-            BATCH_SIZE: int = 32,
-            NUM_ACTION_REPEATS: int = 4,
-            TARGET_NETWORK_UPDATE_PERIOD_FRAMES: int = 40_000,
-            LEARN_PERIOD_FRAMES: int = 16,
-            LEARNING_RATE: float = 0.00025,
-            OPTIMIZER_EPSILON: float = 0.01 / 32**2,
-            RMSPROP_DECAY: float = 0.95,
-            RMSPROP_CENTERED: bool = True,
-            EXPLORATION_EPSILON_BEGIN: float = 1.0,
-            EXPLORATION_EPSILON_END: float = 0.1,
-            EXPLORATION_EPSILON_DECAY_FRAME_FRACTION: float = 0.02,
-            NUM_ITERATIONS: int = 200,
-            NUM_TRAIN_FRAMES_PER_ITERATION: int = 1_000_000,
-            EVAL_EXPLORATION_EPSILON: float = 0.05,
-            ADDITIONAL_DISCOUNT: float = 0.99,
-            SEED: int = 42,
-        ) -> None: ...
 
 
 def build_dqn_zoo_atari_rmsprop(config: DQNAtariConfig) -> optax.GradientTransformation:
@@ -140,42 +111,12 @@ def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtari
     return env_step % dqn_zoo_atari_learn_period_env_steps(config) == 0
 
 
-def _make_default_env(config: DQNAtariConfig) -> _EnvLike:
-    return cast(
-        _EnvLike,
-        make_gymnax_compat_env(
-        cast(
-            EnvProtocol[jax.Array, object, jax.Array, None],
-            make_atari_adapter(
-                JAXAtariConfig(
-                    game=config.GAME,
-                    frame_skip=config.NUM_ACTION_REPEATS,
-                )
-            ),
-            )
-        ),
-    )
-
-
-def _resolve_atari_env(config: DQNAtariConfig, env: object | None, env_params: object | None) -> tuple[_EnvLike, object | None]:
-    if env is not None:
-        return cast(_EnvLike, env), env_params
-    return _make_default_env(config), None
-
-
-def _sample_uniform_replay_batch(buffer_state: ReplayBufferState, key: jax.Array, batch_size: int):
-    indices = jax.random.randint(key, (batch_size,), 0, buffer_state.count)
-    return (
-        buffer_state.obs[indices],
-        buffer_state.actions[indices],
-        buffer_state.rewards[indices],
-        buffer_state.next_obs[indices],
-        buffer_state.dones[indices],
-    )
-
-
-def make_train(config: DQNAtariConfig, env: object | None = None, env_params: object | None = None):
-    env, env_params = _resolve_atari_env(config, env, env_params)
+def make_train(
+    config: DQNAtariConfig,
+    env: object,
+    env_params: object | None = None,
+):
+    env = cast(_EnvLike, env)
 
     min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
     learn_period_env_steps = dqn_zoo_atari_learn_period_env_steps(config)
@@ -257,11 +198,17 @@ def make_train(config: DQNAtariConfig, env: object | None = None, env_params: ob
 
             def _do_learn(args):
                 train_state, target_params, buffer_state = args
-                obs_batch, actions, rewards, next_obs, dones = _sample_uniform_replay_batch(
-                    buffer_state,
+                indices = jax.random.randint(
                     sample_rng,
-                    config.BATCH_SIZE,
+                    (config.BATCH_SIZE,),
+                    0,
+                    buffer_state.count,
                 )
+                obs_batch = buffer_state.obs[indices]
+                actions = buffer_state.actions[indices]
+                rewards = buffer_state.rewards[indices]
+                next_obs = buffer_state.next_obs[indices]
+                dones = buffer_state.dones[indices]
                 loss, grads = jax.value_and_grad(_loss)(
                     train_state.params,
                     target_params,

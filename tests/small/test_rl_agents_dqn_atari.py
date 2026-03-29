@@ -67,7 +67,6 @@ class TestDQNAtariConfig:
     def test_defaults_match_dqn_zoo_atari_baseline(self):
         config = DQNAtariConfig()
 
-        assert config.GAME == "pong"
         assert config.REPLAY_CAPACITY == 1_000_000
         assert config.MIN_REPLAY_CAPACITY_FRACTION == 0.05
         assert config.BATCH_SIZE == 32
@@ -143,6 +142,12 @@ class TestDQNAtariLearnGating:
 
 
 class TestDQNAtariTrainPath:
+    def test_make_train_requires_explicit_env(self):
+        config_only_args = [DQNAtariConfig()]
+
+        with pytest.raises(TypeError):
+            make_train(*config_only_args)
+
     def test_make_train_runs_with_env_seam_and_emits_metrics(self):
         config = DQNAtariConfig(
             REPLAY_CAPACITY=16,

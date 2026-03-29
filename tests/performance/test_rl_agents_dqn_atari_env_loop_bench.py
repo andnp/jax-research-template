@@ -234,7 +234,6 @@ def _make_policy_rollout(env: _EnvLike) -> Callable[[jax.Array, jax.Array, jax.A
 def _make_fake_micro_train() -> Callable[[jax.Array], object]:
     return make_train(
         DQNAtariConfig(
-            GAME=PONG_GAME,
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,
             BATCH_SIZE=4,
@@ -283,7 +282,6 @@ def _dqn_atari_loss(
 
 def _make_fake_learner_benchmark_fixture() -> _LearnerBenchmarkFixture:
     config = DQNAtariConfig(
-        GAME=PONG_GAME,
         REPLAY_CAPACITY=LEARNER_REPLAY_CAPACITY,
         MIN_REPLAY_CAPACITY_FRACTION=0.25,
         BATCH_SIZE=LEARNER_BATCH_SIZE,

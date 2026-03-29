@@ -1,12 +1,15 @@
 import time
+from typing import cast
 
 import jax
 from rl_agents.dqn_atari import DQNAtariConfig, dqn_zoo_atari_total_train_env_steps, make_train
+from rl_components.atari import JAXAtariConfig, make_atari_adapter
+from rl_components.env_protocol import EnvProtocol
+from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
 def main():
     config = DQNAtariConfig(
-        GAME="pong",
         REPLAY_CAPACITY=5_000,
         MIN_REPLAY_CAPACITY_FRACTION=0.2,
         BATCH_SIZE=32,
@@ -18,7 +21,18 @@ def main():
     )
 
     rng = jax.random.key(config.SEED)
-    train_fn = make_train(config)
+    env = make_gymnax_compat_env(
+        cast(
+            EnvProtocol[jax.Array, object, jax.Array, None],
+            make_atari_adapter(
+                JAXAtariConfig(
+                    game="pong",
+                    frame_skip=config.NUM_ACTION_REPEATS,
+                )
+            ),
+        )
+    )
+    train_fn = make_train(config, env=env, env_params=None)
     train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on JAXAtari Pong ---")
