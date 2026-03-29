@@ -613,12 +613,14 @@ name = "jax-nn"
 version = "0.1.0"
 source = { editable = "libs/jax-nn" }
 dependencies = [
+    { name = "chex" },
     { name = "flax" },
     { name = "jax" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "chex", specifier = "~=0.1" },
     { name = "flax", specifier = "~=0.12" },
     { name = "jax", specifier = "~=0.9" },
 ]

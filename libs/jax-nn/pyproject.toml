@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Stable RL layers and initializers for Flax Linen"
 requires-python = ">=3.13"
 dependencies = [
+    "chex~=0.1",
     "jax~=0.9",
     "flax~=0.12",
 ]

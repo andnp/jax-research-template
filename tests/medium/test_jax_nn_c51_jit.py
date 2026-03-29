@@ -41,7 +41,7 @@ class TestCategoricalDistributionalJIT:
 
         @jax.jit
         def forward_and_loss(variables, x, target_probabilities):
-            logits = model.apply(variables, x)
+            logits = jnp.asarray(model.apply(variables, x))
             loss = categorical_cross_entropy(logits, target_probabilities)
             return logits, loss
 

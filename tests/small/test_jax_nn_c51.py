@@ -77,7 +77,7 @@ class TestCategoricalValueHead:
         x = jnp.ones((2, 16), dtype=jnp.float32)
 
         variables = model.init(jax.random.key(SEED), x)
-        logits = model.apply(variables, x)
+        logits = jnp.asarray(model.apply(variables, x))
 
         assert logits.shape == (2, 4, 51)
         assert logits.dtype == jnp.float32

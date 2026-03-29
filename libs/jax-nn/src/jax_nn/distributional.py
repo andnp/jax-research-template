@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -30,10 +29,8 @@ def categorical_l2_project(
         Projected probabilities on ``support``, shape ``(..., num_atoms)``.
     """
     support = _validate_support(support)
-    if target_support.shape != target_probabilities.shape:
-        raise ValueError("target_support and target_probabilities must have the same shape.")
-    if target_support.shape[-1] != support.shape[0]:
-        raise ValueError("target distributions must use the same number of atoms as support.")
+    chex.assert_equal_shape((target_support, target_probabilities))
+    chex.assert_axis_dimension(target_support, -1, support.shape[0])
 
     dtype = jnp.result_type(target_support, target_probabilities, support)
     support = jnp.asarray(support, dtype=dtype)
@@ -69,8 +66,7 @@ def categorical_cross_entropy(logits: Array, target_probabilities: Array) -> Arr
         logits: Predicted logits, shape ``(..., num_atoms)``.
         target_probabilities: Target probabilities, shape ``(..., num_atoms)``.
     """
-    if logits.shape != target_probabilities.shape:
-        raise ValueError("logits and target_probabilities must have the same shape.")
+    chex.assert_equal_shape((logits, target_probabilities))
 
     target_probabilities = jnp.asarray(target_probabilities, dtype=jnp.result_type(logits, target_probabilities))
     log_probabilities = jax.nn.log_softmax(logits, axis=-1)
@@ -85,8 +81,7 @@ def categorical_expected_value(probabilities: Array, support: Array) -> Array:
         support: Atom support, shape ``(num_atoms,)``.
     """
     support = _validate_support(support)
-    if probabilities.shape[-1] != support.shape[0]:
-        raise ValueError("probabilities and support must use the same number of atoms.")
+    chex.assert_axis_dimension(probabilities, -1, support.shape[0])
     return jnp.sum(probabilities * support, axis=-1)
 
 
@@ -96,15 +91,6 @@ class CategoricalValueHead(nn.Module):
     action_dim: int
     num_atoms: int
     dtype: jnp.dtype = jnp.float32
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: Array,
-            *,
-            rngs: object | None = None,
-        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:
@@ -121,8 +107,7 @@ class CategoricalValueHead(nn.Module):
 
 def _validate_support(support: Array) -> Array:
     support = jnp.asarray(support)
-    if support.ndim != 1:
-        raise ValueError("support must be 1D.")
+    chex.assert_rank(support, 1)
     if support.shape[0] < 2:
         raise ValueError("support must contain at least two atoms.")
     return support
