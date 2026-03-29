@@ -1,11 +1,15 @@
 """Read-only diagnostics for ``research doctor``."""
 
+import importlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+from research_cli.config import AcceleratorLabel
+
 GitCheckName = Literal["path_exists", "working_tree", "head_attached", "working_tree_clean"]
+EnvironmentCheckName = Literal["uv_available", "jax_import", "accelerator_expectations"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +29,47 @@ class GitDiagnostic:
     name: GitCheckName
     ok: bool
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EnvironmentCommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class EnvironmentCommandRunner(Protocol):
+    def __call__(self, args: tuple[str, ...]) -> EnvironmentCommandResult:
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class JaxProbeResult:
+    ok: bool
+    backend: str | None
+    device_platforms: tuple[str, ...]
+    error: str | None = None
+
+
+class JaxProbeRunner(Protocol):
+    def __call__(self) -> JaxProbeResult:
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class EnvironmentDiagnostic:
+    name: EnvironmentCheckName
+    ok: bool
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EnvironmentHealthReport:
+    diagnostics: tuple[EnvironmentDiagnostic, ...]
+
+    @property
+    def ok(self):
+        return all(diagnostic.ok for diagnostic in self.diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +129,25 @@ def check_git_health(workspace_root: Path, core_path: Path, run_git: GitCommandR
     return GitHealthReport(configured_path=core_path, resolved_path=resolved_path, diagnostics=tuple(diagnostics))
 
 
+def check_environment_health(
+    expected_accelerators: tuple[AcceleratorLabel, ...] | None,
+    run_command: EnvironmentCommandRunner | None = None,
+    probe_jax: JaxProbeRunner | None = None,
+):
+    command_runner = _run_environment_command if run_command is None else run_command
+    jax_probe_runner = _probe_jax if probe_jax is None else probe_jax
+
+    uv_result = command_runner(("uv", "--version"))
+    jax_result = jax_probe_runner()
+
+    diagnostics: list[EnvironmentDiagnostic] = [
+        _uv_diagnostic(uv_result),
+        _jax_import_diagnostic(jax_result),
+        _accelerator_expectation_diagnostic(expected_accelerators=expected_accelerators, jax_result=jax_result),
+    ]
+    return EnvironmentHealthReport(diagnostics=tuple(diagnostics))
+
+
 def _resolve_core_path(workspace_root: Path, core_path: Path):
     raw_path = core_path if core_path.is_absolute() else workspace_root / core_path
     return raw_path.resolve(strict=False)
@@ -92,6 +156,22 @@ def _resolve_core_path(workspace_root: Path, core_path: Path):
 def _run_git(args: tuple[str, ...], cwd: Path):
     completed = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
     return GitCommandResult(returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
+
+
+def _run_environment_command(args: tuple[str, ...]):
+    completed = subprocess.run(args, capture_output=True, text=True)
+    return EnvironmentCommandResult(returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
+
+
+def _probe_jax():
+    try:
+        jax = importlib.import_module("jax")
+        backend = jax.default_backend()
+        device_platforms = tuple(sorted({device.platform for device in jax.devices()}))
+    except (ImportError, RuntimeError) as exc:
+        return JaxProbeResult(ok=False, backend=None, device_platforms=(), error=str(exc))
+
+    return JaxProbeResult(ok=True, backend=backend, device_platforms=device_platforms)
 
 
 def _blocked_diagnostic(name: GitCheckName, resolved_path: Path, reason: str):
@@ -106,7 +186,7 @@ def _working_tree_diagnostic(core_path: Path, resolved_path: Path, result: GitCo
     if ok:
         return GitDiagnostic(name="working_tree", ok=True, message=f"'{resolved_path}' is a Git working tree.")
 
-    detail = _command_detail(result)
+    detail = _command_detail(result, "git")
     return GitDiagnostic(
         name="working_tree",
         ok=False,
@@ -126,7 +206,7 @@ def _head_diagnostic(resolved_path: Path, result: GitCommandResult):
         ok=False,
         message=(
             f"HEAD is detached or unreadable in '{resolved_path}'. Check out a branch before running research workflows. "
-            f"{_command_detail(result)}"
+            f"{_command_detail(result, 'git')}"
         ),
     )
 
@@ -136,7 +216,7 @@ def _working_tree_clean_diagnostic(resolved_path: Path, result: GitCommandResult
         return GitDiagnostic(
             name="working_tree_clean",
             ok=False,
-            message=f"Could not read Git status for '{resolved_path}'. {_command_detail(result)}",
+            message=f"Could not read Git status for '{resolved_path}'. {_command_detail(result, 'git')}",
         )
 
     if not result.stdout.strip():
@@ -152,7 +232,95 @@ def _working_tree_clean_diagnostic(resolved_path: Path, result: GitCommandResult
     )
 
 
-def _command_detail(result: GitCommandResult):
+def _uv_diagnostic(result: EnvironmentCommandResult):
+    if result.returncode == 0:
+        return EnvironmentDiagnostic(name="uv_available", ok=True, message=f"uv responded to '--version': {result.stdout.strip()}.")
+
+    return EnvironmentDiagnostic(
+        name="uv_available",
+        ok=False,
+        message=f"uv is not discoverable or did not respond to '--version'. {_command_detail(result, 'uv')}",
+    )
+
+
+def _jax_import_diagnostic(result: JaxProbeResult):
+    if result.ok:
+        platform_text = ", ".join(result.device_platforms) if result.device_platforms else "none"
+        return EnvironmentDiagnostic(
+            name="jax_import",
+            ok=True,
+            message=f"JAX imported successfully. Default backend: {result.backend}. Detected device platforms: {platform_text}.",
+        )
+
+    detail = result.error if result.error else "JAX import failed."
+    return EnvironmentDiagnostic(
+        name="jax_import",
+        ok=False,
+        message=f"JAX could not be imported or probed without mutating the environment. {detail}",
+    )
+
+
+def _accelerator_expectation_diagnostic(expected_accelerators: tuple[AcceleratorLabel, ...] | None, jax_result: JaxProbeResult):
+    if not jax_result.ok:
+        return EnvironmentDiagnostic(
+            name="accelerator_expectations",
+            ok=False,
+            message="Cannot evaluate accelerator expectations because JAX import/probe failed.",
+        )
+
+    detected_accelerators = _normalize_accelerator_labels(jax_result.device_platforms)
+    detected_text = ", ".join(detected_accelerators) if detected_accelerators else "none"
+
+    if expected_accelerators is None:
+        return EnvironmentDiagnostic(
+            name="accelerator_expectations",
+            ok=True,
+            message=f"No doctor.expected_accelerators were configured. Observed accelerators: {detected_text}.",
+        )
+
+    missing_accelerators = tuple(label for label in expected_accelerators if label not in detected_accelerators)
+    if not missing_accelerators:
+        expected_text = ", ".join(expected_accelerators)
+        return EnvironmentDiagnostic(
+            name="accelerator_expectations",
+            ok=True,
+            message=f"Configured accelerators matched JAX detection. Expected: {expected_text}. Observed: {detected_text}.",
+        )
+
+    missing_text = ", ".join(missing_accelerators)
+    expected_text = ", ".join(expected_accelerators)
+    return EnvironmentDiagnostic(
+        name="accelerator_expectations",
+        ok=False,
+        message=(
+            f"Configured accelerators did not match JAX detection. Missing expected accelerator(s): {missing_text}. "
+            f"Expected: {expected_text}. Observed: {detected_text}."
+        ),
+    )
+
+
+def _normalize_accelerator_labels(device_platforms: tuple[str, ...]):
+    normalized_labels: list[AcceleratorLabel] = []
+    for platform in device_platforms:
+        normalized_label = _normalize_accelerator_label(platform)
+        if normalized_label is None or normalized_label in normalized_labels:
+            continue
+        normalized_labels.append(normalized_label)
+    return tuple(normalized_labels)
+
+
+def _normalize_accelerator_label(platform: str):
+    normalized_platform = platform.casefold()
+    if normalized_platform == "cpu":
+        return "cpu"
+    if normalized_platform == "tpu":
+        return "tpu"
+    if normalized_platform in {"gpu", "cuda", "rocm", "metal"}:
+        return "gpu"
+    return None
+
+
+def _command_detail(result: GitCommandResult | EnvironmentCommandResult, command_name: str):
     stderr = result.stderr.strip()
     if stderr:
         return stderr
@@ -161,4 +329,4 @@ def _command_detail(result: GitCommandResult):
     if stdout:
         return stdout
 
-    return f"git exited with status {result.returncode}."
+    return f"{command_name} exited with status {result.returncode}."
