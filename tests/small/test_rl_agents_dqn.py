@@ -5,7 +5,7 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents.dqn import DQNConfig, QNetwork, _make_q_network
+from rl_agents.dqn import DQNConfig, NatureQNetwork, QNetwork, _make_q_network
 
 
 class TestDQNConfig:
@@ -50,10 +50,20 @@ class TestQNetwork:
         network = _make_q_network(cfg, action_dim=4)
         assert isinstance(network, QNetwork)
 
-    def test_make_q_network_rejects_unsupported_nature_cnn(self):
+    def test_make_q_network_uses_nature_cnn_for_atari_style_observations(self):
         cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
-        with pytest.raises(ValueError, match="observation-shape contract"):
+        network = _make_q_network(cfg, action_dim=4, observation_shape=(4, 84, 84, 1))
+        assert isinstance(network, NatureQNetwork)
+
+    def test_make_q_network_requires_observation_shape_for_nature_cnn(self):
+        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        with pytest.raises(ValueError, match="requires observation_shape"):
             _make_q_network(cfg, action_dim=4)
+
+    def test_make_q_network_rejects_non_image_observation_shape_for_nature_cnn(self):
+        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        with pytest.raises(ValueError, match="requires image observations"):
+            _make_q_network(cfg, action_dim=4, observation_shape=(8,))
 
     def test_make_q_network_rejects_invalid_preset(self):
         cfg = DQNConfig()
@@ -72,6 +82,35 @@ class TestQNetwork:
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         q = cast(jax.Array, net.apply(params, jnp.ones((10, 4))))
         assert q.shape == (10, 3)
+
+    def test_nature_q_network_output_shape_for_atari_observation(self):
+        net = cast(NatureQNetwork, _make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1)))
+        x = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
+        params = net.init(jax.random.key(0), x)
+        q = cast(jax.Array, net.apply(params, x))
+        assert q.shape == (3,)
+
+    def test_nature_q_network_output_shape_for_batched_atari_observation(self):
+        net = cast(NatureQNetwork, _make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1)))
+        x = jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)
+        params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
+        q = cast(jax.Array, net.apply(params, x))
+        assert q.shape == (2, 3)
+
+    def test_nature_q_network_matches_pre_stacked_channel_layout(self):
+        key = jax.random.key(0)
+        frame_stacked = jnp.arange(4 * 84 * 84, dtype=jnp.uint8).reshape(4, 84, 84, 1)
+        channel_stacked = jnp.moveaxis(frame_stacked, 0, -2).reshape(84, 84, 4)
+
+        atari_net = NatureQNetwork(action_dim=3, observation_layout="fhwc")
+        channel_last_net = NatureQNetwork(action_dim=3, observation_layout="hwc")
+
+        atari_params = atari_net.init(key, frame_stacked)
+        channel_last_params = channel_last_net.init(key, channel_stacked)
+        atari_q = cast(jax.Array, atari_net.apply(atari_params, frame_stacked))
+        channel_last_q = cast(jax.Array, channel_last_net.apply(channel_last_params, channel_stacked))
+
+        assert jnp.allclose(atari_q, channel_last_q)
 
 
 class TestDQNLoss:

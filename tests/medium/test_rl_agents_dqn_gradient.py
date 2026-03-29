@@ -68,3 +68,34 @@ class TestDQNGradientFlow:
 
         loss = compute_loss(params, obs, actions, rewards, next_obs, dones)
         assert loss.shape == ()
+
+    def test_nature_q_network_gradient_and_jit(self):
+        """Nature preset should support gradient flow for Atari-style stacked observations."""
+        net = _make_q_network(
+            DQNConfig(NETWORK_PRESET="nature_cnn"),
+            action_dim=2,
+            observation_shape=(4, 84, 84, 1),
+        )
+        params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
+
+        @jax.jit
+        def compute_loss(params, obs, actions, rewards, next_obs, dones):
+            q_values = cast(jax.Array, net.apply(params, obs))
+            q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
+            next_q = cast(jax.Array, net.apply(params, next_obs))
+            next_q_max = jnp.max(next_q, axis=-1)
+            target = rewards + 0.99 * next_q_max * (1.0 - dones)
+            return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
+
+        obs = jnp.zeros((8, 4, 84, 84, 1), dtype=jnp.uint8)
+        actions = jnp.zeros((8,), dtype=jnp.int32)
+        rewards = jnp.ones((8,))
+        next_obs = jnp.full((8, 4, 84, 84, 1), 255, dtype=jnp.uint8)
+        dones = jnp.zeros((8,))
+
+        loss = compute_loss(params, obs, actions, rewards, next_obs, dones)
+        grads = jax.grad(compute_loss)(params, obs, actions, rewards, next_obs, dones)
+
+        assert loss.shape == ()
+        grad_leaves = jax.tree_util.tree_leaves(grads)
+        assert any(jnp.any(leaf != 0) for leaf in grad_leaves)
