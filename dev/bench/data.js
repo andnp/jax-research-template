@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774744869542,
+  "lastUpdate": 1774744913778,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -73,6 +73,79 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000013548095483913409",
             "extra": "mean: 37.60859999033528 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "distinct": true,
+          "id": "e073b016e190ade0f62302a2978117d2394e3427",
+          "message": "docs(agents): resolve review threads after fixes",
+          "timestamp": "2026-03-28T18:29:29-06:00",
+          "tree_id": "8631a83b2cece42cc7d698a1ff520c29cbfafcad",
+          "url": "https://github.com/andnp/jax-research-template/commit/e073b016e190ade0f62302a2978117d2394e3427"
+        },
+        "date": 1774744913067,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.085724883917121,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006918523959101276",
+            "extra": "mean: 164.31896266666968 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.0398359556737415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004712943632883759",
+            "extra": "mean: 961.6901536666612 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04218924959015812,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0332754961853468",
+            "extra": "mean: 23.70272071 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.4358180878391624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009040436154708502",
+            "extra": "mean: 2.2945353299999964 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 30746.147512177533,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019976983924004307",
+            "extra": "mean: 32.52439999528178 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 39380.62157165956,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000010690780248703867",
+            "extra": "mean: 25.39320000778389 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 26280.65638719971,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012091646367742316",
+            "extra": "mean: 38.05079999779082 usec\nrounds: 5"
           }
         ]
       }
