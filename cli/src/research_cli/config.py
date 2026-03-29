@@ -100,7 +100,8 @@ def _load_doctor_config(raw_doctor: object, config_path: Path):
     if not isinstance(raw_doctor, Mapping):
         raise ResearchConfigError(f"Invalid research.yaml at '{config_path}': 'doctor' must be a mapping when provided.")
 
-    expected_accelerators = _load_expected_accelerators(raw_doctor.get("expected_accelerators"), config_path)
+    doctor_config = cast(Mapping[str, object], raw_doctor)
+    expected_accelerators = _load_expected_accelerators(doctor_config.get("expected_accelerators"), config_path)
     return DoctorConfig(expected_accelerators=expected_accelerators)
 
 
