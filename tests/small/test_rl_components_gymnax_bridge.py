@@ -1,9 +1,14 @@
 """Small tests for the canonical-to-Gymnax compatibility bridge."""
 
+from dataclasses import dataclass
+from typing import cast
+
 import chex
 import jax
 import jax.numpy as jnp
-from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+import rl_components.brax as brax_module
+from rl_components.brax import BraxAdapter, BraxConfig
+from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge, GymnaxDiscreteSpace, GymnaxSpace
 
 
@@ -69,6 +74,40 @@ class DummyContinuousEnv:
         )
 
 
+@dataclass(frozen=True)
+class FakeBraxState:
+    obs: jax.Array
+    reward: jax.Array
+    done: jax.Array
+    info: dict[str, object]
+
+
+class FakeBraxEnv:
+    action_size = 2
+    observation_size = 3
+
+    def reset(self, key: chex.PRNGKey) -> FakeBraxState:
+        del key
+        return FakeBraxState(
+            obs=jnp.zeros((3,), dtype=jnp.float32),
+            reward=jnp.array(0.0, dtype=jnp.float32),
+            done=jnp.array(False),
+            info={"episode_length": jnp.array(0, dtype=jnp.int32)},
+        )
+
+    def step(self, state: FakeBraxState, action: jax.Array) -> FakeBraxState:
+        del state, action
+        return FakeBraxState(
+            obs=jnp.array([1.0, 2.0, 3.0], dtype=jnp.float32),
+            reward=jnp.array(2.5, dtype=jnp.float32),
+            done=jnp.array(False),
+            info={
+                "truncated": jnp.array(True),
+                "contact_forces": jnp.array([0.25, 0.5], dtype=jnp.float32),
+            },
+        )
+
+
 class TestGymnaxSpaceTranslation:
     def test_discrete_and_continuous_specs_map_to_minimal_space_objects(self):
         discrete = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyDiscreteEnv())
@@ -109,3 +148,32 @@ class TestGymnaxCompatibilityBridge:
         assert bool(info["terminated"]) is False
         assert bool(info["truncated"]) is True
         assert int(info["episode_length"]) == 1
+
+    def test_brax_adapter_step_is_gymnax_loop_compatible(self, monkeypatch):
+        monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: FakeBraxEnv())
+        adapter = cast(EnvProtocol[jax.Array, FakeBraxState, jax.Array, None], BraxAdapter(BraxConfig(env_name="fake")))
+        bridge = GymnaxCompatibilityBridge(adapter)
+
+        observation_space = bridge.observation_space()
+        action_space = bridge.action_space()
+        observation, state = bridge.reset(jax.random.key(0))
+        next_observation, next_state, reward, done, info = bridge.step(
+            jax.random.key(1),
+            state,
+            jnp.array([0.1, -0.2], dtype=jnp.float32),
+        )
+
+        assert observation_space.shape == (3,)
+        assert observation_space.dtype == jnp.dtype(jnp.float32)
+        assert isinstance(action_space, GymnaxSpace)
+        assert action_space.shape == (2,)
+        assert action_space.dtype == jnp.dtype(jnp.float32)
+        assert observation.shape == (3,)
+        assert next_observation.shape == (3,)
+        assert next_state.obs.shape == (3,)
+        assert float(reward) == 2.5
+        assert bool(done) is True
+        assert bool(info["terminated"]) is False
+        assert bool(info["truncated"]) is True
+        assert tuple(info["contact_forces"].shape) == (2,)
+        assert jnp.allclose(info["contact_forces"], jnp.array([0.25, 0.5], dtype=jnp.float32))

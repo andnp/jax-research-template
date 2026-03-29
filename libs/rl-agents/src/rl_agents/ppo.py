@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Protocol, cast
 
 import gymnax
 import gymnax.wrappers
@@ -20,9 +20,44 @@ class Transition(NamedTuple):
     info: dict[str, jax.Array]
 
 
-def make_train(config: PPOConfig):
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
+class _ObservationSpace(Protocol):
+    shape: tuple[int, ...]
+
+
+class _ActionSpace(Protocol):
+    n: int
+
+
+class _EnvLike(Protocol):
+    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
+
+    def action_space(self, params: object | None = None) -> _ActionSpace: ...
+
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
+
+    def step(
+        self,
+        key: jax.Array,
+        state: object,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
+
+
+def _resolve_env(
+    config: PPOConfig,
+    env: object | None,
+    env_params: object | None,
+) -> tuple[_EnvLike, object | None]:
+    if env is not None:
+        return cast(_EnvLike, env), env_params
+
+    resolved_env, resolved_env_params = gymnax.make(config.ENV_NAME)
+    return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
+
+
+def make_train(config: PPOConfig, env: object | None = None, env_params: object | None = None):
+    env, env_params = _resolve_env(config, env, env_params)
 
     def train(rng):
         # INIT NETWORK
@@ -43,7 +78,7 @@ def make_train(config: PPOConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+        obsv, env_state = env.reset(_rng, env_params)
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
@@ -61,7 +96,7 @@ def make_train(config: PPOConfig):
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
-                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
                 transition = Transition(done, action, value, reward, log_prob, last_obs, info)
                 runner_state = (train_state, env_state, obsv, rng)
                 return runner_state, transition

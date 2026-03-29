@@ -1,8 +1,14 @@
 """Small tests for rl_agents.sac — config, network shapes, entropy math."""
 
+from typing import Protocol, cast
+
 import jax
 import jax.numpy as jnp
 from rl_agents.sac import Actor, Critic, SACConfig
+
+
+class _MutableSACConfig(Protocol):
+    LR: float
 
 
 class TestSACConfig:
@@ -18,7 +24,8 @@ class TestSACConfig:
     def test_frozen(self):
         cfg = SACConfig()
         try:
-            cfg.LR = 0.1  # type: ignore[misc]
+            mutable_cfg = cast(_MutableSACConfig, cfg)
+            mutable_cfg.LR = 0.1
             raise AssertionError("Should have raised")
         except AttributeError:
             pass
@@ -35,7 +42,7 @@ class TestCritic:
         obs = jnp.zeros((4,))
         action = jnp.zeros((2,))
         params = critic.init(jax.random.key(0), obs, action)
-        q = critic.apply(params, obs, action)
+        q = cast(jax.Array, critic.apply(params, obs, action))
         assert q.shape == ()
 
     def test_batch_output_shape(self):
@@ -43,7 +50,7 @@ class TestCritic:
         obs = jnp.zeros((10, 4))
         action = jnp.zeros((10, 2))
         params = critic.init(jax.random.key(0), jnp.zeros((4,)), jnp.zeros((2,)))
-        q = critic.apply(params, obs, action)
+        q = cast(jax.Array, critic.apply(params, obs, action))
         assert q.shape == (10,)
 
 
@@ -52,14 +59,14 @@ class TestActor:
         actor = Actor(action_dim=2)
         obs = jnp.zeros((4,))
         params = actor.init(jax.random.key(0), obs)
-        mean, log_std = actor.apply(params, obs)
+        mean, log_std = cast(tuple[jax.Array, jax.Array], actor.apply(params, obs))
         assert mean.shape == (2,)
         assert log_std.shape == (2,)
 
     def test_log_std_clipped(self):
         actor = Actor(action_dim=1)
         params = actor.init(jax.random.key(0), jnp.zeros((4,)))
-        _, log_std = actor.apply(params, jnp.ones((4,)) * 1000)
+        _, log_std = cast(tuple[jax.Array, jax.Array], actor.apply(params, jnp.ones((4,)) * 1000))
         assert jnp.all(log_std <= 2.0)
         assert jnp.all(log_std >= -20.0)
 
