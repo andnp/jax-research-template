@@ -4,32 +4,54 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Literal, Protocol, cast
+from typing import Literal, NamedTuple, Protocol, cast
 
 import chex
 import jax
 import jax.numpy as jnp
 import pytest
+from flax.training.train_state import TrainState
 from jax_nn.heads import epsilon_greedy_action
 from rl_agents.dqn import NatureQNetwork
-from rl_agents.dqn_atari import DQNAtariConfig, make_train
+from rl_agents.dqn_atari import DQNAtariConfig, build_dqn_zoo_atari_rmsprop, make_train
 from rl_components.atari import JAXAtariConfig, make_atari_adapter
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 ROLLOUT_STEPS = 64
 BENCHMARK_ROUNDS = 5
 TRAIN_BENCHMARK_ROUNDS = 3
+UPDATE_BENCHMARK_ROUNDS = 3
 RESET_KEY = jax.random.key(0)
 STEP_KEYS = jax.random.split(jax.random.key(1), ROLLOUT_STEPS)
 ENV_ONLY_ACTIONS = jnp.arange(ROLLOUT_STEPS, dtype=jnp.int32) % 6
 POLICY_KEYS = jax.random.split(jax.random.key(2), ROLLOUT_STEPS)
 TRAIN_KEY = jax.random.key(3)
+REPLAY_SAMPLE_KEY = jax.random.key(4)
 BENCHMARK_ENV_VAR = "JAXATARI_BENCHMARKS"
 PONG_GAME = "pong"
 ATARI_OBSERVATION_SHAPE = (4, 84, 84, 1)
 ATARI_ACTIONS = 6
 EPSILON = jnp.asarray(0.05, dtype=jnp.float32)
+LEARNER_REPLAY_CAPACITY = 128
+LEARNER_BATCH_SIZE = 32
+
+
+type _ReplayBatch = tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
+
+
+class _LearnerBenchmarkFixture(NamedTuple):
+    config: DQNAtariConfig
+    buffer: ReplayBuffer
+    buffer_state: ReplayBufferState
+    train_state: TrainState
+    target_params: object
+    batch: _ReplayBatch
+    grads: object
+    loss_and_grad_fn: Callable[[object, _ReplayBatch], tuple[jax.Array, object]]
+    optimizer_apply_fn: Callable[[TrainState, object], TrainState]
+    full_learn_step_fn: Callable[[TrainState, ReplayBufferState, jax.Array], tuple[TrainState, jax.Array]]
 
 
 class _BenchmarkFixture(Protocol):
@@ -226,6 +248,105 @@ def _make_fake_micro_train() -> Callable[[jax.Array], object]:
     )
 
 
+def _make_fake_replay_buffer_state(capacity: int) -> ReplayBufferState:
+    flat_size = capacity * int(jnp.prod(jnp.asarray(ATARI_OBSERVATION_SHAPE)))
+    obs = jnp.arange(flat_size, dtype=jnp.int32).reshape((capacity,) + ATARI_OBSERVATION_SHAPE)
+    next_obs = (obs + 1) % 256
+    return ReplayBufferState(
+        obs=jnp.asarray(obs % 256, dtype=jnp.uint8),
+        actions=jnp.arange(capacity, dtype=jnp.int32) % ATARI_ACTIONS,
+        rewards=jnp.linspace(0.0, 1.0, capacity, dtype=jnp.float32),
+        next_obs=jnp.asarray(next_obs, dtype=jnp.uint8),
+        dones=jnp.arange(capacity, dtype=jnp.int32) % 7 == 0,
+        pointer=jnp.asarray(0, dtype=jnp.int32),
+        count=jnp.asarray(capacity, dtype=jnp.int32),
+    )
+
+
+def _dqn_atari_loss(
+    network: NatureQNetwork,
+    config: DQNAtariConfig,
+    params: object,
+    target_params: object,
+    batch: _ReplayBatch,
+) -> jax.Array:
+    obs, actions, rewards, next_obs, dones = batch
+    q_values = network.apply(params, obs)
+    q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
+
+    next_q_values = network.apply(target_params, next_obs)
+    next_q_max = jnp.max(next_q_values, axis=-1)
+    targets = rewards + config.ADDITIONAL_DISCOUNT * next_q_max * (1.0 - dones)
+    td_error = q_action - jax.lax.stop_gradient(targets)
+    return jnp.mean(jnp.square(td_error))
+
+
+def _make_fake_learner_benchmark_fixture() -> _LearnerBenchmarkFixture:
+    config = DQNAtariConfig(
+        GAME=PONG_GAME,
+        REPLAY_CAPACITY=LEARNER_REPLAY_CAPACITY,
+        MIN_REPLAY_CAPACITY_FRACTION=0.25,
+        BATCH_SIZE=LEARNER_BATCH_SIZE,
+        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+        LEARN_PERIOD_FRAMES=4,
+        NUM_ITERATIONS=1,
+        NUM_TRAIN_FRAMES_PER_ITERATION=64,
+        EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+    )
+    env = _make_fake_env()
+    observation_space = env.observation_space(None)
+    network = NatureQNetwork(
+        action_dim=env.action_space(None).n,
+        observation_layout=_infer_observation_layout(tuple(observation_space.shape)),
+    )
+    params = network.init(jax.random.key(13), jnp.zeros(tuple(observation_space.shape), dtype=observation_space.dtype))
+    train_state = TrainState.create(
+        apply_fn=network.apply,
+        params=params,
+        tx=build_dqn_zoo_atari_rmsprop(config),
+    )
+    target_params = params
+    buffer = ReplayBuffer(
+        config.REPLAY_CAPACITY,
+        tuple(observation_space.shape),
+        (),
+        jnp.int32,
+        observation_space.dtype,
+    )
+    buffer_state = _make_fake_replay_buffer_state(config.REPLAY_CAPACITY)
+    batch = cast(_ReplayBatch, buffer.sample(buffer_state, REPLAY_SAMPLE_KEY, config.BATCH_SIZE))
+
+    def loss_and_grad_fn(params: object, fixed_batch: _ReplayBatch) -> tuple[jax.Array, object]:
+        return jax.value_and_grad(_dqn_atari_loss, argnums=2)(network, config, params, target_params, fixed_batch)
+
+    _, grads = loss_and_grad_fn(train_state.params, batch)
+
+    def optimizer_apply_fn(state: TrainState, fixed_grads: object) -> TrainState:
+        return state.apply_gradients(grads=fixed_grads)
+
+    def full_learn_step_fn(
+        state: TrainState,
+        replay_state: ReplayBufferState,
+        sample_key: jax.Array,
+    ) -> tuple[TrainState, jax.Array]:
+        sampled_batch = cast(_ReplayBatch, buffer.sample(replay_state, sample_key, config.BATCH_SIZE))
+        loss, learn_grads = loss_and_grad_fn(state.params, sampled_batch)
+        return state.apply_gradients(grads=learn_grads), loss
+
+    return _LearnerBenchmarkFixture(
+        config=config,
+        buffer=buffer,
+        buffer_state=buffer_state,
+        train_state=train_state,
+        target_params=target_params,
+        batch=batch,
+        grads=grads,
+        loss_and_grad_fn=loss_and_grad_fn,
+        optimizer_apply_fn=optimizer_apply_fn,
+        full_learn_step_fn=full_learn_step_fn,
+    )
+
+
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
 def test_fake_env_only_rollout_speed(benchmark: object) -> None:
     _benchmark_rollout(benchmark, _make_env_only_rollout(_make_fake_env()), ENV_ONLY_ACTIONS)
@@ -252,6 +373,50 @@ def test_fake_micro_train_replay_and_update_speed(benchmark: object) -> None:
     assert learn_steps > 0
 
     _benchmark_compiled(benchmark, lambda: compiled(TRAIN_KEY), rounds=TRAIN_BENCHMARK_ROUNDS)
+
+
+@pytest.mark.benchmark(group="dqn-atari-update-subphases")
+def test_fake_replay_sampling_only_speed(benchmark: object) -> None:
+    fixture = _make_fake_learner_benchmark_fixture()
+    compiled = jax.jit(lambda buffer_state, sample_key: fixture.buffer.sample(buffer_state, sample_key, fixture.config.BATCH_SIZE))
+    _benchmark_compiled(
+        benchmark,
+        lambda: compiled(fixture.buffer_state, REPLAY_SAMPLE_KEY),
+        rounds=UPDATE_BENCHMARK_ROUNDS,
+    )
+
+
+@pytest.mark.benchmark(group="dqn-atari-update-subphases")
+def test_fake_loss_and_grad_fixed_batch_speed(benchmark: object) -> None:
+    fixture = _make_fake_learner_benchmark_fixture()
+    compiled = jax.jit(fixture.loss_and_grad_fn)
+    _benchmark_compiled(
+        benchmark,
+        lambda: compiled(fixture.train_state.params, fixture.batch),
+        rounds=UPDATE_BENCHMARK_ROUNDS,
+    )
+
+
+@pytest.mark.benchmark(group="dqn-atari-update-subphases")
+def test_fake_optimizer_apply_fixed_grads_speed(benchmark: object) -> None:
+    fixture = _make_fake_learner_benchmark_fixture()
+    compiled = jax.jit(fixture.optimizer_apply_fn)
+    _benchmark_compiled(
+        benchmark,
+        lambda: compiled(fixture.train_state, fixture.grads),
+        rounds=UPDATE_BENCHMARK_ROUNDS,
+    )
+
+
+@pytest.mark.benchmark(group="dqn-atari-update-subphases")
+def test_fake_full_learn_step_speed(benchmark: object) -> None:
+    fixture = _make_fake_learner_benchmark_fixture()
+    compiled = jax.jit(fixture.full_learn_step_fn)
+    _benchmark_compiled(
+        benchmark,
+        lambda: compiled(fixture.train_state, fixture.buffer_state, REPLAY_SAMPLE_KEY),
+        rounds=UPDATE_BENCHMARK_ROUNDS,
+    )
 
 
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
