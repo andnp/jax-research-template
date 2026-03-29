@@ -1,13 +1,93 @@
 """Medium tests for rl_agents.sac — gradient flow and JIT compilation."""
 
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 import optax
+import rl_agents.sac as sac_module
 from flax.training.train_state import TrainState
-from rl_agents.sac import Actor, Critic
+from rl_agents.sac import Actor, Critic, SACConfig, make_train
+
+
+@dataclass(frozen=True)
+class FakeObservationSpace:
+    shape: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class FakeActionSpace:
+    shape: tuple[int, ...]
+
+
+class FakeContinuousEnv:
+    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+        del params
+        return FakeObservationSpace(shape=(3,))
+
+    def action_space(self, params: object | None = None) -> FakeActionSpace:
+        del params
+        return FakeActionSpace(shape=(2,))
+
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+        del key, params
+        return jnp.zeros((3,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
+
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        del key, action, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        info = {
+            "returned_episode": jnp.array(False),
+            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
+        }
+        return (
+            jnp.full((3,), next_state, dtype=jnp.float32),
+            next_state,
+            jnp.array(1.0, dtype=jnp.float32),
+            jnp.array(False),
+            info,
+        )
 
 
 class TestSACGradientFlow:
+    def test_make_train_accepts_injected_env(self) -> None:
+        config = SACConfig(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)
+        train = make_train(config, env=FakeContinuousEnv(), env_params=None)
+
+        out = jax.jit(train)(jax.random.key(0))
+        metrics = out["metrics"]
+
+        assert metrics["returned_episode"].shape == (4,)
+        assert metrics["returned_episode_returns"].shape == (4,)
+
+    def test_make_train_keeps_default_gymnax_resolution(self, monkeypatch) -> None:
+        config = SACConfig(
+            ENV_NAME="FakeContinuous-v0",
+            TOTAL_TIMESTEPS=4,
+            LEARNING_STARTS=100,
+            BUFFER_SIZE=16,
+            BATCH_SIZE=4,
+        )
+
+        def fake_make(env_name: str) -> tuple[FakeContinuousEnv, object | None]:
+            assert env_name == "FakeContinuous-v0"
+            return FakeContinuousEnv(), None
+
+        monkeypatch.setattr(sac_module.gymnax, "make", fake_make)
+        monkeypatch.setattr(sac_module.gymnax.wrappers, "LogWrapper", lambda env: env)
+
+        out = jax.jit(make_train(config))(jax.random.key(0))
+        metrics = out["metrics"]
+
+        assert metrics["returned_episode"].shape == (4,)
+        assert metrics["returned_episode_returns"].shape == (4,)
+
     def test_critic_params_change_after_update(self):
         """Critic parameters should change after a gradient step."""
         critic = Critic()
