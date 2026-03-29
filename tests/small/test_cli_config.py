@@ -54,6 +54,14 @@ def test_load_research_config_raises_for_missing_file(tmp_path: Path) -> None:
         load_research_config(tmp_path / "research.yaml")
 
 
+def test_load_research_config_raises_for_directory_path(tmp_path: Path) -> None:
+    config_path = tmp_path / "research.yaml"
+    config_path.mkdir()
+
+    with pytest.raises(ResearchConfigError, match="is not a file"):
+        load_research_config(config_path)
+
+
 def test_load_research_config_raises_for_malformed_yaml(tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, "core_path: [core\nstorage_backend: local\n")
 

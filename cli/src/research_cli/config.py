@@ -36,16 +36,15 @@ class ResearchConfig:
 
 
 def load_research_config(config_path: Path):
-    if not config_path.is_file():
-        raise ResearchConfigError(
-            f"research.yaml not found at '{config_path}'. Run `research workspace init` or create the file before running this command.",
-        )
-
     try:
         raw_content = config_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ResearchConfigError(
             f"research.yaml not found at '{config_path}'. Run `research workspace init` or create the file before running this command.",
+        ) from exc
+    except IsADirectoryError as exc:
+        raise ResearchConfigError(
+            f"research.yaml at '{config_path}' is not a file. Run `research workspace init` or replace the directory with a config file before running this command.",
         ) from exc
 
     try:
