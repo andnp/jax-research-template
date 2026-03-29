@@ -66,6 +66,29 @@ The CLI manages a multi-stage pipeline for large-scale experiments, using SQLite
 - `research exp analyze <experiment_id> --using <analysis_script.py>`:
     - Injects the experiment data into a project-specific analysis script for publication-ready plotting.
 
+### 2.5 Diagnostics
+- `research doctor`:
+    - Runs a read-only diagnostic sweep over workspace configuration, the configured Core checkout, and the local execution environment.
+    - Must never mutate the filesystem, install dependencies, rewrite configuration, or modify Git state.
+    - Executes all diagnostic groups before exiting and returns a non-zero status code if any check fails.
+    - Reports grouped results so the user can see all failures from a single run instead of failing fast on the first problem.
+    - Checks that cannot run because an upstream prerequisite is invalid must still be reported in their group as failures caused by missing or invalid inputs.
+    - Covers three diagnostic groups:
+        - **Config validation** for `research.yaml`:
+            - Verify that `research.yaml` exists at the workspace root and is parseable.
+            - Validate `core_path` as a required path-like setting used to locate the Core checkout.
+            - Validate optional doctor-specific settings under `doctor.expected_accelerators` if present.
+        - **Git health** for the configured `core_path`:
+            - Verify that `core_path` exists.
+            - Verify that `core_path` resolves to a Git working tree.
+            - Verify that the working tree can be inspected read-only (for example, `HEAD` resolves and status can be queried).
+            - Report dirty or otherwise unhealthy Core state as a failing diagnostic, but do not attempt remediation.
+        - **Environment health** around `uv` and JAX:
+            - Verify that `uv` is discoverable on `PATH` and responds to a version query.
+            - Verify that the current workspace environment can import `jax` without triggering an environment mutation.
+            - Record the detected JAX backend/device platforms and compare them against `doctor.expected_accelerators` when configured.
+            - Never run mutating environment commands such as `uv sync`, `uv pip install`, cache cleanup, or package upgrades.
+
 ## 3. The "vmap-zone" Batching Logic
 The orchestrator must be "JAX-aware." It identifies which parameters are **static** (change the JIT kernel, like hidden layer size) and which are **dynamic** (can be vmapped over, like learning rate or seed).
 - Work is batched such that each `vmap-zone` corresponds to exactly one static configuration.
@@ -77,6 +100,24 @@ The CLI will look for a `research.yaml` file at the monorepo root to store:
 - Path to the `core/` submodule.
 - Default GitHub organization/user for new projects.
 - Preferred storage backend (Local vs. S3) for the `research-store` integration.
+
+The initial schema is intentionally conservative:
+- Existing top-level keys remain valid.
+- `core_path` remains the canonical setting used by commands that need to locate the Core checkout.
+- `research doctor` may additionally read an optional `doctor` section.
+
+Example:
+
+```yaml
+core_path: core
+github_owner: rlcore
+storage_backend: local
+doctor:
+    expected_accelerators:
+        - gpu
+```
+
+`doctor.expected_accelerators` is optional. If it is absent, `research doctor` still validates `uv` and JAX availability, but it does not fail solely because no accelerator expectation was configured. The accepted values are conservative platform labels (`cpu`, `gpu`, `tpu`) so the setting can map cleanly onto JAX device discovery without locking the config to a host-specific device string.
 
 ## 4. User Workflows
 
