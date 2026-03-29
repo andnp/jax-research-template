@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import flax.linen as nn
 import gymnax
@@ -27,6 +27,7 @@ class DQNConfig:
     EPSILON_FRACTION: float = 0.5
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
+    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
 
     if TYPE_CHECKING:
         def __init__(
@@ -46,20 +47,12 @@ class DQNConfig:
             EPSILON_FRACTION: float = 0.5,
             ENV_NAME: str = "MountainCar-v0",
             SEED: int = 42,
+            NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp",
         ) -> None: ...
 
 
 class QNetwork(nn.Module):
     action_dim: int
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -71,13 +64,25 @@ class QNetwork(nn.Module):
         return x
 
 
+def _make_q_network(config: DQNConfig, action_dim: int):
+    if config.NETWORK_PRESET == "mlp":
+        return QNetwork(action_dim)
+    if config.NETWORK_PRESET == "nature_cnn":
+        raise ValueError(
+            "NETWORK_PRESET='nature_cnn' is not supported in rl_agents.dqn until the observation-shape contract is defined."
+        )
+    raise ValueError(
+        f"Invalid NETWORK_PRESET {config.NETWORK_PRESET!r}. Expected one of: 'mlp', 'nature_cnn'."
+    )
+
+
 def make_train(config: DQNConfig):
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
 
     def train(rng):
         # INIT NETWORK
-        network = QNetwork(env.action_space(env_params).n)
+        network = _make_q_network(config, env.action_space(env_params).n)
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).shape)
         params = network.init(_rng, init_x)
@@ -116,7 +121,7 @@ def make_train(config: DQNConfig):
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = network.apply(train_state.params, last_obs)
+            q_values = cast(jax.Array, network.apply(train_state.params, last_obs))
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
@@ -143,10 +148,10 @@ def make_train(config: DQNConfig):
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = network.apply(params, obs)
+                    q_values = cast(jax.Array, network.apply(params, obs))
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
-                    next_q_values = network.apply(target_params, next_obs)
+                    next_q_values = cast(jax.Array, network.apply(target_params, next_obs))
                     next_q_max = jnp.max(next_q_values, axis=-1)
                     target = rewards + config.GAMMA * next_q_max * (1.0 - dones)
 

@@ -1,8 +1,11 @@
 """Small tests for rl_agents.dqn — config validation and loss function math."""
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
-from rl_agents.dqn import DQNConfig, QNetwork
+import pytest
+from rl_agents.dqn import DQNConfig, QNetwork, _make_q_network
 
 
 class TestDQNConfig:
@@ -14,6 +17,7 @@ class TestDQNConfig:
         assert cfg.GAMMA == 0.99
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
+        assert cfg.NETWORK_PRESET == "mlp"
 
     def test_frozen(self):
         cfg = DQNConfig()
@@ -41,16 +45,32 @@ class TestDQNConfig:
 
 
 class TestQNetwork:
+    def test_make_q_network_uses_mlp_by_default(self):
+        cfg = DQNConfig()
+        network = _make_q_network(cfg, action_dim=4)
+        assert isinstance(network, QNetwork)
+
+    def test_make_q_network_rejects_unsupported_nature_cnn(self):
+        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        with pytest.raises(ValueError, match="observation-shape contract"):
+            _make_q_network(cfg, action_dim=4)
+
+    def test_make_q_network_rejects_invalid_preset(self):
+        cfg = DQNConfig()
+        object.__setattr__(cfg, "NETWORK_PRESET", "bogus")
+        with pytest.raises(ValueError, match="Invalid NETWORK_PRESET 'bogus'"):
+            _make_q_network(cfg, action_dim=4)
+
     def test_output_shape(self):
         net = QNetwork(action_dim=4)
         params = net.init(jax.random.key(0), jnp.zeros((8,)))
-        q = net.apply(params, jnp.ones((8,)))
+        q = cast(jax.Array, net.apply(params, jnp.ones((8,))))
         assert q.shape == (4,)
 
     def test_batch_output_shape(self):
         net = QNetwork(action_dim=3)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        q = net.apply(params, jnp.ones((10, 4)))
+        q = cast(jax.Array, net.apply(params, jnp.ones((10, 4))))
         assert q.shape == (10, 3)
 
 

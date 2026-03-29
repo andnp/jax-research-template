@@ -1,16 +1,18 @@
 """Medium tests for rl_agents.dqn — gradient flow and JIT compilation."""
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_agents.dqn import QNetwork
+from rl_agents.dqn import DQNConfig, _make_q_network
 
 
 class TestDQNGradientFlow:
     def test_params_change_after_update(self):
         """Network parameters should change after a gradient step."""
-        net = QNetwork(action_dim=2)
+        net = _make_q_network(DQNConfig(), action_dim=2)
         key = jax.random.key(0)
         params = net.init(key, jnp.zeros((4,)))
 
@@ -26,9 +28,9 @@ class TestDQNGradientFlow:
         target_params = params
 
         def loss_fn(params):
-            q_values = net.apply(params, obs)
+            q_values = cast(jax.Array, net.apply(params, obs))
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q = net.apply(target_params, next_obs)
+            next_q = cast(jax.Array, net.apply(target_params, next_obs))
             next_q_max = jnp.max(next_q, axis=-1)
             target = rewards + 0.99 * next_q_max * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
@@ -46,14 +48,14 @@ class TestDQNGradientFlow:
 
     def test_loss_fn_jit(self):
         """Loss function should be JIT-compilable."""
-        net = QNetwork(action_dim=2)
+        net = _make_q_network(DQNConfig(), action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
         def compute_loss(params, obs, actions, rewards, next_obs, dones):
-            q_values = net.apply(params, obs)
+            q_values = cast(jax.Array, net.apply(params, obs))
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q = net.apply(params, next_obs)
+            next_q = cast(jax.Array, net.apply(params, next_obs))
             next_q_max = jnp.max(next_q, axis=-1)
             target = rewards + 0.99 * next_q_max * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
