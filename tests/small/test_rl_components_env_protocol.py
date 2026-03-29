@@ -101,6 +101,29 @@ class TestEnvSpec:
         assert spec.action_low.shape == (1,)
         assert spec.action_high.shape == (2,)
 
+    def test_allows_traced_continuous_bounds_inside_jit(self):
+        @jax.jit
+        def build_spec(action_low: jax.Array, action_high: jax.Array) -> tuple[jax.Array, jax.Array]:
+            spec = EnvSpec(
+                id="jit-bounds",
+                observation_shape=(3,),
+                action_shape=(2,),
+                action_dtype=jnp.float32,
+                action_low=action_low,
+                action_high=action_high,
+            )
+            assert spec.action_low is not None
+            assert spec.action_high is not None
+            return spec.action_low, spec.action_high
+
+        action_low, action_high = build_spec(
+            jnp.array([-1.0, 0.0], dtype=jnp.float32),
+            jnp.array([1.0, 2.0], dtype=jnp.float32),
+        )
+
+        assert jnp.allclose(action_low, jnp.array([-1.0, 0.0], dtype=jnp.float32))
+        assert jnp.allclose(action_high, jnp.array([1.0, 2.0], dtype=jnp.float32))
+
 
 class TestEnvProtocol:
     def test_runtime_protocol_matches_expected_methods(self):
