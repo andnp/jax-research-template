@@ -17,7 +17,10 @@ This protocol defines the shared contract for environment adapters without presc
 ### 3.1 Data Structures
 - `EnvSpec`
   - Describes the stable shape and dtype contract for observations and actions.
-  - Supports discrete environments via `num_actions` and continuous environments via `action_shape` and `action_dtype`.
+  - Supports discrete environments via `num_actions` and bounded continuous environments via `action_shape`, `action_dtype`, and optional `action_low` / `action_high` arrays.
+  - Discrete environments use a scalar integer action index: `num_actions` must be set, `action_shape=()`, and continuous bounds must be omitted.
+  - Continuous environments leave `num_actions=None`, use a floating-point `action_dtype`, and may provide elementwise `action_low` / `action_high` bounds whose shapes and dtypes match `action_shape` and `action_dtype`.
+  - Malformed combinations should fail fast where practical: partial bounds are invalid, discrete specs cannot also declare continuous bounds, and provided continuous bounds must satisfy `action_low <= action_high` elementwise.
 - `EnvReset`
   - Returns the initial observation and backend state.
 - `EnvStep`
@@ -56,7 +59,7 @@ The default preprocessing contract for the Atari pixel path is:
 The adapter also preserves a narrow `info` channel because PPO and DQN consumers read step info for logging and episode accounting.
 
 ### 4.3 Brax fit
-Brax should adapt into the same protocol with continuous `action_shape` and floating-point `action_dtype`. No agent code should need a separate abstraction just because the backend is physics-based instead of arcade-style.
+Brax should adapt into the same protocol with continuous `action_shape` and floating-point `action_dtype`. When backend metadata exposes bounded control ranges, adapters should surface them through `action_low` and `action_high` without changing agent-facing interfaces. No agent code should need a separate abstraction just because the backend is physics-based instead of arcade-style.
 
 ## 5. Non-Goals
 - No Gymnax adapter refactor.

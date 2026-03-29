@@ -19,6 +19,46 @@ class EnvSpec:
     observation_dtype: jnp.dtype = jnp.float32
     action_dtype: jnp.dtype = jnp.int32
     num_actions: int | None = None
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
+
+    def __post_init__(self) -> None:
+        action_dtype = jnp.dtype(self.action_dtype)
+
+        if self.num_actions is not None:
+            if self.num_actions <= 0:
+                raise ValueError(f"num_actions must be positive, got {self.num_actions}")
+            if self.action_shape != ():
+                raise ValueError(f"discrete action spaces must use scalar action_shape=(), got {self.action_shape}")
+            if not jnp.issubdtype(action_dtype, jnp.integer):
+                raise TypeError(f"discrete action spaces must use an integer action_dtype, got {action_dtype}")
+            if self.action_low is not None or self.action_high is not None:
+                raise ValueError("discrete action spaces cannot declare continuous action bounds")
+            return
+
+        if not jnp.issubdtype(action_dtype, jnp.floating):
+            raise TypeError(f"continuous action spaces must use a floating-point action_dtype, got {action_dtype}")
+        if (self.action_low is None) != (self.action_high is None):
+            raise ValueError("continuous action bounds require both action_low and action_high")
+        if self.action_low is None or self.action_high is None:
+            return
+        if self.action_low.shape != self.action_shape:
+            raise ValueError(
+                f"action_low shape must match action_shape {self.action_shape}, got {self.action_low.shape}"
+            )
+        if self.action_high.shape != self.action_shape:
+            raise ValueError(
+                f"action_high shape must match action_shape {self.action_shape}, got {self.action_high.shape}"
+            )
+
+        low_dtype = jnp.dtype(self.action_low.dtype)
+        high_dtype = jnp.dtype(self.action_high.dtype)
+        if low_dtype != action_dtype:
+            raise TypeError(f"action_low dtype must match action_dtype {action_dtype}, got {low_dtype}")
+        if high_dtype != action_dtype:
+            raise TypeError(f"action_high dtype must match action_dtype {action_dtype}, got {high_dtype}")
+        if not bool(jnp.all(self.action_low <= self.action_high)):
+            raise ValueError("continuous action bounds must satisfy action_low <= action_high elementwise")
 
 
 @chex_struct(frozen=True)

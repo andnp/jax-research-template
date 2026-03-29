@@ -3,6 +3,7 @@
 import chex
 import jax
 import jax.numpy as jnp
+import pytest
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 
 
@@ -37,7 +38,7 @@ class DummyEnv:
 
 
 class TestEnvSpec:
-    def test_supports_discrete_and_continuous_metadata(self):
+    def test_supports_discrete_and_bounded_continuous_metadata(self):
         discrete = EnvSpec(
             id="pong",
             observation_shape=(84, 84, 4),
@@ -50,12 +51,55 @@ class TestEnvSpec:
             observation_shape=(27,),
             action_shape=(8,),
             action_dtype=jnp.float32,
+            action_low=jnp.full((8,), -1.0, dtype=jnp.float32),
+            action_high=jnp.full((8,), 1.0, dtype=jnp.float32),
         )
 
         assert discrete.num_actions == 6
         assert discrete.action_shape == ()
         assert continuous.num_actions is None
         assert continuous.action_shape == (8,)
+        assert continuous.action_low is not None
+        assert continuous.action_high is not None
+        assert jnp.allclose(continuous.action_low, jnp.full((8,), -1.0, dtype=jnp.float32))
+        assert jnp.allclose(continuous.action_high, jnp.full((8,), 1.0, dtype=jnp.float32))
+
+    def test_rejects_discrete_specs_with_continuous_bounds(self):
+        with pytest.raises(ValueError, match="continuous action bounds"):
+            EnvSpec(
+                id="broken-discrete",
+                observation_shape=(4,),
+                action_shape=(),
+                action_dtype=jnp.int32,
+                num_actions=2,
+                action_low=jnp.array(-1, dtype=jnp.int32),
+                action_high=jnp.array(1, dtype=jnp.int32),
+            )
+
+    def test_rejects_partial_continuous_bounds(self):
+        with pytest.raises(ValueError, match="require both"):
+            EnvSpec(
+                id="broken-continuous",
+                observation_shape=(3,),
+                action_shape=(2,),
+                action_dtype=jnp.float32,
+                action_low=jnp.array([-1.0, -1.0], dtype=jnp.float32),
+            )
+
+    def test_allows_continuous_bounds_without_deep_semantic_validation(self):
+        spec = EnvSpec(
+            id="lightweight-continuous",
+            observation_shape=(3,),
+            action_shape=(2,),
+            action_dtype=jnp.float32,
+            action_low=jnp.array([0.5], dtype=jnp.float32),
+            action_high=jnp.array([0.25, 1.0], dtype=jnp.float32),
+        )
+
+        assert spec.action_low is not None
+        assert spec.action_high is not None
+        assert spec.action_low.shape == (1,)
+        assert spec.action_high.shape == (2,)
 
 
 class TestEnvProtocol:
