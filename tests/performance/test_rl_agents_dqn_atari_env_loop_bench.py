@@ -12,16 +12,19 @@ import jax.numpy as jnp
 import pytest
 from jax_nn.heads import epsilon_greedy_action
 from rl_agents.dqn import NatureQNetwork
+from rl_agents.dqn_atari import DQNAtariConfig, make_train
 from rl_components.atari import JAXAtariConfig, make_atari_adapter
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 ROLLOUT_STEPS = 64
 BENCHMARK_ROUNDS = 5
+TRAIN_BENCHMARK_ROUNDS = 3
 RESET_KEY = jax.random.key(0)
 STEP_KEYS = jax.random.split(jax.random.key(1), ROLLOUT_STEPS)
 ENV_ONLY_ACTIONS = jnp.arange(ROLLOUT_STEPS, dtype=jnp.int32) % 6
 POLICY_KEYS = jax.random.split(jax.random.key(2), ROLLOUT_STEPS)
+TRAIN_KEY = jax.random.key(3)
 BENCHMARK_ENV_VAR = "JAXATARI_BENCHMARKS"
 PONG_GAME = "pong"
 ATARI_OBSERVATION_SHAPE = (4, 84, 84, 1)
@@ -140,22 +143,26 @@ def _make_real_env_or_skip() -> _EnvLike:
         pytest.skip(f"JAXAtari Pong benchmark environment unavailable: {exc}")
 
 
+def _benchmark_compiled(benchmark: object, target: Callable[[], object], *, rounds: int = BENCHMARK_ROUNDS) -> None:
+    benchmark_fixture = cast(_BenchmarkFixture, benchmark)
+    warm_result = target()
+    jax.block_until_ready(warm_result)
+
+    def run_once() -> object:
+        result = target()
+        jax.block_until_ready(result)
+        return result
+
+    benchmark_fixture.pedantic(run_once, rounds=rounds)
+
+
 def _benchmark_rollout(
     benchmark: object,
     rollout_fn: Callable[[jax.Array, jax.Array, jax.Array], object],
     xs: jax.Array,
 ) -> None:
-    benchmark_fixture = cast(_BenchmarkFixture, benchmark)
     compiled = jax.jit(rollout_fn)
-    warm_result = compiled(RESET_KEY, STEP_KEYS, xs)
-    jax.block_until_ready(warm_result)
-
-    def run_once() -> object:
-        result = compiled(RESET_KEY, STEP_KEYS, xs)
-        jax.block_until_ready(result)
-        return result
-
-    benchmark_fixture.pedantic(run_once, rounds=BENCHMARK_ROUNDS)
+    _benchmark_compiled(benchmark, lambda: compiled(RESET_KEY, STEP_KEYS, xs))
 
 
 def _make_env_only_rollout(env: _EnvLike) -> Callable[[jax.Array, jax.Array, jax.Array], tuple[jax.Array, jax.Array]]:
@@ -202,6 +209,23 @@ def _make_policy_rollout(env: _EnvLike) -> Callable[[jax.Array, jax.Array, jax.A
     return rollout
 
 
+def _make_fake_micro_train() -> Callable[[jax.Array], object]:
+    return make_train(
+        DQNAtariConfig(
+            GAME=PONG_GAME,
+            REPLAY_CAPACITY=16,
+            MIN_REPLAY_CAPACITY_FRACTION=0.25,
+            BATCH_SIZE=4,
+            TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+            LEARN_PERIOD_FRAMES=4,
+            NUM_ITERATIONS=1,
+            NUM_TRAIN_FRAMES_PER_ITERATION=64,
+            EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+        ),
+        env=_make_fake_env(),
+    )
+
+
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
 def test_fake_env_only_rollout_speed(benchmark: object) -> None:
     _benchmark_rollout(benchmark, _make_env_only_rollout(_make_fake_env()), ENV_ONLY_ACTIONS)
@@ -215,6 +239,19 @@ def test_real_pong_env_only_rollout_speed(benchmark: object) -> None:
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
 def test_fake_policy_and_env_rollout_speed(benchmark: object) -> None:
     _benchmark_rollout(benchmark, _make_policy_rollout(_make_fake_env()), POLICY_KEYS)
+
+
+@pytest.mark.benchmark(group="dqn-atari-env-loop")
+def test_fake_micro_train_replay_and_update_speed(benchmark: object) -> None:
+    compiled = jax.jit(_make_fake_micro_train())
+    warm_result = cast(dict[str, object], compiled(TRAIN_KEY))
+    jax.block_until_ready(warm_result)
+
+    metrics = cast(dict[str, jax.Array], warm_result["metrics"])
+    learn_steps = int(jax.device_get(jnp.count_nonzero(metrics["loss"])))
+    assert learn_steps > 0
+
+    _benchmark_compiled(benchmark, lambda: compiled(TRAIN_KEY), rounds=TRAIN_BENCHMARK_ROUNDS)
 
 
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
