@@ -1,6 +1,15 @@
 from pathlib import Path
 
-from research_cli.doctor import EnvironmentCommandResult, GitCommandResult, JaxProbeResult, check_environment_health, check_git_health
+from research_cli.config import DoctorConfig, ResearchConfig, ResearchConfigError
+from research_cli.doctor import (
+    EnvironmentCommandResult,
+    GitCommandResult,
+    JaxProbeResult,
+    check_environment_health,
+    check_git_health,
+    render_doctor_report,
+    run_doctor,
+)
 
 
 def test_check_git_health_resolves_relative_core_path_and_uses_only_read_only_git_commands(tmp_path: Path) -> None:
@@ -208,3 +217,132 @@ def test_check_environment_health_blocks_expectation_check_when_jax_probe_fails(
     assert [diagnostic.ok for diagnostic in report.diagnostics] == [True, False, False]
     assert "No module named 'jax'" in report.diagnostics[1].message
     assert "Cannot evaluate accelerator expectations because JAX import/probe failed." in report.diagnostics[2].message
+
+
+def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -> None:
+    workspace_root = tmp_path.resolve()
+    (workspace_root / "core").mkdir()
+
+    def load_config(config_path: Path):
+        assert config_path == workspace_root / "research.yaml"
+        return ResearchConfig(
+            core_path=Path("core"),
+            storage_backend="local",
+            doctor=DoctorConfig(expected_accelerators=("cpu",)),
+        )
+
+    git_calls: list[tuple[tuple[str, ...], Path]] = []
+    environment_calls: list[tuple[str, ...]] = []
+
+    def run_git(args: tuple[str, ...], cwd: Path):
+        git_calls.append((args, cwd))
+        if args == ("git", "rev-parse", "--is-inside-work-tree"):
+            return GitCommandResult(returncode=0, stdout="true\n", stderr="")
+        if args == ("git", "symbolic-ref", "--quiet", "HEAD"):
+            return GitCommandResult(returncode=0, stdout="refs/heads/main\n", stderr="")
+        if args == ("git", "status", "--porcelain", "--untracked-files=normal"):
+            return GitCommandResult(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected git command: {args!r}")
+
+    def run_environment_command(args: tuple[str, ...]):
+        environment_calls.append(args)
+        assert args == ("uv", "--version")
+        return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
+
+    def probe_jax():
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+
+    report = run_doctor(
+        workspace_root=workspace_root,
+        load_config=load_config,
+        run_git=run_git,
+        run_environment_command=run_environment_command,
+        probe_jax=probe_jax,
+    )
+
+    assert report.ok is True
+    assert report.config.ok is True
+    assert report.git.ok is True
+    assert report.environment.ok is True
+    assert [diagnostic.name for diagnostic in report.git.diagnostics] == ["path_exists", "working_tree", "head_attached", "working_tree_clean"]
+    assert [diagnostic.name for diagnostic in report.environment.diagnostics] == ["uv_available", "jax_import", "accelerator_expectations"]
+    assert git_calls == [
+        (("git", "rev-parse", "--is-inside-work-tree"), workspace_root / "core"),
+        (("git", "symbolic-ref", "--quiet", "HEAD"), workspace_root / "core"),
+        (("git", "status", "--porcelain", "--untracked-files=normal"), workspace_root / "core"),
+    ]
+    assert environment_calls == [("uv", "--version")]
+
+
+def test_run_doctor_reports_blocked_git_and_environment_expectations_when_config_is_invalid(tmp_path: Path) -> None:
+    workspace_root = tmp_path.resolve()
+
+    def load_config(config_path: Path):
+        assert config_path == workspace_root / "research.yaml"
+        raise ResearchConfigError("Invalid research.yaml at '/tmp/research.yaml': missing required key(s): core_path.")
+
+    environment_calls: list[tuple[str, ...]] = []
+
+    def run_environment_command(args: tuple[str, ...]):
+        environment_calls.append(args)
+        assert args == ("uv", "--version")
+        return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
+
+    def probe_jax():
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+
+    report = run_doctor(
+        workspace_root=workspace_root,
+        load_config=load_config,
+        run_environment_command=run_environment_command,
+        probe_jax=probe_jax,
+    )
+
+    assert report.ok is False
+    assert report.config.ok is False
+    assert report.git.ok is False
+    assert report.environment.ok is False
+    assert [diagnostic.ok for diagnostic in report.git.diagnostics] == [False, False, False, False]
+    assert [diagnostic.ok for diagnostic in report.environment.diagnostics] == [True, True, False]
+    assert "research.yaml is invalid" in report.git.diagnostics[0].message
+    assert "Cannot evaluate accelerator expectations because research.yaml is invalid" in report.environment.diagnostics[2].message
+    assert environment_calls == [("uv", "--version")]
+
+
+def test_render_doctor_report_is_deterministic_and_readable(tmp_path: Path) -> None:
+    workspace_root = tmp_path.resolve()
+
+    def load_config(config_path: Path):
+        assert config_path == workspace_root / "research.yaml"
+        raise ResearchConfigError("research.yaml not found at '/tmp/workspace/research.yaml'.")
+
+    def run_environment_command(args: tuple[str, ...]):
+        assert args == ("uv", "--version")
+        return EnvironmentCommandResult(returncode=127, stdout="", stderr="uv: command not found")
+
+    def probe_jax():
+        return JaxProbeResult(ok=False, backend=None, device_platforms=(), error="No module named 'jax'")
+
+    report = run_doctor(
+        workspace_root=workspace_root,
+        load_config=load_config,
+        run_environment_command=run_environment_command,
+        probe_jax=probe_jax,
+    )
+
+    rendered = render_doctor_report(report)
+
+    assert rendered == (
+        "[ ] Config validation\n"
+        "  [ ] research_yaml: research.yaml not found at '/tmp/workspace/research.yaml'.\n\n"
+        "[ ] Git health\n"
+        "  [ ] path_exists: Cannot evaluate 'path_exists' because research.yaml is invalid. research.yaml not found at '/tmp/workspace/research.yaml'.\n"
+        "  [ ] working_tree: Cannot evaluate 'working_tree' because research.yaml is invalid. research.yaml not found at '/tmp/workspace/research.yaml'.\n"
+        "  [ ] head_attached: Cannot evaluate 'head_attached' because research.yaml is invalid. research.yaml not found at '/tmp/workspace/research.yaml'.\n"
+        "  [ ] working_tree_clean: Cannot evaluate 'working_tree_clean' because research.yaml is invalid. research.yaml not found at '/tmp/workspace/research.yaml'.\n\n"
+        "[ ] Environment health\n"
+        "  [ ] uv_available: uv is not discoverable or did not respond to '--version'. uv: command not found\n"
+        "  [ ] jax_import: JAX could not be imported or probed without mutating the environment. No module named 'jax'\n"
+        "  [ ] accelerator_expectations: Cannot evaluate accelerator expectations because research.yaml is invalid. research.yaml not found at '/tmp/workspace/research.yaml'.\n\n"
+        "overall: FAIL"
+    )

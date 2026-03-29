@@ -6,10 +6,31 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from research_cli.config import AcceleratorLabel
+import typer
 
+from research_cli.config import AcceleratorLabel, ResearchConfig, ResearchConfigError, load_research_config
+
+ConfigCheckName = Literal["research_yaml"]
 GitCheckName = Literal["path_exists", "working_tree", "head_attached", "working_tree_clean"]
 EnvironmentCheckName = Literal["uv_available", "jax_import", "accelerator_expectations"]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigDiagnostic:
+    name: ConfigCheckName
+    ok: bool
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigHealthReport:
+    config_path: Path
+    diagnostics: tuple[ConfigDiagnostic, ...]
+    config: ResearchConfig | None = None
+
+    @property
+    def ok(self):
+        return all(diagnostic.ok for diagnostic in self.diagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +104,126 @@ class GitHealthReport:
         return all(diagnostic.ok for diagnostic in self.diagnostics)
 
 
+@dataclass(frozen=True, slots=True)
+class DoctorReport:
+    config: ConfigHealthReport
+    git: GitHealthReport
+    environment: EnvironmentHealthReport
+
+    @property
+    def ok(self):
+        return self.config.ok and self.git.ok and self.environment.ok
+
+
+class ConfigLoader(Protocol):
+    def __call__(self, config_path: Path) -> ResearchConfig:
+        ...
+
+
+def doctor_command():
+    report = run_doctor(workspace_root=Path.cwd())
+    typer.echo(render_doctor_report(report))
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
+def run_doctor(
+    workspace_root: Path,
+    load_config: ConfigLoader | None = None,
+    run_git: GitCommandRunner | None = None,
+    run_environment_command: EnvironmentCommandRunner | None = None,
+    probe_jax: JaxProbeRunner | None = None,
+):
+    config_report = check_config_health(workspace_root=workspace_root, load_config=load_config)
+
+    if config_report.config is None:
+        config_error_message = config_report.diagnostics[0].message
+        git_report = blocked_git_health(workspace_root=workspace_root, reason=config_error_message)
+        environment_report = check_environment_health(
+            expected_accelerators=None,
+            run_command=run_environment_command,
+            probe_jax=probe_jax,
+            accelerator_config_error=config_error_message,
+        )
+    else:
+        git_report = check_git_health(
+            workspace_root=workspace_root,
+            core_path=config_report.config.core_path,
+            run_git=run_git,
+        )
+        expected_accelerators = None
+        if config_report.config.doctor is not None:
+            expected_accelerators = config_report.config.doctor.expected_accelerators
+        environment_report = check_environment_health(
+            expected_accelerators=expected_accelerators,
+            run_command=run_environment_command,
+            probe_jax=probe_jax,
+        )
+
+    return DoctorReport(config=config_report, git=git_report, environment=environment_report)
+
+
+def check_config_health(workspace_root: Path, load_config: ConfigLoader | None = None):
+    config_loader = load_research_config if load_config is None else load_config
+    config_path = workspace_root / "research.yaml"
+
+    try:
+        config = config_loader(config_path)
+    except ResearchConfigError as exc:
+        return ConfigHealthReport(
+            config_path=config_path,
+            diagnostics=(ConfigDiagnostic(name="research_yaml", ok=False, message=str(exc)),),
+        )
+
+    return ConfigHealthReport(
+        config_path=config_path,
+        diagnostics=(ConfigDiagnostic(name="research_yaml", ok=True, message=f"Loaded research.yaml from '{config_path}'."),),
+        config=config,
+    )
+
+
+def blocked_git_health(workspace_root: Path, reason: str):
+    blocked_path = (workspace_root / "<unavailable-core-path>").resolve(strict=False)
+    diagnostics = tuple(
+        GitDiagnostic(
+            name=name,
+            ok=False,
+            message=f"Cannot evaluate '{name}' because research.yaml is invalid. {reason}",
+        )
+        for name in ("path_exists", "working_tree", "head_attached", "working_tree_clean")
+    )
+    return GitHealthReport(
+        configured_path=Path("<unavailable-core-path>"),
+        resolved_path=blocked_path,
+        diagnostics=diagnostics,
+    )
+
+
+def render_doctor_report(report: DoctorReport):
+    rendered_lines = [
+        _render_group("Config validation", report.config.ok, report.config.diagnostics),
+        _render_group("Git health", report.git.ok, report.git.diagnostics),
+        _render_group("Environment health", report.environment.ok, report.environment.diagnostics),
+        f"overall: {_status_label(report.ok)}",
+    ]
+    return "\n\n".join(rendered_lines)
+
+
+def _render_group(title: str, ok: bool, diagnostics: tuple[ConfigDiagnostic, ...] | tuple[GitDiagnostic, ...] | tuple[EnvironmentDiagnostic, ...]):
+    lines = [f"[{_status_marker(ok)}] {title}"]
+    for diagnostic in diagnostics:
+        lines.append(f"  [{_status_marker(diagnostic.ok)}] {diagnostic.name}: {diagnostic.message}")
+    return "\n".join(lines)
+
+
+def _status_marker(ok: bool):
+    return "x" if ok else " "
+
+
+def _status_label(ok: bool):
+    return "PASS" if ok else "FAIL"
+
+
 def check_git_health(workspace_root: Path, core_path: Path, run_git: GitCommandRunner | None = None):
     git_runner = _run_git if run_git is None else run_git
     resolved_path = _resolve_core_path(workspace_root=workspace_root, core_path=core_path)
@@ -133,6 +274,7 @@ def check_environment_health(
     expected_accelerators: tuple[AcceleratorLabel, ...] | None,
     run_command: EnvironmentCommandRunner | None = None,
     probe_jax: JaxProbeRunner | None = None,
+    accelerator_config_error: str | None = None,
 ):
     command_runner = _run_environment_command if run_command is None else run_command
     jax_probe_runner = _probe_jax if probe_jax is None else probe_jax
@@ -143,7 +285,11 @@ def check_environment_health(
     diagnostics: list[EnvironmentDiagnostic] = [
         _uv_diagnostic(uv_result),
         _jax_import_diagnostic(jax_result),
-        _accelerator_expectation_diagnostic(expected_accelerators=expected_accelerators, jax_result=jax_result),
+        _accelerator_expectation_diagnostic(
+            expected_accelerators=expected_accelerators,
+            jax_result=jax_result,
+            accelerator_config_error=accelerator_config_error,
+        ),
     ]
     return EnvironmentHealthReport(diagnostics=tuple(diagnostics))
 
@@ -260,7 +406,21 @@ def _jax_import_diagnostic(result: JaxProbeResult):
     )
 
 
-def _accelerator_expectation_diagnostic(expected_accelerators: tuple[AcceleratorLabel, ...] | None, jax_result: JaxProbeResult):
+def _accelerator_expectation_diagnostic(
+    expected_accelerators: tuple[AcceleratorLabel, ...] | None,
+    jax_result: JaxProbeResult,
+    accelerator_config_error: str | None = None,
+):
+    if accelerator_config_error is not None:
+        return EnvironmentDiagnostic(
+            name="accelerator_expectations",
+            ok=False,
+            message=(
+                "Cannot evaluate accelerator expectations because research.yaml is invalid. "
+                f"{accelerator_config_error}"
+            ),
+        )
+
     if not jax_result.ok:
         return EnvironmentDiagnostic(
             name="accelerator_expectations",
