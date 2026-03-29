@@ -82,9 +82,20 @@ class FakeBraxState:
     info: dict[str, object]
 
 
+@dataclass(frozen=True)
+class FakeBraxActuator:
+    ctrl_range: jax.Array
+
+
+@dataclass(frozen=True)
+class FakeBraxSystem:
+    actuator: FakeBraxActuator
+
+
 class FakeBraxEnv:
     action_size = 2
     observation_size = 3
+    sys = FakeBraxSystem(actuator=FakeBraxActuator(ctrl_range=jnp.array([[-2.0, 2.0], [0.0, 10.0]], dtype=jnp.float32)))
 
     def reset(self, key: chex.PRNGKey) -> FakeBraxState:
         del key
@@ -154,6 +165,7 @@ class TestGymnaxCompatibilityBridge:
         adapter = cast(EnvProtocol[jax.Array, FakeBraxState, jax.Array, None], BraxAdapter(BraxConfig(env_name="fake")))
         bridge = GymnaxCompatibilityBridge(adapter)
 
+        spec = adapter.spec()
         observation_space = bridge.observation_space()
         action_space = bridge.action_space()
         observation, state = bridge.reset(jax.random.key(0))
@@ -168,6 +180,10 @@ class TestGymnaxCompatibilityBridge:
         assert isinstance(action_space, GymnaxSpace)
         assert action_space.shape == (2,)
         assert action_space.dtype == jnp.dtype(jnp.float32)
+        assert spec.action_low is not None
+        assert spec.action_high is not None
+        assert jnp.allclose(spec.action_low, jnp.array([-2.0, 0.0], dtype=jnp.float32))
+        assert jnp.allclose(spec.action_high, jnp.array([2.0, 10.0], dtype=jnp.float32))
         assert observation.shape == (3,)
         assert next_observation.shape == (3,)
         assert next_state.obs.shape == (3,)

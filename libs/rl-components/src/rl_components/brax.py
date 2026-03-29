@@ -23,6 +23,7 @@ class _BraxState(Protocol):
 class _BraxEnv[StateT](Protocol):
     action_size: int
     observation_size: int
+    sys: object
 
     def reset(self, key: chex.PRNGKey) -> StateT: ...
 
@@ -79,6 +80,21 @@ def _coerce_info(info: Mapping[str, object]) -> dict[str, jax.Array]:
     return converted
 
 
+def _action_bounds(env: _BraxEnv[_BraxState]) -> tuple[jax.Array | None, jax.Array | None]:
+    actuator = getattr(env.sys, "actuator", None)
+    ctrl_range = getattr(actuator, "ctrl_range", None)
+    if ctrl_range is None:
+        return None, None
+
+    ctrl_range_array = jnp.asarray(ctrl_range, dtype=jnp.float32)
+    expected_shape = (int(env.action_size), 2)
+    if ctrl_range_array.shape != expected_shape:
+        raise ValueError(
+            f"expected Brax actuator ctrl_range shape {expected_shape}, got {ctrl_range_array.shape}"
+        )
+    return ctrl_range_array[:, 0], ctrl_range_array[:, 1]
+
+
 class BraxAdapter:
     _env: _BraxEnv[_BraxState]
 
@@ -88,12 +104,15 @@ class BraxAdapter:
 
     def spec(self, params: None = None) -> EnvSpec:
         del params
+        action_low, action_high = _action_bounds(self._env)
         return EnvSpec(
             id=f"brax:{self.config.env_name}",
             observation_shape=(int(self._env.observation_size),),
             action_shape=(int(self._env.action_size),),
             observation_dtype=jnp.float32,
             action_dtype=jnp.float32,
+            action_low=action_low,
+            action_high=action_high,
         )
 
     def reset(self, key: chex.PRNGKey, params: None = None) -> EnvReset[jax.Array, _BraxState]:
