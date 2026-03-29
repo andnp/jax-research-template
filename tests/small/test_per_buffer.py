@@ -48,6 +48,23 @@ class TestPerAdd:
         # 3 leaves with priority 1.0 each
         assert float(state.tree[1]) == 3.0
 
+    def test_new_transition_uses_current_max_raw_priority(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=4)
+        for i in range(2):
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=0.5)
+
+        state = per_update_priorities(
+            state,
+            jnp.array([0], dtype=jnp.uint32),
+            jnp.array([9.0]),
+            alpha=0.5,
+            epsilon=0.0,
+        )
+
+        state = per_add(state, Transition(obs=jnp.array([9.0, 9.0]), reward=jnp.float32(9.0)), alpha=0.5)
+        assert jnp.allclose(state.tree[6], 3.0)
+
 
 class TestPerSample:
     def test_returns_correct_shapes(self) -> None:
@@ -78,6 +95,24 @@ class TestPerSample:
         _, weights, _ = per_sample(state, jax.random.key(0), batch_size=4, beta=1.0, prototype=proto)
         assert jnp.allclose(weights, 1.0)
 
+    def test_is_weights_normalize_against_global_min_probability(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=4)
+        for i in range(4):
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=1.0)
+
+        state = per_update_priorities(
+            state,
+            jnp.array([0, 1, 2, 3], dtype=jnp.uint32),
+            jnp.array([100.0, 1.0, 1.0, 1.0]),
+            alpha=1.0,
+            epsilon=0.0,
+        )
+
+        _, weights, indices = per_sample(state, jax.random.key(0), batch_size=4, beta=1.0, prototype=proto)
+        assert jnp.array_equal(indices, jnp.zeros((4,), dtype=indices.dtype))
+        assert jnp.allclose(weights, jnp.full((4,), 0.01, dtype=weights.dtype))
+
 
 class TestPerUpdatePriorities:
     def test_priorities_change_after_update(self) -> None:
@@ -103,3 +138,19 @@ class TestPerUpdatePriorities:
         td_errors = jnp.array([100.0])
         state = per_update_priorities(state, indices, td_errors, alpha=1.0, epsilon=0.01)
         assert jnp.allclose(state.max_priority, 100.01)
+
+    def test_tree_stores_alpha_scaled_priority_while_max_priority_stays_raw(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=4)
+        state = per_add(state, Transition(obs=jnp.ones(2), reward=jnp.float32(1.0)), alpha=0.5)
+
+        state = per_update_priorities(
+            state,
+            jnp.array([0], dtype=jnp.uint32),
+            jnp.array([16.0]),
+            alpha=0.5,
+            epsilon=0.0,
+        )
+
+        assert jnp.allclose(state.tree[4], 4.0)
+        assert jnp.allclose(state.max_priority, 16.0)

@@ -51,6 +51,29 @@ class TestPerJit:
 
 
 class TestPerSamplingDistribution:
+    def test_jit_weights_use_global_min_probability(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=4)
+        for i in range(4):
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=1.0)
+
+        state = per_update_priorities(
+            state,
+            jnp.array([0, 1, 2, 3], dtype=jnp.uint32),
+            jnp.array([100.0, 1.0, 1.0, 1.0]),
+            alpha=1.0,
+            epsilon=0.0,
+        )
+
+        @jax.jit
+        def _sample_weights(state, key):
+            _, weights, indices = per_sample(state, key, batch_size=4, beta=1.0, prototype=proto)
+            return weights, indices
+
+        weights, indices = _sample_weights(state, jax.random.key(0))
+        assert jnp.array_equal(indices, jnp.zeros((4,), dtype=indices.dtype))
+        assert jnp.allclose(weights, jnp.full((4,), 0.01, dtype=weights.dtype))
+
     def test_high_priority_sampled_more_often(self) -> None:
         proto = _proto()
         capacity = 4

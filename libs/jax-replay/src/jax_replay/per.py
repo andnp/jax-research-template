@@ -5,6 +5,14 @@ from jax_replay.sum_tree import tree_init, tree_sample_batch, tree_update
 from jax_replay.types import PERBufferState
 
 
+def _minimum_sample_probability(state: PERBufferState, capacity: int, total_priority: jax.Array):
+    all_leaf_priorities = state.tree[capacity:]
+    populated_mask = jnp.arange(capacity, dtype=jnp.uint32) < state.count
+    positive_mask = jnp.logical_and(populated_mask, all_leaf_priorities > 0.0)
+    masked_priorities = jnp.where(positive_mask, all_leaf_priorities, jnp.full_like(all_leaf_priorities, jnp.inf))
+    return jnp.min(masked_priorities) / total_priority
+
+
 def init_per_buffer(prototype: object, capacity: int) -> PERBufferState:
     assert capacity > 0 and (capacity & (capacity - 1)) == 0, f"capacity must be a power of 2, got {capacity}"
     leaves, _ = jax.tree.flatten(prototype)
@@ -54,13 +62,13 @@ def per_sample[T](
 
     indices = tree_sample_batch(state.tree, key, capacity, batch_size)
 
-    # Compute IS weights: w_i = (N * P_i)^{-beta} / max(w)
+    # Compute DeepMind-style normalized IS weights using the minimum non-zero
+    # sampling probability among populated entries so that weights stay in [0, 1].
     total_priority = state.tree[1]
     leaf_priorities = state.tree[jnp.uint32(capacity) + indices]
     probs = leaf_priorities / total_priority
-    n = state.count.astype(jnp.float32)
-    weights = (n * probs) ** (-beta)
-    weights = weights / jnp.max(weights)
+    min_prob = _minimum_sample_probability(state, capacity, total_priority)
+    weights = (probs / min_prob) ** (-jnp.float32(beta))
 
     # Gather transitions
     _, treedef = jax.tree.flatten(prototype)
