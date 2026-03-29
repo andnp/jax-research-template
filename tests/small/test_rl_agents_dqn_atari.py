@@ -157,8 +157,12 @@ class TestDQNAtariTrainPath:
         out = jax.jit(make_train(config, env=_ToyAtariEnv(), env_params=None))(jax.random.key(0))
 
         metrics = out["metrics"]
+        runner_state = out["runner_state"]
+        buffer_state = runner_state[2]
         total_env_steps = dqn_zoo_atari_total_train_env_steps(config)
         assert metrics["returned_episode"].shape == (total_env_steps,)
         assert metrics["returned_episode_returns"].shape == (total_env_steps,)
         assert metrics["epsilon"].shape == (total_env_steps,)
         assert metrics["loss"].shape == (total_env_steps,)
+        assert buffer_state.obs.dtype == jnp.uint8
+        assert buffer_state.next_obs.dtype == jnp.uint8

@@ -184,14 +184,16 @@ def make_train(config: DQNAtariConfig, env: object | None = None, env_params: ob
     total_env_steps = dqn_zoo_atari_total_train_env_steps(config)
 
     def train(rng):
-        observation_shape = tuple(env.observation_space(env_params).shape)
+        observation_space = env.observation_space(env_params)
+        action_space = env.action_space(env_params)
+        observation_shape = tuple(observation_space.shape)
         network = NatureQNetwork(
-            action_dim=env.action_space(env_params).n,
+            action_dim=action_space.n,
             observation_layout=_infer_nature_observation_layout(observation_shape),
         )
 
         rng, init_rng = jax.random.split(rng)
-        init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
+        init_x = jnp.zeros(observation_shape, dtype=observation_space.dtype)
         params = network.init(init_rng, init_x)
         train_state = TrainState.create(
             apply_fn=network.apply,
@@ -205,6 +207,7 @@ def make_train(config: DQNAtariConfig, env: object | None = None, env_params: ob
             observation_shape,
             (),
             jnp.int32,
+            observation_space.dtype,
         )
         buffer_state = buffer.init()
 
