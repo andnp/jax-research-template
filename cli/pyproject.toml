@@ -5,6 +5,7 @@ description = "Management CLI for the RL research monorepo"
 dependencies = [
     "typer~=0.12",
     "copier~=9.4",
+    "PyYAML~=6.0",
 ]
 
 [project.scripts]

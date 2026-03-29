@@ -1531,12 +1531,14 @@ version = "0.1.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "copier" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "copier", specifier = "~=9.4" },
+    { name = "pyyaml", specifier = "~=6.0" },
     { name = "typer", specifier = "~=0.12" },
 ]
 
