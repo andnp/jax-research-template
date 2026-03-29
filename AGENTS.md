@@ -39,7 +39,7 @@ All shared components must have tests in `tests/` categorized by duration:
 - **Repo Layout:** The bare control root is `/home/andy/Projects/research/jax-research-template`. The default editable worktree is `/home/andy/Projects/research/jax-research-template/main`. Do not edit files in the bare root.
 - **Issue Worktrees:** Create issue-specific worktrees from the bare root and keep one issue/PR per worktree when practical.
 - **PR Hygiene:** Keep PRs focused and use Conventional Commits.
-- **Review Follow-Up:** Address review comments in the same branch/worktree, rerun affected checks, and resolve review threads only after the fix lands.
+- **Review Follow-Up:** Address review comments in the same branch/worktree, rerun affected checks, and resolve review threads only after the fix lands. When possible, actively mark addressed threads as resolved via GitHub (the `gh` CLI can do this through `gh api graphql` even if there is no dedicated high-level subcommand).
 - **CI Failures:** If CI fails, reproduce the failing `lint`, `typecheck`, `test-small`, or `test-medium` job locally, fix the root cause, and rerun the affected checks. Treat `tests/regression/` and `tests/performance/` as targeted suites when relevant, not default PR gates.
 - **Harvesting:** Proactively identify generalizable code in `projects/` and propose harvesting it into `libs/`.
 - **Ejecting:** If a core library needs a breaking change for a specific experiment, eject it to the project first.
