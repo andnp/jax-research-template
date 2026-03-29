@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Shared RL components (buffers, networks, types)"
 requires-python = ">=3.13"
 dependencies = [
-    "jax~=0.9",
-    "flax~=0.12",
+    "brax~=0.14",
     "chex~=0.1",
+    "flax~=0.12",
     "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
+    "jax~=0.9",
 ]
 
 [build-system]
