@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774744913778,
+  "lastUpdate": 1774747076153,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -146,6 +146,79 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000012091646367742316",
             "extra": "mean: 38.05079999779082 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ec58dc466e7f376dab0d0668d848c444d3b7d70",
+          "message": "Add research doctor CLI health checks (#36)\n\n## Summary\n- define the read-only `research doctor` command contract in the CLI\nspec\n- add typed `research.yaml` loading and validation for doctor config\n- add aggregated config, git, and environment health checks with CLI\ncoverage\n\n## Testing\n- uv run pytest tests/small/test_cli_config.py\ntests/small/test_doctor.py tests/small/test_workspace_init.py\ntests/medium/test_cli_doctor.py -q\n- uv run pyright cli/src/research_cli/config.py\ncli/src/research_cli/doctor.py cli/src/research_cli/main.py\ntests/small/test_cli_config.py tests/small/test_doctor.py\ntests/medium/test_cli_doctor.py\n- uv run ty check cli/src/research_cli/config.py\ncli/src/research_cli/doctor.py cli/src/research_cli/main.py\ntests/small/test_cli_config.py tests/small/test_doctor.py\ntests/medium/test_cli_doctor.py",
+          "timestamp": "2026-03-28T19:04:55-06:00",
+          "tree_id": "fe492a4eaa799381a5dedb1b12a5740ae999e08b",
+          "url": "https://github.com/andnp/jax-research-template/commit/6ec58dc466e7f376dab0d0668d848c444d3b7d70"
+        },
+        "date": 1774747075931,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.119115435358479,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007500372701673495",
+            "extra": "mean: 163.422313333335 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.0397187110619044,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0034956413035032285",
+            "extra": "mean: 961.7985993333349 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04206270106541846,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007951261605168437",
+            "extra": "mean: 23.774031973000007 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.43402201251871275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011007525561343335",
+            "extra": "mean: 2.304030604799993 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 31344.4250742238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000176439941876358",
+            "extra": "mean: 31.903600006444318 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 34404.45882237049,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000016623853290644668",
+            "extra": "mean: 29.06599999619175 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 23465.585375447867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000018442831919439184",
+            "extra": "mean: 42.61559999463316 usec\nrounds: 5"
           }
         ]
       }
