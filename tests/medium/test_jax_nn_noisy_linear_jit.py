@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 from jax_nn.layers import NoisyLinear
@@ -17,7 +19,7 @@ class TestNoisyLinearJIT:
 
         @jax.jit
         def forward(variables, x, noise_key):
-            return model.apply(variables, x, rngs={"noise": noise_key})
+            return cast(jax.Array, model.apply(variables, x, rngs={"noise": noise_key}))
 
         y = forward(variables, x, jax.random.key(99))
         assert y.shape == (8,)
@@ -29,7 +31,7 @@ class TestNoisyLinearJIT:
 
         @jax.jit
         def loss_fn(params, x, noise_key):
-            y = model.apply({"params": params}, x, rngs={"noise": noise_key})
+            y = cast(jax.Array, model.apply({"params": params}, x, rngs={"noise": noise_key}))
             return jnp.sum(y**2)
 
         grads = jax.grad(loss_fn)(variables["params"], x, jax.random.key(99))
