@@ -1,5 +1,6 @@
 import typer
 
+from research_cli.doctor import doctor_command
 from research_cli.lifecycle import eject, harvest
 from research_cli.project import project_app
 from research_cli.workspace import workspace_app
@@ -7,6 +8,7 @@ from research_cli.workspace import workspace_app
 app = typer.Typer(help="RL Research Monorepo Management CLI")
 app.add_typer(project_app, name="project")
 app.add_typer(workspace_app, name="workspace")
+app.command(name="doctor", help="Run a read-only diagnostic sweep for this workspace.")(doctor_command)
 app.command(help="Eject a shared library into a project-local components/ package.")(eject)
 app.command(help="Harvest a project-local component into libs/.")(harvest)
 

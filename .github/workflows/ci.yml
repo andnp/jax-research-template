@@ -7,7 +7,17 @@ on:
     branches: [main]
 
 jobs:
+  warm-uv-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      - run: uv sync --frozen
+
   lint:
+    needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +28,7 @@ jobs:
       - run: uv run ruff check .
 
   typecheck:
+    needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +53,7 @@ jobs:
           cd ../.. && uv run pyright tests examples scripts
 
   test-small:
+    needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +64,7 @@ jobs:
       - run: uv run pytest tests/small/ -x -q
 
   test-medium:
+    needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +75,7 @@ jobs:
       - run: uv run pytest tests/medium/ -x -q
 
   test-jaxatari-smoke:
+    needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
