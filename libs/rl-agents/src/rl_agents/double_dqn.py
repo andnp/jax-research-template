@@ -9,7 +9,7 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
@@ -97,7 +97,7 @@ def make_train(config: DoubleDQNConfig, env: object | None = None, env_params: o
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = cast(jax.Array, network.apply(train_state.params, last_obs))
+            q_values = network.apply(train_state.params, last_obs)
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
@@ -119,14 +119,14 @@ def make_train(config: DoubleDQNConfig, env: object | None = None, env_params: o
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = cast(jax.Array, network.apply(params, obs))
+                    q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
                     # Double DQN: use online net for action selection
-                    next_q_online = cast(jax.Array, network.apply(params, next_obs))
+                    next_q_online = network.apply(params, next_obs)
                     next_actions = jnp.argmax(next_q_online, axis=-1)
                     # Use target net for value estimation
-                    next_q_target = cast(jax.Array, network.apply(target_params, next_obs))
+                    next_q_target = network.apply(target_params, next_obs)
                     next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
 
                     target = rewards + config.GAMMA * next_q_value * (1.0 - dones)

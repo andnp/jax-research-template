@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -29,6 +31,15 @@ class NatureCNN(nn.Module):
     """
 
     dtype: jnp.dtype = jnp.float32
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: Array,
+            *,
+            rngs: object | None = None,
+        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:
@@ -88,6 +99,15 @@ class NoisyLinear(nn.Module):
     features: int
     sigma_init: float = 0.5
     dtype: jnp.dtype = jnp.float32
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: Array,
+            *,
+            rngs: object | None = None,
+        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:

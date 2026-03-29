@@ -56,6 +56,15 @@ class DQNConfig:
 class QNetwork(nn.Module):
     action_dim: int
 
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
+
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = nn.Dense(64)(x)
@@ -102,6 +111,15 @@ class _HasNetworkPreset(Protocol):
 class NatureQNetwork(nn.Module):
     action_dim: int
     observation_layout: Literal["hwc", "fhwc"]
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -168,7 +186,11 @@ def _resolve_env(
     return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
 
 
-def _make_q_network(config: _HasNetworkPreset, action_dim: int, observation_shape: tuple[int, ...] | None = None):
+def _make_q_network(
+    config: _HasNetworkPreset,
+    action_dim: int,
+    observation_shape: tuple[int, ...] | None = None,
+) -> QNetwork | NatureQNetwork:
     if config.NETWORK_PRESET == "mlp":
         return QNetwork(action_dim)
     if config.NETWORK_PRESET == "nature_cnn":
@@ -228,7 +250,7 @@ def make_train(config: DQNConfig, env: object | None = None, env_params: object 
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = cast(jax.Array, network.apply(train_state.params, last_obs))
+            q_values = network.apply(train_state.params, last_obs)
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
@@ -255,10 +277,10 @@ def make_train(config: DQNConfig, env: object | None = None, env_params: object 
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = cast(jax.Array, network.apply(params, obs))
+                    q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
-                    next_q_values = cast(jax.Array, network.apply(target_params, next_obs))
+                    next_q_values = network.apply(target_params, next_obs)
                     next_q_max = jnp.max(next_q_values, axis=-1)
                     target = rewards + config.GAMMA * next_q_max * (1.0 - dones)
 

@@ -1,7 +1,5 @@
 """Medium tests for DQN variants — Double DQN and Dueling DQN gradient flow."""
 
-from typing import cast
-
 import jax
 import jax.numpy as jnp
 import optax
@@ -22,10 +20,10 @@ class TestDoubleDQNGradient:
 
         obs = jnp.ones((8, 4))
         # Online net selects best actions
-        next_q_online = cast(jax.Array, net.apply(params, obs))
+        next_q_online = net.apply(params, obs)
         next_actions = jnp.argmax(next_q_online, axis=-1)
         # Target net evaluates them
-        next_q_target = cast(jax.Array, net.apply(target_params, obs))
+        next_q_target = net.apply(target_params, obs)
         next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
         assert next_q_value.shape == (8,)
 
@@ -44,11 +42,11 @@ class TestDoubleDQNGradient:
         dones = jnp.zeros((16,))
 
         def loss_fn(params):
-            q_values = cast(jax.Array, net.apply(params, obs))
+            q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q_online = cast(jax.Array, net.apply(params, next_obs))
+            next_q_online = net.apply(params, next_obs)
             next_actions = jnp.argmax(next_q_online, axis=-1)
-            next_q_target = cast(jax.Array, net.apply(target_params, next_obs))
+            next_q_target = net.apply(target_params, next_obs)
             next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
             target = rewards + 0.99 * next_q_value * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
@@ -67,7 +65,7 @@ class TestDoubleDQNGradient:
         )
         assert isinstance(net, NatureQNetwork)
         params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
-        q = cast(jax.Array, net.apply(params, jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)))
+        q = net.apply(params, jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8))
         assert q.shape == (2, 3)
 
 
@@ -75,13 +73,13 @@ class TestDuelingDQNGradient:
     def test_dueling_network_output_shape(self):
         net = DuelingQNetwork(action_dim=4)
         params = net.init(jax.random.key(0), jnp.zeros((8,)))
-        q = cast(jax.Array, net.apply(params, jnp.ones((8,))))
+        q = net.apply(params, jnp.ones((8,)))
         assert q.shape == (4,)
 
     def test_dueling_batch_shape(self):
         net = DuelingQNetwork(action_dim=3)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        q = cast(jax.Array, net.apply(params, jnp.ones((10, 4))))
+        q = net.apply(params, jnp.ones((10, 4)))
         assert q.shape == (10, 3)
 
     def test_dueling_params_change_after_update(self):
@@ -95,7 +93,7 @@ class TestDuelingDQNGradient:
         targets = jax.random.normal(jax.random.key(2), (16, 2))
 
         def loss_fn(params):
-            q = cast(jax.Array, net.apply(params, obs))
+            q = net.apply(params, obs)
             return jnp.mean(jnp.square(q - targets))
 
         loss, grads = jax.value_and_grad(loss_fn)(state.params)

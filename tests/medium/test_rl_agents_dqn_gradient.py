@@ -1,7 +1,5 @@
 """Medium tests for rl_agents.dqn — gradient flow and JIT compilation."""
 
-from typing import cast
-
 import jax
 import jax.numpy as jnp
 import optax
@@ -28,9 +26,9 @@ class TestDQNGradientFlow:
         target_params = params
 
         def loss_fn(params):
-            q_values = cast(jax.Array, net.apply(params, obs))
+            q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q = cast(jax.Array, net.apply(target_params, next_obs))
+            next_q = net.apply(target_params, next_obs)
             next_q_max = jnp.max(next_q, axis=-1)
             target = rewards + 0.99 * next_q_max * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
@@ -53,9 +51,9 @@ class TestDQNGradientFlow:
 
         @jax.jit
         def compute_loss(params, obs, actions, rewards, next_obs, dones):
-            q_values = cast(jax.Array, net.apply(params, obs))
+            q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q = cast(jax.Array, net.apply(params, next_obs))
+            next_q = net.apply(params, next_obs)
             next_q_max = jnp.max(next_q, axis=-1)
             target = rewards + 0.99 * next_q_max * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
@@ -80,9 +78,9 @@ class TestDQNGradientFlow:
 
         @jax.jit
         def compute_loss(params, obs, actions, rewards, next_obs, dones):
-            q_values = cast(jax.Array, net.apply(params, obs))
+            q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q = cast(jax.Array, net.apply(params, next_obs))
+            next_q = net.apply(params, next_obs)
             next_q_max = jnp.max(next_q, axis=-1)
             target = rewards + 0.99 * next_q_max * (1.0 - dones)
             return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))

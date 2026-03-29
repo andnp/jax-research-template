@@ -1,6 +1,6 @@
 """Medium tests for rl_components.buffers — JIT compilation and functional correctness."""
 
-from typing import cast
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -79,6 +79,15 @@ class TestReplayBufferNetworkShapes:
         import flax.linen as nn
 
         class SimpleNet(nn.Module):
+            if TYPE_CHECKING:
+                def apply(
+                    self,
+                    variables: object,
+                    x: jax.Array,
+                    *,
+                    rngs: object | None = None,
+                ) -> jax.Array: ...
+
             @nn.compact
             def __call__(self, x):
                 return nn.Dense(2)(x)
@@ -99,5 +108,5 @@ class TestReplayBufferNetworkShapes:
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         key = jax.random.key(1)
         obs, _, _, _, _ = buf.sample(state, key, batch_size=3)
-        out = cast(jax.Array, net.apply(params, obs))
+        out = net.apply(params, obs)
         assert out.shape == (3, 2)

@@ -9,7 +9,7 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import flax.linen as nn
 import jax
@@ -73,6 +73,15 @@ class DuelingQNetwork(nn.Module):
 
     action_dim: int
 
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
+
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = nn.Dense(64, kernel_init=stable_orthogonal())(x)
@@ -130,7 +139,7 @@ def make_train(config: DuelingDQNConfig, env: object | None = None, env_params: 
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = cast(jax.Array, network.apply(train_state.params, last_obs))
+            q_values = network.apply(train_state.params, last_obs)
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
@@ -152,13 +161,13 @@ def make_train(config: DuelingDQNConfig, env: object | None = None, env_params: 
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = cast(jax.Array, network.apply(params, obs))
+                    q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
                     # Double DQN target with dueling architecture
-                    next_q_online = cast(jax.Array, network.apply(params, next_obs))
+                    next_q_online = network.apply(params, next_obs)
                     next_actions = jnp.argmax(next_q_online, axis=-1)
-                    next_q_target = cast(jax.Array, network.apply(target_params, next_obs))
+                    next_q_target = network.apply(target_params, next_obs)
                     next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
 
                     target = rewards + config.GAMMA * next_q_value * (1.0 - dones)

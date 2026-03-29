@@ -17,14 +17,14 @@ class TestNoisyLinearShapes:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)}))
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.shape == (8,)
 
     def test_output_shape_batched(self) -> None:
         model = NoisyLinear(features=16)
         x = jnp.ones((32, 4))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)}))
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.shape == (32, 16)
 
     def test_param_keys_present(self) -> None:
@@ -50,24 +50,24 @@ class TestNoisyLinearNoise:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y1 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(100)}))
-        y2 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(200)}))
+        y1 = model.apply(variables, x, rngs={"noise": jax.random.key(100)})
+        y2 = model.apply(variables, x, rngs={"noise": jax.random.key(200)})
         assert not jnp.allclose(y1, y2)
 
     def test_same_noise_key_produces_same_output(self) -> None:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y1 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(100)}))
-        y2 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(100)}))
+        y1 = model.apply(variables, x, rngs={"noise": jax.random.key(100)})
+        y2 = model.apply(variables, x, rngs={"noise": jax.random.key(100)})
         npt.assert_array_equal(y1, y2)
 
     def test_zero_sigma_recovers_standard_linear(self) -> None:
         model = NoisyLinear(features=8, sigma_init=0.0)
         x = jnp.ones((4,))
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y1 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(100)}))
-        y2 = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(200)}))
+        y1 = model.apply(variables, x, rngs={"noise": jax.random.key(100)})
+        y2 = model.apply(variables, x, rngs={"noise": jax.random.key(200)})
         npt.assert_allclose(y1, y2, atol=1e-6)
 
 
@@ -76,12 +76,12 @@ class TestNoisyLinearDtype:
         model = NoisyLinear(features=8)
         x = jnp.ones((4,), dtype=jnp.float32)
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)}))
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.dtype == jnp.float32
 
     def test_bfloat16_output(self) -> None:
         model = NoisyLinear(features=8, dtype=jnp.bfloat16)
         x = jnp.ones((4,), dtype=jnp.bfloat16)
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
-        y = cast(jax.Array, model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)}))
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.dtype == jnp.bfloat16

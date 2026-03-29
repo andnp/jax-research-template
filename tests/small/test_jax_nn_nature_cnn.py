@@ -18,14 +18,14 @@ class TestNatureCNNShapes:
         model = NatureCNN()
         x = jnp.zeros((84, 84, 4), dtype=jnp.uint8)
         variables = model.init(jax.random.key(SEED), x)
-        y = cast(jax.Array, model.apply(variables, x))
+        y = model.apply(variables, x)
         assert y.shape == (3136,)
 
     def test_output_shape_batched(self) -> None:
         model = NatureCNN()
         x = jnp.zeros((2, 84, 84, 4), dtype=jnp.uint8)
         variables = model.init(jax.random.key(SEED), x)
-        y = cast(jax.Array, model.apply(variables, x))
+        y = model.apply(variables, x)
         assert y.shape == (2, 3136)
 
 
@@ -62,8 +62,8 @@ class TestNatureCNNContracts:
             layer_params["bias"] = jnp.zeros_like(layer_params["bias"])
 
         scaled_variables = freeze({"params": params})
-        y_zero = cast(jax.Array, model.apply(scaled_variables, x_zero))
-        y_full = cast(jax.Array, model.apply(scaled_variables, jnp.full((84, 84, 4), 255, dtype=jnp.uint8)))
+        y_zero = model.apply(scaled_variables, x_zero)
+        y_full = model.apply(scaled_variables, jnp.full((84, 84, 4), 255, dtype=jnp.uint8))
 
         assert jnp.allclose(y_zero, 0.0)
         assert jnp.all(y_full > 0.0)
