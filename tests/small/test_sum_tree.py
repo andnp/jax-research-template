@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import jax  # type: ignore[import-untyped]
 import jax.numpy as jnp  # type: ignore[import-untyped]
-from jax_replay.sum_tree import tree_init, tree_sample, tree_sample_batch, tree_update
+from jax_replay.sum_tree import _tree_find, tree_init, tree_sample, tree_sample_batch, tree_update
 
 
 class TestTreeInit:
@@ -58,12 +58,29 @@ class TestTreeUpdate:
     def test_update_overwrites_and_propagates(self) -> None:
         tree = tree_init(4)
         tree = tree_update(tree, jnp.uint32(0), jnp.float32(5.0))
+        tree = tree_update(tree, jnp.uint32(1), jnp.float32(2.0))
         tree = tree_update(tree, jnp.uint32(0), jnp.float32(1.0))  # overwrite
         assert float(tree[4]) == 1.0
-        assert float(tree[1]) == 1.0  # root
+        assert float(tree[2]) == 3.0
+        assert float(tree[1]) == 3.0
 
 
 class TestTreeSample:
+    def test_exact_prefix_boundaries_select_expected_leaf(self) -> None:
+        tree = tree_init(4)
+        priorities = [1.0, 2.0, 3.0, 4.0]
+        for i, priority in enumerate(priorities):
+            tree = tree_update(tree, jnp.uint32(i), jnp.float32(priority))
+
+        assert int(_tree_find(tree, jnp.float32(0.0), 4)) == 0
+        assert int(_tree_find(tree, jnp.float32(0.999), 4)) == 0
+        assert int(_tree_find(tree, jnp.float32(1.0), 4)) == 1
+        assert int(_tree_find(tree, jnp.float32(2.999), 4)) == 1
+        assert int(_tree_find(tree, jnp.float32(3.0), 4)) == 2
+        assert int(_tree_find(tree, jnp.float32(5.999), 4)) == 2
+        assert int(_tree_find(tree, jnp.float32(6.0), 4)) == 3
+        assert int(_tree_find(tree, jnp.float32(9.999), 4)) == 3
+
     def test_returns_valid_index(self) -> None:
         tree = tree_init(4)
         tree = tree_update(tree, jnp.uint32(0), jnp.float32(1.0))
@@ -90,6 +107,14 @@ class TestTreeSample:
 
 
 class TestTreeSampleBatch:
+    def test_uniform_tree_stratification_covers_each_segment_once(self) -> None:
+        tree = tree_init(4)
+        for i in range(4):
+            tree = tree_update(tree, jnp.uint32(i), jnp.float32(1.0))
+
+        indices = tree_sample_batch(tree, jax.random.key(0), 4, batch_size=4)
+        assert jnp.array_equal(indices, jnp.arange(4, dtype=indices.dtype))
+
     def test_batch_size_matches(self) -> None:
         tree = tree_init(8)
         for i in range(8):

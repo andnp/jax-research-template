@@ -7,6 +7,7 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
+import pytest
 from jax_nn.layers import NoisyLinear
 
 SEED = 42
@@ -26,6 +27,13 @@ class TestNoisyLinearShapes:
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
         y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.shape == (32, 16)
+
+    def test_output_shape_with_multiple_leading_batch_dims(self) -> None:
+        model = NoisyLinear(features=6)
+        x = jnp.ones((2, 3, 4))
+        variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
+        assert y.shape == (2, 3, 6)
 
     def test_param_keys_present(self) -> None:
         model = NoisyLinear(features=8)
@@ -85,3 +93,25 @@ class TestNoisyLinearDtype:
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
         y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
         assert y.dtype == jnp.bfloat16
+
+    def test_output_dtype_follows_module_dtype_for_float32_inputs(self) -> None:
+        model = NoisyLinear(features=8, dtype=jnp.bfloat16)
+        x = jnp.ones((4,), dtype=jnp.float32)
+        variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
+        y = model.apply(variables, x, rngs={"noise": jax.random.key(SEED + 2)})
+        assert y.dtype == jnp.bfloat16
+
+
+class TestNoisyLinearValidation:
+    def test_scalar_input_raises_value_error(self) -> None:
+        model = NoisyLinear(features=8)
+
+        with pytest.raises(ValueError, match="expects inputs with shape"):
+            model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, jnp.asarray(1.0))
+
+    def test_zero_width_input_raises_value_error(self) -> None:
+        model = NoisyLinear(features=8)
+        x = jnp.ones((3, 0), dtype=jnp.float32)
+
+        with pytest.raises(ValueError, match="positive in_features"):
+            model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
