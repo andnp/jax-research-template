@@ -1,6 +1,7 @@
 """Medium tests for rl_agents.sac — gradient flow and JIT compilation."""
 
 from dataclasses import dataclass
+from typing import cast
 
 import jax
 import jax.numpy as jnp
@@ -103,7 +104,7 @@ class TestSACGradientFlow:
         targets = jax.random.normal(jax.random.key(3), (16,))
 
         def loss_fn(params):
-            q = critic.apply(params, obs, actions)
+            q = cast(jax.Array, critic.apply(params, obs, actions))
             return jnp.mean(jnp.square(q - targets))
 
         grad_fn = jax.value_and_grad(loss_fn)

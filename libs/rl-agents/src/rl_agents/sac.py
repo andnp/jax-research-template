@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import optax
 from chex import dataclass
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from rl_components.buffers import ReplayBuffer
 
 
@@ -47,16 +48,6 @@ class SACConfig:
 
 
 class Critic(nn.Module):
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            a: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
-
     @nn.compact
     def __call__(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
         x = jnp.concatenate([x, a], axis=-1)
@@ -71,15 +62,6 @@ class Critic(nn.Module):
 class Actor(nn.Module):
     action_dim: int
 
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> tuple[jax.Array, jax.Array]: ...
-
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         x = nn.Dense(256)(x)
@@ -92,7 +74,7 @@ class Actor(nn.Module):
         return mean, log_std
 
     def sample(self, params, x, rng):
-        mean, log_std = self.apply(params, x)
+        mean, log_std = _actor_apply(self, params, x)
         std = jnp.exp(log_std)
         normal = distrax.Normal(mean, std)
         x_t = normal.sample(seed=rng)
@@ -128,6 +110,14 @@ class _EnvLike(Protocol):
         action: jax.Array,
         params: object | None = None,
     ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
+
+
+def _critic_apply(module: Critic, variables: VariableDict, x: jax.Array, a: jax.Array) -> jax.Array:
+    return cast(jax.Array, module.apply(variables, x, a))
+
+
+def _actor_apply(module: Actor, variables: VariableDict, x: jax.Array) -> tuple[jax.Array, jax.Array]:
+    return cast(tuple[jax.Array, jax.Array], module.apply(variables, x))
 
 
 def _resolve_env(
@@ -238,12 +228,14 @@ def make_train(config: SACConfig, env: object | None = None, env_params: object 
                     )
 
                     # Twin Q targets
-                    next_q_values = jax.vmap(critic.apply, in_axes=(0, None, None))(critic_target_params, next_obs, next_actions)
+                    next_q_values = jax.vmap(lambda params, obs, action: _critic_apply(critic, params, obs, action), in_axes=(0, None, None))(
+                        critic_target_params, next_obs, next_actions
+                    )
                     next_q_min = jnp.min(next_q_values, axis=0)
                     target_q = rewards + config.GAMMA * (1.0 - dones) * (next_q_min - alpha * next_log_probs)
 
                     def _single_critic_loss(params):
-                        q = critic.apply(params, obs, actions)
+                        q = _critic_apply(critic, params, obs, actions)
                         return jnp.mean(jnp.square(q - jax.lax.stop_gradient(target_q)))
 
                     loss = jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
@@ -262,7 +254,9 @@ def make_train(config: SACConfig, env: object | None = None, env_params: object 
                         actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE)
                     )
 
-                    q_values = jax.vmap(critic.apply, in_axes=(0, None, None))(critic_params, obs, new_actions)
+                    q_values = jax.vmap(lambda params, obs_value, action: _critic_apply(critic, params, obs_value, action), in_axes=(0, None, None))(
+                        critic_params, obs, new_actions
+                    )
                     q_min = jnp.min(q_values, axis=0)
 
                     loss = jnp.mean(alpha * log_probs - q_min)
