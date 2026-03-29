@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774811395514,
+  "lastUpdate": 1774825921808,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -755,6 +755,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000011485694183339566",
             "extra": "mean: 40.97999999999047 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "891f7099636b0afba0d4f6f6f9ec0cb7ff030915",
+          "message": "feat(rainbow): add missing baseline components (#49)\n\nCloses #14\n\n## Summary\n- normalize PER importance-sampling weights against the global minimum\npopulated sampling probability\n- harden `NoisyLinear` input dtype and shape handling while keeping\nfactorized-noise behavior unchanged\n- add reusable C51 distributional helpers and a categorical value head\nin `jax-nn`\n\n## Verification\n- `uv run ruff check libs/jax-replay/src/jax_replay/per.py\nlibs/jax-nn/src/jax_nn/layers.py\nlibs/jax-nn/src/jax_nn/distributional.py tests/small/test_sum_tree.py\ntests/small/test_per_buffer.py tests/medium/test_per_jit.py\ntests/small/test_jax_nn_noisy_linear.py\ntests/medium/test_jax_nn_noisy_linear_jit.py\ntests/small/test_jax_nn_c51.py tests/medium/test_jax_nn_c51_jit.py\ntests/small/test_jax_nn_public_api.py`\n- `uv run pyright libs/jax-replay/src/jax_replay/per.py\nlibs/jax-nn/src/jax_nn/layers.py\nlibs/jax-nn/src/jax_nn/distributional.py tests/small/test_sum_tree.py\ntests/small/test_per_buffer.py tests/medium/test_per_jit.py\ntests/small/test_jax_nn_noisy_linear.py\ntests/medium/test_jax_nn_noisy_linear_jit.py\ntests/small/test_jax_nn_c51.py tests/medium/test_jax_nn_c51_jit.py\ntests/small/test_jax_nn_public_api.py`\n- `uv run pytest tests/small/test_sum_tree.py\ntests/small/test_per_buffer.py tests/medium/test_per_jit.py\ntests/small/test_jax_nn_noisy_linear.py\ntests/medium/test_jax_nn_noisy_linear_jit.py\ntests/small/test_jax_nn_c51.py tests/medium/test_jax_nn_c51_jit.py\ntests/small/test_jax_nn_public_api.py -q`",
+          "timestamp": "2026-03-29T17:07:07-06:00",
+          "tree_id": "7ec5240f2d05ad32dad822b5b4959de244a48d59",
+          "url": "https://github.com/andnp/jax-research-template/commit/891f7099636b0afba0d4f6f6f9ec0cb7ff030915"
+        },
+        "date": 1774825921423,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 4.480936393824749,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018919617465291121",
+            "extra": "mean: 223.16764000000452 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9083936786798819,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017756764557268285",
+            "extra": "mean: 1.1008442963333305 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.048342499989113615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15621417434950194",
+            "extra": "mean: 20.685732021000007 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.3143402896857668,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01787297910137192",
+            "extra": "mean: 3.1812657582000043 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 23029.482341253653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019291521784441618",
+            "extra": "mean: 43.422600003850675 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 35.09193230019408,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003096692840809594",
+            "extra": "mean: 28.49657840000077 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 3.3845592849377275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0025593809387366136",
+            "extra": "mean: 295.4594426666688 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 3685.191304549121,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000027759719855941586",
+            "extra": "mean: 271.35633332401693 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 51.27990453872003,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005306817537432277",
+            "extra": "mean: 19.50081633332464 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 223.07721936904673,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007987254841055274",
+            "extra": "mean: 4.482752666670346 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 43.59528578017894,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00047794502393070786",
+            "extra": "mean: 22.938259999998916 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 38368.56847503797,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012839632574500151",
+            "extra": "mean: 26.06299999570183 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 42980.065837166374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012028082494733145",
+            "extra": "mean: 23.2666000044901 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 27031.410504280037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001630657779391707",
+            "extra": "mean: 36.99399999277375 usec\nrounds: 5"
           }
         ]
       }
