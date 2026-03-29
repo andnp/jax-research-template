@@ -6,7 +6,13 @@ from pathlib import Path
 
 import typer
 
+from research_cli.config import ResearchConfigError, load_research_config
+
 workspace_app = typer.Typer(help="Manage research shell workspaces.")
+
+
+class WorkspaceRepairError(ValueError):
+    """Raised when ``workspace repair`` cannot resolve a workspace target."""
 
 
 def _load_template(filename: str) -> str:
@@ -49,6 +55,38 @@ def _write(path: Path, content: str, dry_run: bool) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
+
+
+def _find_workspace_root(start_path: Path) -> Path | None:
+    resolved_start_path = start_path.resolve()
+    for candidate in (resolved_start_path, *resolved_start_path.parents):
+        if (candidate / "pyproject.toml").is_file() and (candidate / "projects").is_dir():
+            return candidate
+
+    for candidate in (resolved_start_path, *resolved_start_path.parents):
+        if (candidate / "research.yaml").exists():
+            return candidate
+
+    return None
+
+
+def _resolve_repair_target(start_path: Path) -> Path:
+    workspace_root = _find_workspace_root(start_path)
+    if workspace_root is None:
+        raise WorkspaceRepairError(
+            f"Could not find a research workspace from '{start_path.resolve()}'. "
+            "Run this command from a workspace root or a directory inside a workspace containing research.yaml.",
+        )
+
+    config_path = workspace_root / "research.yaml"
+    config = load_research_config(config_path)
+    resolved_core_path = (config.core_path if config.core_path.is_absolute() else workspace_root / config.core_path).resolve(strict=False)
+    if not resolved_core_path.exists():
+        raise WorkspaceRepairError(
+            f"Configured core_path '{config.core_path}' resolves to '{resolved_core_path}', which does not exist. "
+            "Update research.yaml or create the Core checkout at that location.",
+        )
+    return resolved_core_path
 
 
 @workspace_app.command()
@@ -112,3 +150,28 @@ def init(
     typer.echo(f"{'[dry-run] ' if dry_run else ''}✓ Workspace '{name}' ready.")
     if not core_url:
         typer.echo("  Tip: add research-core with `git submodule add <url> core` then run `uv sync`.")
+
+
+@workspace_app.command()
+def repair(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the resolved Core repair target without mutating the workspace."),
+) -> None:
+    """Resolve and preview the configured Core checkout repair target."""
+    try:
+        repair_target = _resolve_repair_target(Path.cwd())
+    except (ResearchConfigError, WorkspaceRepairError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if dry_run:
+        typer.echo(f"[dry-run] Would repair configured Core checkout at '{repair_target}'.")
+        return
+
+    typer.echo(
+        (
+            "Error: workspace repair is not implemented yet. "
+            f"Validated repair target: '{repair_target}'. Re-run with --dry-run for a non-mutating preview."
+        ),
+        err=True,
+    )
+    raise typer.Exit(code=1)
