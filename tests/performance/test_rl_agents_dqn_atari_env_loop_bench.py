@@ -13,7 +13,12 @@ import pytest
 from flax.training.train_state import TrainState
 from jax_nn.heads import epsilon_greedy_action
 from rl_agents.dqn import NatureQNetwork
-from rl_agents.dqn_atari import DQNAtariConfig, build_dqn_zoo_atari_rmsprop, make_train
+from rl_agents.dqn_atari import (
+    DQNAtariConfig,
+    dqn_atari_runtime_from_dqn_zoo,
+    initialize_train_state,
+    make_train,
+)
 from rl_components.atari import JAXAtariConfig, make_atari_adapter
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
@@ -232,16 +237,20 @@ def _make_policy_rollout(env: _EnvLike) -> Callable[[jax.Array, jax.Array, jax.A
 
 
 def _make_fake_micro_train() -> Callable[[jax.Array], object]:
+    config = DQNAtariConfig(
+        REPLAY_CAPACITY=16,
+        MIN_REPLAY_CAPACITY_FRACTION=0.25,
+        BATCH_SIZE=4,
+        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+        LEARN_PERIOD_FRAMES=4,
+        EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+    )
     return make_train(
-        DQNAtariConfig(
-            REPLAY_CAPACITY=16,
-            MIN_REPLAY_CAPACITY_FRACTION=0.25,
-            BATCH_SIZE=4,
-            TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
-            LEARN_PERIOD_FRAMES=4,
-            NUM_ITERATIONS=1,
-            NUM_TRAIN_FRAMES_PER_ITERATION=64,
-            EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+        config,
+        dqn_atari_runtime_from_dqn_zoo(
+            config,
+            num_iterations=1,
+            num_train_frames_per_iteration=64,
         ),
         env=_make_fake_env(),
     )
@@ -287,30 +296,11 @@ def _make_fake_learner_benchmark_fixture() -> _LearnerBenchmarkFixture:
         BATCH_SIZE=LEARNER_BATCH_SIZE,
         TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
         LEARN_PERIOD_FRAMES=4,
-        NUM_ITERATIONS=1,
-        NUM_TRAIN_FRAMES_PER_ITERATION=64,
         EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
     )
     env = _make_fake_env()
-    observation_space = env.observation_space(None)
-    network = NatureQNetwork(
-        action_dim=env.action_space(None).n,
-        observation_layout=_infer_observation_layout(tuple(observation_space.shape)),
-    )
-    params = network.init(jax.random.key(13), jnp.zeros(tuple(observation_space.shape), dtype=observation_space.dtype))
-    train_state = TrainState.create(
-        apply_fn=network.apply,
-        params=params,
-        tx=build_dqn_zoo_atari_rmsprop(config),
-    )
-    target_params = params
-    buffer = ReplayBuffer(
-        config.REPLAY_CAPACITY,
-        tuple(observation_space.shape),
-        (),
-        jnp.int32,
-        observation_space.dtype,
-    )
+    network, buffer, runner_state = initialize_train_state(config, env, jax.random.key(13), None)
+    train_state, target_params, _buffer_state, _env_state, _last_obs, _rng = runner_state
     buffer_state = _make_fake_replay_buffer_state(config.REPLAY_CAPACITY)
     batch = cast(_ReplayBatch, buffer.sample(buffer_state, REPLAY_SAMPLE_KEY, config.BATCH_SIZE))
 

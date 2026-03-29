@@ -2,7 +2,12 @@ import time
 from typing import cast
 
 import jax
-from rl_agents.dqn_atari import DQNAtariConfig, dqn_zoo_atari_total_train_env_steps, make_train
+from rl_agents.dqn_atari import (
+    DQNAtariConfig,
+    dqn_atari_runtime_from_dqn_zoo,
+    dqn_zoo_atari_total_train_env_steps,
+    make_train,
+)
 from rl_components.atari import JAXAtariConfig, make_atari_adapter
 from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
@@ -14,13 +19,16 @@ def main():
         MIN_REPLAY_CAPACITY_FRACTION=0.2,
         BATCH_SIZE=32,
         TARGET_NETWORK_UPDATE_PERIOD_FRAMES=4_000,
-        NUM_ITERATIONS=1,
-        NUM_TRAIN_FRAMES_PER_ITERATION=20_000,
         LEARNING_RATE=1e-4,
-        SEED=42,
+    )
+    runtime_config = dqn_atari_runtime_from_dqn_zoo(
+        config,
+        num_iterations=1,
+        num_train_frames_per_iteration=20_000,
+        seed=42,
     )
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.key(runtime_config.SEED)
     env = make_gymnax_compat_env(
         cast(
             EnvProtocol[jax.Array, object, jax.Array, None],
@@ -32,7 +40,7 @@ def main():
             ),
         )
     )
-    train_fn = make_train(config, env=env, env_params=None)
+    train_fn = make_train(config, runtime_config, env=env, env_params=None)
     train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on JAXAtari Pong ---")
@@ -46,7 +54,7 @@ def main():
     completed_mask = metrics["returned_episode"].astype(bool)
     returns = metrics["returned_episode_returns"]
     completed_returns = returns[completed_mask]
-    env_steps = dqn_zoo_atari_total_train_env_steps(config)
+    env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
     sps = env_steps / elapsed
 
     print(f"Elapsed Time:         {elapsed:.2f}s")

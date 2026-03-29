@@ -6,7 +6,9 @@ import optax
 import pytest
 from rl_agents.dqn_atari import (
     DQNAtariConfig,
+    DQNAtariRuntimeConfig,
     build_dqn_zoo_atari_rmsprop,
+    dqn_atari_runtime_from_dqn_zoo,
     dqn_zoo_atari_exploration_decay_env_steps,
     dqn_zoo_atari_exploration_epsilon,
     dqn_zoo_atari_frames_to_env_steps,
@@ -64,7 +66,7 @@ class _ToyAtariEnv:
 
 
 class TestDQNAtariConfig:
-    def test_defaults_match_dqn_zoo_atari_baseline(self):
+    def test_defaults_keep_learner_fields_only(self):
         config = DQNAtariConfig()
 
         assert config.REPLAY_CAPACITY == 1_000_000
@@ -80,11 +82,22 @@ class TestDQNAtariConfig:
         assert config.EXPLORATION_EPSILON_BEGIN == 1.0
         assert config.EXPLORATION_EPSILON_END == 0.1
         assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
-        assert config.NUM_ITERATIONS == 200
-        assert config.NUM_TRAIN_FRAMES_PER_ITERATION == 1_000_000
-        assert config.EVAL_EXPLORATION_EPSILON == 0.05
         assert config.ADDITIONAL_DISCOUNT == 0.99
-        assert config.SEED == 42
+
+    def test_runtime_defaults_preserve_previous_training_budget(self):
+        runtime_config = DQNAtariRuntimeConfig()
+
+        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
+        assert runtime_config.SEED == 42
+        assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
+
+    def test_runtime_helper_preserves_dqn_zoo_baseline(self):
+        config = DQNAtariConfig()
+        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
+
+        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
+        assert runtime_config.SEED == 42
+        assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
 
     def test_rmsprop_builder_uses_exact_deepmind_settings(self):
         transform = build_dqn_zoo_atari_rmsprop(DQNAtariConfig())
@@ -95,13 +108,14 @@ class TestDQNAtariConfig:
 class TestDQNAtariEnvStepConversions:
     def test_frame_counted_periods_convert_to_env_steps(self):
         config = DQNAtariConfig()
+        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
 
         assert dqn_zoo_atari_frames_to_env_steps(16, 4) == 4
         assert dqn_zoo_atari_learn_period_env_steps(config) == 4
         assert dqn_zoo_atari_target_update_period_env_steps(config) == 10_000
-        assert dqn_zoo_atari_total_train_frames(config) == 200_000_000
-        assert dqn_zoo_atari_total_train_env_steps(config) == 50_000_000
-        assert dqn_zoo_atari_exploration_decay_env_steps(config) == 1_000_000
+        assert dqn_zoo_atari_total_train_frames(config, runtime_config) == 200_000_000
+        assert dqn_zoo_atari_total_train_env_steps(runtime_config) == 50_000_000
+        assert dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config) == 1_000_000
 
     def test_frames_to_env_steps_requires_exact_division(self):
         with pytest.raises(ValueError, match="divide evenly"):
@@ -114,20 +128,22 @@ class TestDQNAtariEnvStepConversions:
 class TestDQNAtariExplorationSchedule:
     def test_epsilon_stays_at_begin_during_replay_warmup(self):
         config = DQNAtariConfig()
+        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
         warmup_last_step = dqn_zoo_atari_min_replay_capacity(config)
 
-        assert dqn_zoo_atari_exploration_epsilon(0, config) == 1.0
-        assert dqn_zoo_atari_exploration_epsilon(warmup_last_step, config) == 1.0
+        assert dqn_zoo_atari_exploration_epsilon(0, config, runtime_config) == 1.0
+        assert dqn_zoo_atari_exploration_epsilon(warmup_last_step, config, runtime_config) == 1.0
 
     def test_epsilon_decays_linearly_after_warmup_and_clamps_at_end(self):
         config = DQNAtariConfig()
+        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
         warmup = dqn_zoo_atari_min_replay_capacity(config)
-        decay = dqn_zoo_atari_exploration_decay_env_steps(config)
+        decay = dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config)
 
         midpoint = warmup + decay // 2
-        assert math.isclose(dqn_zoo_atari_exploration_epsilon(midpoint, config), 0.55)
-        assert dqn_zoo_atari_exploration_epsilon(warmup + decay, config) == 0.1
-        assert dqn_zoo_atari_exploration_epsilon(warmup + decay + 123, config) == 0.1
+        assert math.isclose(dqn_zoo_atari_exploration_epsilon(midpoint, config, runtime_config), 0.55)
+        assert dqn_zoo_atari_exploration_epsilon(warmup + decay, config, runtime_config) == 0.1
+        assert dqn_zoo_atari_exploration_epsilon(warmup + decay + 123, config, runtime_config) == 0.1
 
 
 class TestDQNAtariLearnGating:
@@ -143,7 +159,7 @@ class TestDQNAtariLearnGating:
 
 class TestDQNAtariTrainPath:
     def test_make_train_requires_explicit_env(self):
-        config_only_args = [DQNAtariConfig()]
+        config_only_args = [DQNAtariConfig(), DQNAtariRuntimeConfig()]
 
         with pytest.raises(TypeError):
             make_train(*config_only_args)
@@ -155,16 +171,19 @@ class TestDQNAtariTrainPath:
             BATCH_SIZE=4,
             LEARN_PERIOD_FRAMES=4,
             TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
-            NUM_ITERATIONS=1,
-            NUM_TRAIN_FRAMES_PER_ITERATION=32,
+        )
+        runtime_config = dqn_atari_runtime_from_dqn_zoo(
+            config,
+            num_iterations=1,
+            num_train_frames_per_iteration=32,
         )
 
-        out = jax.jit(make_train(config, env=_ToyAtariEnv(), env_params=None))(jax.random.key(0))
+        out = jax.jit(make_train(config, runtime_config, env=_ToyAtariEnv(), env_params=None))(jax.random.key(0))
 
         metrics = out["metrics"]
         runner_state = out["runner_state"]
         buffer_state = runner_state[2]
-        total_env_steps = dqn_zoo_atari_total_train_env_steps(config)
+        total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
         assert metrics["returned_episode"].shape == (total_env_steps,)
         assert metrics["returned_episode_returns"].shape == (total_env_steps,)
         assert metrics["epsilon"].shape == (total_env_steps,)
