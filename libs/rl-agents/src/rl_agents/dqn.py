@@ -91,6 +91,14 @@ class _EnvLike(Protocol):
     ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
+class _HasEnvName(Protocol):
+    ENV_NAME: str
+
+
+class _HasNetworkPreset(Protocol):
+    NETWORK_PRESET: Literal["mlp", "nature_cnn"]
+
+
 class NatureQNetwork(nn.Module):
     action_dim: int
     observation_layout: Literal["hwc", "fhwc"]
@@ -149,7 +157,7 @@ def _infer_nature_observation_layout(observation_shape: tuple[int, ...]) -> Lite
 
 
 def _resolve_env(
-    config: DQNConfig,
+    config: _HasEnvName,
     env: object | None,
     env_params: object | None,
 ) -> tuple[_EnvLike, object | None]:
@@ -160,7 +168,7 @@ def _resolve_env(
     return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
 
 
-def _make_q_network(config: DQNConfig, action_dim: int, observation_shape: tuple[int, ...] | None = None):
+def _make_q_network(config: _HasNetworkPreset, action_dim: int, observation_shape: tuple[int, ...] | None = None):
     if config.NETWORK_PRESET == "mlp":
         return QNetwork(action_dim)
     if config.NETWORK_PRESET == "nature_cnn":

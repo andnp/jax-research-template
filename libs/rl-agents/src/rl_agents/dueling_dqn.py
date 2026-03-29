@@ -9,11 +9,9 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import flax.linen as nn
-import gymnax
-import gymnax.wrappers
 import jax
 import jax.numpy as jnp
 import optax
@@ -22,6 +20,8 @@ from flax.training.train_state import TrainState
 from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from rl_components.buffers import ReplayBuffer
+
+from rl_agents.dqn import _resolve_env
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,7 @@ class DuelingDQNConfig:
     EPSILON_FRACTION: float = 0.5
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
+    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
 
     if TYPE_CHECKING:
         def __init__(
@@ -59,6 +60,7 @@ class DuelingDQNConfig:
             EPSILON_FRACTION: float = 0.5,
             ENV_NAME: str = "MountainCar-v0",
             SEED: int = 42,
+            NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp",
         ) -> None: ...
 
 
@@ -71,15 +73,6 @@ class DuelingQNetwork(nn.Module):
 
     action_dim: int
 
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
-
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = nn.Dense(64, kernel_init=stable_orthogonal())(x)
@@ -90,14 +83,25 @@ class DuelingQNetwork(nn.Module):
         return x
 
 
-def make_train(config: DuelingDQNConfig):
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
+def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> DuelingQNetwork:
+    if config.NETWORK_PRESET == "mlp":
+        return DuelingQNetwork(action_dim)
+    if config.NETWORK_PRESET == "nature_cnn":
+        raise ValueError(
+            "NETWORK_PRESET='nature_cnn' is not yet supported in rl_agents.dueling_dqn because the dueling Nature architecture has not been specified."
+        )
+    raise ValueError(
+        f"Invalid NETWORK_PRESET {config.NETWORK_PRESET!r}. Expected one of: 'mlp', 'nature_cnn'."
+    )
+
+
+def make_train(config: DuelingDQNConfig, env: object | None = None, env_params: object | None = None):
+    env, env_params = _resolve_env(config, env, env_params)
 
     def train(rng):
-        network = DuelingQNetwork(env.action_space(env_params).n)
+        network = _make_dueling_q_network(config, env.action_space(env_params).n)
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).shape)
+        init_x = jnp.zeros(env.observation_space(env_params).shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)
         target_params = params
 
@@ -113,7 +117,7 @@ def make_train(config: DuelingDQNConfig):
         buffer_state = buffer.init()
 
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]
+        obsv, env_state = env.reset(_rng, env_params)
 
         def _update_step(runner_state, t):
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
@@ -126,13 +130,13 @@ def make_train(config: DuelingDQNConfig):
             )
 
             rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = network.apply(train_state.params, last_obs)
+            q_values = cast(jax.Array, network.apply(train_state.params, last_obs))
             greedy_action = jnp.argmax(q_values)
             random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
             chose_random = jax.random.uniform(_rng_action, ()) < epsilon
             action = jnp.where(chose_random, random_action, greedy_action)
 
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
 
             buffer_state = buffer.add(
                 buffer_state,
@@ -148,13 +152,13 @@ def make_train(config: DuelingDQNConfig):
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
-                    q_values = network.apply(params, obs)
+                    q_values = cast(jax.Array, network.apply(params, obs))
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
                     # Double DQN target with dueling architecture
-                    next_q_online = network.apply(params, next_obs)
+                    next_q_online = cast(jax.Array, network.apply(params, next_obs))
                     next_actions = jnp.argmax(next_q_online, axis=-1)
-                    next_q_target = network.apply(target_params, next_obs)
+                    next_q_target = cast(jax.Array, network.apply(target_params, next_obs))
                     next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
 
                     target = rewards + config.GAMMA * next_q_value * (1.0 - dones)
