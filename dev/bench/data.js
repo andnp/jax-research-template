@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774807159476,
+  "lastUpdate": 1774811375015,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -511,6 +511,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000014179931351600308",
             "extra": "mean: 44.664799997917726 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c16f3128943661a625a60b8a75f86309ff4bc184",
+          "message": "feat(rl-agents): scaffold atari dqn baseline (#41)\n\n## Summary\n- add an Atari-specific `rl_agents.dqn_atari` scaffold with DQN\nZoo-style scheduler and optimizer helpers plus a runnable Pong probe\npath\n- add focused smoke/small coverage for the Atari-specific trainer and\nreal JAXAtari Pong path\n- add performance benchmarks that split env-loop, train-update, and\nlearner subphase costs\n- reduce Atari replay storage pressure by storing replay observations as\n`uint8`\n\n## Verification\n- `uv run pytest tests/small/test_rl_agents_dqn_atari.py -q`\n- `JAXATARI_CONFIRM_OWNERSHIP=1 JAXATARI_RUN_SMOKE=1 uv run pytest\ntests/regression/test_rl_agents_dqn_atari_real_smoke.py -q`\n- `JAXATARI_CONFIRM_OWNERSHIP=1 uv run python\nexamples/train_dqn_atari.py`\n- `uv run pytest\ntests/performance/test_rl_agents_dqn_atari_env_loop_bench.py -k fake\n--benchmark-only -q`\n- `JAXATARI_BENCHMARKS=1 uv run pytest\ntests/performance/test_rl_agents_dqn_atari_env_loop_bench.py -k\nreal_pong_env_only_rollout_speed --benchmark-only`\n- `JAXATARI_BENCHMARKS=1 uv run pytest\ntests/performance/test_rl_agents_dqn_atari_env_loop_bench.py -k\nreal_pong_policy_and_env_rollout_speed --benchmark-only`\n- `uv run pytest\ntests/performance/test_rl_agents_dqn_atari_env_loop_bench.py -k\n'fake_replay_sampling_only_speed or fake_loss_and_grad_fixed_batch_speed\nor fake_optimizer_apply_fixed_grads_speed or fake_full_learn_step_speed'\n--benchmark-only -q`\n\n## Notes\n- Short Pong probe showed weak but real signs of life (`max completed\nreturn = -19.00` in a quick run).\n- Benchmark investigation indicates the remaining dominant cost is\nlearner forward/backward compute rather than env stepping or replay\nsampling.\n- Closes #12.",
+          "timestamp": "2026-03-29T13:04:39-06:00",
+          "tree_id": "0b312c88d7347e7c7228b059322752dd8fb36522",
+          "url": "https://github.com/andnp/jax-research-template/commit/c16f3128943661a625a60b8a75f86309ff4bc184"
+        },
+        "date": 1774811374763,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.817766763892073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010792329323046764",
+            "extra": "mean: 171.8872619999985 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9965051385592949,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004650522420254829",
+            "extra": "mean: 1.0035071183333362 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.041400999188204404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0036103493389258497",
+            "extra": "mean: 24.154006415500014 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.42374179093895314,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00816475768060281",
+            "extra": "mean: 2.359927723399994 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 16930.156332031976,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001666829842054833",
+            "extra": "mean: 59.06620000359908 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 45.43201200263979,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001161287369935652",
+            "extra": "mean: 22.010911599994643 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.8044576926069604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004026096820536142",
+            "extra": "mean: 356.57517766667485 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 3758.390607099107,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000072879631050610675",
+            "extra": "mean: 266.0713333284548 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 48.801854288253665,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006176646549449871",
+            "extra": "mean: 20.49102466667326 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 338.8427661130073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003004401905490156",
+            "extra": "mean: 2.951221333338102 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 46.617712474447316,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000649241839401245",
+            "extra": "mean: 21.451073999998016 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 30397.539014063263,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013754062414892715",
+            "extra": "mean: 32.897400001274946 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 26258.573427840078,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00002924685788369978",
+            "extra": "mean: 38.08279999475417 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 21970.00655005989,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000010989771458241274",
+            "extra": "mean: 45.51659999378899 usec\nrounds: 5"
           }
         ]
       }
