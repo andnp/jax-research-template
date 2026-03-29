@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import flax.linen as nn
 import gymnax
@@ -66,6 +66,31 @@ class QNetwork(nn.Module):
         return x
 
 
+class _ObservationSpace(Protocol):
+    shape: tuple[int, ...]
+    dtype: jnp.dtype
+
+
+class _ActionSpace(Protocol):
+    n: int
+
+
+class _EnvLike(Protocol):
+    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
+
+    def action_space(self, params: object | None = None) -> _ActionSpace: ...
+
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
+
+    def step(
+        self,
+        key: jax.Array,
+        state: object,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
+
+
 class NatureQNetwork(nn.Module):
     action_dim: int
     observation_layout: Literal["hwc", "fhwc"]
@@ -123,6 +148,18 @@ def _infer_nature_observation_layout(observation_shape: tuple[int, ...]) -> Lite
     )
 
 
+def _resolve_env(
+    config: DQNConfig,
+    env: object | None,
+    env_params: object | None,
+) -> tuple[_EnvLike, object | None]:
+    if env is not None:
+        return cast(_EnvLike, env), env_params
+
+    resolved_env, resolved_env_params = gymnax.make(config.ENV_NAME)
+    return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
+
+
 def _make_q_network(config: DQNConfig, action_dim: int, observation_shape: tuple[int, ...] | None = None):
     if config.NETWORK_PRESET == "mlp":
         return QNetwork(action_dim)
@@ -138,9 +175,8 @@ def _make_q_network(config: DQNConfig, action_dim: int, observation_shape: tuple
     )
 
 
-def make_train(config: DQNConfig):
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
+def make_train(config: DQNConfig, env: object | None = None, env_params: object | None = None):
+    env, env_params = _resolve_env(config, env, env_params)
 
     def train(rng):
         # INIT NETWORK
@@ -170,7 +206,7 @@ def make_train(config: DQNConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+        obsv, env_state = env.reset(_rng, env_params)  # gymnax JitWrapped
 
         def _update_step(runner_state, t):
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
@@ -191,7 +227,7 @@ def make_train(config: DQNConfig):
             action = jnp.where(chose_random, random_action, greedy_action)
 
             # STEP ENV
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # gymnax JitWrapped
 
             # ADD TO BUFFER
             # ReplayBuffer.add expects vectorized inputs, let's update it or wrap it
