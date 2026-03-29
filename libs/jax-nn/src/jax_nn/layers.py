@@ -111,7 +111,14 @@ class NoisyLinear(nn.Module):
 
     @nn.compact
     def __call__(self, x: Array) -> Array:
+        if x.ndim < 1:
+            raise ValueError("NoisyLinear expects inputs with shape (..., in_features).")
+
         in_features = x.shape[-1]
+        if in_features < 1:
+            raise ValueError("NoisyLinear requires a positive in_features dimension.")
+
+        x = jnp.asarray(x, dtype=self.dtype)
         input_scale = 1.0 / jnp.sqrt(jnp.float32(in_features))
 
         mu_w = self.param(
