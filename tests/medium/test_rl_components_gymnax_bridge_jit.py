@@ -1,10 +1,14 @@
 """Medium tests for the canonical-to-Gymnax bridge under Gymnax wrappers."""
 
+from typing import cast
+
 import chex
 import gymnax.wrappers
 import jax
 import jax.numpy as jnp
-from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+import pytest
+from rl_components.brax import BraxConfig, make_brax_adapter
+from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 
 
@@ -63,3 +67,27 @@ class TestGymnaxCompatibilityBridgeJIT:
         assert float(info["returned_episode_returns"]) == 2.0
         assert int(info["returned_episode_lengths"]) == 1
         assert int(info["custom_metric"]) == 1
+
+    def test_real_brax_adapter_runs_through_bridge_under_jit(self):
+        pytest.importorskip("brax")
+
+        adapter = cast(EnvProtocol[jax.Array, object, jax.Array, None], make_brax_adapter(BraxConfig(env_name="inverted_pendulum")))
+        bridge = GymnaxCompatibilityBridge(adapter)
+        env = gymnax.wrappers.LogWrapper(bridge)
+        action_space = bridge.action_space()
+
+        observation, state = jax.jit(env.reset)(jax.random.key(0), None)
+        next_observation, next_state, reward, done, info = jax.jit(env.step)(
+            jax.random.key(1),
+            state,
+            jnp.zeros(action_space.shape, dtype=action_space.dtype),
+            None,
+        )
+
+        assert observation.shape == bridge.observation_space().shape
+        assert next_observation.shape == bridge.observation_space().shape
+        assert reward.shape == ()
+        assert done.shape == ()
+        assert info["terminated"].shape == ()
+        assert info["truncated"].shape == ()
+        assert info["returned_episode"].shape == ()
