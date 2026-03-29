@@ -16,6 +16,12 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
     - Initializes a new "Shell" monorepo.
     - Adds the `research-core` as a submodule.
     - Sets up the root `pyproject.toml` with `uv` workspace members.
+- `research workspace repair [--dry-run]`:
+    - Mutating remediation command for the configured Core checkout. It is separate from read-only `research doctor` and must never be invoked implicitly by diagnostics.
+    - Reads `research.yaml` at the workspace root and resolves the configured `core_path`; all repair actions are scoped from that path.
+    - In `--dry-run`, emits a deterministic ordered action plan and exits without mutating the filesystem, dependencies, configuration, or Git state.
+    - By default, repairs the Core checkout to the superproject-recorded submodule revision using standard submodule update semantics for the configured `core_path` unless an explicit future option selects a different target.
+    - Cleanup scope is intentionally narrow and testable: inside `core_path`, it may discard tracked-file modifications required to match the recorded revision and remove untracked files or directories that block or conflict with that reset; it must not edit `research.yaml`, touch files outside `core_path`, or mutate other workspace members.
 - `research workspace upgrade`:
     - Pulls the latest changes from `research-core` upstream.
     - Warns if there are local modifications in `core/`.
