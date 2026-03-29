@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774754092012,
+  "lastUpdate": 1774754936780,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -292,6 +292,79 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000011325065059619192",
             "extra": "mean: 38.28699999530727 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45e35f77824b4c70f954eba9cbf01b533ac9284e",
+          "message": "feat(rl-agents): add nature dqn preset path (#37)\n\n## Summary\n- add the reusable Nature CNN substrate and legacy DQN initialization\nhelpers in `jax-nn`\n- wire a real `nature_cnn` preset through DQN, add an external env seam,\nand propagate the seam to DQN variants\n- add a JAXAtari-backed DQN example plus a gated regression smoke test\n\n## Testing\n- uv run pytest tests/small/test_jax_nn_initializers.py\ntests/small/test_jax_nn_public_api.py\ntests/small/test_jax_nn_nature_cnn.py\ntests/medium/test_jax_nn_nature_cnn_jit.py\n- uv run pytest tests/small/test_rl_agents_dqn.py\ntests/medium/test_rl_agents_dqn_gradient.py\ntests/medium/test_rl_agents_dqn_nature_env_integration.py\ntests/medium/test_dqn_variants.py\n- uv run pytest tests/small/test_jax_nn_noisy_linear.py\ntests/medium/test_jax_nn_noisy_linear_jit.py\n- uv run pytest tests/regression/test_rl_agents_dqn_atari_real_smoke.py\n-q\n- uv run ruff check .\n- uv run pyright\n\nCloses #11.",
+          "timestamp": "2026-03-28T21:24:57-06:00",
+          "tree_id": "015b7f8e78cfdd751455718c20144d050315dc04",
+          "url": "https://github.com/andnp/jax-research-template/commit/45e35f77824b4c70f954eba9cbf01b533ac9284e"
+        },
+        "date": 1774754936585,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.8926575701199475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00048262967086119433",
+            "extra": "mean: 169.70271700000458 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9961750977168474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0041289703300077555",
+            "extra": "mean: 1.003839588333335 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.041019741939109094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01309822539737519",
+            "extra": "mean: 24.378505391000004 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.42425075801347445,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0025422698344685865",
+            "extra": "mean: 2.3570965546000027 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 32152.479915852924,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015904532808429882",
+            "extra": "mean: 31.10180000476248 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 35314.72482642489,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013617151053008016",
+            "extra": "mean: 28.31680000099368 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 22859.4418645983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000024393556568525173",
+            "extra": "mean: 43.74559999860139 usec\nrounds: 5"
           }
         ]
       }
