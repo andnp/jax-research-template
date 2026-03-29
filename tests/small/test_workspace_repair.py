@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -7,6 +8,10 @@ from research_cli.workspace import ResolvedRepairTarget, _repair_core_checkout
 from typer.testing import CliRunner
 
 runner = CliRunner()
+
+
+def _normalized_output(output: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", output).replace("\r", "")
 
 
 def _write_workspace_markers(workspace_root: Path) -> None:
@@ -23,7 +28,7 @@ def test_workspace_repair_help_is_exposed() -> None:
 
     assert result.exit_code == 0, result.output
     assert "repair" in result.output
-    assert "--dry-run" in result.output
+    assert "--dry-run" in _normalized_output(result.output)
 
 
 def test_workspace_repair_dry_run_reports_resolved_core_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
