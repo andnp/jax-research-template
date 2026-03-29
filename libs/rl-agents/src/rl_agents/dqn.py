@@ -1,8 +1,6 @@
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import flax.linen as nn
-import gymnax
-import gymnax.wrappers
 import jax
 import jax.numpy as jnp
 import optax
@@ -100,10 +98,6 @@ class _EnvLike(Protocol):
     ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
-class _HasEnvName(Protocol):
-    ENV_NAME: str
-
-
 class _HasNetworkPreset(Protocol):
     NETWORK_PRESET: Literal["mlp", "nature_cnn"]
 
@@ -174,18 +168,6 @@ def _infer_nature_observation_layout(observation_shape: tuple[int, ...]) -> Lite
     )
 
 
-def _resolve_env(
-    config: _HasEnvName,
-    env: object | None,
-    env_params: object | None,
-) -> tuple[_EnvLike, object | None]:
-    if env is not None:
-        return cast(_EnvLike, env), env_params
-
-    resolved_env, resolved_env_params = gymnax.make(config.ENV_NAME)
-    return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
-
-
 def _make_q_network(
     config: _HasNetworkPreset,
     action_dim: int,
@@ -205,8 +187,8 @@ def _make_q_network(
     )
 
 
-def make_train(config: DQNConfig, env: object | None = None, env_params: object | None = None):
-    env, env_params = _resolve_env(config, env, env_params)
+def make_train(config: DQNConfig, env: object, env_params: object | None = None):
+    env = cast(_EnvLike, env)
 
     def train(rng):
         # INIT NETWORK

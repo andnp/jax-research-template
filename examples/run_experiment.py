@@ -10,6 +10,8 @@ Usage:
 import uuid
 from pathlib import Path
 
+import gymnax
+import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
 from experiment_definition.bridge import metric_whitelist
@@ -72,7 +74,9 @@ def main():
         TOTAL_TIMESTEPS=100_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
     print("Training DQN on CartPole-v1 (100k steps)...")

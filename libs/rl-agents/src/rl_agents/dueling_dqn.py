@@ -9,7 +9,7 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import flax.linen as nn
 import jax
@@ -21,7 +21,7 @@ from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from rl_components.buffers import ReplayBuffer
 
-from rl_agents.dqn import _resolve_env
+from rl_agents.dqn import _EnvLike
 
 
 @dataclass(frozen=True)
@@ -104,8 +104,8 @@ def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> Duelin
     )
 
 
-def make_train(config: DuelingDQNConfig, env: object | None = None, env_params: object | None = None):
-    env, env_params = _resolve_env(config, env, env_params)
+def make_train(config: DuelingDQNConfig, env: object, env_params: object | None = None):
+    env = cast(_EnvLike, env)
 
     def train(rng):
         network = _make_dueling_q_network(config, env.action_space(env_params).n)
