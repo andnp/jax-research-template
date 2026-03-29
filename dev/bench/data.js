@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774754936780,
+  "lastUpdate": 1774758999048,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -365,6 +365,79 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000024393556568525173",
             "extra": "mean: 43.74559999860139 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "454b3c8098cffa3ba2d317f34d81668ca24f1996",
+          "message": "Integrate Brax and unify environment API (#39)\n\n## Summary\n- add a canonical Brax adapter in `rl-components`\n- prove Brax environments run through `GymnaxCompatibilityBridge`\n- let PPO and SAC accept injected canonical envs without\nbackend-specific branches\n\n## Testing\n- uv run pytest tests/small/test_rl_agents_sac.py\ntests/small/test_rl_components_gymnax_bridge.py\ntests/medium/test_rl_components_gymnax_bridge_jit.py\ntests/medium/test_rl_agents_ppo_gradient.py\ntests/medium/test_rl_agents_sac_gradient.py -q\n- uv run ruff check libs/rl-components/src/rl_components/brax.py\nlibs/rl-agents/src/rl_agents/ppo.py libs/rl-agents/src/rl_agents/sac.py\ntests/small/test_rl_agents_sac.py\ntests/small/test_rl_components_gymnax_bridge.py\ntests/medium/test_rl_components_gymnax_bridge_jit.py\ntests/medium/test_rl_agents_ppo_gradient.py\ntests/medium/test_rl_agents_sac_gradient.py\n- uv run pyright libs/rl-components/src/rl_components/brax.py\nlibs/rl-agents/src/rl_agents/ppo.py libs/rl-agents/src/rl_agents/sac.py\ntests/small/test_rl_agents_sac.py\ntests/small/test_rl_components_gymnax_bridge.py\ntests/medium/test_rl_components_gymnax_bridge_jit.py\ntests/medium/test_rl_agents_ppo_gradient.py\ntests/medium/test_rl_agents_sac_gradient.py\n- uv run ty check libs/rl-components/src/rl_components/brax.py\nlibs/rl-agents/src/rl_agents/ppo.py libs/rl-agents/src/rl_agents/sac.py\ntests/small/test_rl_agents_sac.py\ntests/small/test_rl_components_gymnax_bridge.py\ntests/medium/test_rl_components_gymnax_bridge_jit.py\ntests/medium/test_rl_agents_ppo_gradient.py\ntests/medium/test_rl_agents_sac_gradient.py\n\nCloses #16",
+          "timestamp": "2026-03-28T22:31:58-06:00",
+          "tree_id": "8b25698735475ccf034d9491b50852a5fff6e114",
+          "url": "https://github.com/andnp/jax-research-template/commit/454b3c8098cffa3ba2d317f34d81668ca24f1996"
+        },
+        "date": 1774758998469,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.7798588737639855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005513078265074788",
+            "extra": "mean: 173.0146049999964 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9831964741866531,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007680881582496374",
+            "extra": "mean: 1.0170907100000004 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04168629770043327,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10886293350325371",
+            "extra": "mean: 23.988697849499992 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.419651421736782,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004640549156140057",
+            "extra": "mean: 2.3829300896000065 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 30226.09115635794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000014847464128266829",
+            "extra": "mean: 33.08400000605616 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 30011.6445218801,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000021226064382738235",
+            "extra": "mean: 33.32039999577319 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 23033.513766092772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011246226593056629",
+            "extra": "mean: 43.41499999327425 usec\nrounds: 5"
           }
         ]
       }
