@@ -7,7 +7,7 @@ import chex
 import jax
 import jax.numpy as jnp
 import optax
-import rl_agents.sac as sac_module
+import pytest
 from flax.training.train_state import TrainState
 from rl_agents.sac import Actor, Critic, SACConfig, make_train
 from rl_components.action_normalization import ActionNormalizationWrapper
@@ -119,27 +119,17 @@ class TestSACGradientFlow:
         assert metrics["returned_episode"].shape == (4,)
         assert metrics["returned_episode_returns"].shape == (4,)
 
-    def test_make_train_keeps_default_gymnax_resolution(self, monkeypatch) -> None:
+    def test_make_train_requires_explicit_env(self) -> None:
         config = SACConfig(
-            ENV_NAME="FakeContinuous-v0",
             TOTAL_TIMESTEPS=4,
             LEARNING_STARTS=100,
             BUFFER_SIZE=16,
             BATCH_SIZE=4,
         )
+        config_only_args = [config]
 
-        def fake_make(env_name: str) -> tuple[FakeContinuousEnv, object | None]:
-            assert env_name == "FakeContinuous-v0"
-            return FakeContinuousEnv(), None
-
-        monkeypatch.setattr(sac_module.gymnax, "make", fake_make)
-        monkeypatch.setattr(sac_module.gymnax.wrappers, "LogWrapper", lambda env: env)
-
-        out = jax.jit(make_train(config))(jax.random.key(0))
-        metrics = out["metrics"]
-
-        assert metrics["returned_episode"].shape == (4,)
-        assert metrics["returned_episode_returns"].shape == (4,)
+        with pytest.raises(TypeError, match="env"):
+            make_train(*config_only_args)
 
     def test_make_train_accepts_normalized_canonical_env_via_bridge(self) -> None:
         config = SACConfig(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)

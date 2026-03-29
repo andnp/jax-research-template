@@ -9,7 +9,7 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +18,7 @@ from chex import dataclass
 from flax.training.train_state import TrainState
 from rl_components.buffers import ReplayBuffer
 
-from rl_agents.dqn import _make_q_network, _resolve_env
+from rl_agents.dqn import _EnvLike, _make_q_network
 
 
 @dataclass(frozen=True)
@@ -61,8 +61,8 @@ class DoubleDQNConfig:
         ) -> None: ...
 
 
-def make_train(config: DoubleDQNConfig, env: object | None = None, env_params: object | None = None):
-    env, env_params = _resolve_env(config, env, env_params)
+def make_train(config: DoubleDQNConfig, env: object, env_params: object | None = None):
+    env = cast(_EnvLike, env)
 
     def train(rng):
         observation_shape = tuple(env.observation_space(env_params).shape)

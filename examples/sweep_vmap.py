@@ -1,5 +1,7 @@
 import time
 
+import gymnax
+import gymnax.wrappers
 import jax
 import pandas as pd
 from rl_agents.ppo import make_train
@@ -15,7 +17,9 @@ def sweep_vmap_ppo():
         ENV_NAME="CartPole-v1",
     )
     
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_jit = jax.jit(train_fn)
     
     results = []

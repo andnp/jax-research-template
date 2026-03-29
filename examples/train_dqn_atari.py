@@ -2,53 +2,70 @@ import time
 from typing import cast
 
 import jax
-from rl_agents.dqn import DQNConfig, make_train
+from rl_agents.dqn_atari import (
+    DQNAtariConfig,
+    dqn_atari_runtime_from_dqn_zoo,
+    dqn_zoo_atari_total_train_env_steps,
+    make_train,
+)
 from rl_components.atari import JAXAtariConfig, make_atari_adapter
 from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
 def main():
-    config = DQNConfig(
-        TOTAL_TIMESTEPS=5_000,
-        BUFFER_SIZE=10_000,
+    config = DQNAtariConfig(
+        REPLAY_CAPACITY=5_000,
+        MIN_REPLAY_CAPACITY_FRACTION=0.2,
         BATCH_SIZE=32,
-        LEARNING_STARTS=1_000,
-        TARGET_NETWORK_FREQUENCY=500,
-        LR=1e-4,
-        SEED=42,
-        NETWORK_PRESET="nature_cnn",
+        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=4_000,
+        LEARNING_RATE=1e-4,
     )
-    env = make_gymnax_compat_env(
-        cast(EnvProtocol[jax.Array, object, jax.Array, None], make_atari_adapter(JAXAtariConfig(game="pong")))
+    runtime_config = dqn_atari_runtime_from_dqn_zoo(
+        config,
+        num_iterations=1,
+        num_train_frames_per_iteration=20_000,
+        seed=42,
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    train_fn = make_train(config, env=env, env_params=None)
+    rng = jax.random.key(runtime_config.SEED)
+    env = make_gymnax_compat_env(
+        cast(
+            EnvProtocol[jax.Array, object, jax.Array, None],
+            make_atari_adapter(
+                JAXAtariConfig(
+                    game="pong",
+                    frame_skip=config.NUM_ACTION_REPEATS,
+                )
+            ),
+        )
+    )
+    train_fn = make_train(config, runtime_config, env=env, env_params=None)
     train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on JAXAtari Pong ---")
-    print("Compiling & Training (1st run)...")
-    compile_start = time.time()
-    out = train_jit(rng)
-    jax.block_until_ready(out)
-    total_time = time.time() - compile_start
-
-    print("Executing second run for accurate SPS...")
+    print("Compiling & running quick signs-of-life probe...")
     start_time = time.time()
     out = train_jit(rng)
     jax.block_until_ready(out)
-    execution_time = time.time() - start_time
+    elapsed = time.time() - start_time
 
     metrics = out["metrics"]
+    completed_mask = metrics["returned_episode"].astype(bool)
     returns = metrics["returned_episode_returns"]
-    sps = config.TOTAL_TIMESTEPS / execution_time
+    completed_returns = returns[completed_mask]
+    env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
+    sps = env_steps / elapsed
 
-    print(f"Compilation Time: {max(0, total_time - execution_time):.2f}s")
-    print(f"Execution Time:   {execution_time:.2f}s")
-    print(f"SPS:              {sps:.2f}")
-    print(f"Final Return:     {returns[-1].item():.2f}")
-    print(f"Max Return:       {returns.max().item():.2f}")
+    print(f"Elapsed Time:         {elapsed:.2f}s")
+    print(f"Env Steps:            {env_steps}")
+    print(f"SPS:                  {sps:.2f}")
+    print(f"Completed Episodes:   {int(completed_mask.sum().item())}")
+    if completed_returns.size:
+        print(f"Last Completed Return:{completed_returns[-1].item():.2f}")
+        print(f"Max Completed Return: {completed_returns.max().item():.2f}")
+    else:
+        print("No completed episodes were observed in this short probe.")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,15 @@ class TestReplayBufferInit:
         state = buf.init()
         assert state.actions.dtype == jnp.int32
 
+    def test_obs_dtype_defaults_to_float32_but_can_be_configured(self):
+        default_state = ReplayBuffer(capacity=5, obs_shape=(3,), action_shape=()).init()
+        assert default_state.obs.dtype == jnp.float32
+        assert default_state.next_obs.dtype == jnp.float32
+
+        configured_state = ReplayBuffer(capacity=5, obs_shape=(3,), action_shape=(), obs_dtype=jnp.uint8).init()
+        assert configured_state.obs.dtype == jnp.uint8
+        assert configured_state.next_obs.dtype == jnp.uint8
+
     def test_dones_dtype_is_bool(self):
         buf = ReplayBuffer(capacity=5, obs_shape=(2,), action_shape=())
         state = buf.init()

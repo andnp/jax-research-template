@@ -1,7 +1,5 @@
 from typing import NamedTuple, Protocol, cast
 
-import gymnax
-import gymnax.wrappers
 import jax
 import jax.numpy as jnp
 import optax
@@ -44,20 +42,8 @@ class _EnvLike(Protocol):
     ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
-def _resolve_env(
-    config: PPOConfig,
-    env: object | None,
-    env_params: object | None,
-) -> tuple[_EnvLike, object | None]:
-    if env is not None:
-        return cast(_EnvLike, env), env_params
-
-    resolved_env, resolved_env_params = gymnax.make(config.ENV_NAME)
-    return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
-
-
-def make_train(config: PPOConfig, env: object | None = None, env_params: object | None = None):
-    env, env_params = _resolve_env(config, env, env_params)
+def make_train(config: PPOConfig, env: object, env_params: object | None = None):
+    env = cast(_EnvLike, env)
 
     def train(rng):
         # INIT NETWORK

@@ -1,6 +1,8 @@
 import argparse
 import os
 
+import gymnax
+import gymnax.wrappers
 import jax
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
@@ -14,7 +16,9 @@ def profile_ppo(steps=1000):
     )
     
     rng = jax.random.PRNGKey(config.SEED)
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_jit = jax.jit(train_fn)
     
     print("Warmup (compiling)...")

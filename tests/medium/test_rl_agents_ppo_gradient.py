@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 import optax
-import rl_agents.ppo as ppo_module
+import pytest
 from flax.training.train_state import TrainState
 from rl_agents.ppo import make_train
 from rl_components.networks import ActorCritic
@@ -68,21 +68,12 @@ class TestPPOGradientFlow:
         assert metrics["returned_episode"].shape == (2,)
         assert metrics["returned_episode_returns"].shape == (2,)
 
-    def test_make_train_keeps_default_gymnax_resolution(self, monkeypatch) -> None:
-        config = PPOConfig(ENV_NAME="FakeDiscrete-v0", TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
+    def test_make_train_requires_explicit_env(self) -> None:
+        config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
+        config_only_args = [config]
 
-        def fake_make(env_name: str) -> tuple[FakeDiscreteEnv, object | None]:
-            assert env_name == "FakeDiscrete-v0"
-            return FakeDiscreteEnv(), None
-
-        monkeypatch.setattr(ppo_module.gymnax, "make", fake_make)
-        monkeypatch.setattr(ppo_module.gymnax.wrappers, "LogWrapper", lambda env: env)
-
-        out = jax.jit(make_train(config))(jax.random.key(0))
-        metrics = out["metrics"]
-
-        assert metrics["returned_episode"].shape == (2,)
-        assert metrics["returned_episode_returns"].shape == (2,)
+        with pytest.raises(TypeError, match="env"):
+            make_train(*config_only_args)
 
     def test_params_change_after_update(self):
         """ActorCritic params should change after a PPO gradient step."""

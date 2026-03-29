@@ -1,5 +1,7 @@
 import time
 
+import gymnax
+import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
 from rl_agents.ppo import make_train
@@ -24,7 +26,9 @@ def main():
     rng = jax.random.PRNGKey(config.SEED)
     rng_seeds = jax.random.split(rng, NUM_SEEDS)
     
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
 
     # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.

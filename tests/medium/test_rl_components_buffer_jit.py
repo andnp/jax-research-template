@@ -72,6 +72,33 @@ class TestReplayBufferJIT:
         assert int(final_state.count) == 20
         assert means.shape == (20,)
 
+    def test_add_and_sample_uint8_observations_under_jit(self):
+        buf = ReplayBuffer(capacity=8, obs_shape=(2, 2, 1), action_shape=(), action_dtype=jnp.int32, obs_dtype=jnp.uint8)
+        state = buf.init()
+
+        @jax.jit
+        def add_and_sample(state, key):
+            updated_state = buf.add(
+                state,
+                obs=jnp.full((1, 2, 2, 1), 7, dtype=jnp.uint8),
+                action=jnp.zeros((1,), dtype=jnp.int32),
+                reward=jnp.ones((1,)),
+                next_obs=jnp.full((1, 2, 2, 1), 9, dtype=jnp.uint8),
+                done=jnp.zeros((1,), dtype=jnp.bool_),
+            )
+            return updated_state, buf.sample(updated_state, key, batch_size=1)
+
+        next_state, sample = add_and_sample(state, jax.random.key(0))
+        obs, actions, rewards, next_obs, dones = sample
+
+        assert next_state.obs.dtype == jnp.uint8
+        assert next_state.next_obs.dtype == jnp.uint8
+        assert obs.dtype == jnp.uint8
+        assert next_obs.dtype == jnp.uint8
+        assert actions.dtype == jnp.int32
+        assert rewards.dtype == jnp.float32
+        assert dones.dtype == jnp.bool_
+
 
 class TestReplayBufferNetworkShapes:
     def test_network_forward_with_sampled_obs(self):

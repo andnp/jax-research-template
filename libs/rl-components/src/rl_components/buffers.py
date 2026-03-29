@@ -15,18 +15,26 @@ class ReplayBufferState(NamedTuple):
 
 
 class ReplayBuffer:
-    def __init__(self, capacity: int, obs_shape: tuple, action_shape: tuple, action_dtype: jnp.dtype = jnp.float32):
+    def __init__(
+        self,
+        capacity: int,
+        obs_shape: tuple,
+        action_shape: tuple,
+        action_dtype: jnp.dtype = jnp.float32,
+        obs_dtype: jnp.dtype = jnp.float32,
+    ):
         self.capacity = capacity
         self.obs_shape = obs_shape
         self.action_shape = action_shape
         self.action_dtype = action_dtype
+        self.obs_dtype = obs_dtype
 
     def init(self) -> ReplayBufferState:
         return ReplayBufferState(
-            obs=jnp.zeros((self.capacity,) + self.obs_shape),
+            obs=jnp.zeros((self.capacity,) + self.obs_shape, dtype=self.obs_dtype),
             actions=jnp.zeros((self.capacity,) + self.action_shape, dtype=self.action_dtype),
             rewards=jnp.zeros((self.capacity,)),
-            next_obs=jnp.zeros((self.capacity,) + self.obs_shape),
+            next_obs=jnp.zeros((self.capacity,) + self.obs_shape, dtype=self.obs_dtype),
             dones=jnp.zeros((self.capacity,), dtype=jnp.bool_),
             pointer=jnp.array(0),
             count=jnp.array(0),
