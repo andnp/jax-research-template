@@ -1,9 +1,7 @@
-from typing import TYPE_CHECKING
-
-import chex
+from rl_components.structs import chex_struct
 
 
-@chex.dataclass(frozen=True)
+@chex_struct(frozen=True)
 class PPOConfig:
     # Training Hyperparameters
     LR: float = 2.5e-4
@@ -25,22 +23,3 @@ class PPOConfig:
     SEED: int = 42
     DEBUG: bool = False
 
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            LR: float = 2.5e-4,
-            NUM_STEPS: int = 128,
-            TOTAL_TIMESTEPS: int = 500_000,
-            UPDATE_EPOCHS: int = 4,
-            NUM_MINIBATCHES: int = 4,
-            GAMMA: float = 0.99,
-            GAE_LAMBDA: float = 0.95,
-            CLIP_EPS: float = 0.2,
-            ENT_COEF: float = 0.01,
-            VF_COEF: float = 0.5,
-            MAX_GRAD_NORM: float = 0.5,
-            ENV_NAME: str = "MountainCar-v0",
-            SEED: int = 42,
-            DEBUG: bool = False,
-        ) -> None: ...

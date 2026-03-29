@@ -2,43 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import chex
 import jax
 import jax.numpy as jnp
 
 from rl_components.env_protocol import EnvProtocol, EnvSpec
+from rl_components.structs import chex_struct
 
 
-@chex.dataclass(frozen=True)
+@chex_struct(frozen=True)
 class GymnaxSpace:
     shape: tuple[int, ...]
     dtype: jnp.dtype
 
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            shape: tuple[int, ...],
-            dtype: jnp.dtype,
-        ) -> None: ...
 
-
-@chex.dataclass(frozen=True)
+@chex_struct(frozen=True)
 class GymnaxDiscreteSpace:
     shape: tuple[int, ...]
     dtype: jnp.dtype
     n: int
-
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            shape: tuple[int, ...],
-            dtype: jnp.dtype,
-            n: int,
-        ) -> None: ...
 
 
 def _observation_space_from_spec(spec: EnvSpec) -> GymnaxSpace:

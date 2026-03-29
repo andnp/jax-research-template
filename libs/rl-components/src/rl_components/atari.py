@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 
 import chex
 import jax
@@ -11,6 +11,7 @@ from jaxatari.core import make as make_jaxatari_env
 from jaxatari.wrappers import AtariWrapper, LogWrapper, PixelObsWrapper
 
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+from rl_components.structs import chex_struct
 
 
 class _Space(Protocol):
@@ -38,7 +39,7 @@ class _WrappedAtariEnv[StateT](Protocol):
     def step(self, state: StateT, action: jax.Array) -> tuple[jax.Array, StateT, jax.Array, jax.Array, dict[str, object]]: ...
 
 
-@chex.dataclass(frozen=True)
+@chex_struct(frozen=True)
 class JAXAtariConfig:
     game: str
     frame_stack: int = 4
@@ -48,20 +49,6 @@ class JAXAtariConfig:
     life_loss_terminal: bool = True
     resize_shape: tuple[int, int] = (84, 84)
     log_returns: bool = True
-
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            game: str,
-            frame_stack: int = 4,
-            frame_skip: int = 4,
-            grayscale: bool = True,
-            max_pooling: bool = True,
-            life_loss_terminal: bool = True,
-            resize_shape: tuple[int, int] = (84, 84),
-            log_returns: bool = True,
-        ) -> None: ...
 
 
 def _resize_is_required[StateT](env: _WrappedAtariEnv[StateT], resize_shape: tuple[int, int]) -> bool:
