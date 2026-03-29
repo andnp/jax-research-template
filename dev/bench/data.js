@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774747076153,
+  "lastUpdate": 1774754092012,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -219,6 +219,79 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000018442831919439184",
             "extra": "mean: 42.61559999463316 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afa1438f97bd45575486458a971c346a23279fa1",
+          "message": "Add workspace repair command for broken core submodules (#38)\n\n## Summary\n- define the `research workspace repair` contract and dry-run behavior\n- add repair path/config resolution plus the real submodule repair\nexecution\n- cover dirty submodule recovery with focused small and medium tests\n\n## Testing\n- uv run pytest tests/small/test_workspace_repair.py\ntests/medium/test_cli_workspace_repair.py -q\n- uv run ruff check cli/src/research_cli/workspace.py\ntests/small/test_workspace_repair.py\ntests/medium/test_cli_workspace_repair.py\n- uv run pyright cli/src/research_cli/workspace.py\ntests/small/test_workspace_repair.py\ntests/medium/test_cli_workspace_repair.py\n- uv run ty check cli/src/research_cli/workspace.py\ntests/small/test_workspace_repair.py\ntests/medium/test_cli_workspace_repair.py",
+          "timestamp": "2026-03-28T21:11:00-06:00",
+          "tree_id": "8d898b7c615f4174050f0a578dd022f9d6e2a43d",
+          "url": "https://github.com/andnp/jax-research-template/commit/afa1438f97bd45575486458a971c346a23279fa1"
+        },
+        "date": 1774754091704,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.840180914632542,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006046160898544423",
+            "extra": "mean: 171.22757233333394 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9845237826646733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011930375758077302",
+            "extra": "mean: 1.0157194956666658 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04077394790152377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05331801363401701",
+            "extra": "mean: 24.525464211000006 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.42312977865545426,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005283834646366749",
+            "extra": "mean: 2.3633411081999953 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 31671.227325728047,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015797170111106125",
+            "extra": "mean: 31.574399997680302 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 26342.825528787154,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000030858024875664843",
+            "extra": "mean: 37.961000003861045 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 26118.52587360115,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011325065059619192",
+            "extra": "mean: 38.28699999530727 usec\nrounds: 5"
           }
         ]
       }
