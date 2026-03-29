@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import flax.linen as nn
 import gymnax
@@ -8,6 +8,8 @@ import jax.numpy as jnp
 import optax
 from chex import dataclass
 from flax.training.train_state import TrainState
+from jax_nn.initializers import legacy_dqn_uniform
+from jax_nn.layers import NatureCNN
 from rl_components.buffers import ReplayBuffer
 
 
@@ -27,6 +29,7 @@ class DQNConfig:
     EPSILON_FRACTION: float = 0.5
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
+    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
 
     if TYPE_CHECKING:
         def __init__(
@@ -46,6 +49,7 @@ class DQNConfig:
             EPSILON_FRACTION: float = 0.5,
             ENV_NAME: str = "MountainCar-v0",
             SEED: int = 42,
+            NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp",
         ) -> None: ...
 
 
@@ -71,15 +75,145 @@ class QNetwork(nn.Module):
         return x
 
 
-def make_train(config: DQNConfig):
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
+class _ObservationSpace(Protocol):
+    shape: tuple[int, ...]
+    dtype: jnp.dtype
+
+
+class _ActionSpace(Protocol):
+    n: int
+
+
+class _EnvLike(Protocol):
+    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
+
+    def action_space(self, params: object | None = None) -> _ActionSpace: ...
+
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
+
+    def step(
+        self,
+        key: jax.Array,
+        state: object,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
+
+
+class _HasEnvName(Protocol):
+    ENV_NAME: str
+
+
+class _HasNetworkPreset(Protocol):
+    NETWORK_PRESET: Literal["mlp", "nature_cnn"]
+
+
+class NatureQNetwork(nn.Module):
+    action_dim: int
+    observation_layout: Literal["hwc", "fhwc"]
+
+    if TYPE_CHECKING:
+        def apply(
+            self,
+            variables: object,
+            x: jax.Array,
+            *,
+            rngs: object | None = None,
+        ) -> jax.Array: ...
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = _prepare_nature_observations(x, self.observation_layout)
+        x = NatureCNN()(x)
+        input_units = x.shape[-1]
+        x = nn.Dense(
+            512,
+            kernel_init=legacy_dqn_uniform(),
+            bias_init=legacy_dqn_uniform(num_input_units=input_units),
+        )(x)
+        x = nn.relu(x)
+        x = nn.Dense(
+            self.action_dim,
+            kernel_init=legacy_dqn_uniform(),
+            bias_init=legacy_dqn_uniform(num_input_units=512),
+        )(x)
+        return x
+
+
+def _prepare_nature_observations(
+    x: jax.Array,
+    observation_layout: Literal["hwc", "fhwc"],
+) -> jax.Array:
+    if observation_layout == "hwc":
+        if x.ndim not in (3, 4):
+            raise ValueError(
+                "NETWORK_PRESET='nature_cnn' with HWC observations expects shape (height, width, channels) or (batch, height, width, channels)."
+            )
+        return x
+
+    if x.ndim == 4:
+        moved = jnp.moveaxis(x, 0, -2)
+        return moved.reshape(moved.shape[:-2] + (moved.shape[-2] * moved.shape[-1],))
+
+    if x.ndim == 5:
+        moved = jnp.moveaxis(x, 1, -2)
+        return moved.reshape(moved.shape[:-2] + (moved.shape[-2] * moved.shape[-1],))
+
+    raise ValueError(
+        "NETWORK_PRESET='nature_cnn' with Atari-style observations expects shape (frames, height, width, channels) or (batch, frames, height, width, channels)."
+    )
+
+
+def _infer_nature_observation_layout(observation_shape: tuple[int, ...]) -> Literal["hwc", "fhwc"]:
+    if len(observation_shape) == 3:
+        return "hwc"
+    if len(observation_shape) == 4:
+        return "fhwc"
+    raise ValueError(
+        "NETWORK_PRESET='nature_cnn' requires image observations shaped (height, width, channels) or Atari-style (frames, height, width, channels)."
+    )
+
+
+def _resolve_env(
+    config: _HasEnvName,
+    env: object | None,
+    env_params: object | None,
+) -> tuple[_EnvLike, object | None]:
+    if env is not None:
+        return cast(_EnvLike, env), env_params
+
+    resolved_env, resolved_env_params = gymnax.make(config.ENV_NAME)
+    return cast(_EnvLike, gymnax.wrappers.LogWrapper(resolved_env)), resolved_env_params
+
+
+def _make_q_network(
+    config: _HasNetworkPreset,
+    action_dim: int,
+    observation_shape: tuple[int, ...] | None = None,
+) -> QNetwork | NatureQNetwork:
+    if config.NETWORK_PRESET == "mlp":
+        return QNetwork(action_dim)
+    if config.NETWORK_PRESET == "nature_cnn":
+        if observation_shape is None:
+            raise ValueError("NETWORK_PRESET='nature_cnn' requires observation_shape to build the Q-network.")
+        return NatureQNetwork(
+            action_dim=action_dim,
+            observation_layout=_infer_nature_observation_layout(observation_shape),
+        )
+    raise ValueError(
+        f"Invalid NETWORK_PRESET {config.NETWORK_PRESET!r}. Expected one of: 'mlp', 'nature_cnn'."
+    )
+
+
+def make_train(config: DQNConfig, env: object | None = None, env_params: object | None = None):
+    env, env_params = _resolve_env(config, env, env_params)
 
     def train(rng):
         # INIT NETWORK
-        network = QNetwork(env.action_space(env_params).n)
+        observation_shape = tuple(env.observation_space(env_params).shape)
+        network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).shape)
+        init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)
 
         target_params = params
@@ -102,7 +236,7 @@ def make_train(config: DQNConfig):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+        obsv, env_state = env.reset(_rng, env_params)  # gymnax JitWrapped
 
         def _update_step(runner_state, t):
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
@@ -123,7 +257,7 @@ def make_train(config: DQNConfig):
             action = jnp.where(chose_random, random_action, greedy_action)
 
             # STEP ENV
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # type: ignore[not-iterable, too-many-positional-arguments]  # gymnax JitWrapped
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)  # gymnax JitWrapped
 
             # ADD TO BUFFER
             # ReplayBuffer.add expects vectorized inputs, let's update it or wrap it
