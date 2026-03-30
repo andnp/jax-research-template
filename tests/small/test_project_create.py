@@ -12,6 +12,34 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+@pytest.mark.parametrize(
+    ("algorithm", "env_name"),
+    [
+        ("ppo", "CartPole-v1"),
+        ("dqn", "CartPole-v1"),
+        ("double_dqn", "CartPole-v1"),
+        ("dueling_dqn", "CartPole-v1"),
+        ("sac", "MountainCarContinuous-v0"),
+    ],
+)
+def test_project_template_train_uses_explicit_env_api(algorithm: str, env_name: str) -> None:
+    """The generated smoke starter must construct and pass the environment explicitly."""
+    rendered = _render_project_template(
+        "train.py.jinja",
+        project_name="demo",
+        description="A demo experiment",
+        env_name=env_name,
+        algorithm=algorithm,
+    )
+
+    assert "import gymnax" in rendered
+    assert "import gymnax.wrappers" in rendered
+    assert "env, env_params = gymnax.make(config.ENV_NAME)" in rendered
+    assert "env = gymnax.wrappers.LogWrapper(env)" in rendered
+    assert "train_fn = make_train(config, env=env, env_params=env_params)" in rendered
+    assert "make_train(config)" not in rendered
+
+
 def _render_project_template(template_name: str, **context: str) -> str:
     template_path = _template_root() / "{{project_name}}" / template_name
     template = template_path.read_text(encoding="utf-8")
@@ -101,25 +129,33 @@ def test_project_create_fails_if_project_already_exists(tmp_path: Path, monkeypa
     assert str(project_root) in result.output
 
 
-def test_project_template_pyproject_declares_truthful_runtime_dependencies() -> None:
+@pytest.mark.parametrize("algorithm", ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac"])
+def test_project_template_pyproject_declares_truthful_runtime_dependencies(algorithm: str) -> None:
     """The generated project must declare the runtime packages its starter imports require."""
     rendered = _render_project_template(
         "pyproject.toml.jinja",
         project_name="demo",
         description="A demo experiment",
         python_version="3.13",
-        algorithm="ppo",
+        algorithm=algorithm,
     )
 
     assert 'dependencies = [' in rendered
     assert 'dependencies = []' not in rendered
+    assert '"gymnax>=0.0.9"' in rendered
     assert '"jax~=0.9"' in rendered
-    assert '"matplotlib>=3.9"' in rendered
     assert '"rl-agents"' in rendered
-    assert '"rl-components"' in rendered
     assert "[tool.uv.sources]" in rendered
     assert "rl-agents = { workspace = true }" in rendered
-    assert "rl-components = { workspace = true }" in rendered
+
+    if algorithm == "ppo":
+        assert '"matplotlib>=3.9"' in rendered
+        assert '"rl-components"' in rendered
+        assert "rl-components = { workspace = true }" in rendered
+    else:
+        assert '"matplotlib>=3.9"' not in rendered
+        assert '"rl-components"' not in rendered
+        assert "rl-components = { workspace = true }" not in rendered
 
 
 def test_project_template_readme_documents_workspace_aware_bootstrap() -> None:

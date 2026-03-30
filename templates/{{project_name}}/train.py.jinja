@@ -1,5 +1,7 @@
 """{{ description }}"""
 {% if algorithm == "ppo" %}
+import gymnax
+import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
 
@@ -13,10 +15,12 @@ def main():
         TOTAL_TIMESTEPS=500_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.PRNGKey(config.SEED)
     result = train_fn(rng)
 
     returns = result["metrics"]["returned_episode_returns"]
@@ -27,6 +31,8 @@ def main():
     plt.savefig("results.png")
     print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "dqn" %}
+import gymnax
+import gymnax.wrappers
 import jax
 
 from rl_agents.dqn import DQNConfig, make_train
@@ -38,13 +44,18 @@ def main():
         TOTAL_TIMESTEPS=200_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.PRNGKey(config.SEED)
     result = train_fn(rng)
-    print("Training complete")
+    returns = result["metrics"]["returned_episode_returns"]
+    print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "double_dqn" %}
+import gymnax
+import gymnax.wrappers
 import jax
 
 from rl_agents.double_dqn import DoubleDQNConfig, make_train
@@ -56,13 +67,18 @@ def main():
         TOTAL_TIMESTEPS=200_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.PRNGKey(config.SEED)
     result = train_fn(rng)
-    print("Training complete")
+    returns = result["metrics"]["returned_episode_returns"]
+    print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "dueling_dqn" %}
+import gymnax
+import gymnax.wrappers
 import jax
 
 from rl_agents.dueling_dqn import DuelingDQNConfig, make_train
@@ -74,13 +90,18 @@ def main():
         TOTAL_TIMESTEPS=200_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.PRNGKey(config.SEED)
     result = train_fn(rng)
-    print("Training complete")
+    returns = result["metrics"]["returned_episode_returns"]
+    print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "sac" %}
+import gymnax
+import gymnax.wrappers
 import jax
 
 from rl_agents.sac import SACConfig, make_train
@@ -92,12 +113,15 @@ def main():
         TOTAL_TIMESTEPS=100_000,
         SEED=42,
     )
-    train_fn = make_train(config)
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_fn = jax.jit(train_fn)
 
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.PRNGKey(config.SEED)
     result = train_fn(rng)
-    print("Training complete")
+    returns = result["metrics"]["returned_episode_returns"]
+    print(f"Final mean return: {returns[-1]:.2f}")
 {% endif %}
 
 

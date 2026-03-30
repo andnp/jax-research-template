@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "{{ description }}"
 requires-python = ">={{ python_version }}"
 dependencies = [
+	"gymnax>=0.0.9",
 	"jax~=0.9",
 	"rl-agents",
 {% if algorithm == "ppo" %}
