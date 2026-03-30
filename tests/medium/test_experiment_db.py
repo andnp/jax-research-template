@@ -483,6 +483,69 @@ def test_get_latest_completed_execution_for_run_returns_latest(populated_db: Dat
     assert latest.id == newer_execution
 
 
+def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseManager) -> None:
+    algo_id = db.add_component("BatchAlgo", "ALGO")
+    env_id = db.add_component("BatchEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Batch Experiment")
+
+    vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
+    shared_static_h1 = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
+    shared_static_h2 = db.add_hyperparam_config({"arch": "mlp", "lr": 3e-4}, vmap_zone=vmap_zone)
+    different_static = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3}, vmap_zone=vmap_zone)
+
+    db.add_run(exp_id, algo_ver, env_ver, shared_static_h1, seed=0)
+    db.add_run(exp_id, algo_ver, env_ver, shared_static_h2, seed=1)
+    db.add_run(exp_id, algo_ver, env_ver, different_static, seed=2)
+
+    batches = db.list_unsatisfied_run_batches(exp_id)
+
+    assert len(batches) == 2
+    assert [len(batch.run_ids) for batch in batches] == [1, 2]
+    assert batches[0].static_config_json == '{"arch": "cnn"}'
+    assert batches[1].static_config_json == '{"arch": "mlp"}'
+
+
+def test_list_unsatisfied_run_batches_respects_batch_limit(db: DatabaseManager) -> None:
+    algo_id = db.add_component("ChunkAlgo", "ALGO")
+    env_id = db.add_component("ChunkEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Chunk Experiment")
+
+    hyper_id = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone={"static_keys": ["arch"]})
+    for seed in range(5):
+        db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed)
+
+    batches = db.list_unsatisfied_run_batches(exp_id, max_runs_per_batch=2)
+
+    assert [len(batch.run_ids) for batch in batches] == [2, 2, 1]
+
+
+def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: DatabaseManager) -> None:
+    algo_id = db.add_component("PlannerAlgo", "ALGO")
+    env_id = db.add_component("PlannerEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Planner Experiment")
+
+    vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
+    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
+    hyper_b = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3}, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=0)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=1)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=2)
+
+    execution_ids = db.plan_unsatisfied_execution_batches(exp_id, hostname="batch-planner")
+
+    assert len(execution_ids) == 2
+    first_batch_runs = db.list_execution_runs(execution_ids[0])
+    second_batch_runs = db.list_execution_runs(execution_ids[1])
+    assert [len(first_batch_runs), len(second_batch_runs)] == [1, 2]
+    assert all(db.get_execution(execution_id).hostname == "batch-planner" for execution_id in execution_ids)  # type: ignore[union-attr]
+
+
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------

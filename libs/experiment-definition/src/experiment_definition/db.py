@@ -339,6 +339,15 @@ class ExecutionRow(NamedTuple):
     jax_config_json: str | None
 
 
+class RunBatch(NamedTuple):
+    algo_version_id: int | None
+    env_version_id: int | None
+    ablation: str | None
+    static_config_json: str
+    vmap_zone_json: str | None
+    run_ids: list[int]
+
+
 # ---------------------------------------------------------------------------
 # DatabaseManager
 # ---------------------------------------------------------------------------
@@ -648,6 +657,46 @@ class DatabaseManager:
         ).fetchall()
         return [RunRow(*row) for row in rows]
 
+    def list_unsatisfied_run_batches(self, experiment_id: int, max_runs_per_batch: int | None = None) -> list[RunBatch]:
+        """Group unsatisfied runs by static vmap zone for batch planning."""
+        rows = self.conn.execute(
+            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
+            "       hc.json_blob, hc.vmap_zone_json "
+            "FROM Runs r "
+            "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
+            "LEFT JOIN ("
+            "    SELECT DISTINCT er.run_id AS run_id "
+            "    FROM ExecutionRuns er "
+            "    INNER JOIN Executions e ON e.id = er.execution_id "
+            "    WHERE e.status = 'COMPLETED'"
+            ") completed ON completed.run_id = r.id "
+            "WHERE r.experiment_id = ? AND completed.run_id IS NULL "
+            "ORDER BY r.seed, r.hyper_id, r.id",
+            (experiment_id,),
+        ).fetchall()
+
+        grouped_runs: dict[tuple[int | None, int | None, str | None, str, str | None], list[int]] = {}
+        for row in rows:
+            run = RunRow(*row[:7])
+            hyper_json = str(row[7])
+            vmap_zone_json = str(row[8]) if row[8] is not None else None
+            static_config_json = _static_config_json(hyper_json, vmap_zone_json)
+            batch_key = (
+                run.algo_version_id,
+                run.env_version_id,
+                run.ablation,
+                static_config_json,
+                vmap_zone_json,
+            )
+            grouped_runs.setdefault(batch_key, []).append(run.id)
+
+        batches: list[RunBatch] = []
+        for batch_key, run_ids in sorted(grouped_runs.items(), key=lambda item: item[0]):
+            chunk_size = len(run_ids) if max_runs_per_batch is None else max_runs_per_batch
+            for start in range(0, len(run_ids), chunk_size):
+                batches.append(RunBatch(*batch_key, run_ids[start : start + chunk_size]))
+        return batches
+
     # ------------------------------------------------------------------
     # Executions
     # ------------------------------------------------------------------
@@ -760,6 +809,30 @@ class DatabaseManager:
             jax_config=jax_config,
         )
 
+    def plan_unsatisfied_execution_batches(
+        self,
+        experiment_id: int,
+        *,
+        max_runs_per_batch: int | None = None,
+        hostname: str | None = None,
+        git_commit: str | None = None,
+        git_diff_blob: str | None = None,
+        jax_config: dict[str, object] | None = None,
+    ) -> list[int]:
+        """Create one pending execution per unsatisfied static-config batch."""
+        execution_ids: list[int] = []
+        for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
+            execution_ids.append(
+                self.plan_execution(
+                    batch.run_ids,
+                    hostname=hostname,
+                    git_commit=git_commit,
+                    git_diff_blob=git_diff_blob,
+                    jax_config=jax_config,
+                )
+            )
+        return execution_ids
+
     def list_execution_runs(self, execution_id: int) -> list[RunRow]:
         """Return the logical runs linked to an execution."""
         rows = self.conn.execute(
@@ -792,3 +865,17 @@ class DatabaseManager:
                 "INSERT OR IGNORE INTO ExecutionRuns(execution_id, run_id) VALUES (?, ?)",
                 (execution_id, run_id),
             )
+
+
+def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
+    hyper_params = json.loads(hyper_json)
+    if vmap_zone_json is None:
+        return _json_stable(hyper_params)
+
+    vmap_zone = json.loads(vmap_zone_json)
+    static_keys = list(vmap_zone.get("static_keys", []))
+    if not static_keys:
+        return _json_stable(hyper_params)
+
+    static_params = {key: hyper_params[key] for key in static_keys if key in hyper_params}
+    return _json_stable(static_params)
