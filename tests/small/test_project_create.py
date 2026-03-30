@@ -168,7 +168,7 @@ def test_project_template_readme_documents_workspace_aware_bootstrap() -> None:
 
     assert "From the workspace root:" in rendered
     assert "uv sync --all-packages" in rendered
-    assert "uv run --project projects/demo python train.py" in rendered
+    assert "uv run --directory projects/demo python train.py" in rendered
 
 
 def test_project_create_renders_then_initializes_git_without_github_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
