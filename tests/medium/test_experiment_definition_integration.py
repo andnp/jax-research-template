@@ -117,8 +117,8 @@ class TestSyncToDb:
         exp.sync(db_path)
         with sqlite3.connect(db_path) as con:
             count = con.execute("SELECT COUNT(*) FROM Runs").fetchone()[0]
-        # base: 2 configs × 1 seed = 2; ablation: 2 configs overridden = 2 more
-        assert count == 4
+        # base: 2 configs × 1 seed = 2; ablation collapses to 1 distinct final run
+        assert count == 3
 
     def test_component_version_created(self, db_path: Path) -> None:
         exp = Experiment("Test")
@@ -142,6 +142,59 @@ class TestSyncToDb:
         with sqlite3.connect(db_path) as con:
             count = con.execute("SELECT COUNT(*) FROM HyperparamConfigs").fetchone()[0]
         assert count == 1
+
+    def test_sync_same_experiment_is_idempotent(self, db_path: Path) -> None:
+        exp = Experiment("Additive Sweep")
+        exp.add_parameter("seed", [0, 1])
+        exp.add_parameter("lr", [1e-3])
+
+        exp.sync(db_path)
+        exp.sync(db_path)
+
+        with sqlite3.connect(db_path) as con:
+            experiment_count = con.execute("SELECT COUNT(*) FROM Experiments WHERE name = 'Additive Sweep'").fetchone()[0]
+            run_count = con.execute("SELECT COUNT(*) FROM Runs").fetchone()[0]
+
+        assert experiment_count == 1
+        assert run_count == 2
+
+    def test_sync_existing_experiment_appends_new_seeds(self, db_path: Path) -> None:
+        exp = Experiment("Seed Growth")
+        exp.add_parameter("seed", [0, 1])
+        exp.add_parameter("lr", [1e-3])
+        exp.sync(db_path)
+
+        expanded = Experiment("Seed Growth")
+        expanded.add_parameter("seed", [0, 1, 2, 3])
+        expanded.add_parameter("lr", [1e-3])
+        expanded.sync(db_path)
+
+        with sqlite3.connect(db_path) as con:
+            experiment_count = con.execute("SELECT COUNT(*) FROM Experiments WHERE name = 'Seed Growth'").fetchone()[0]
+            seeds = [row[0] for row in con.execute("SELECT seed FROM Runs ORDER BY seed").fetchall()]
+
+        assert experiment_count == 1
+        assert seeds == [0, 1, 2, 3]
+
+    def test_sync_existing_experiment_appends_new_hypers(self, db_path: Path) -> None:
+        exp = Experiment("Hyper Growth")
+        exp.add_parameter("seed", [0])
+        exp.add_parameter("lr", [1e-3])
+        exp.sync(db_path)
+
+        expanded = Experiment("Hyper Growth")
+        expanded.add_parameter("seed", [0])
+        expanded.add_parameter("lr", [1e-3, 3e-4])
+        expanded.sync(db_path)
+
+        with sqlite3.connect(db_path) as con:
+            experiment_count = con.execute("SELECT COUNT(*) FROM Experiments WHERE name = 'Hyper Growth'").fetchone()[0]
+            run_count = con.execute("SELECT COUNT(*) FROM Runs").fetchone()[0]
+            hyper_count = con.execute("SELECT COUNT(*) FROM HyperparamConfigs").fetchone()[0]
+
+        assert experiment_count == 1
+        assert run_count == 2
+        assert hyper_count == 2
 
     def test_schema_has_all_adr008_tables(self, db_path: Path) -> None:
         exp = Experiment("Test")

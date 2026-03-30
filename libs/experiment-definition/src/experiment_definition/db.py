@@ -77,6 +77,47 @@ def _upsert_hyperparam_config(cur: sqlite3.Cursor, config: dict[str, object]) ->
     return result
 
 
+def _upsert_experiment(cur: sqlite3.Cursor, name: str, description: str | None) -> int:
+    cur.execute("SELECT id FROM Experiments WHERE name = ?", (name,))
+    row = cur.fetchone()
+    if row is not None:
+        return int(row[0])
+
+    cur.execute(
+        "INSERT INTO Experiments(name, description) VALUES (?, ?)",
+        (name, description),
+    )
+    if cur.lastrowid is None:
+        raise RuntimeError("Insert failed: no experiment ID returned.")
+    return int(cur.lastrowid)
+
+
+def _upsert_parameter_spec(
+    cur: sqlite3.Cursor,
+    *,
+    experiment_id: int,
+    name: str,
+    values_json: str,
+    is_static: bool,
+    component_id: int | None,
+    conditions_json: str,
+) -> None:
+    row = cur.execute(
+        "SELECT 1 FROM ParameterSpecs "
+        "WHERE experiment_id = ? AND name = ? AND values_json = ? AND is_static = ? "
+        "AND component_id IS ? AND conditions_json = ?",
+        (experiment_id, name, values_json, int(is_static), component_id, conditions_json),
+    ).fetchone()
+    if row is not None:
+        return
+
+    cur.execute(
+        "INSERT INTO ParameterSpecs(experiment_id, name, values_json, is_static, component_id, conditions_json) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (experiment_id, name, values_json, int(is_static), component_id, conditions_json),
+    )
+
+
 def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
     """Materialise the experiment definition into a SQLite file.
 
@@ -97,13 +138,7 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
             cur = con.cursor()
 
             # ── Experiment row ────────────────────────────────────────────────
-            cur.execute(
-                "INSERT INTO Experiments(name, description) VALUES (?, ?)",
-                (state.name, state.description),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no experiment ID returned.")
-            exp_id: int = cur.lastrowid
+            exp_id = _upsert_experiment(cur, state.name, state.description)
 
             # ── Components ───────────────────────────────────────────────────
             comp_version_ids: dict[str, int] = {}  # component.name → version_id
@@ -116,17 +151,14 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
             # ── ParameterSpecs ───────────────────────────────────────────────
             for p in state.parameters:
                 cid = comp_ids.get(p.component.name) if p.component else None
-                cur.execute(
-                    "INSERT INTO ParameterSpecs(experiment_id, name, values_json, is_static, component_id, conditions_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        exp_id,
-                        p.name,
-                        _json_stable(p.values),
-                        int(p.is_static),
-                        cid,
-                        _json_stable(p.conditions),
-                    ),
+                _upsert_parameter_spec(
+                    cur,
+                    experiment_id=exp_id,
+                    name=p.name,
+                    values_json=_json_stable(p.values),
+                    is_static=p.is_static,
+                    component_id=cid,
+                    conditions_json=_json_stable(p.conditions),
                 )
 
             # ── MetricSpecs ──────────────────────────────────────────────────
@@ -236,8 +268,17 @@ def _insert_runs(
             final_hyper = {**hyper_config, **abl_overrides}
             hyper_id = _upsert_hyperparam_config(cur, final_hyper)
 
+            existing = cur.execute(
+                "SELECT id FROM Runs "
+                "WHERE experiment_id = ? AND algo_version_id IS ? AND env_version_id IS ? "
+                "AND hyper_id = ? AND seed = ? AND ablation IS ?",
+                (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
+            ).fetchone()
+            if existing is not None:
+                continue
+
             cur.execute(
-                "INSERT OR IGNORE INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
+                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
             )
@@ -284,6 +325,7 @@ class RunRow(NamedTuple):
     env_version_id: int
     hyper_id: int
     seed: int
+    ablation: str | None
 
 
 class ExecutionRow(NamedTuple):
@@ -529,6 +571,17 @@ class DatabaseManager:
                 raise RuntimeError("Insert failed: no experiment ID returned.")
             return int(cur.lastrowid)
 
+    def ensure_experiment(self, name: str, description: str | None = None) -> int:
+        """Return the existing experiment id for ``name`` or create it.
+
+        This is the additive-registration primitive needed for declarative
+        experiment expansion. Repeated calls with the same name are idempotent.
+        """
+        existing = self.get_experiment(name)
+        if existing is not None:
+            return existing.id
+        return self.add_experiment(name, description)
+
     def get_experiment(self, name: str) -> ExperimentRow | None:
         """Fetch an experiment by name."""
         row = self.conn.execute(
@@ -563,6 +616,37 @@ class DatabaseManager:
             if cur.lastrowid is None:
                 raise RuntimeError("Insert failed: no run ID returned.")
             return int(cur.lastrowid)
+
+    def list_runs(self, experiment_id: int) -> list[RunRow]:
+        """Return all logical runs for an experiment ordered by seed and id."""
+        rows = self.conn.execute(
+            "SELECT id, experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation "
+            "FROM Runs WHERE experiment_id = ? ORDER BY seed, hyper_id, id",
+            (experiment_id,),
+        ).fetchall()
+        return [RunRow(*row) for row in rows]
+
+    def list_unsatisfied_runs(self, experiment_id: int) -> list[RunRow]:
+        """Return runs lacking any linked ``COMPLETED`` execution.
+
+        A run is considered satisfied only when at least one linked execution
+        has status ``COMPLETED``. Runs linked only to ``FAILED`` or ``INVALID``
+        executions are returned here and should be rescheduled by the runner.
+        """
+        rows = self.conn.execute(
+            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
+            "FROM Runs r "
+            "LEFT JOIN ("
+            "    SELECT DISTINCT er.run_id AS run_id "
+            "    FROM ExecutionRuns er "
+            "    INNER JOIN Executions e ON e.id = er.execution_id "
+            "    WHERE e.status = 'COMPLETED'"
+            ") completed ON completed.run_id = r.id "
+            "WHERE r.experiment_id = ? AND completed.run_id IS NULL "
+            "ORDER BY r.seed, r.hyper_id, r.id",
+            (experiment_id,),
+        ).fetchall()
+        return [RunRow(*row) for row in rows]
 
     # ------------------------------------------------------------------
     # Executions

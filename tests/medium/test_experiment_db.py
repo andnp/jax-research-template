@@ -243,6 +243,62 @@ def test_add_run_duplicate_raises(populated_db: DatabaseManager) -> None:
         db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")  # type: ignore[union-attr]
 
 
+def test_ensure_experiment_reuses_existing_id(db: DatabaseManager) -> None:
+    first_id = db.ensure_experiment("Declarative Sweep", "first")
+    second_id = db.ensure_experiment("Declarative Sweep", "second")
+
+    assert first_id == second_id
+
+
+def test_list_runs_returns_all_runs_for_experiment(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+
+    runs = db.list_runs(exp_id)
+
+    assert [run.seed for run in runs] == [0, 1]
+
+
+def test_list_unsatisfied_runs_excludes_completed_execution(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run0 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+    run1 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+
+    execution_id = db.add_execution(hostname="node01")
+    db.link_execution_run(execution_id, run0)
+    db.update_execution_status(execution_id, "COMPLETED")
+
+    unsatisfied_runs = db.list_unsatisfied_runs(exp_id)
+
+    assert [run.id for run in unsatisfied_runs] == [run1]
+
+
+def test_list_unsatisfied_runs_keeps_failed_only_runs(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)  # type: ignore[union-attr]
+
+    execution_id = db.add_execution(hostname="node02")
+    db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "FAILED")
+
+    unsatisfied_runs = db.list_unsatisfied_runs(exp_id)
+
+    assert [run.id for run in unsatisfied_runs] == [run_id]
+
+
 # ---------------------------------------------------------------------------
 # Executions and ExecutionRuns
 # ---------------------------------------------------------------------------

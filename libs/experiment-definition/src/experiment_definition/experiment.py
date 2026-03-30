@@ -198,9 +198,9 @@ class Experiment:
         """Persist the experiment definition to a SQLite database.
 
         Creates the file and schema (ADR 008) if they do not exist.
-        Existing experiments are not overwritten; each call appends a new
-        experiment row (idempotent at the ``HyperparamConfigs`` level via
-        hash-based deduplication).
+        Existing experiments with the same name are reopened additively:
+        matching metadata is reused, matching logical runs are left intact,
+        and newly declared runs are appended.
 
         Args:
             db_path: Path to the target SQLite file.
