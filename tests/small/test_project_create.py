@@ -3,12 +3,20 @@
 from pathlib import Path
 
 import pytest
+from jinja2 import BaseLoader, Environment
 from research_cli import project as project_module
 from research_cli.main import app
 from research_cli.project import _template_root
 from typer.testing import CliRunner
 
 runner = CliRunner()
+
+
+def _render_project_template(template_name: str, **context: str) -> str:
+    template_path = _template_root() / "{{project_name}}" / template_name
+    template = template_path.read_text(encoding="utf-8")
+    environment = Environment(loader=BaseLoader(), keep_trailing_newline=True)
+    return environment.from_string(template).render(**context)
 
 
 def test_research_help_lists_project_command() -> None:
@@ -91,6 +99,40 @@ def test_project_create_fails_if_project_already_exists(tmp_path: Path, monkeypa
 
     assert result.exit_code != 0
     assert str(project_root) in result.output
+
+
+def test_project_template_pyproject_declares_truthful_runtime_dependencies() -> None:
+    """The generated project must declare the runtime packages its starter imports require."""
+    rendered = _render_project_template(
+        "pyproject.toml.jinja",
+        project_name="demo",
+        description="A demo experiment",
+        python_version="3.13",
+        algorithm="ppo",
+    )
+
+    assert 'dependencies = [' in rendered
+    assert 'dependencies = []' not in rendered
+    assert '"jax~=0.9"' in rendered
+    assert '"matplotlib>=3.9"' in rendered
+    assert '"rl-agents"' in rendered
+    assert '"rl-components"' in rendered
+    assert "[tool.uv.sources]" in rendered
+    assert "rl-agents = { workspace = true }" in rendered
+    assert "rl-components = { workspace = true }" in rendered
+
+
+def test_project_template_readme_documents_workspace_aware_bootstrap() -> None:
+    """The generated README must describe the supported workspace bootstrap and run flow."""
+    rendered = _render_project_template(
+        "README.md.jinja",
+        project_name="demo",
+        description="A demo experiment",
+    )
+
+    assert "From the workspace root:" in rendered
+    assert "uv sync --all-packages" in rendered
+    assert "uv run --project projects/demo python train.py" in rendered
 
 
 def test_project_create_renders_then_initializes_git_without_github_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

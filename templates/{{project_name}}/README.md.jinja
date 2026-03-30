@@ -4,12 +4,16 @@
 
 ## Setup
 
+From the workspace root:
+
 ```bash
-uv sync
+uv sync --all-packages
 ```
 
 ## Run
 
+From the workspace root:
+
 ```bash
-uv run python train.py
+uv run --project projects/{{ project_name }} python train.py
 ```
