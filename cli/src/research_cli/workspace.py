@@ -186,8 +186,15 @@ def init(
     _write(workspace_dir / ".gitignore", _load_template("gitignore.tpl"), dry_run=dry_run)
 
     typer.echo(f"{'[dry-run] ' if dry_run else ''}✓ Workspace '{name}' ready.")
-    if not core_url:
-        typer.echo("  Tip: add research-core with `git submodule add <url> core` then run `uv sync`.")
+    if core_url:
+        typer.echo("  Next:")
+        typer.echo("    1. uv sync --all-packages")
+        typer.echo("    2. uv run research doctor")
+    else:
+        typer.echo("  Next:")
+        typer.echo("    1. add Core first with `git submodule add <url> core`")
+        typer.echo("    2. uv sync --all-packages")
+        typer.echo("    3. uv run research doctor")
 
 
 @workspace_app.command()

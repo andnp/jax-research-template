@@ -81,8 +81,9 @@ def test_write_creates_file(tmp_path: Path) -> None:
 
 
 def test_pyproject_template_contains_workspace_members() -> None:
-    """The pyproject.toml template must reference core/libs/* and projects/*."""
+    """The pyproject.toml template must reference core/cli, core/libs/*, and projects/*."""
     rendered = _load_template("pyproject.toml.tpl").format(name="my-workspace")
+    assert "core/cli" in rendered
     assert "core/libs/*" in rendered
     assert "projects/*" in rendered
     assert 'name = "my-workspace"' in rendered
@@ -156,10 +157,22 @@ def test_workspace_init_creates_projects_dir(tmp_path: Path) -> None:
 def test_workspace_init_adds_submodule_when_core_url_given(tmp_path: Path) -> None:
     """workspace init must invoke `git submodule add` when --core-url is provided."""
     with patch("subprocess.run", return_value=_mock_subprocess_ok()) as mock_sub:
-        runner.invoke(app, ["workspace", "init", "shell", "--path", str(tmp_path), "--core-url", "https://github.com/org/research-core"])
+        result = runner.invoke(app, ["workspace", "init", "shell", "--path", str(tmp_path), "--core-url", "https://github.com/org/research-core"])
     submodule_calls = [c for c in mock_sub.call_args_list if "submodule" in c.args[0]]
     assert len(submodule_calls) == 1
     assert "https://github.com/org/research-core" in submodule_calls[0].args[0]
+    assert "uv sync --all-packages" in result.output
+    assert "uv run research doctor" in result.output
+
+
+def test_workspace_init_without_core_url_reports_truthful_next_steps(tmp_path: Path) -> None:
+    """workspace init without --core-url must tell the user to add Core before syncing."""
+    with patch("subprocess.run", return_value=_mock_subprocess_ok()):
+        result = runner.invoke(app, ["workspace", "init", "shell", "--path", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "git submodule add <url> core" in result.output
+    assert "uv sync --all-packages" in result.output
+    assert "uv run research doctor" in result.output
 
 
 def test_workspace_init_skips_submodule_without_core_url(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ package = false
 
 [tool.uv.workspace]
 members = [
+    "core/cli",
     "core/libs/*",
     "projects/*",
 ]
