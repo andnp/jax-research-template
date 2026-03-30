@@ -339,6 +339,14 @@ class ExecutionRow(NamedTuple):
     jax_config_json: str | None
 
 
+class ExecutionArtifactRow(NamedTuple):
+    execution_id: int
+    root_path: str
+    manifest_path: str | None
+    metadata_json: str | None
+    created_at: str
+
+
 class RunBatch(NamedTuple):
     algo_version_id: int | None
     env_version_id: int | None
@@ -738,6 +746,36 @@ class DatabaseManager:
         ).fetchone()
         return ExecutionRow(*row) if row else None
 
+    def record_execution_artifacts(
+        self,
+        execution_id: int,
+        root_path: str,
+        *,
+        manifest_path: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        """Create or update canonical artifact linkage for an execution."""
+        metadata_json = json.dumps(metadata, sort_keys=True) if metadata is not None else None
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path, metadata_json) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(execution_id) DO UPDATE SET "
+                "root_path = excluded.root_path, "
+                "manifest_path = excluded.manifest_path, "
+                "metadata_json = excluded.metadata_json",
+                (execution_id, root_path, manifest_path, metadata_json),
+            )
+
+    def get_execution_artifacts(self, execution_id: int) -> ExecutionArtifactRow | None:
+        """Fetch canonical artifact linkage for an execution."""
+        row = self.conn.execute(
+            "SELECT execution_id, root_path, manifest_path, metadata_json, created_at "
+            "FROM ExecutionArtifacts WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+        return ExecutionArtifactRow(*row) if row else None
+
     def update_execution_status(
         self,
         execution_id: int,
@@ -857,6 +895,13 @@ class DatabaseManager:
             (run_id,),
         ).fetchone()
         return ExecutionRow(*row) if row else None
+
+    def get_latest_completed_artifacts_for_run(self, run_id: int) -> ExecutionArtifactRow | None:
+        """Resolve artifact linkage for the latest completed execution of a run."""
+        latest_execution = self.get_latest_completed_execution_for_run(run_id)
+        if latest_execution is None:
+            return None
+        return self.get_execution_artifacts(latest_execution.id)
 
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""

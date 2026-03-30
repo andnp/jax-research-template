@@ -102,6 +102,16 @@ CREATE TABLE IF NOT EXISTS ExecutionRuns (
 );
 """
 
+CREATE_EXECUTION_ARTIFACTS = """
+CREATE TABLE IF NOT EXISTS ExecutionArtifacts (
+    execution_id   INTEGER PRIMARY KEY REFERENCES Executions(id),
+    root_path      TEXT    NOT NULL,
+    manifest_path  TEXT,
+    metadata_json  TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+"""
+
 # ---------------------------------------------------------------------------
 # Index DDL  (queried frequently in the runner hot path)
 # ---------------------------------------------------------------------------
@@ -185,6 +195,7 @@ ALL_DDL: list[str] = [
     CREATE_RUNS,
     CREATE_EXECUTIONS,
     CREATE_EXECUTION_RUNS,
+    CREATE_EXECUTION_ARTIFACTS,
     CREATE_PARAMETER_SPECS,
     CREATE_METRIC_SPECS,
     *CREATE_INDEXES,

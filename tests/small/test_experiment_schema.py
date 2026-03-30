@@ -10,6 +10,7 @@ from experiment_definition.schema import (
     COMPONENT_TYPES,
     CREATE_COMPONENT_VERSIONS,
     CREATE_COMPONENTS,
+    CREATE_EXECUTION_ARTIFACTS,
     CREATE_EXECUTION_RUNS,
     CREATE_EXECUTIONS,
     CREATE_EXPERIMENTS,
@@ -50,6 +51,7 @@ def test_execution_statuses_complete() -> None:
         (CREATE_RUNS, ["Runs", "algo_version_id", "env_version_id", "hyper_id", "seed", "ablation", "UNIQUE("]),
         (CREATE_EXECUTIONS, ["Executions", "PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID", "jax_config_json", "git_commit", "git_diff_blob"]),
         (CREATE_EXECUTION_RUNS, ["ExecutionRuns", "execution_id", "run_id", "PRIMARY KEY"]),
+        (CREATE_EXECUTION_ARTIFACTS, ["ExecutionArtifacts", "execution_id", "root_path", "manifest_path", "metadata_json"]),
         (CREATE_LATEST_VERSIONS_VIEW, ["ComponentLatestVersions", "MAX(version_number)", "GROUP BY component_id"]),
         (CREATE_PARAMETER_SPECS, ["ParameterSpecs", "experiment_id", "values_json", "is_static", "conditions_json"]),
         (CREATE_METRIC_SPECS, ["MetricSpecs", "experiment_id", "name", "type", "frequency", "UNIQUE(experiment_id, name)"]),
@@ -75,6 +77,7 @@ def test_all_ddl_covers_all_seven_tables() -> None:
         "Runs",
         "Executions",
         "ExecutionRuns",
+        "ExecutionArtifacts",
         "ParameterSpecs",
         "MetricSpecs",
     ]

@@ -360,6 +360,41 @@ def test_get_execution_round_trip(db: DatabaseManager) -> None:
     assert execution.git_commit == "deadbeef"
 
 
+def test_record_execution_artifacts_round_trip(db: DatabaseManager) -> None:
+    execution_id = db.add_execution(hostname="node-artifact")
+
+    db.record_execution_artifacts(
+        execution_id,
+        "/tmp/executions/1",
+        manifest_path="/tmp/executions/1/manifest.json",
+        metadata={"cohort": "seed-0-3"},
+    )
+
+    artifact = db.get_execution_artifacts(execution_id)
+
+    assert artifact is not None
+    assert artifact.root_path == "/tmp/executions/1"
+    assert artifact.manifest_path == "/tmp/executions/1/manifest.json"
+    assert artifact.metadata_json == '{"cohort": "seed-0-3"}'
+
+
+def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) -> None:
+    execution_id = db.add_execution(hostname="node-artifact-update")
+    db.record_execution_artifacts(execution_id, "/tmp/executions/old")
+
+    db.record_execution_artifacts(
+        execution_id,
+        "/tmp/executions/new",
+        manifest_path="/tmp/executions/new/manifest.json",
+    )
+
+    artifact = db.get_execution_artifacts(execution_id)
+
+    assert artifact is not None
+    assert artifact.root_path == "/tmp/executions/new"
+    assert artifact.manifest_path == "/tmp/executions/new/manifest.json"
+
+
 def test_one_execution_covers_multiple_runs(populated_db: DatabaseManager) -> None:
     """Verify the vmap-zone many-to-one semantic: 1 execution → N runs."""
     db = populated_db
@@ -481,6 +516,31 @@ def test_get_latest_completed_execution_for_run_returns_latest(populated_db: Dat
 
     assert latest is not None
     assert latest.id == newer_execution
+
+
+def test_get_latest_completed_artifacts_for_run_returns_artifacts_for_latest_execution(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=11)  # type: ignore[union-attr]
+
+    older_execution = db.add_execution(hostname="node-old")
+    db.link_execution_run(older_execution, run_id)
+    db.update_execution_status(older_execution, "COMPLETED", end_time="2026-03-30T00:00:00Z")
+    db.record_execution_artifacts(older_execution, "/tmp/executions/old")
+
+    newer_execution = db.add_execution(hostname="node-new")
+    db.link_execution_run(newer_execution, run_id)
+    db.update_execution_status(newer_execution, "COMPLETED", end_time="2026-03-30T00:05:00Z")
+    db.record_execution_artifacts(newer_execution, "/tmp/executions/new")
+
+    artifact = db.get_latest_completed_artifacts_for_run(run_id)
+
+    assert artifact is not None
+    assert artifact.execution_id == newer_execution
+    assert artifact.root_path == "/tmp/executions/new"
 
 
 def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseManager) -> None:
