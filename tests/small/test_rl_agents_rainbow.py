@@ -384,6 +384,7 @@ class TestRainbowOptimizerParity:
 
     def test_initialize_train_state_wires_rmsprop_builder(self):
         config = RainbowConfig(
+            REPLAY_CAPACITY=16,
             LEARNING_RATE=1e-3,
             RMSPROP_DECAY=0.8,
             OPTIMIZER_EPSILON=1e-4,
