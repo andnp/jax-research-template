@@ -23,6 +23,7 @@ from rl_agents.rainbow import (
     categorical_loss,
     categorical_losses,
     categorical_target_probabilities,
+    categorical_target_support,
     initialize_train_state,
     make_train,
     rainbow_atari_runtime_from_dqn_zoo,
@@ -289,6 +290,74 @@ class TestRainbowNetworkAndLoss:
             atol=1e-6,
         )
         assert not jnp.allclose(double_q_target_probabilities, target_greedy_probabilities)
+
+    def test_categorical_target_support_masks_terminals_and_applies_n_step_discount(self):
+        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+
+        target_support = categorical_target_support(
+            rewards=jnp.array([0.5, 0.5], dtype=jnp.float32),
+            dones=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            support=support,
+            discount=0.25,
+        )
+
+        npt.assert_allclose(
+            target_support,
+            jnp.array(
+                [
+                    [0.25, 0.5, 0.75],
+                    [0.5, 0.5, 0.5],
+                ],
+                dtype=jnp.float32,
+            ),
+            atol=1e-6,
+        )
+
+    def test_categorical_target_probabilities_match_golden_projection_cases(self):
+        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+        n_step_projected = categorical_target_probabilities(
+            rewards=jnp.array([0.5], dtype=jnp.float32),
+            dones=jnp.array([0.0], dtype=jnp.float32),
+            next_probabilities=jnp.array([[0.0, 0.0, 1.0]], dtype=jnp.float32),
+            support=support,
+            discount=0.25,
+        )
+        terminal_projected = categorical_target_probabilities(
+            rewards=jnp.array([0.5], dtype=jnp.float32),
+            dones=jnp.array([1.0], dtype=jnp.float32),
+            next_probabilities=jnp.array([[0.1, 0.2, 0.7]], dtype=jnp.float32),
+            support=support,
+            discount=0.25,
+        )
+        clipped_projected = categorical_target_probabilities(
+            rewards=jnp.array([0.5], dtype=jnp.float32),
+            dones=jnp.array([0.0], dtype=jnp.float32),
+            next_probabilities=jnp.array([[0.0, 0.0, 1.0]], dtype=jnp.float32),
+            support=support,
+            discount=1.0,
+        )
+
+        projected = jnp.concatenate(
+            [
+                n_step_projected,
+                terminal_projected,
+                clipped_projected,
+            ],
+            axis=0,
+        )
+
+        npt.assert_allclose(
+            projected,
+            jnp.array(
+                [
+                    [0.0, 0.25, 0.75],
+                    [0.0, 0.5, 0.5],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=jnp.float32,
+            ),
+            atol=1e-6,
+        )
 
 
 class TestRainbowOptimizerParity:
