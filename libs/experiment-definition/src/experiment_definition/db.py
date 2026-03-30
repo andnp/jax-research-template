@@ -66,14 +66,28 @@ def _upsert_component(cur: sqlite3.Cursor, name: str, comp_type: str, code_hash:
     return comp_id, version_id
 
 
-def _upsert_hyperparam_config(cur: sqlite3.Cursor, config: dict[str, object]) -> int:
+def _upsert_hyperparam_config(
+    cur: sqlite3.Cursor,
+    config: dict[str, object],
+    vmap_zone: dict[str, list[str]] | None = None,
+) -> int:
     h = _hash_dict(config)
     blob = _json_stable(config)
-    cur.execute("INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob) VALUES (?, ?)", (h, blob))
-    cur.execute("SELECT id FROM HyperparamConfigs WHERE hash = ?", (h,))
+    vmap_json = _json_stable(vmap_zone) if vmap_zone is not None else None
+    cur.execute(
+        "INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
+        (h, blob, vmap_json),
+    )
+    cur.execute("SELECT id, vmap_zone_json FROM HyperparamConfigs WHERE hash = ?", (h,))
     row = cur.fetchone()
     assert row is not None
-    result: int = row[0]
+    result = int(row[0])
+    existing_vmap_json = row[1]
+    if vmap_json is not None and existing_vmap_json != vmap_json:
+        cur.execute(
+            "UPDATE HyperparamConfigs SET vmap_zone_json = ? WHERE id = ?",
+            (vmap_json, result),
+        )
     return result
 
 
@@ -266,7 +280,7 @@ def _insert_runs(
 
         for abl_name, abl_overrides in ablation_list:
             final_hyper = {**hyper_config, **abl_overrides}
-            hyper_id = _upsert_hyperparam_config(cur, final_hyper)
+            hyper_id = _upsert_hyperparam_config(cur, final_hyper, _vmap_zone_for_hyper_config(state, final_hyper))
 
             existing = cur.execute(
                 "SELECT id FROM Runs "
@@ -354,6 +368,15 @@ class RunBatch(NamedTuple):
     static_config_json: str
     vmap_zone_json: str | None
     run_ids: list[int]
+
+
+class PlannedExecution(NamedTuple):
+    execution_id: int
+    run_ids: list[int]
+    root_path: str
+    manifest_path: str
+    static_config_json: str
+    vmap_zone_json: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -871,6 +894,53 @@ class DatabaseManager:
             )
         return execution_ids
 
+    def plan_experiment_execution_batches(
+        self,
+        experiment_id: int,
+        artifacts_root: str | Path,
+        *,
+        max_runs_per_batch: int | None = None,
+        manifest_name: str = "manifest.json",
+        hostname: str | None = None,
+        git_commit: str | None = None,
+        git_diff_blob: str | None = None,
+        jax_config: dict[str, object] | None = None,
+    ) -> list[PlannedExecution]:
+        """Plan execution batches and register deterministic artifact paths."""
+        base_path = Path(artifacts_root)
+        planned: list[PlannedExecution] = []
+        for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
+            execution_id = self.plan_execution(
+                batch.run_ids,
+                hostname=hostname,
+                git_commit=git_commit,
+                git_diff_blob=git_diff_blob,
+                jax_config=jax_config,
+            )
+            root_path = str(base_path / str(execution_id))
+            manifest_path = str(Path(root_path) / manifest_name)
+            self.record_execution_artifacts(
+                execution_id,
+                root_path,
+                manifest_path=manifest_path,
+                metadata={
+                    "run_ids": batch.run_ids,
+                    "static_config_json": batch.static_config_json,
+                    "vmap_zone_json": batch.vmap_zone_json,
+                },
+            )
+            planned.append(
+                PlannedExecution(
+                    execution_id=execution_id,
+                    run_ids=batch.run_ids,
+                    root_path=root_path,
+                    manifest_path=manifest_path,
+                    static_config_json=batch.static_config_json,
+                    vmap_zone_json=batch.vmap_zone_json,
+                )
+            )
+        return planned
+
     def list_execution_runs(self, execution_id: int) -> list[RunRow]:
         """Return the logical runs linked to an execution."""
         rows = self.conn.execute(
@@ -924,3 +994,9 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
 
     static_params = {key: hyper_params[key] for key in static_keys if key in hyper_params}
     return _json_stable(static_params)
+
+
+def _vmap_zone_for_hyper_config(state: "_ExperimentState", hyper_config: dict[str, object]) -> dict[str, list[str]]:
+    static_keys = sorted({param.name for param in state.parameters if param.is_static and param.name in hyper_config})
+    dynamic_keys = sorted(key for key in hyper_config if key not in static_keys)
+    return {"static_keys": static_keys, "dynamic_keys": dynamic_keys}

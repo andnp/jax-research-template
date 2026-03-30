@@ -606,6 +606,37 @@ def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: 
     assert all(db.get_execution(execution_id).hostname == "batch-planner" for execution_id in execution_ids)  # type: ignore[union-attr]
 
 
+def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseManager) -> None:
+    algo_id = db.add_component("FacadeAlgo", "ALGO")
+    env_id = db.add_component("FacadeEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Facade Experiment")
+
+    hyper_id = db.add_hyperparam_config(
+        {"arch": "mlp", "lr": 1e-3},
+        vmap_zone={"static_keys": ["arch"], "dynamic_keys": ["lr"]},
+    )
+    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=0)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=1)
+
+    planned = db.plan_experiment_execution_batches(
+        exp_id,
+        "/tmp/experiment-executions",
+        hostname="facade-node",
+    )
+
+    assert len(planned) == 1
+    assert planned[0].root_path.endswith(f"/{planned[0].execution_id}")
+    assert planned[0].manifest_path.endswith(f"/{planned[0].execution_id}/manifest.json")
+
+    artifacts = db.get_execution_artifacts(planned[0].execution_id)
+    assert artifacts is not None
+    assert artifacts.root_path == planned[0].root_path
+    assert artifacts.manifest_path == planned[0].manifest_path
+    assert '"run_ids": [1, 2]' in (artifacts.metadata_json or "")
+
+
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------

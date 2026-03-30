@@ -81,6 +81,20 @@ class TestSyncToDb:
         assert ("env_steps", 1) in rows
         assert ("lr", 0) in rows
 
+    def test_hyperparam_configs_store_vmap_zone_metadata(self, db_path: Path) -> None:
+        exp = Experiment("Vmap Zone Test")
+        exp.add_parameter("seed", [0])
+        exp.add_parameter("lr", [1e-3, 3e-4])
+        exp.add_parameter("arch", ["mlp"], is_static=True)
+        exp.sync(db_path)
+
+        with sqlite3.connect(db_path) as con:
+            rows = con.execute("SELECT json_blob, vmap_zone_json FROM HyperparamConfigs ORDER BY json_blob").fetchall()
+
+        assert rows
+        assert all('"static_keys": ["arch"]' in row[1] for row in rows)
+        assert all('"dynamic_keys": ["lr"]' in row[1] for row in rows)
+
     def test_metric_specs_stored(self, db_path: Path) -> None:
         exp = Experiment("Test")
         exp.add_metric("reward", type="float", frequency="per_episode")
