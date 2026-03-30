@@ -15,7 +15,10 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
 - `research workspace init`: 
     - Initializes a new "Shell" monorepo.
     - Adds the `research-core` as a submodule.
-    - Sets up the root `pyproject.toml` with `uv` workspace members.
+    - Sets up the root `pyproject.toml` with `uv` workspace members for `core/cli`, `core/libs/*`, and `projects/*`.
+    - Prints truthful manual next steps instead of mutating the environment itself:
+        - with `--core-url`, the intended follow-up is `uv sync --all-packages` and then `uv run research doctor`;
+        - without `--core-url`, the user must add `core/` first with `git submodule add <url> core` before running that same sync + doctor flow.
 - `research workspace repair [--dry-run]`:
     - Mutating remediation command for the configured Core checkout. It is separate from read-only `research doctor` and must never be invoked implicitly by diagnostics.
     - Reads `research.yaml` at the workspace root and resolves the configured `core_path`; all repair actions are scoped from that path.
@@ -140,5 +143,6 @@ doctor:
 5. PR is opened upstream for the community to benefit.
 
 ## 5. Technical Constraints
-- The CLI must be installed in "editable" mode (`uv pip install -e core/cli`) within the workspace.
+- Fresh shell workspaces should include `core/cli` as a `uv` workspace member, so the normal bootstrap path is `uv sync --all-packages` once `core/` exists.
+- `research workspace init` must not run `uv sync` or `research doctor` implicitly; it only prints the appropriate next-step guidance.
 - Commands must be deterministic and provide clear "dry-run" previews before modifying the filesystem or Git state.
