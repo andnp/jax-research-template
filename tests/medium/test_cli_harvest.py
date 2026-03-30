@@ -54,7 +54,7 @@ def test_harvest_moves_package_creates_manifest_and_rewrites_imports(tmp_path: P
     nested_dir.mkdir()
     nested_file = nested_dir / "runner.py"
     nested_file.write_text("import components.jax_utils.helpers as helpers\n", encoding="utf-8")
-    monkeypatch.chdir(workspace_root)
+    monkeypatch.chdir(nested_dir)
 
     result = runner.invoke(app, ["harvest", "demo", "jax-utils"])
 

@@ -43,9 +43,13 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
 
 ### 2.3 The "Rule of Three" Lifecycle
 - `research eject <lib_name>`:
+    - Resolves the enclosing shell workspace root upward from the current directory using the same contract as `research project create` and `research doctor`.
+    - Still requires an explicit project argument; it must not infer the current project from `cwd`.
     - Copies `core/libs/<lib_name>` into `projects/<current>/src/components/`.
     - Updates local imports to point to the project-specific version.
 - `research harvest <project_path>/<module_name>`:
+    - Resolves the enclosing shell workspace root upward from the current directory using the same contract as `research project create` and `research doctor`.
+    - Still requires an explicit project argument; it must not infer the current project from `cwd`.
     - Moves a generalizable component from a project into `core/libs/`.
     - Initializes a new `pyproject.toml` for the library if it's new.
     - Updates project imports to point to the Core library.

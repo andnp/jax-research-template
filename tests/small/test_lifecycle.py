@@ -37,6 +37,29 @@ def _create_library(workspace_root: Path, library_name: str) -> Path:
     return module_root
 
 
+def _create_nested_library(workspace_root: Path, library_name: str) -> Path:
+    import_package = library_name.replace("-", "_")
+    lib_root = workspace_root / "core" / "libs" / library_name
+    module_root = lib_root / "src" / import_package
+    module_root.mkdir(parents=True)
+    (lib_root / "pyproject.toml").write_text(
+        "[project]\n"
+        f'name = "{library_name}"\n'
+        'version = "0.1.0"\n'
+        'description = "Test library"\n'
+        'requires-python = ">=3.13"\n'
+        "dependencies = []\n\n"
+        "[build-system]\n"
+        'requires = ["setuptools>=61.0"]\n'
+        'build-backend = "setuptools.build_meta"\n\n'
+        "[tool.setuptools.packages.find]\n"
+        'where = ["src"]\n',
+        encoding="utf-8",
+    )
+    (module_root / "__init__.py").write_text("", encoding="utf-8")
+    return module_root
+
+
 def _create_library_manifest_only(workspace_root: Path, library_name: str) -> Path:
     lib_root = workspace_root / "libs" / library_name
     (lib_root / "src").mkdir(parents=True)
@@ -61,6 +84,15 @@ def _create_project(workspace_root: Path, project_name: str) -> Path:
     project_root = workspace_root / "projects" / project_name
     project_root.mkdir(parents=True)
     return project_root
+
+
+def _create_workspace_root(workspace_root: Path) -> None:
+    (workspace_root / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "research-shell"\n'
+        'version = "0.1.0"\n',
+        encoding="utf-8",
+    )
 
 
 def _create_component(project_root: Path, import_package: str) -> Path:
@@ -89,6 +121,7 @@ def test_lifecycle_command_help_lists_dry_run(command: str) -> None:
 def test_eject_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Eject dry-run must preview the current lib-to-project resolution only."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     source_path = _create_library(workspace_root, "jax-utils")
     train_file = project_root / "train.py"
@@ -115,6 +148,7 @@ def test_eject_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path, m
 def test_eject_fails_when_destination_already_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Eject must fail fast when the project-local component already exists."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     _create_library(workspace_root, "jax-utils")
     _create_component(project_root, "jax_utils")
@@ -129,6 +163,7 @@ def test_eject_fails_when_destination_already_exists(tmp_path: Path, monkeypatch
 def test_harvest_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest dry-run must preview the current project-to-lib resolution only."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     source_path = _create_component(project_root, "jax_utils")
     monkeypatch.chdir(workspace_root)
@@ -152,30 +187,33 @@ def test_harvest_dry_run_reports_resolved_paths_without_mutating(tmp_path: Path,
 
 
 def test_eject_fails_when_workspace_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Eject must fail fast when the cwd is not a supported workspace root."""
+    """Eject must fail fast when the cwd is not inside a research workspace."""
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["eject", "demo", "jax-utils", "--dry-run"])
 
     assert result.exit_code != 0
-    assert "workspace root containing 'libs/' or 'core/libs/'" in result.output
+    assert "Could not find a research workspace" in result.output
 
 
 def test_eject_fails_when_project_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Eject must fail fast when the project root cannot be resolved."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
+    (workspace_root / "projects").mkdir()
     _create_library(workspace_root, "jax-utils")
     monkeypatch.chdir(workspace_root)
 
     result = runner.invoke(app, ["eject", "demo", "jax-utils", "--dry-run"])
 
     assert result.exit_code != 0
-    assert f"expected project root '{workspace_root / 'projects'}'" in result.output
+    assert f"project 'demo' was not found under '{workspace_root / 'projects'}'" in result.output
 
 
 def test_harvest_dry_run_allows_new_library_and_reports_manifest_creation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest dry-run must support creating a brand-new shared library without mutating the workspace."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     (workspace_root / "libs").mkdir()
     project_root = _create_project(workspace_root, "demo")
     source_path = _create_component(project_root, "jax_utils")
@@ -193,6 +231,7 @@ def test_harvest_dry_run_allows_new_library_and_reports_manifest_creation(tmp_pa
 def test_harvest_fails_when_destination_package_already_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest must fail fast when the destination package already exists in libs/."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     _create_component(project_root, "jax_utils")
     target_path = _create_library(workspace_root, "jax-utils")
@@ -207,6 +246,7 @@ def test_harvest_fails_when_destination_package_already_exists(tmp_path: Path, m
 def test_harvest_fails_when_destination_library_layout_is_incomplete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest must fail fast when the destination library exists without a real manifest."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     _create_component(project_root, "jax_utils")
     incomplete_lib_root = workspace_root / "libs" / "jax-utils"
@@ -222,6 +262,7 @@ def test_harvest_fails_when_destination_library_layout_is_incomplete(tmp_path: P
 def test_harvest_fails_when_module_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest must fail fast when the project component cannot be resolved."""
     workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
     project_root = _create_project(workspace_root, "demo")
     _create_library(workspace_root, "jax-utils")
     monkeypatch.chdir(workspace_root)
@@ -231,3 +272,42 @@ def test_harvest_fails_when_module_resolution_fails(tmp_path: Path, monkeypatch:
     expected_path = project_root / "components" / "jax_utils"
     assert result.exit_code != 0
     assert f"module 'jax_utils' was not found at '{expected_path}'" in result.output
+
+
+def test_eject_dry_run_resolves_workspace_from_nested_project_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eject dry-run must resolve the enclosing workspace upward from inside a project tree."""
+    workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
+    project_root = _create_project(workspace_root, "demo")
+    source_path = _create_library(workspace_root, "jax-utils")
+    nested_cwd = project_root / "src"
+    nested_cwd.mkdir()
+    monkeypatch.chdir(nested_cwd)
+
+    result = runner.invoke(app, ["eject", "demo", "jax-utils", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Workspace root: {workspace_root}" in result.output
+    assert f"Source path: {source_path}" in result.output
+
+
+def test_harvest_dry_run_prefers_nested_core_libs_root_when_workspace_has_no_top_level_libs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Harvest dry-run must preserve core/libs selection after shared workspace-root resolution."""
+    workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
+    project_root = _create_project(workspace_root, "demo")
+    source_path = _create_component(project_root, "jax_utils")
+    nested_cwd = project_root / "pkg"
+    nested_cwd.mkdir()
+    _create_nested_library(workspace_root, "other-lib")
+    monkeypatch.chdir(nested_cwd)
+
+    result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Workspace root: {workspace_root}" in result.output
+    assert f"Source path: {source_path}" in result.output
+    assert f"Target path: {workspace_root / 'core' / 'libs' / 'jax-utils' / 'src' / 'jax_utils'}" in result.output

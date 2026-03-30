@@ -26,6 +26,12 @@ def _create_project(workspace_root: Path, project_name: str) -> Path:
 def test_eject_copies_package_and_rewrites_project_imports(tmp_path: Path, monkeypatch) -> None:
     """Eject must copy the package tree and rewrite shared-lib imports inside the target project."""
     workspace_root = tmp_path.resolve()
+    (workspace_root / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "research-shell"\n'
+        'version = "0.1.0"\n',
+        encoding="utf-8",
+    )
     project_root = _create_project(workspace_root, "demo")
     source_root = _create_library(workspace_root, "jax-utils")
     train_file = project_root / "train.py"
@@ -39,7 +45,7 @@ def test_eject_copies_package_and_rewrites_project_imports(tmp_path: Path, monke
     nested_file.write_text("import jax_utils.helpers as helpers\n", encoding="utf-8")
     outside_file = workspace_root / "scratch.py"
     outside_file.write_text("import jax_utils\n", encoding="utf-8")
-    monkeypatch.chdir(workspace_root)
+    monkeypatch.chdir(nested_dir)
 
     result = runner.invoke(app, ["eject", "demo", "jax-utils"])
 
