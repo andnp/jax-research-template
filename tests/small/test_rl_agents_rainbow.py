@@ -7,6 +7,7 @@ import numpy.testing as npt
 import pytest
 from rl_agents.dqn_atari import (
     DQNAtariConfig,
+    build_dqn_zoo_atari_rmsprop,
     dqn_zoo_atari_frames_to_env_steps,
     dqn_zoo_atari_should_learn,
 )
@@ -18,6 +19,7 @@ from rl_agents.rainbow import (
     _advance_n_step_accumulator,
     _gather_action_logits,
     _init_n_step_accumulator,
+    build_rainbow_zoo_atari_rmsprop,
     categorical_loss,
     categorical_losses,
     categorical_target_probabilities,
@@ -287,6 +289,62 @@ class TestRainbowNetworkAndLoss:
             atol=1e-6,
         )
         assert not jnp.allclose(double_q_target_probabilities, target_greedy_probabilities)
+
+
+class TestRainbowOptimizerParity:
+    def test_rmsprop_builder_matches_dqn_atari_baseline_updates(self):
+        rainbow_config = RainbowConfig()
+        dqn_config = DQNAtariConfig()
+        params = {"w": jnp.array([1.0, -2.0], dtype=jnp.float32)}
+        grads = {"w": jnp.array([0.5, -0.25], dtype=jnp.float32)}
+
+        rainbow_tx = build_rainbow_zoo_atari_rmsprop(rainbow_config)
+        dqn_tx = build_dqn_zoo_atari_rmsprop(dqn_config)
+
+        rainbow_state = rainbow_tx.init(params)
+        dqn_state = dqn_tx.init(params)
+        for _ in range(2):
+            rainbow_updates, rainbow_state = rainbow_tx.update(grads, rainbow_state, params)
+            dqn_updates, dqn_state = dqn_tx.update(grads, dqn_state, params)
+            jax.tree_util.tree_map(
+                lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+                rainbow_updates,
+                dqn_updates,
+            )
+            params = jax.tree_util.tree_map(lambda value, update: value + update, params, rainbow_updates)
+
+    def test_initialize_train_state_wires_rmsprop_builder(self):
+        config = RainbowConfig(
+            LEARNING_RATE=1e-3,
+            RMSPROP_DECAY=0.8,
+            OPTIMIZER_EPSILON=1e-4,
+            RMSPROP_CENTERED=False,
+        )
+        _network, _prototype, runner_state = initialize_train_state(
+            config,
+            _ToyAtariEnv(),
+            jax.random.key(0),
+        )
+
+        train_state = runner_state[0]
+        grads = jax.tree_util.tree_map(jnp.ones_like, train_state.params)
+        expected_tx = build_rainbow_zoo_atari_rmsprop(config)
+
+        actual_state = train_state.tx.init(train_state.params)
+        expected_state = expected_tx.init(train_state.params)
+        actual_updates, actual_state = train_state.tx.update(grads, actual_state, train_state.params)
+        expected_updates, expected_state = expected_tx.update(grads, expected_state, train_state.params)
+
+        jax.tree_util.tree_map(
+            lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+            actual_updates,
+            expected_updates,
+        )
+        jax.tree_util.tree_map(
+            lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+            actual_state,
+            expected_state,
+        )
 
 
 class TestRainbowTrainPath:
