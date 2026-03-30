@@ -31,6 +31,13 @@ class TestInitPerBuffer:
         state = init_per_buffer(_proto(), capacity=4)
         assert float(state.max_priority) == 1.0
 
+    def test_non_power_of_two_capacity_pads_internal_storage(self) -> None:
+        state = init_per_buffer(_proto(), capacity=5)
+        assert int(state.logical_capacity) == 5
+        assert int(state.storage_capacity) == 8
+        assert state.data["0"].shape == (8, 2)
+        assert state.data["1"].shape == (8,)
+
 
 class TestPerAdd:
     def test_new_transition_gets_max_priority(self) -> None:
@@ -64,6 +71,17 @@ class TestPerAdd:
 
         state = per_add(state, Transition(obs=jnp.array([9.0, 9.0]), reward=jnp.float32(9.0)), alpha=0.5)
         assert jnp.allclose(state.tree[6], 3.0)
+
+    def test_non_power_of_two_capacity_wraps_at_logical_capacity(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=5)
+
+        for i in range(7):
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=1.0)
+
+        assert int(state.count) == 5
+        assert jnp.allclose(state.data["0"][0], jnp.array([5.0, 5.0], dtype=jnp.float32))
+        assert jnp.allclose(state.data["0"][1], jnp.array([6.0, 6.0], dtype=jnp.float32))
 
 
 class TestPerSample:
@@ -112,6 +130,15 @@ class TestPerSample:
         _, weights, indices = per_sample(state, jax.random.key(0), batch_size=4, beta=1.0, prototype=proto)
         assert jnp.array_equal(indices, jnp.zeros((4,), dtype=indices.dtype))
         assert jnp.allclose(weights, jnp.full((4,), 0.01, dtype=weights.dtype))
+
+    def test_sampling_with_logical_capacity_never_returns_padded_indices(self) -> None:
+        proto = _proto()
+        state = init_per_buffer(proto, capacity=5)
+        for i in range(5):
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=1.0)
+
+        _, _, indices = per_sample(state, jax.random.key(0), batch_size=16, beta=1.0, prototype=proto)
+        assert jnp.all(indices < 5)
 
 
 class TestPerUpdatePriorities:

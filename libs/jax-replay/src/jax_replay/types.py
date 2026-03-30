@@ -13,5 +13,7 @@ class PERBufferState(NamedTuple):
     data: dict[str, jax.Array]
     pointer: jax.Array
     count: jax.Array  # pyright: ignore[reportIncompatibleMethodOverride]
+    logical_capacity: jax.Array
+    storage_capacity: jax.Array
     tree: jax.Array
     max_priority: jax.Array
