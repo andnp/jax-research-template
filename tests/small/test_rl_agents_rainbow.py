@@ -425,7 +425,7 @@ class TestRainbowTrainPath:
             train_factory(RainbowConfig(), RainbowRuntimeConfig())
 
     def test_initialize_train_state_uses_per_buffer_with_logical_capacity(self):
-        config = RainbowConfig(REPLAY_CAPACITY=1_000_000)
+        config = RainbowConfig(REPLAY_CAPACITY=17)
         _network, _prototype, runner_state = initialize_train_state(
             config,
             _ToyAtariEnv(),
@@ -434,8 +434,8 @@ class TestRainbowTrainPath:
 
         buffer_state = runner_state[2]
 
-        assert int(buffer_state.logical_capacity) == 1_000_000
-        assert int(buffer_state.storage_capacity) == 1_048_576
+        assert int(buffer_state.logical_capacity) == 17
+        assert int(buffer_state.storage_capacity) == 32
 
 
 class TestRainbowNStepAccumulator:
