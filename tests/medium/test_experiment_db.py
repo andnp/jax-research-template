@@ -350,6 +350,16 @@ def test_link_execution_run(populated_db: DatabaseManager) -> None:
     assert row is not None
 
 
+def test_get_execution_round_trip(db: DatabaseManager) -> None:
+    execution_id = db.add_execution(hostname="node03", git_commit="deadbeef")
+
+    execution = db.get_execution(execution_id)
+
+    assert execution is not None
+    assert execution.hostname == "node03"
+    assert execution.git_commit == "deadbeef"
+
+
 def test_one_execution_covers_multiple_runs(populated_db: DatabaseManager) -> None:
     """Verify the vmap-zone many-to-one semantic: 1 execution → N runs."""
     db = populated_db
@@ -365,6 +375,112 @@ def test_one_execution_covers_multiple_runs(populated_db: DatabaseManager) -> No
         "SELECT COUNT(*) FROM ExecutionRuns WHERE execution_id = ?", (exec_id,)
     ).fetchone()[0]
     assert count == 5
+
+
+def test_plan_execution_creates_pending_execution_and_links_runs(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_ids = [
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)  # type: ignore[union-attr]
+        for seed in (0, 1)
+    ]
+
+    execution_id = db.plan_execution(run_ids, hostname="planner-node")
+
+    execution = db.get_execution(execution_id)
+    linked_runs = db.list_execution_runs(execution_id)
+
+    assert execution is not None
+    assert execution.status == "PENDING"
+    assert execution.hostname == "planner-node"
+    assert [run.id for run in linked_runs] == run_ids
+
+
+def test_plan_execution_requires_non_empty_run_ids(db: DatabaseManager) -> None:
+    with pytest.raises(ValueError, match="run_ids must not be empty"):
+        db.plan_execution([])
+
+
+def test_plan_unsatisfied_execution_selects_only_unsatisfied_runs(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    completed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+    failed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+    fresh_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)  # type: ignore[union-attr]
+
+    completed_execution = db.add_execution(hostname="node-complete")
+    db.link_execution_run(completed_execution, completed_run)
+    db.update_execution_status(completed_execution, "COMPLETED", end_time="2026-03-30T00:00:00Z")
+
+    failed_execution = db.add_execution(hostname="node-fail")
+    db.link_execution_run(failed_execution, failed_run)
+    db.update_execution_status(failed_execution, "FAILED", end_time="2026-03-30T00:01:00Z")
+
+    planned_execution = db.plan_unsatisfied_execution(exp_id, hostname="planner")
+
+    assert planned_execution is not None
+    linked_runs = db.list_execution_runs(planned_execution)
+    assert [run.id for run in linked_runs] == [failed_run, fresh_run]
+
+
+def test_plan_unsatisfied_execution_respects_limit(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    for seed in range(3):
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)  # type: ignore[union-attr]
+
+    planned_execution = db.plan_unsatisfied_execution(exp_id, limit=2)
+
+    assert planned_execution is not None
+    linked_runs = db.list_execution_runs(planned_execution)
+    assert len(linked_runs) == 2
+    assert [run.seed for run in linked_runs] == [0, 1]
+
+
+def test_plan_unsatisfied_execution_returns_none_when_all_runs_satisfied(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+
+    execution_id = db.add_execution(hostname="node04")
+    db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "COMPLETED")
+
+    assert db.plan_unsatisfied_execution(exp_id) is None
+
+
+def test_get_latest_completed_execution_for_run_returns_latest(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=9)  # type: ignore[union-attr]
+
+    older_execution = db.add_execution(hostname="node-old")
+    db.link_execution_run(older_execution, run_id)
+    db.update_execution_status(older_execution, "COMPLETED", end_time="2026-03-30T00:00:00Z")
+
+    newer_execution = db.add_execution(hostname="node-new")
+    db.link_execution_run(newer_execution, run_id)
+    db.update_execution_status(newer_execution, "COMPLETED", end_time="2026-03-30T00:05:00Z")
+
+    latest = db.get_latest_completed_execution_for_run(run_id)
+
+    assert latest is not None
+    assert latest.id == newer_execution
 
 
 # ---------------------------------------------------------------------------

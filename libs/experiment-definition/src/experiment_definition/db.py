@@ -680,6 +680,15 @@ class DatabaseManager:
                 raise RuntimeError("Insert failed: no execution ID returned.")
             return int(cur.lastrowid)
 
+    def get_execution(self, execution_id: int) -> ExecutionRow | None:
+        """Fetch a single Execution by id."""
+        row = self.conn.execute(
+            "SELECT id, status, hostname, start_time, end_time, git_commit, git_diff_blob, jax_config_json "
+            "FROM Executions WHERE id = ?",
+            (execution_id,),
+        ).fetchone()
+        return ExecutionRow(*row) if row else None
+
     def update_execution_status(
         self,
         execution_id: int,
@@ -703,6 +712,78 @@ class DatabaseManager:
                 "end_time = COALESCE(?, end_time) WHERE id = ?",
                 (status, start_time, end_time, execution_id),
             )
+
+    def plan_execution(
+        self,
+        run_ids: list[int],
+        *,
+        hostname: str | None = None,
+        git_commit: str | None = None,
+        git_diff_blob: str | None = None,
+        jax_config: dict[str, object] | None = None,
+    ) -> int:
+        """Create a pending execution and link it to the supplied runs."""
+        if not run_ids:
+            raise ValueError("run_ids must not be empty.")
+
+        execution_id = self.add_execution(
+            hostname=hostname,
+            git_commit=git_commit,
+            git_diff_blob=git_diff_blob,
+            jax_config=jax_config,
+        )
+        for run_id in run_ids:
+            self.link_execution_run(execution_id, run_id)
+        return execution_id
+
+    def plan_unsatisfied_execution(
+        self,
+        experiment_id: int,
+        *,
+        limit: int | None = None,
+        hostname: str | None = None,
+        git_commit: str | None = None,
+        git_diff_blob: str | None = None,
+        jax_config: dict[str, object] | None = None,
+    ) -> int | None:
+        """Create a pending execution covering unsatisfied runs for an experiment."""
+        unsatisfied_runs = self.list_unsatisfied_runs(experiment_id)
+        if not unsatisfied_runs:
+            return None
+
+        selected_runs = unsatisfied_runs if limit is None else unsatisfied_runs[:limit]
+        return self.plan_execution(
+            [run.id for run in selected_runs],
+            hostname=hostname,
+            git_commit=git_commit,
+            git_diff_blob=git_diff_blob,
+            jax_config=jax_config,
+        )
+
+    def list_execution_runs(self, execution_id: int) -> list[RunRow]:
+        """Return the logical runs linked to an execution."""
+        rows = self.conn.execute(
+            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
+            "FROM Runs r "
+            "INNER JOIN ExecutionRuns er ON er.run_id = r.id "
+            "WHERE er.execution_id = ? "
+            "ORDER BY r.seed, r.hyper_id, r.id",
+            (execution_id,),
+        ).fetchall()
+        return [RunRow(*row) for row in rows]
+
+    def get_latest_completed_execution_for_run(self, run_id: int) -> ExecutionRow | None:
+        """Return the latest completed execution linked to a run, if any."""
+        row = self.conn.execute(
+            "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, e.git_commit, e.git_diff_blob, e.jax_config_json "
+            "FROM Executions e "
+            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+            "WHERE er.run_id = ? AND e.status = 'COMPLETED' "
+            "ORDER BY COALESCE(e.end_time, e.start_time, '') DESC, e.id DESC "
+            "LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        return ExecutionRow(*row) if row else None
 
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""
