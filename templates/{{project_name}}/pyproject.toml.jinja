@@ -3,7 +3,15 @@ name = "{{ project_name }}"
 version = "0.1.0"
 description = "{{ description }}"
 requires-python = ">={{ python_version }}"
-dependencies = []
+dependencies = [
+	"gymnax>=0.0.9",
+	"jax~=0.9",
+	"rl-agents",
+{% if algorithm == "ppo" %}
+	"matplotlib>=3.9",
+	"rl-components",
+{% endif %}
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -11,3 +19,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+rl-agents = { workspace = true }
+{% if algorithm == "ppo" %}
+rl-components = { workspace = true }
+{% endif %}
