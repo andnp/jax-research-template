@@ -144,6 +144,37 @@ def rainbow_zoo_atari_target_update_period_env_steps(config: RainbowConfig) -> i
     return rainbow_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
 
 
+def rainbow_zoo_atari_should_learn(env_step: int, replay_size: int, config: RainbowConfig) -> bool:
+    if env_step < 0:
+        raise ValueError("env_step must be non-negative.")
+    if replay_size < 0:
+        raise ValueError("replay_size must be non-negative.")
+    if replay_size < rainbow_zoo_atari_min_replay_capacity(config):
+        return False
+    return env_step % rainbow_zoo_atari_learn_period_env_steps(config) == 0
+
+
+def rainbow_zoo_atari_should_update_target(env_step: int, config: RainbowConfig) -> bool:
+    if env_step < 0:
+        raise ValueError("env_step must be non-negative.")
+    return env_step % rainbow_zoo_atari_target_update_period_env_steps(config) == 0
+
+
+def _rainbow_zoo_atari_should_learn_array(
+    env_step: jax.Array,
+    replay_size: jax.Array,
+    config: RainbowConfig,
+) -> jax.Array:
+    min_replay_capacity = jnp.asarray(rainbow_zoo_atari_min_replay_capacity(config), dtype=replay_size.dtype)
+    learn_period_env_steps = jnp.asarray(rainbow_zoo_atari_learn_period_env_steps(config), dtype=env_step.dtype)
+    return (replay_size >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
+
+
+def _rainbow_zoo_atari_should_update_target_array(env_step: jax.Array, config: RainbowConfig) -> jax.Array:
+    target_update_period_env_steps = jnp.asarray(rainbow_zoo_atari_target_update_period_env_steps(config), dtype=env_step.dtype)
+    return env_step % target_update_period_env_steps == 0
+
+
 def rainbow_zoo_atari_total_train_env_steps(runtime_config: RainbowRuntimeConfig) -> int:
     if runtime_config.TOTAL_TRAIN_ENV_STEPS < 0:
         raise ValueError("TOTAL_TRAIN_ENV_STEPS must be non-negative.")
@@ -368,10 +399,6 @@ def make_train_step(
     del runtime_config
     support = rainbow_support(config)
     bootstrap_discount = config.ADDITIONAL_DISCOUNT**config.N_STEP
-    min_replay_capacity = rainbow_zoo_atari_min_replay_capacity(config)
-    learn_period_env_steps = rainbow_zoo_atari_learn_period_env_steps(config)
-    target_update_period_env_steps = rainbow_zoo_atari_target_update_period_env_steps(config)
-
     def _loss(
         params: object,
         target_params: object,
@@ -425,7 +452,7 @@ def make_train_step(
         )
         buffer_state = _per_add_batched_transitions(buffer_state, finalized_transitions, insert_mask)
 
-        can_learn = (buffer_state.count >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
+        can_learn = _rainbow_zoo_atari_should_learn_array(env_step, buffer_state.count, config)
 
         def _do_learn(args):
             train_state, target_params, buffer_state, learn_rng = args
@@ -471,7 +498,7 @@ def make_train_step(
         )
 
         target_params = jax.lax.cond(
-            env_step % target_update_period_env_steps == 0,
+            _rainbow_zoo_atari_should_update_target_array(env_step, config),
             lambda: train_state.params,
             lambda: target_params,
         )

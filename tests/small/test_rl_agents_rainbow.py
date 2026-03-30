@@ -5,6 +5,11 @@ import jax
 import jax.numpy as jnp
 import numpy.testing as npt
 import pytest
+from rl_agents.dqn_atari import (
+    DQNAtariConfig,
+    dqn_zoo_atari_frames_to_env_steps,
+    dqn_zoo_atari_should_learn,
+)
 from rl_agents.rainbow import (
     RainbowConfig,
     RainbowNatureNetwork,
@@ -23,6 +28,9 @@ from rl_agents.rainbow import (
     rainbow_probabilities,
     rainbow_select_actions,
     rainbow_support,
+    rainbow_zoo_atari_frames_to_env_steps,
+    rainbow_zoo_atari_should_learn,
+    rainbow_zoo_atari_should_update_target,
     rainbow_zoo_atari_total_train_env_steps,
 )
 
@@ -86,6 +94,59 @@ class TestRainbowConfig:
 
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
         assert rainbow_zoo_atari_total_train_env_steps(runtime_config) == 50_000_000
+
+    def test_schedule_helpers_match_dqn_atari_frame_conversion(self):
+        rainbow_config = RainbowConfig()
+        dqn_config = DQNAtariConfig()
+
+        assert rainbow_zoo_atari_frames_to_env_steps(
+            rainbow_config.LEARN_PERIOD_FRAMES,
+            rainbow_config.NUM_ACTION_REPEATS,
+        ) == dqn_zoo_atari_frames_to_env_steps(
+            dqn_config.LEARN_PERIOD_FRAMES,
+            dqn_config.NUM_ACTION_REPEATS,
+        )
+        assert rainbow_zoo_atari_frames_to_env_steps(
+            rainbow_config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES,
+            rainbow_config.NUM_ACTION_REPEATS,
+        ) == dqn_zoo_atari_frames_to_env_steps(
+            dqn_config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES,
+            dqn_config.NUM_ACTION_REPEATS,
+        )
+
+    @pytest.mark.parametrize(
+        ("env_step", "replay_size"),
+        [
+            (0, 0),
+            (3, 50_000),
+            (4, 49_999),
+            (4, 50_000),
+            (8, 50_000),
+        ],
+    )
+    def test_should_learn_matches_dqn_atari_warmup_and_cadence(self, env_step: int, replay_size: int):
+        rainbow_config = RainbowConfig()
+        dqn_config = DQNAtariConfig()
+
+        assert rainbow_zoo_atari_should_learn(env_step, replay_size, rainbow_config) is dqn_zoo_atari_should_learn(
+            env_step,
+            replay_size,
+            dqn_config,
+        )
+
+    @pytest.mark.parametrize(
+        ("env_step", "expected"),
+        [
+            (0, True),
+            (9_999, False),
+            (10_000, True),
+            (10_001, False),
+        ],
+    )
+    def test_should_update_target_uses_env_step_cadence(self, env_step: int, expected: bool):
+        config = RainbowConfig()
+
+        assert rainbow_zoo_atari_should_update_target(env_step, config) is expected
 
 
 class TestRainbowNetworkAndLoss:
