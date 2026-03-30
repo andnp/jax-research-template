@@ -11,16 +11,19 @@ Primary implementation:
 - `templates/copier.yml`
 
 ## Preconditions
-The current implementation expects the command to run from a workspace root where `projects/` already exists.
+The current implementation resolves the enclosing workspace root upward from the current directory.
 
-If `projects/` is missing, it exits with an error instead of trying to infer or create a workspace.
+That means it can run from the shell root or from inside an existing child project repo, but the resolved workspace root must still contain `projects/`.
+
+If `projects/` is missing at the resolved workspace root, it exits with an error instead of trying to infer or create a workspace.
 
 ## What the Command Does Today
 `research project create` currently:
-- resolves the workspace root from the current working directory,
+- resolves the workspace root upward from the current working directory,
 - resolves the template root from this repository's `templates/` directory,
 - resolves the target directory as `projects/<name>`,
 - prints the resolved workspace root, template root, and target path,
+- makes the Git ownership contract explicit: shared workspace files stay owned by the shell repo, while the new child project gets its own `git init`,
 - supports `--dry-run` previews,
 - renders the template into `projects/` with Copier,
 - passes `project_name=<name>` and otherwise accepts template defaults,

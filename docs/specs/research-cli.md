@@ -32,8 +32,10 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
 
 ### 2.2 Project Management
 - `research project create <name> [--github-repo <slug>]`:
+    - Resolves the enclosing workspace root upward from the current directory, so it can be run from the shell root or from inside an existing child project repo.
     - Uses `copier` to spin up a project from `core/templates/standard-project`.
     - Runs `git init` inside the new project.
+    - The shell repo remains the owner of shared workspace files such as `research.yaml` and `uv.lock`; the rendered child project is an independent nested Git repo under `projects/`.
     - (Optional) Uses `gh repo create` to create a private remote and link it.
 - `research project archive <name>`:
     - Moves a project from `projects/active/` to `projects/archive/`.
@@ -77,6 +79,7 @@ The CLI manages a multi-stage pipeline for large-scale experiments, using SQLite
 
 ### 2.5 Diagnostics
 - `research doctor`:
+    - Resolves the enclosing workspace root upward from the current directory, so it can be run from the shell root or from inside child project repos.
     - Runs a read-only diagnostic sweep over workspace configuration, the configured Core checkout, and the local execution environment.
     - Must never mutate the filesystem, install dependencies, rewrite configuration, or modify Git state.
     - Executes all diagnostic groups before exiting and returns a non-zero status code if any check fails.

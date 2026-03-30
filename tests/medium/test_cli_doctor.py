@@ -55,3 +55,45 @@ def test_research_doctor_aggregates_config_git_and_environment_failures(tmp_path
     assert "[x] jax_import: JAX imported successfully." in result.output
     assert "[ ] accelerator_expectations: Configured accelerators did not match JAX detection." in result.output
     assert result.output.rstrip().endswith("overall: FAIL")
+
+
+def test_research_doctor_resolves_workspace_root_from_child_project_repo(tmp_path: Path, monkeypatch) -> None:
+    workspace_root = tmp_path.resolve()
+    core_root = workspace_root / "core"
+    child_project_root = workspace_root / "projects" / "demo"
+    core_root.mkdir(parents=True)
+    child_project_root.mkdir(parents=True)
+    (workspace_root / "research.yaml").write_text(
+        "core_path: core\n"
+        "storage_backend: local\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(child_project_root)
+
+    def run_git(args: tuple[str, ...], cwd: Path):
+        assert cwd == core_root.resolve()
+        if args == ("git", "rev-parse", "--is-inside-work-tree"):
+            return doctor_module.GitCommandResult(returncode=0, stdout="true\n", stderr="")
+        if args == ("git", "symbolic-ref", "--quiet", "HEAD"):
+            return doctor_module.GitCommandResult(returncode=0, stdout="refs/heads/main\n", stderr="")
+        if args == ("git", "status", "--porcelain", "--untracked-files=normal"):
+            return doctor_module.GitCommandResult(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"Unexpected git command: {args!r}")
+
+    def run_environment_command(args: tuple[str, ...]):
+        assert args == ("uv", "--version")
+        return doctor_module.EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
+
+    def probe_jax():
+        return doctor_module.JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+
+    monkeypatch.setattr(doctor_module, "_run_git", run_git)
+    monkeypatch.setattr(doctor_module, "_run_environment_command", run_environment_command)
+    monkeypatch.setattr(doctor_module, "_probe_jax", probe_jax)
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Loaded research.yaml from '{workspace_root / 'research.yaml'}'." in result.output
+    assert "[x] Git health" in result.output
+    assert result.output.rstrip().endswith("overall: PASS")

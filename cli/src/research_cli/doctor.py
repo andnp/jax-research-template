@@ -9,6 +9,7 @@ from typing import Literal, Protocol
 import typer
 
 from research_cli.config import AcceleratorLabel, ResearchConfig, ResearchConfigError, load_research_config
+from research_cli.workspace import WorkspaceResolutionError, resolve_workspace_root
 
 ConfigCheckName = Literal["research_yaml"]
 GitCheckName = Literal["path_exists", "working_tree", "head_attached", "working_tree_clean"]
@@ -121,7 +122,13 @@ class ConfigLoader(Protocol):
 
 
 def doctor_command():
-    report = run_doctor(workspace_root=Path.cwd())
+    try:
+        workspace_root = resolve_workspace_root(Path.cwd())
+    except WorkspaceResolutionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    report = run_doctor(workspace_root=workspace_root)
     typer.echo(render_doctor_report(report))
     if not report.ok:
         raise typer.Exit(code=1)

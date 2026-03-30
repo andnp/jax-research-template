@@ -15,6 +15,10 @@ workspace_app = typer.Typer(help="Manage research shell workspaces.")
 type CommandRunner = Callable[[list[str], Path, bool], None]
 
 
+class WorkspaceResolutionError(ValueError):
+    """Raised when a command cannot resolve the enclosing workspace root."""
+
+
 class WorkspaceRepairError(ValueError):
     """Raised when ``workspace repair`` cannot resolve a workspace target."""
 
@@ -81,15 +85,22 @@ def _find_workspace_root(start_path: Path) -> Path | None:
     return None
 
 
-def _resolve_repair_target(start_path: Path) -> ResolvedRepairTarget:
+def resolve_workspace_root(start_path: Path) -> Path:
     workspace_root = _find_workspace_root(start_path)
     if workspace_root is None:
-        raise WorkspaceRepairError(
+        raise WorkspaceResolutionError(
             f"Could not find a research workspace from '{start_path.resolve()}'. "
             "Run this command from a workspace root or a directory inside a workspace containing research.yaml.",
         )
+    return workspace_root.resolve()
 
-    resolved_workspace_root = workspace_root.resolve()
+
+def _resolve_repair_target(start_path: Path) -> ResolvedRepairTarget:
+    try:
+        resolved_workspace_root = resolve_workspace_root(start_path)
+    except WorkspaceResolutionError as exc:
+        raise WorkspaceRepairError(str(exc)) from exc
+
     config_path = resolved_workspace_root / "research.yaml"
     config = load_research_config(config_path)
     resolved_core_path = (config.core_path if config.core_path.is_absolute() else resolved_workspace_root / config.core_path).resolve(strict=False)

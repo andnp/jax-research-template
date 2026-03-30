@@ -4,6 +4,8 @@ from pathlib import Path
 import typer
 from copier import run_copy
 
+from research_cli.workspace import WorkspaceResolutionError, resolve_workspace_root
+
 project_app = typer.Typer(help="Manage projects within a research workspace.")
 
 
@@ -16,9 +18,14 @@ def _template_root() -> Path:
 
 
 def _workspace_root(cwd: Path | None = None) -> Path:
-    workspace_root = (cwd or Path.cwd()).resolve()
+    try:
+        workspace_root = resolve_workspace_root(cwd or Path.cwd())
+    except WorkspaceResolutionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
     if not (workspace_root / "projects").is_dir():
-        typer.echo("Error: expected to run from a workspace root containing 'projects/'.", err=True)
+        typer.echo(f"Error: resolved workspace root '{workspace_root}' does not contain 'projects/'.", err=True)
         raise typer.Exit(code=1)
     return workspace_root
 
@@ -73,6 +80,10 @@ def create(
     typer.echo(f"  Workspace root: {workspace_root}")
     typer.echo(f"  Template root: {template_root}")
     typer.echo(f"  Target path: {project_root}")
+    typer.echo(
+        "  Git ownership: the shell repo keeps shared workspace files such as research.yaml and uv.lock; "
+        "this command still runs 'git init' inside the new child project."
+    )
     if github_repo is not None:
         github_command = _github_repo_create_command(project_root, github_repo)
         typer.echo(f"  GitHub repo: {' '.join(github_command)}")
