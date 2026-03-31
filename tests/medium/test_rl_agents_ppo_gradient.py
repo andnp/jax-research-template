@@ -98,6 +98,56 @@ class FakeContinuousEnv:
         )
 
 
+class LargeMagnitudeDiscreteEnv(FakeDiscreteEnv):
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+        del key, params
+        return jnp.full((4,), 1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
+
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        del key, action, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        info = {
+            "returned_episode": jnp.array(False),
+            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
+        }
+        scaled_obs = jnp.full((4,), 1e6 * (next_state + 1), dtype=jnp.float32)
+        return scaled_obs, next_state, jnp.array(1.0, dtype=jnp.float32), jnp.array(False), info
+
+
+class LargeMagnitudeContinuousEnv(FakeContinuousEnv):
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+        del key, params
+        return jnp.full((4,), -1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
+
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        del key, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        info = {
+            "returned_episode": jnp.array(False),
+            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
+        }
+        reward = jnp.array(1.0, dtype=jnp.float32) - 0.1 * jnp.sum(jnp.square(action))
+        scaled_obs = jnp.full((4,), -1e6 * (next_state + 1), dtype=jnp.float32)
+        return scaled_obs, next_state, reward, jnp.array(False), info
+
+
+def _tree_all_finite(tree: object) -> bool:
+    leaves = jax.tree_util.tree_leaves(tree)
+    return all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in leaves)
+
+
 class TestPPOGradientFlow:
     def test_make_train_accepts_injected_env(self) -> None:
         config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
@@ -190,6 +240,23 @@ class TestPPOGradientFlow:
         )
         assert loss.shape == ()
 
+    def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
+        config = PPOConfig(
+            TOTAL_TIMESTEPS=4,
+            NUM_STEPS=2,
+            UPDATE_EPOCHS=1,
+            NUM_MINIBATCHES=1,
+            NORMALIZE_OBSERVATIONS=True,
+        )
+        train = make_train(config, env=LargeMagnitudeDiscreteEnv(), env_params=None)
+
+        out = jax.jit(train)(jax.random.key(0))
+        final_train_state = out["runner_state"][0]
+        obs_norm_state = out["runner_state"][3]
+
+        assert _tree_all_finite(final_train_state.params)
+        assert jnp.allclose(obs_norm_state.observation_count, jnp.array(5.0, dtype=jnp.float32))
+
 
 class TestContinuousPPOGradientFlow:
     def test_make_train_accepts_continuous_env(self) -> None:
@@ -271,3 +338,20 @@ class TestContinuousPPOGradientFlow:
             jnp.ones((8,)),
         )
         assert loss.shape == ()
+
+    def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
+        config = PPOConfig(
+            TOTAL_TIMESTEPS=4,
+            NUM_STEPS=2,
+            UPDATE_EPOCHS=1,
+            NUM_MINIBATCHES=1,
+            NORMALIZE_OBSERVATIONS=True,
+        )
+        train = make_train(config, env=LargeMagnitudeContinuousEnv(), env_params=None)
+
+        out = jax.jit(train)(jax.random.key(0))
+        final_train_state = out["runner_state"][0]
+        obs_norm_state = out["runner_state"][3]
+
+        assert _tree_all_finite(final_train_state.params)
+        assert jnp.allclose(obs_norm_state.observation_count, jnp.array(5.0, dtype=jnp.float32))

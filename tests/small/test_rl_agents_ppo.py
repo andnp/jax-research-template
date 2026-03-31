@@ -2,7 +2,13 @@
 
 
 import jax.numpy as jnp
-from rl_agents.ppo import Transition, _sum_action_event_terms
+from rl_agents.ppo import (
+    Transition,
+    _init_observation_norm_state,
+    _normalize_observation,
+    _sum_action_event_terms,
+    _update_observation_norm_state,
+)
 
 
 class TestTransition:
@@ -17,7 +23,7 @@ class TestTransition:
             info={},
         )
         assert isinstance(t, tuple)
-        assert t.reward == 1.0
+        assert t[3] == 1.0
 
 
 class TestPPOClippedObjective:
@@ -95,3 +101,30 @@ class TestContinuousActionReductions:
         reduced = _sum_action_event_terms(terms, is_continuous=False)
 
         assert jnp.array_equal(reduced, terms)
+
+
+class TestObservationNormalization:
+    def test_running_stats_track_mean_and_m2(self):
+        state = _init_observation_norm_state(jnp.array([2.0, 4.0], dtype=jnp.float32))
+
+        state = _update_observation_norm_state(state, jnp.array([4.0, 8.0], dtype=jnp.float32))
+
+        assert jnp.allclose(state.observation_count, jnp.array(2.0, dtype=jnp.float32))
+        assert jnp.allclose(state.mean, jnp.array([3.0, 6.0], dtype=jnp.float32))
+        assert jnp.allclose(state.m2, jnp.array([2.0, 8.0], dtype=jnp.float32))
+
+    def test_normalization_handles_zero_variance_without_nan(self):
+        obs = jnp.array([5.0, -5.0], dtype=jnp.float32)
+        state = _init_observation_norm_state(obs)
+
+        normalized = _normalize_observation(state, obs, eps=1e-8, clip=10.0)
+
+        assert jnp.all(jnp.isfinite(normalized))
+        assert jnp.allclose(normalized, jnp.zeros_like(obs))
+
+    def test_normalization_clips_large_values(self):
+        state = _init_observation_norm_state(jnp.array([0.0], dtype=jnp.float32))
+
+        normalized = _normalize_observation(state, jnp.array([100.0], dtype=jnp.float32), eps=1e-8, clip=3.0)
+
+        assert jnp.allclose(normalized, jnp.array([3.0], dtype=jnp.float32))
