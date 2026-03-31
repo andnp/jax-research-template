@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774924775902,
+  "lastUpdate": 1774926981009,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -1487,6 +1487,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000012988492462799643",
             "extra": "mean: 41.21960000702529 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3028b382581b2fcb2b83419510f629f022c7565",
+          "message": "feat(research-analysis): add step-weighted learning curves (#59)\n\n## Summary\n- add step-weighted copy-forward learning curve interpolation in \n- add a Polars DataFrame convenience adapter with explicit column\nvalidation\n- add a medium SQLite-to-Polars-to-learning-curve composition test\n\n## Testing\n- uv run --with pytest pytest -q\ntests/small/test_research_analysis_learning_curve.py\ntests/small/test_research_analysis_bootstrap.py\ntests/small/test_research_analysis_hypothesis.py\ntests/medium/test_research_analysis_loader.py",
+          "timestamp": "2026-03-30T21:11:10-06:00",
+          "tree_id": "d93b72256709d5b6e607367f10b6796a54555f6a",
+          "url": "https://github.com/andnp/jax-research-template/commit/a3028b382581b2fcb2b83419510f629f022c7565"
+        },
+        "date": 1774926980720,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.2294669113549075,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003679979452018074",
+            "extra": "mean: 160.5273796666656 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.0627434305489276,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00068762553294068",
+            "extra": "mean: 940.9608860000016 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04236135052631499,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0075271502715197995",
+            "extra": "mean: 23.60642395900001 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.4344794906409506,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012852897766501935",
+            "extra": "mean: 2.3016046132000043 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 16394.625187465994,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020037787064063495",
+            "extra": "mean: 60.99559999483972 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 48.03396547024775,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006088193575988157",
+            "extra": "mean: 20.818601799999215 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.853928572522609,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007585755329918639",
+            "extra": "mean: 350.39419333332944 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4140.101018466384,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001590676923444823",
+            "extra": "mean: 241.53999999991052 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 48.37856732065262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007055613048042113",
+            "extra": "mean: 20.670310333334402 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 380.44179183403315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005266804292761456",
+            "extra": "mean: 2.6285230000079687 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 46.55757192951304,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010483027276412028",
+            "extra": "mean: 21.478783333331346 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 35927.54133632873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011218010366250378",
+            "extra": "mean: 27.833799998688846 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 36916.17076296871,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011070305679650914",
+            "extra": "mean: 27.088399997410306 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 25316.712074528765,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011101601834569176",
+            "extra": "mean: 39.499599989767376 usec\nrounds: 5"
           }
         ]
       }
