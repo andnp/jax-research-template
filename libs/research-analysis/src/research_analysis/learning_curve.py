@@ -8,7 +8,9 @@ assigning each episode's return to every step until the next episode ends.
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 from numpy.typing import NDArray
+from polars.exceptions import InvalidOperationError
 
 
 def _as_step_array(cumulative_steps: NDArray[np.integer]) -> NDArray[np.int64]:
@@ -36,6 +38,37 @@ def _as_return_array(episodic_returns: NDArray[np.floating]) -> NDArray[np.float
     if returns.size == 0:
         raise ValueError("episodic_returns must not be empty")
     return returns
+
+
+def _require_dataframe(frame: pl.DataFrame) -> pl.DataFrame:
+    if not isinstance(frame, pl.DataFrame):
+        raise TypeError("frame must be a polars.DataFrame")
+    return frame
+
+
+def _require_column(frame: pl.DataFrame, column_name: str) -> pl.Series:
+    if column_name not in frame.columns:
+        raise ValueError(f"frame must contain column {column_name!r}")
+    return frame.get_column(column_name)
+
+
+def _require_non_null(series: pl.Series, *, column_name: str) -> pl.Series:
+    if series.null_count() > 0:
+        raise ValueError(f"column {column_name!r} must not contain nulls")
+    return series
+
+
+def _require_integer_steps(series: pl.Series, *, column_name: str) -> NDArray[np.int64]:
+    if not series.dtype.is_integer():
+        raise TypeError(f"column {column_name!r} must have an integer dtype")
+    return series.to_numpy()
+
+
+def _require_float_returns(series: pl.Series, *, column_name: str) -> NDArray[np.float64]:
+    try:
+        return series.cast(pl.Float64, strict=True).to_numpy()
+    except InvalidOperationError as error:
+        raise TypeError(f"column {column_name!r} must be numeric or castable to float64") from error
 
 
 def step_weighted_returns(
@@ -87,3 +120,41 @@ def step_weighted_returns(
         curve[final_step:output_length] = returns[-1]
 
     return curve
+
+
+def step_weighted_returns_from_dataframe(
+    frame: pl.DataFrame,
+    *,
+    cumulative_steps_column: str,
+    episodic_returns_column: str,
+    end_step: int | None = None,
+) -> NDArray[np.float64]:
+    """Validate a Polars frame and delegate to ``step_weighted_returns``.
+
+    Args:
+        frame: Source frame containing cumulative step and episodic return data.
+        cumulative_steps_column: Column containing cumulative episode end steps.
+        episodic_returns_column: Column containing episodic returns.
+        end_step: Optional total output length. When provided, the final return
+            is copied forward through ``end_step``.
+
+    Raises:
+        TypeError: If ``frame`` is not a Polars DataFrame, the step column is
+            not integer-typed, or the return column cannot be cast to float64.
+        ValueError: If either column is missing or contains null values.
+    """
+    validated_frame = _require_dataframe(frame)
+    step_series = _require_non_null(
+        _require_column(validated_frame, cumulative_steps_column),
+        column_name=cumulative_steps_column,
+    )
+    return_series = _require_non_null(
+        _require_column(validated_frame, episodic_returns_column),
+        column_name=episodic_returns_column,
+    )
+
+    return step_weighted_returns(
+        _require_integer_steps(step_series, column_name=cumulative_steps_column),
+        _require_float_returns(return_series, column_name=episodic_returns_column),
+        end_step=end_step,
+    )
