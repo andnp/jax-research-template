@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774842178780,
+  "lastUpdate": 1774924775902,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -1365,6 +1365,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000012051036579743358",
             "extra": "mean: 41.07060000251295 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d326ac5204deb23afdf6f7e5932d1912a094027a",
+          "message": "feat(cli): align shell workspace discovery across child project repos (#58)\n\n## Summary\n- resolve the enclosing shell workspace upward for shell-scoped CLI\ncommands when invoked from inside child project repos\n- make shell vs child-project Git ownership explicit for `research\nproject create`\n- align lifecycle commands with the same workspace discovery contract\nalready used by `workspace repair`\n\n## What changed\n- `research project create` now resolves the enclosing shell workspace\nroot upward from `cwd`\n- `research doctor` now resolves the enclosing shell workspace root\nupward from `cwd`\n- `research eject` and `research harvest` now do the same while still\nrequiring explicit project arguments\n- `project create` still initializes each child project as its own Git\nrepo\n- docs/specs now explicitly describe shell-owned files like\n`research.yaml` and `uv.lock` vs child-project Git ownership\n- added focused small/medium coverage for running shell-scoped commands\nfrom inside child project repos\n\n## Verification\n- `uv run --with pytest pytest -q tests/small/test_project_create.py\ntests/medium/test_project_create_render.py\ntests/medium/test_cli_doctor.py`\n- `uv run --with pytest pytest -q tests/small/test_lifecycle.py\ntests/medium/test_cli_eject.py tests/medium/test_cli_harvest.py`\n- `uv run --with pytest pytest -q tests/small/test_project_create.py\ntests/medium/test_project_create_render.py\ntests/medium/test_cli_doctor.py tests/small/test_lifecycle.py\ntests/medium/test_cli_eject.py tests/medium/test_cli_harvest.py`\n- `uv run --with ruff ruff check cli/src/research_cli/project.py\ncli/src/research_cli/doctor.py cli/src/research_cli/workspace.py\ncli/src/research_cli/lifecycle.py tests/small/test_project_create.py\ntests/medium/test_project_create_render.py\ntests/medium/test_cli_doctor.py tests/small/test_lifecycle.py\ntests/medium/test_cli_eject.py tests/medium/test_cli_harvest.py`\n- `uv run --with pyright pyright cli/src/research_cli`\n\nCloses #47\nCloses #48",
+          "timestamp": "2026-03-30T20:34:25-06:00",
+          "tree_id": "5d74fdd095b48be74663044d62fc2da5f31e29fa",
+          "url": "https://github.com/andnp/jax-research-template/commit/d326ac5204deb23afdf6f7e5932d1912a094027a"
+        },
+        "date": 1774924775695,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.181728437358308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00021423574676694964",
+            "extra": "mean: 161.76705433332472 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.0558851148001989,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005798465454027927",
+            "extra": "mean: 947.0727316666702 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04247131308078536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03402647116412433",
+            "extra": "mean: 23.545304523499993 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.43500420566329195,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014162768972811197",
+            "extra": "mean: 2.2988283491999937 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 16567.42777319589,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000017775523918112367",
+            "extra": "mean: 60.359400004017516 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 48.71119339966488,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00031800546183144093",
+            "extra": "mean: 20.52916240000968 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.863136659223717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004228309181356185",
+            "extra": "mean: 349.26729633336134 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4854.934555059653,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000017675996509826367",
+            "extra": "mean: 205.9760000179267 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 48.868972429655535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000464917913121756",
+            "extra": "mean: 20.462881666674093 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 340.9633350747101,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005359191645350465",
+            "extra": "mean: 2.9328666666780614 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 45.56629264488614,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005658160496701358",
+            "extra": "mean: 21.94604699999066 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 35833.817094761675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000010625940562410362",
+            "extra": "mean: 27.906599996185832 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 36059.42591795515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000010933220426435214",
+            "extra": "mean: 27.7320000122927 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 24260.303346698278,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012988492462799643",
+            "extra": "mean: 41.21960000702529 usec\nrounds: 5"
           }
         ]
       }
