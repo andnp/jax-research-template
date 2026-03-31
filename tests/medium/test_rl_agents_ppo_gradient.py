@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import optax
 import pytest
 from flax.training.train_state import TrainState
-from rl_agents.ppo import make_train
-from rl_components.networks import ActorCritic
+from rl_agents.ppo import _sum_action_event_terms, make_train
+from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
 
 
@@ -20,6 +20,11 @@ class FakeObservationSpace:
 @dataclass(frozen=True)
 class FakeActionSpace:
     n: int
+
+
+@dataclass(frozen=True)
+class FakeContinuousActionSpace:
+    shape: tuple[int, ...]
 
 
 class FakeDiscreteEnv:
@@ -52,6 +57,42 @@ class FakeDiscreteEnv:
             jnp.full((4,), next_state, dtype=jnp.float32),
             next_state,
             jnp.array(1.0, dtype=jnp.float32),
+            jnp.array(False),
+            info,
+        )
+
+
+class FakeContinuousEnv:
+    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+        del params
+        return FakeObservationSpace(shape=(4,))
+
+    def action_space(self, params: object | None = None) -> FakeContinuousActionSpace:
+        del params
+        return FakeContinuousActionSpace(shape=(2,))
+
+    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+        del key, params
+        return jnp.zeros((4,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
+
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        del key, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        info = {
+            "returned_episode": jnp.array(False),
+            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
+        }
+        reward = jnp.array(1.0, dtype=jnp.float32) - 0.1 * jnp.sum(jnp.square(action))
+        return (
+            jnp.full((4,), next_state, dtype=jnp.float32),
+            next_state,
+            reward,
             jnp.array(False),
             info,
         )
@@ -143,6 +184,88 @@ class TestPPOGradientFlow:
             params,
             jnp.ones((8, 4)),
             jnp.zeros((8,), dtype=jnp.int32),
+            -jnp.ones((8,)) * 0.5,
+            jnp.ones((8,)),
+            jnp.ones((8,)),
+        )
+        assert loss.shape == ()
+
+
+class TestContinuousPPOGradientFlow:
+    def test_make_train_accepts_continuous_env(self) -> None:
+        config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
+        train = make_train(config, env=FakeContinuousEnv(), env_params=None)
+
+        out = jax.jit(train)(jax.random.key(0))
+        metrics = out["metrics"]
+
+        assert metrics["returned_episode"].shape == (2,)
+        assert metrics["returned_episode_returns"].shape == (2,)
+
+    def test_params_change_after_update(self):
+        net = ContinuousActorCritic(action_dim=2)
+        key = jax.random.key(0)
+        params = net.init(key, jnp.zeros((4,)))
+
+        cfg = PPOConfig(CLIP_EPS=0.2, VF_COEF=0.5, ENT_COEF=0.01, MAX_GRAD_NORM=0.5)
+        tx = optax.chain(optax.clip_by_global_norm(cfg.MAX_GRAD_NORM), optax.adam(cfg.LR, eps=1e-5))
+        train_state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
+
+        batch_size = 16
+        obs = jax.random.normal(jax.random.key(1), (batch_size, 4))
+        policy, _ = net.apply(train_state.params, obs)
+        actions = policy.sample(seed=jax.random.key(2))
+        old_log_probs = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
+        advantages = jax.random.normal(jax.random.key(3), (batch_size,))
+        targets = jax.random.normal(jax.random.key(4), (batch_size,))
+
+        def loss_fn(params):
+            policy, value = net.apply(params, obs)
+            log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
+
+            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
+
+            ratio = jnp.exp(log_prob - old_log_probs)
+            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            loss1 = ratio * gae
+            loss2 = jnp.clip(ratio, 1.0 - cfg.CLIP_EPS, 1.0 + cfg.CLIP_EPS) * gae
+            policy_loss = -jnp.minimum(loss1, loss2).mean()
+
+            entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=True).mean()
+
+            return policy_loss + cfg.VF_COEF * value_loss - cfg.ENT_COEF * entropy_loss
+
+        grad_fn = jax.value_and_grad(loss_fn)
+        loss, grads = grad_fn(train_state.params)
+        new_state = train_state.apply_gradients(grads=grads)
+
+        old_flat = jax.tree_util.tree_leaves(train_state.params)
+        new_flat = jax.tree_util.tree_leaves(new_state.params)
+        any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
+        assert loss.shape == ()
+        assert any_changed, "Parameters did not change after continuous PPO gradient step"
+
+    def test_continuous_ppo_loss_jit(self):
+        net = ContinuousActorCritic(action_dim=2)
+        params = net.init(jax.random.key(0), jnp.zeros((4,)))
+
+        @jax.jit
+        def compute_loss(params, obs, actions, old_log_probs, advantages, targets):
+            policy, value = net.apply(params, obs)
+            log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
+            ratio = jnp.exp(log_prob - old_log_probs)
+            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            loss1 = ratio * gae
+            loss2 = jnp.clip(ratio, 0.8, 1.2) * gae
+            policy_loss = -jnp.minimum(loss1, loss2).mean()
+            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
+            entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=True).mean()
+            return policy_loss + 0.5 * value_loss - 0.01 * entropy_loss
+
+        loss = compute_loss(
+            params,
+            jnp.ones((8, 4)),
+            jnp.zeros((8, 2), dtype=jnp.float32),
             -jnp.ones((8,)) * 0.5,
             jnp.ones((8,)),
             jnp.ones((8,)),

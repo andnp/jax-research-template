@@ -2,7 +2,7 @@
 
 
 import jax.numpy as jnp
-from rl_agents.ppo import Transition
+from rl_agents.ppo import Transition, _sum_action_event_terms
 
 
 class TestTransition:
@@ -79,3 +79,19 @@ class TestGAEComputation:
         delta = reward + gamma * next_value * not_done - value
         # done=1 → not_done=0 → next_value ignored
         assert abs(delta - (1.0 - 0.5)) < 1e-6
+
+
+class TestContinuousActionReductions:
+    def test_continuous_terms_reduce_last_axis(self):
+        terms = jnp.array([[0.1, 0.2], [0.3, 0.4]], dtype=jnp.float32)
+
+        reduced = _sum_action_event_terms(terms, is_continuous=True)
+
+        assert jnp.allclose(reduced, jnp.array([0.3, 0.7], dtype=jnp.float32))
+
+    def test_discrete_terms_remain_unchanged(self):
+        terms = jnp.array([0.1, 0.2], dtype=jnp.float32)
+
+        reduced = _sum_action_event_terms(terms, is_continuous=False)
+
+        assert jnp.array_equal(reduced, terms)

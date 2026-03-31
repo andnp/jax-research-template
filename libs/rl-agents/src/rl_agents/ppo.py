@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_components.networks import ActorCritic
+from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
 
 
@@ -26,6 +26,10 @@ class _ActionSpace(Protocol):
     n: int
 
 
+class _ContinuousActionSpace(Protocol):
+    shape: tuple[int, ...]
+
+
 class _EnvLike(Protocol):
     def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
 
@@ -42,12 +46,36 @@ class _EnvLike(Protocol):
     ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
+def _is_discrete_action_space(action_space: object) -> bool:
+    return hasattr(action_space, "n")
+
+
+def _continuous_action_dim(action_space: _ContinuousActionSpace) -> int:
+    if len(action_space.shape) != 1:
+        raise ValueError(f"continuous PPO expects a flat action shape, got {action_space.shape}")
+    return action_space.shape[0]
+
+
+def _sum_action_event_terms(values: object, *, is_continuous: bool) -> jax.Array:
+    values_array = jnp.asarray(values)
+    if not is_continuous:
+        return values_array
+    return jnp.sum(values_array, axis=-1)
+
+
 def make_train(config: PPOConfig, env: object, env_params: object | None = None):
     env = cast(_EnvLike, env)
 
     def train(rng):
         # INIT NETWORK
-        network = ActorCritic(env.action_space(env_params).n, activation="tanh")
+        action_space = env.action_space(env_params)
+        continuous_actions = not _is_discrete_action_space(action_space)
+        if continuous_actions:
+            continuous_action_space = cast(_ContinuousActionSpace, action_space)
+            network = ContinuousActorCritic(_continuous_action_dim(continuous_action_space), activation="tanh")
+        else:
+            discrete_action_space = cast(_ActionSpace, action_space)
+            network = ActorCritic(discrete_action_space.n, activation="tanh")
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).shape)
         network_params = network.init(_rng, init_x)
@@ -76,9 +104,9 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
-                probs, value = network.apply(train_state.params, last_obs)
-                action = probs.sample(seed=_rng)
-                log_prob = jnp.asarray(probs.log_prob(action))
+                policy, value = network.apply(train_state.params, last_obs)
+                action = policy.sample(seed=_rng)
+                log_prob = _sum_action_event_terms(policy.log_prob(action), is_continuous=continuous_actions)
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
@@ -123,8 +151,8 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
 
                     def _loss_fn(params, traj_batch, advantages, targets):
                         # RERUN NETWORK
-                        probs, value = network.apply(params, traj_batch.obs)
-                        log_prob = probs.log_prob(traj_batch.action)
+                        policy, value = network.apply(params, traj_batch.obs)
+                        log_prob = _sum_action_event_terms(policy.log_prob(traj_batch.action), is_continuous=continuous_actions)
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-config.CLIP_EPS, config.CLIP_EPS)
@@ -147,7 +175,7 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
                         policy_loss = -jnp.minimum(loss_pc1, loss_pc2).mean()
 
                         # CALCULATE ENTROPY LOSS
-                        entropy_loss = probs.entropy().mean()
+                        entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=continuous_actions).mean()
 
                         loss = policy_loss + config.VF_COEF * value_loss - config.ENT_COEF * entropy_loss
                         return loss, (value_loss, policy_loss, entropy_loss)
