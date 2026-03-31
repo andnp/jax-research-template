@@ -6,6 +6,8 @@ from typing import NoReturn
 
 import typer
 
+from research_cli.workspace import WorkspaceResolutionError, resolve_workspace_root
+
 
 @dataclass(frozen=True)
 class LifecyclePreview:
@@ -43,7 +45,11 @@ def _module_path(root: Path, import_package: str) -> Path:
 
 
 def _resolve_workspace_root(cwd: Path | None = None) -> tuple[Path, Path]:
-    workspace_root = (cwd or Path.cwd()).resolve()
+    try:
+        workspace_root = resolve_workspace_root(cwd or Path.cwd())
+    except WorkspaceResolutionError as exc:
+        _fail(f"Error: {exc}")
+
     direct_libs_root = (workspace_root / "libs").resolve()
     nested_libs_root = (workspace_root / "core" / "libs").resolve()
 
@@ -54,7 +60,7 @@ def _resolve_workspace_root(cwd: Path | None = None) -> tuple[Path, Path]:
         return workspace_root, nested_libs_root
 
     _fail(
-        "Error: expected a workspace root containing 'libs/' or 'core/libs/' for lifecycle resolution."
+        f"Error: resolved workspace root '{workspace_root}' does not contain 'libs/' or 'core/libs/' required for lifecycle commands."
     )
 
 

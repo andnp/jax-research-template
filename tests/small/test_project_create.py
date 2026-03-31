@@ -12,6 +12,10 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+def _write_workspace_config(workspace_root: Path) -> None:
+    (workspace_root / "research.yaml").write_text("core_path: core\nstorage_backend: local\n", encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     ("algorithm", "env_name"),
     [
@@ -58,12 +62,30 @@ def test_project_create_dry_run_reports_normalized_target_path(tmp_path: Path, m
     """Dry-run must resolve the target under projects/<name> from the workspace root."""
     workspace_root = tmp_path.resolve()
     (workspace_root / "projects").mkdir()
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
 
     result = runner.invoke(app, ["project", "create", "demo", "--dry-run"])
 
     assert result.exit_code == 0, result.output
     assert f"Template root: {_template_root()}" in result.output
+    assert f"Target path: {workspace_root / 'projects' / 'demo'}" in result.output
+    assert "Git ownership: the shell repo keeps shared workspace files" in result.output
+    assert not (workspace_root / "projects" / "demo").exists()
+
+
+def test_project_create_dry_run_resolves_workspace_root_from_child_project_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dry-run must resolve the shell workspace root even when invoked inside a child project repo."""
+    workspace_root = tmp_path.resolve()
+    child_project_root = workspace_root / "projects" / "existing"
+    child_project_root.mkdir(parents=True)
+    _write_workspace_config(workspace_root)
+    monkeypatch.chdir(child_project_root)
+
+    result = runner.invoke(app, ["project", "create", "demo", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Workspace root: {workspace_root}" in result.output
     assert f"Target path: {workspace_root / 'projects' / 'demo'}" in result.output
     assert not (workspace_root / "projects" / "demo").exists()
 
@@ -72,6 +94,7 @@ def test_project_create_dry_run_does_not_render_or_invoke_git(tmp_path: Path, mo
     """Dry-run must not call Copier or spawn subprocesses."""
     workspace_root = tmp_path.resolve()
     (workspace_root / "projects").mkdir()
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
 
     calls: list[str] = []
@@ -100,13 +123,14 @@ def test_project_create_fails_without_projects_dir(tmp_path: Path, monkeypatch: 
     result = runner.invoke(app, ["project", "create", "demo", "--dry-run"])
 
     assert result.exit_code != 0
-    assert "workspace root containing 'projects/'" in result.output
+    assert "Could not find a research workspace" in result.output
 
 
 def test_project_create_fails_if_template_root_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The command must fail fast when the repository templates root is missing."""
     workspace_root = tmp_path.resolve()
     (workspace_root / "projects").mkdir()
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
     monkeypatch.setattr(project_module, "_template_root", lambda: workspace_root / "missing-templates")
 
@@ -121,6 +145,7 @@ def test_project_create_fails_if_project_already_exists(tmp_path: Path, monkeypa
     workspace_root = tmp_path.resolve()
     project_root = workspace_root / "projects" / "demo"
     project_root.mkdir(parents=True)
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
 
     result = runner.invoke(app, ["project", "create", "demo", "--dry-run"])
@@ -177,6 +202,7 @@ def test_project_create_renders_then_initializes_git_without_github_repo(tmp_pat
     projects_root = workspace_root / "projects"
     project_root = projects_root / "demo"
     projects_root.mkdir()
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
 
     calls: list[tuple[str, object, object]] = []
@@ -209,6 +235,7 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
     projects_root = workspace_root / "projects"
     project_root = projects_root / "demo"
     projects_root.mkdir()
+    _write_workspace_config(workspace_root)
     monkeypatch.chdir(workspace_root)
 
     calls: list[tuple[str, object, object]] = []

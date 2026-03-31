@@ -10,15 +10,17 @@ Primary implementation:
 - `docs/specs/research-cli.md`
 
 ## Preconditions
-The current implementation runs from `Path.cwd()` and looks for `research.yaml` in that directory.
+The current implementation resolves the enclosing workspace root upward from `Path.cwd()` and loads `research.yaml` from that root.
 
-It does not walk upward to find a workspace root, so the command should be run from the workspace root today.
+That means it can be run from the shell root or from inside a child project repo, as long as the enclosing workspace contains `research.yaml`.
 
 ## What the Command Does Today
 `research doctor` currently:
-- loads `research.yaml` from the current working directory,
+- resolves the enclosing workspace root upward from the current working directory,
+- loads `research.yaml` from that workspace root,
 - reports config validation for that file,
 - resolves the configured `core_path` relative to the current working directory,
+- resolves the configured `core_path` relative to the workspace root,
 - checks whether the resolved Core path exists,
 - checks whether that path is a Git working tree,
 - checks whether `HEAD` is attached to a branch,
