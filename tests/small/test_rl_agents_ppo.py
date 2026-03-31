@@ -2,13 +2,16 @@
 
 
 import jax.numpy as jnp
+import pytest
 from rl_agents.ppo import (
     Transition,
     _init_observation_norm_state,
     _normalize_observation,
     _sum_action_event_terms,
     _update_observation_norm_state,
+    make_train,
 )
+from rl_components.types import PPOConfig
 
 
 class TestTransition:
@@ -24,6 +27,37 @@ class TestTransition:
         )
         assert isinstance(t, tuple)
         assert t[3] == 1.0
+
+
+class _ValidationEnv:
+    def observation_space(self, params: object | None = None):
+        del params
+        return type("ObsSpace", (), {"shape": (4,)})()
+
+    def action_space(self, params: object | None = None):
+        del params
+        return type("ActionSpace", (), {"n": 2})()
+
+    def reset(self, key, params: object | None = None):
+        del key, params
+        return jnp.zeros((4,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
+
+    def step(self, key, state, action, params: object | None = None):
+        del key, state, action, params
+        info = {
+            "returned_episode": jnp.array(False),
+            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
+        }
+        return jnp.zeros((4,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32), jnp.array(1.0), jnp.array(False), info
+
+
+class TestRewardScaleValidation:
+    @pytest.mark.parametrize("reward_scale", [0.0, -1.0, float("inf"), float("nan")])
+    def test_make_train_rejects_non_positive_or_non_finite_reward_scale(self, reward_scale: float):
+        config = PPOConfig(REWARD_SCALE=reward_scale)
+
+        with pytest.raises(ValueError, match="REWARD_SCALE"):
+            make_train(config, env=_ValidationEnv(), env_params=None)
 
 
 class TestPPOClippedObjective:

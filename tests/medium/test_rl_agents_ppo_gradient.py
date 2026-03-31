@@ -143,6 +143,24 @@ class LargeMagnitudeContinuousEnv(FakeContinuousEnv):
         return scaled_obs, next_state, reward, jnp.array(False), info
 
 
+class RewardLoggingEnv(FakeDiscreteEnv):
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: object | None = None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        del key, action, params
+        next_state = state + jnp.array(1, dtype=jnp.int32)
+        raw_reward = jnp.array(2.0, dtype=jnp.float32)
+        info = {
+            "returned_episode": jnp.array(True),
+            "returned_episode_returns": jnp.array(3.0, dtype=jnp.float32),
+        }
+        return jnp.full((4,), next_state, dtype=jnp.float32), next_state, raw_reward, jnp.array(False), info
+
+
 def _tree_all_finite(tree: object) -> bool:
     leaves = jax.tree_util.tree_leaves(tree)
     return all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in leaves)
@@ -256,6 +274,49 @@ class TestPPOGradientFlow:
 
         assert _tree_all_finite(final_train_state.params)
         assert jnp.allclose(obs_norm_state.observation_count, jnp.array(5.0, dtype=jnp.float32))
+
+    def test_reward_scale_keeps_logged_returns_raw(self) -> None:
+        config = PPOConfig(
+            TOTAL_TIMESTEPS=4,
+            NUM_STEPS=2,
+            UPDATE_EPOCHS=1,
+            NUM_MINIBATCHES=1,
+            REWARD_SCALE=5.0,
+        )
+        train = make_train(config, env=RewardLoggingEnv(), env_params=None)
+
+        out = jax.jit(train)(jax.random.key(0))
+        returns = out["metrics"]["returned_episode_returns"]
+
+        assert jnp.allclose(returns, jnp.full((2,), 3.0, dtype=jnp.float32))
+
+    def test_reward_scale_changes_training_update(self) -> None:
+        unit_scale_train = make_train(
+            PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1, REWARD_SCALE=1.0),
+            env=FakeDiscreteEnv(),
+            env_params=None,
+        )
+        amplified_scale_train = make_train(
+            PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1, REWARD_SCALE=2.0),
+            env=FakeDiscreteEnv(),
+            env_params=None,
+        )
+
+        unit_scale_out = jax.jit(unit_scale_train)(jax.random.key(0))
+        amplified_scale_out = jax.jit(amplified_scale_train)(jax.random.key(0))
+
+        unit_params = unit_scale_out["runner_state"][0].params
+        amplified_params = amplified_scale_out["runner_state"][0].params
+        any_changed = any(
+            not jnp.allclose(unit_leaf, amplified_leaf)
+            for unit_leaf, amplified_leaf in zip(
+                jax.tree_util.tree_leaves(unit_params),
+                jax.tree_util.tree_leaves(amplified_params),
+                strict=True,
+            )
+        )
+
+        assert any_changed, "Reward scaling should alter PPO parameter updates"
 
 
 class TestContinuousPPOGradientFlow:

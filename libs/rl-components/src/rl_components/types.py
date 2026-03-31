@@ -17,6 +17,7 @@ class PPOConfig:
     ENT_COEF: float = 0.01
     VF_COEF: float = 0.5
     MAX_GRAD_NORM: float = 0.5
+    REWARD_SCALE: float = 1.0
     NORMALIZE_OBSERVATIONS: bool = False
     OBS_NORM_EPS: float = 1e-8
     OBS_NORM_CLIP: float = 10.0

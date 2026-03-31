@@ -1,3 +1,4 @@
+import math
 from typing import NamedTuple, Protocol, cast
 
 import jax
@@ -122,7 +123,11 @@ def _maybe_normalize_observation(
 
 def make_train(config: PPOConfig, env: object, env_params: object | None = None):
     env = cast(_EnvLike, env)
+    if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
+        raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
+
     normalize_observations = config.NORMALIZE_OBSERVATIONS
+    reward_scale = jnp.asarray(config.REWARD_SCALE, dtype=jnp.float32)
 
     def train(rng):
         # INIT NETWORK
@@ -177,8 +182,9 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
+                scaled_reward = reward * reward_scale
                 obs_norm_state = _maybe_update_observation_norm_state(obs_norm_state, obsv, enabled=normalize_observations)
-                transition = Transition(done, action, value, reward, log_prob, normalized_obs, info)
+                transition = Transition(done, action, value, scaled_reward, log_prob, normalized_obs, info)
                 runner_state = (train_state, env_state, obsv, obs_norm_state, rng)
                 return runner_state, transition
 
