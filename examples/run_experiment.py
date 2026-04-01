@@ -59,14 +59,23 @@ def main():
     print(f"✓ Metric whitelist: {whitelist}")
 
     metrics_db = Path("metrics.db")
-    backend = SQLiteBackend(metrics_db, batch_size=50)
+    metrics_experiment_id = 1
+    metrics_run_id = 1
+    metrics_execution_id = 1
+    backend = SQLiteBackend(
+        metrics_db,
+        experiment_id=metrics_experiment_id,
+        run_id=metrics_run_id,
+        execution_id=metrics_execution_id,
+        batch_size=50,
+    )
     configure(whitelist, backend=backend)
     print(f"✓ Metrics backend: {metrics_db}")
 
     # ── 3. Configure artifact store ───────────────────────────────────────────
     store = Store(experiment_id="dqn_cartpole_integration")
-    execution_id = uuid.uuid4()
-    print(f"✓ Store configured (execution_id={execution_id})")
+    artifact_execution_id = uuid.uuid4()
+    print(f"✓ Store configured (execution_id={artifact_execution_id})")
 
     # ── 4. Train ──────────────────────────────────────────────────────────────
     config = DQNConfig(
@@ -87,7 +96,7 @@ def main():
     # ── 5. Save checkpoint ────────────────────────────────────────────────────
     runner_state = result["runner_state"]
     final_params = runner_state[0].params
-    uri = store.put(final_params, name="final_weights", execution_id=execution_id)
+    uri = store.put(final_params, name="final_weights", execution_id=artifact_execution_id)
     print(f"✓ Checkpoint saved: {uri}")
 
     # Verify round-trip

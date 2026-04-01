@@ -2,7 +2,7 @@
 
 import jax
 import jax.numpy as jnp
-from rl_components.networks import ActorCritic
+from rl_components.networks import ActorCritic, ContinuousActorCritic
 
 
 class TestActorCriticForward:
@@ -56,3 +56,37 @@ class TestActorCriticForward:
         params = net.init(key, jnp.zeros((4,)))
         _, value = net.apply(params, jnp.ones((10, 4)))
         assert value.shape == (10,)
+
+
+class TestContinuousActorCriticForward:
+    def test_output_shapes_and_action_bounds(self):
+        net = ContinuousActorCritic(action_dim=3)
+        key = jax.random.key(0)
+        params = net.init(key, jnp.zeros((8,)))
+        policy, value = net.apply(params, jnp.ones((8,)))
+        action = policy.sample(seed=jax.random.key(1))
+        log_prob = jnp.sum(policy.log_prob(action), axis=-1)
+        entropy = jnp.sum(policy.entropy(), axis=-1)
+
+        assert policy.mean.shape == (3,)
+        assert action.shape == (3,)
+        assert jnp.all(action >= -1.0)
+        assert jnp.all(action <= 1.0)
+        assert log_prob.shape == ()
+        assert entropy.shape == ()
+        assert value.shape == ()
+
+    def test_batch_output_shapes_reduce_per_sample(self):
+        net = ContinuousActorCritic(action_dim=2)
+        key = jax.random.key(0)
+        params = net.init(key, jnp.zeros((4,)))
+        policy, value = net.apply(params, jnp.ones((5, 4)))
+        action = policy.sample(seed=jax.random.key(1))
+        log_prob = jnp.sum(policy.log_prob(action), axis=-1)
+        entropy = jnp.sum(policy.entropy(), axis=-1)
+
+        assert policy.mean.shape == (5, 2)
+        assert action.shape == (5, 2)
+        assert log_prob.shape == (5,)
+        assert entropy.shape == (5,)
+        assert value.shape == (5,)
