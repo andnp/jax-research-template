@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774926981009,
+  "lastUpdate": 1775009267122,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -1609,6 +1609,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000011101601834569176",
             "extra": "mean: 39.499599989767376 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1f9261d7da119433e462eb189af6bef4f547c43",
+          "message": "feat(rl-agents): harden continuous PPO for robotics (#60)\n\n## Summary\n- add a continuous PPO policy path with tanh-squashed Gaussian actions\nfor normalized continuous action spaces\n- add PPO-local observation normalization and reward scaling without\nchanging raw logged returns\n- extend PPO network, gradient, regression, and config coverage for the\nnew continuous and stabilization paths\n\n## Testing\n- PYTHONPATH=libs/rl-components/src:libs/rl-agents/src uv run --with\npytest pytest -q tests/small/test_rl_components_types.py\ntests/small/test_rl_agents_ppo.py\ntests/medium/test_rl_components_networks.py\ntests/medium/test_rl_agents_ppo_gradient.py\ntests/regression/test_ppo_learning.py",
+          "timestamp": "2026-03-31T20:02:06-06:00",
+          "tree_id": "edd8fa5151b79384f705fbf93f2909f8f8143869",
+          "url": "https://github.com/andnp/jax-research-template/commit/b1f9261d7da119433e462eb189af6bef4f547c43"
+        },
+        "date": 1775009266780,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.868396019855651,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009412155862335537",
+            "extra": "mean: 170.40431433333936 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.006791609131736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003425396610627162",
+            "extra": "mean: 993.2542056666591 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.041202647420626515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1520098001600734",
+            "extra": "mean: 24.270285105500008 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.4196989686668145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010423704230938463",
+            "extra": "mean: 2.3826601318000087 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 14222.201994706522,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003715580459373749",
+            "extra": "mean: 70.31260000189832 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 47.157903505240355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002000171031130182",
+            "extra": "mean: 21.205353199997035 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.6797515504794656,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0023174647661411353",
+            "extra": "mean: 373.1689229999991 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4542.749544561993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000381145168000245",
+            "extra": "mean: 220.13100000132604 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 49.28117249765062,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007569693222647325",
+            "extra": "mean: 20.29172500000224 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 270.8624341164848,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007322365756001351",
+            "extra": "mean: 3.6919109999947373 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 43.204463539531744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008520678975776951",
+            "extra": "mean: 23.145756666669588 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 34381.74742055461,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013648254244243233",
+            "extra": "mean: 29.085199997780364 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 36670.87160526238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011576669703923679",
+            "extra": "mean: 27.26959999108658 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 19892.263500915855,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000023090352667969342",
+            "extra": "mean: 50.27079999990747 usec\nrounds: 5"
           }
         ]
       }
