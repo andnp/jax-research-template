@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "brax~=0.14",
     "chex~=0.1",
+    "distrax>=0.1.8",
     "flax~=0.12",
     "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
     "jax~=0.9",
