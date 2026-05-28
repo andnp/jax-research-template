@@ -68,6 +68,10 @@ class Experiment:
         self._component_scope: Component | None = None
         self._condition_stack: list[dict[str, ParameterValue]] = []
 
+    @property
+    def name(self):
+        return self._state.name
+
     # ── Parameter API ─────────────────────────────────────────────────────────
 
     def add_parameter(
