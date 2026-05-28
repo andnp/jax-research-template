@@ -31,6 +31,7 @@ dependencies = [
     "research-analysis",
     "research-cli",
     "research-instrument",
+    "research-runner",
     "research-store",
     "rl-agents",
     "rl-components",

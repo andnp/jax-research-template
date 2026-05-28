@@ -20,6 +20,7 @@ members = [
     "research-core",
     "research-instrument",
     "research-plot",
+    "research-runner",
     "research-store",
     "rl-agents",
     "rl-components",
@@ -1539,6 +1540,17 @@ requires-dist = [
 name = "research-plot"
 version = "0.1.0"
 source = { virtual = "libs/research-plot" }
+
+[[package]]
+name = "research-runner"
+version = "0.1.0"
+source = { editable = "libs/research-runner" }
+dependencies = [
+    { name = "experiment-definition" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "experiment-definition", editable = "libs/experiment-definition" }]
 
 [[package]]
 name = "research-store"
