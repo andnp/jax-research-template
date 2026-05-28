@@ -324,8 +324,8 @@ def _ensure_root_workspace_library_registration(workspace_root: Path, library_na
         updated_sections.append("project.dependencies")
     if _ensure_toml_table_entry(lines, "[tool.uv.sources]", library_name, "{ workspace = true }"):
         updated_sections.append("tool.uv.sources")
-    if _ensure_toml_array_entry(lines, "[tool.ty.environment]", "extra-paths", f"libs/{library_name}/src"):
-        updated_sections.append("tool.ty.environment.extra-paths")
+    if _ensure_toml_array_entry(lines, "[tool.pyrefly]", "search-path", f"libs/{library_name}/src"):
+        updated_sections.append("tool.pyrefly.search-path")
 
     if updated_sections:
         pyproject_path.write_text("".join(lines), encoding="utf-8")

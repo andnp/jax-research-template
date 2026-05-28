@@ -17,8 +17,8 @@ def _create_workspace_pyproject(workspace_root: Path) -> None:
         "dependencies = [\n"
         "]\n\n"
         "[tool.uv.sources]\n\n"
-        "[tool.ty.environment]\n"
-        "extra-paths = [\n"
+        "[tool.pyrefly]\n"
+        "search-path = [\n"
         "]\n",
         encoding="utf-8",
     )

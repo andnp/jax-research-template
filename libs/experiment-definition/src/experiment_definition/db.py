@@ -556,7 +556,7 @@ class DatabaseManager:
 
     def add_hyperparam_config(
         self,
-        params: dict[str, object],
+        params: Mapping[str, object],
         vmap_zone: dict[str, list[str]] | None = None,
     ) -> int:
         """Upsert a hyperparam configuration and return its id.
@@ -737,7 +737,7 @@ class DatabaseManager:
         hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: dict[str, object] | None = None,
+        jax_config: Mapping[str, object] | None = None,
     ) -> int:
         """Create a new Execution record in PENDING status and return its id.
 
