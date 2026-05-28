@@ -66,6 +66,44 @@ def _write_fake_jax_package(core_root: Path) -> None:
     )
 
 
+def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) -> None:
+    package_root = core_root / "libs" / dist_name
+    src_dir = package_root / "src" / import_name
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (package_root / "pyproject.toml").write_text(
+        "[project]\n"
+        f'name = "{dist_name}"\n'
+        'version = "0.0.0"\n'
+        f'description = "Test-only fake {dist_name} package"\n'
+        'requires-python = ">=3.13"\n'
+        "dependencies = []\n\n"
+        "[build-system]\n"
+        'requires = ["setuptools>=61.0"]\n'
+        'build-backend = "setuptools.build_meta"\n\n'
+        "[tool.setuptools.packages.find]\n"
+        'where = ["src"]\n',
+        encoding="utf-8",
+    )
+    (src_dir / "__init__.py").write_text("", encoding="utf-8")
+    if import_name == "experiment_definition":
+        (src_dir / "db.py").write_text(
+            "from collections import namedtuple\n"
+            "ExperimentRow = namedtuple('ExperimentRow', ['id', 'name', 'description', 'created_at'])\n"
+            "class DatabaseManager:\n"
+            "    def __init__(self, *a, **kw): pass\n"
+            "    def __enter__(self): return self\n"
+            "    def __exit__(self, *a): pass\n"
+            "    def initialize(self): pass\n",
+            encoding="utf-8",
+        )
+        (src_dir / "experiment.py").write_text("", encoding="utf-8")
+    elif import_name == "research_runner":
+        (src_dir / "types.py").write_text(
+            "class ExperimentSpec: pass\n",
+            encoding="utf-8",
+        )
+
+
 def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) -> None:
     _init_repo(core_root, env)
     (core_root / "libs").mkdir(parents=True, exist_ok=True)
@@ -77,6 +115,8 @@ def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) 
     )
     shutil.copy2(repo_root / "cli" / "pyproject.toml", core_root / "cli" / "pyproject.toml")
     _write_fake_jax_package(core_root)
+    _write_fake_stub_package(core_root, "experiment-definition", "experiment_definition")
+    _write_fake_stub_package(core_root, "research-runner", "research_runner")
     _git(core_root, env, "add", ".")
     _git(core_root, env, "commit", "-m", "fixture core")
 
