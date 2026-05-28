@@ -1418,14 +1418,18 @@ version = "0.1.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "copier" },
+    { name = "experiment-definition" },
     { name = "pyyaml" },
+    { name = "research-runner" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "copier", specifier = "~=9.4" },
+    { name = "experiment-definition", editable = "libs/experiment-definition" },
     { name = "pyyaml", specifier = "~=6.0" },
+    { name = "research-runner", editable = "libs/research-runner" },
     { name = "typer", specifier = "~=0.12" },
 ]
 
@@ -1461,6 +1465,7 @@ dependencies = [
     { name = "research-analysis" },
     { name = "research-cli" },
     { name = "research-instrument" },
+    { name = "research-runner" },
     { name = "research-store" },
     { name = "rl-agents" },
     { name = "rl-components" },
@@ -1502,6 +1507,7 @@ requires-dist = [
     { name = "research-analysis", editable = "libs/research-analysis" },
     { name = "research-cli", editable = "cli" },
     { name = "research-instrument", editable = "libs/research-instrument" },
+    { name = "research-runner", editable = "libs/research-runner" },
     { name = "research-store", editable = "libs/research-store" },
     { name = "rl-agents", editable = "libs/rl-agents" },
     { name = "rl-components", editable = "libs/rl-components" },
@@ -1609,6 +1615,7 @@ dependencies = [
     { name = "distrax" },
     { name = "flax" },
     { name = "jax" },
+    { name = "jax-nn" },
     { name = "jaxatari" },
 ]
 
@@ -1619,6 +1626,7 @@ requires-dist = [
     { name = "distrax", specifier = ">=0.1.8" },
     { name = "flax", specifier = "~=0.12" },
     { name = "jax", specifier = "~=0.9" },
+    { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "jaxatari", git = "https://github.com/k4ntz/JAXAtari?rev=v0.1" },
 ]
 
