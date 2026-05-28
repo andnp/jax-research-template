@@ -253,10 +253,10 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 actor_state = actor_state.apply_gradients(grads=actor_grads)
 
                 # ALPHA UPDATE
-                def _alpha_loss_fn(log_alpha, actor_params, obs, rng):
+                def _alpha_loss_fn(alpha_params, actor_params, obs, rng):
                     rng, _rng = jax.random.split(rng)
                     _, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE))
-                    loss = -jnp.mean(log_alpha["log_alpha"] * (log_probs + target_entropy))
+                    loss = -jnp.mean(alpha_params["log_alpha"] * (log_probs + target_entropy))
                     return loss
 
                 grad_fn = jax.value_and_grad(_alpha_loss_fn)
