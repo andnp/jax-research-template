@@ -8,6 +8,7 @@ dependencies = [
     "chex~=0.1",
     "distrax>=0.1.8",
     "flax~=0.12",
+    "jax-nn",
     "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
     "jax~=0.9",
 ]
@@ -18,3 +19,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+jax-nn = { workspace = true }

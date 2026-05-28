@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from jax_nn.typed_module import TypedApply
 
 from rl_components.structs import chex_struct
 
@@ -37,18 +38,9 @@ class TanhNormalDiag:
         return cast(jax.Array, self._base_distribution().entropy())
 
 
-class ActorCritic(nn.Module):
+class ActorCritic(TypedApply[tuple[distrax.Categorical, jax.Array]], nn.Module):
     action_dim: int
     activation: str = "tanh"
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> tuple[distrax.Categorical, jax.Array]: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[distrax.Categorical, jnp.ndarray]:
@@ -71,20 +63,11 @@ class ActorCritic(nn.Module):
         return probs, jnp.squeeze(critic_value, axis=-1)
 
 
-class ContinuousActorCritic(nn.Module):
+class ContinuousActorCritic(TypedApply[tuple[TanhNormalDiag, jax.Array]], nn.Module):
     action_dim: int
     activation: str = "tanh"
     log_std_min: float = -20.0
     log_std_max: float = 2.0
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> tuple[TanhNormalDiag, jax.Array]: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[TanhNormalDiag, jnp.ndarray]:

@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from jax_nn.initializers import output_orthogonal, stable_orthogonal
+from jax_nn.typed_module import TypedApply
 
 
-class DuelingHead(nn.Module):
+class DuelingHead(TypedApply[Array], nn.Module):
     """Dueling network head (Wang et al., 2016).
 
     Separates state-value and advantage streams:
@@ -33,15 +32,6 @@ class DuelingHead(nn.Module):
     action_dim: int
     hidden_features: int = 512
     dtype: jnp.dtype = jnp.float32
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: Array,
-            *,
-            rngs: object | None = None,
-        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:
