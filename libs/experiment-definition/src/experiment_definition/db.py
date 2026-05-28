@@ -981,6 +981,62 @@ class DatabaseManager:
                 (execution_id, run_id),
             )
 
+    def invalidate_execution(self, execution_id: int):
+        existing = self.get_execution(execution_id)
+        if existing is None:
+            return False
+        self.update_execution_status(execution_id, "INVALID")
+        return True
+
+    def invalidate_executions_by_commit(self, git_commit: str):
+        with self.conn:
+            rows = self.conn.execute(
+                "SELECT id FROM Executions WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
+                (git_commit,),
+            ).fetchall()
+            if not rows:
+                return []
+            self.conn.execute(
+                "UPDATE Executions SET status = 'INVALID' WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
+                (git_commit,),
+            )
+        return [int(row[0]) for row in rows]
+
+    def list_executions(
+        self,
+        experiment_id: int | None = None,
+        *,
+        status: str | None = None,
+        git_commit: str | None = None,
+    ):
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if experiment_id is not None:
+            clauses.append(
+                "e.id IN ("
+                "  SELECT er.execution_id FROM ExecutionRuns er"
+                "  INNER JOIN Runs r ON r.id = er.run_id"
+                "  WHERE r.experiment_id = ?"
+                ")"
+            )
+            params.append(experiment_id)
+        if status is not None:
+            clauses.append("e.status = ?")
+            params.append(status)
+        if git_commit is not None:
+            clauses.append("e.git_commit = ?")
+            params.append(git_commit)
+
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self.conn.execute(
+            "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, "
+            "e.git_commit, e.git_diff_blob, e.jax_config_json "
+            f"FROM Executions e{where} ORDER BY e.id DESC",
+            params,
+        ).fetchall()
+        return [ExecutionRow(*row) for row in rows]
+
 
 def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     hyper_params = json.loads(hyper_json)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from experiment_definition.db import DatabaseManager, ExperimentRow
+from experiment_definition.db import DatabaseManager, ExecutionRow, ExperimentRow
 from research_runner.types import ExperimentSpec
 
 experiment_app = typer.Typer(help="Manage experiments.")
@@ -175,3 +175,64 @@ def run(
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
             typer.echo(f"  {root}")
+
+
+@experiment_app.command("executions")
+def executions(
+    db_path: Path = typer.Argument(..., help="Path to the experiment database."),
+    experiment: str | None = typer.Option(None, "--experiment", help="Filter by experiment name."),
+    status: str | None = typer.Option(None, "--status", help="Filter by execution status."),
+    git_commit: str | None = typer.Option(None, "--git-commit", help="Filter by git commit SHA."),
+):
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        experiment_id = None
+        if experiment is not None:
+            exp_row = db.get_experiment(experiment)
+            if exp_row is None:
+                typer.echo(f"Error: experiment '{experiment}' not found.", err=True)
+                raise typer.Exit(code=1)
+            experiment_id = exp_row.id
+        rows = db.list_executions(experiment_id, status=status, git_commit=git_commit)
+
+    typer.echo(f"{'ID':<6} {'Status':<12} {'Hostname':<20} {'Start Time':<22} {'Git Commit':<10}")
+    typer.echo("-" * 70)
+    for row in rows:
+        commit_display = row.git_commit[:8] if row.git_commit else "\u2014"
+        hostname_display = row.hostname or "\u2014"
+        start_display = row.start_time or "\u2014"
+        typer.echo(f"{row.id:<6} {row.status:<12} {hostname_display:<20} {start_display:<22} {commit_display:<10}")
+
+
+@experiment_app.command("invalidate")
+def invalidate(
+    db_path: Path = typer.Argument(..., help="Path to the experiment database."),
+    execution: list[int] | None = typer.Option(None, "--execution", help="Execution ID(s) to invalidate."),
+    git_commit: str | None = typer.Option(None, "--git-commit", help="Invalidate all executions for a git commit."),
+):
+    if not execution and not git_commit:
+        typer.echo("Error: at least one of --execution or --git-commit must be provided.", err=True)
+        raise typer.Exit(code=1)
+
+    parts = []
+    if execution:
+        parts.append(f"execution ID(s): {', '.join(str(e) for e in execution)}")
+    if git_commit:
+        parts.append(f"git commit: {git_commit[:8]}")
+    typer.confirm(f"Invalidate executions matching {'; '.join(parts)}?", abort=True)
+
+    invalidated: list[int] = []
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        if execution:
+            for eid in execution:
+                if db.invalidate_execution(eid):
+                    invalidated.append(eid)
+        if git_commit:
+            already = set(invalidated)
+            invalidated.extend(eid for eid in db.invalidate_executions_by_commit(git_commit) if eid not in already)
+
+    if not invalidated:
+        typer.echo("Warning: no executions were invalidated.", err=True)
+    else:
+        typer.echo(f"Invalidated {len(invalidated)} execution(s): {', '.join(str(i) for i in invalidated)}")

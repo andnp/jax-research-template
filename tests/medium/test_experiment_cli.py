@@ -143,3 +143,94 @@ def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path):
     specs = _discover_specs(loaded, None)
     assert "my_spec" in specs
     assert "not_a_spec" not in specs
+
+
+# ---------------------------------------------------------------------------
+# Executions listing
+# ---------------------------------------------------------------------------
+
+
+def test_executions_shows_execution_table(tmp_path: Path):
+    db_path = tmp_path / "exec.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        eid = db.add_execution(hostname="gpu-node-01", git_commit="abc12345deadbeef")
+        db.update_execution_status(eid, "COMPLETED", start_time="2026-05-01T10:00:00Z")
+
+    result = runner.invoke(app, ["experiment", "executions", str(db_path)])
+    assert result.exit_code == 0
+    assert "COMPLETED" in result.output
+    assert "gpu-node-01" in result.output
+    assert "abc12345" in result.output
+
+
+def test_executions_empty_db(tmp_path: Path):
+    db_path = tmp_path / "empty_exec.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+
+    result = runner.invoke(app, ["experiment", "executions", str(db_path)])
+    assert result.exit_code == 0
+    assert "ID" in result.output
+    assert "Status" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Invalidation CLI
+# ---------------------------------------------------------------------------
+
+
+def test_invalidate_by_execution_id(tmp_path: Path):
+    db_path = tmp_path / "inv.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        eid = db.add_execution(hostname="node01")
+        db.update_execution_status(eid, "COMPLETED")
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--execution", str(eid)],
+        input="y\n",
+    )
+    assert result.exit_code == 0
+    assert "Invalidated 1" in result.output
+
+
+def test_invalidate_by_git_commit(tmp_path: Path):
+    db_path = tmp_path / "inv_commit.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        e1 = db.add_execution(hostname="n1", git_commit="fff999abcdef")
+        db.update_execution_status(e1, "COMPLETED")
+        e2 = db.add_execution(hostname="n2", git_commit="fff999abcdef")
+        db.update_execution_status(e2, "COMPLETED")
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--git-commit", "fff999abcdef"],
+        input="y\n",
+    )
+    assert result.exit_code == 0
+    assert "Invalidated 2" in result.output
+
+
+def test_invalidate_no_args_fails(tmp_path: Path):
+    db_path = tmp_path / "inv_noargs.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+
+    result = runner.invoke(app, ["experiment", "invalidate", str(db_path)])
+    assert result.exit_code == 1
+
+
+def test_invalidate_nonexistent_warns(tmp_path: Path):
+    db_path = tmp_path / "inv_none.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--execution", "99999"],
+        input="y\n",
+    )
+    assert "no executions were invalidated" in (result.output + (result.stderr or "")).lower()
