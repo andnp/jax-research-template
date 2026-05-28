@@ -145,7 +145,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
         else:
             target_entropy = config.TARGET_ENTROPY
 
-        log_alpha = jnp.zeros(1)
+        log_alpha = {"log_alpha": jnp.zeros(1)}
         alpha_state = TrainState.create(apply_fn=None, params=log_alpha, tx=optax.adam(config.LR))
 
         # INIT BUFFER
@@ -204,7 +204,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-                alpha = jnp.exp(alpha_state.params[0])
+                alpha = jnp.exp(alpha_state.params["log_alpha"][0])
 
                 # CRITIC UPDATE
                 def _critic_loss_fn(critic_params, actor_params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng):
@@ -256,7 +256,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 def _alpha_loss_fn(log_alpha, actor_params, obs, rng):
                     rng, _rng = jax.random.split(rng)
                     _, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE))
-                    loss = -jnp.mean(log_alpha * (log_probs + target_entropy))
+                    loss = -jnp.mean(log_alpha["log_alpha"] * (log_probs + target_entropy))
                     return loss
 
                 grad_fn = jax.value_and_grad(_alpha_loss_fn)
