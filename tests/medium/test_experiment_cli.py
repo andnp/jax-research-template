@@ -234,3 +234,76 @@ def test_invalidate_nonexistent_warns(tmp_path: Path):
         input="y\n",
     )
     assert "no executions were invalidated" in (result.output + (result.stderr or "")).lower()
+
+
+# ---------------------------------------------------------------------------
+# Execute-batch CLI
+# ---------------------------------------------------------------------------
+
+
+def test_execute_batch_runs_planned_execution(tmp_path: Path):
+    db_path = tmp_path / "eb.sqlite"
+    executions_root = tmp_path / "executions"
+    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+
+    # Sync experiment and plan execution batches
+    plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    assert plan_result.exit_code == 0, plan_result.output
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment("test-experiment")
+        assert exp_row is not None
+        planned = database.plan_experiment_execution_batches(
+            exp_row.id, executions_root,
+        )
+        execution_id = planned[0].execution_id
+
+    result = runner.invoke(app, [
+        "experiment", "execute-batch", str(db_path),
+        "--execution-id", str(execution_id),
+        "--spec-file", str(spec_file),
+        "--spec", "my_spec",
+    ])
+    assert result.exit_code == 0, result.output
+    assert "completed" in result.output.lower()
+
+
+def test_execute_batch_nonexistent_execution_fails(tmp_path: Path):
+    db_path = tmp_path / "eb_fail.sqlite"
+    executions_root = tmp_path / "executions"
+    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+
+    # Sync experiment so the DB exists
+    plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    assert plan_result.exit_code == 0, plan_result.output
+
+    result = runner.invoke(app, [
+        "experiment", "execute-batch", str(db_path),
+        "--execution-id", "99999",
+        "--spec-file", str(spec_file),
+        "--spec", "my_spec",
+    ])
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Submit CLI (dry-run)
+# ---------------------------------------------------------------------------
+
+
+def test_submit_dry_run(tmp_path: Path):
+    db_path = tmp_path / "submit.sqlite"
+    executions_root = tmp_path / "executions"
+    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    script_path = tmp_path / "slurm_submit.sh"
+
+    result = runner.invoke(app, [
+        "experiment", "submit", str(spec_file),
+        "--dry-run",
+        "--script-path", str(script_path),
+    ])
+    assert result.exit_code == 0, result.output
+    assert "dry-run" in result.output.lower()
+    assert script_path.exists()

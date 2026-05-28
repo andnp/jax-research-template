@@ -1,2 +1,2 @@
-"""research_cluster: stub library — not yet implemented."""
+"""research_cluster: Slurm job array mapper and cluster submission."""
 

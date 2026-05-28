@@ -8,6 +8,7 @@ dependencies = [
     "PyYAML~=6.0",
     "experiment-definition",
     "research-runner",
+    "research-cluster",
 ]
 
 [project.scripts]

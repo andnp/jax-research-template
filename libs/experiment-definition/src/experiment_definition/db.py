@@ -1037,6 +1037,25 @@ class DatabaseManager:
         ).fetchall()
         return [ExecutionRow(*row) for row in rows]
 
+    def get_planned_execution(self, execution_id: int):
+        execution = self.get_execution(execution_id)
+        if execution is None:
+            return None
+        artifacts = self.get_execution_artifacts(execution_id)
+        if artifacts is None:
+            return None
+        runs = self.list_execution_runs(execution_id)
+        run_ids = [r.id for r in runs]
+        metadata = json.loads(artifacts.metadata_json) if artifacts.metadata_json else {}
+        return PlannedExecution(
+            execution_id=execution_id,
+            run_ids=run_ids,
+            root_path=artifacts.root_path,
+            manifest_path=artifacts.manifest_path or "",
+            static_config_json=metadata.get("static_config_json", "{}"),
+            vmap_zone_json=metadata.get("vmap_zone_json"),
+        )
+
 
 def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     hyper_params = json.loads(hyper_json)

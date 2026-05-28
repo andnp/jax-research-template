@@ -236,3 +236,106 @@ def invalidate(
         typer.echo("Warning: no executions were invalidated.", err=True)
     else:
         typer.echo(f"Invalidated {len(invalidated)} execution(s): {', '.join(str(i) for i in invalidated)}")
+
+
+@experiment_app.command("execute-batch")
+def execute_batch_cmd(
+    db_path: Path = typer.Argument(..., help="Path to the experiment database."),
+    execution_id: int = typer.Option(..., "--execution-id", help="Planned execution ID to run."),
+    spec_file: Path = typer.Option(..., "--spec-file", help="Path to the Python spec file."),
+    spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
+):
+    from research_runner.runner import execute_batch
+
+    module = _load_spec_module(spec_file)
+    specs = _discover_specs(module, spec)
+    if len(specs) != 1:
+        typer.echo(f"Error: expected exactly one spec, found {len(specs)}.", err=True)
+        raise typer.Exit(code=1)
+
+    experiment_spec = next(iter(specs.values()))()
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        planned = database.get_planned_execution(execution_id)
+
+    if planned is None:
+        typer.echo(f"Error: planned execution {execution_id} not found.", err=True)
+        raise typer.Exit(code=1)
+
+    root = execute_batch(
+        db_path,
+        planned,
+        experiment_spec.train_fn,
+        metrics_db_path=experiment_spec.metrics_db_path,
+        capture_git=experiment_spec.capture_git,
+    )
+    typer.echo(f"Execution {execution_id} completed: {root}")
+
+
+@experiment_app.command("submit")
+def submit(
+    spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
+    spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
+    db: str | None = typer.Option(None, "--db", help="Override database path."),
+    account: str | None = typer.Option(None, "--account", help="Slurm account."),
+    partition: str | None = typer.Option(None, "--partition", help="Slurm partition."),
+    time: str = typer.Option("2:59:00", "--time", help="Slurm time limit."),
+    cpus_per_task: int = typer.Option(1, "--cpus-per-task", help="CPUs per task."),
+    mem_per_cpu: str = typer.Option("4G", "--mem-per-cpu", help="Memory per CPU."),
+    gpus: int | None = typer.Option(None, "--gpus", help="GPUs per task."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Write script without submitting."),
+    script_path: Path | None = typer.Option(None, "--script-path", help="Override output script path."),
+):
+    from research_cluster.config import SlurmConfig
+    from research_cluster.submit import submit_experiment
+
+    module = _load_spec_module(spec_file)
+    specs = _discover_specs(module, spec)
+
+    for name, factory in specs.items():
+        experiment_spec = factory()
+        db_path = Path(db) if db else experiment_spec.db_path
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        experiment_spec.experiment.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            exp_row = database.get_experiment(experiment_spec.experiment.name)
+            if exp_row is None:
+                typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
+                raise typer.Exit(code=1)
+            planned = database.plan_experiment_execution_batches(
+                exp_row.id,
+                experiment_spec.executions_root,
+                max_runs_per_batch=experiment_spec.max_runs_per_batch,
+            )
+
+        if not planned:
+            typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
+            continue
+
+        execution_ids = [p.execution_id for p in planned]
+        config = SlurmConfig(
+            account=account,
+            partition=partition,
+            time=time,
+            cpus_per_task=cpus_per_task,
+            mem_per_cpu=mem_per_cpu,
+            gpus_per_task=gpus,
+        )
+        job_result = submit_experiment(
+            config,
+            execution_ids,
+            db_path,
+            spec_file,
+            name,
+            script_path=script_path,
+            dry_run=dry_run,
+        )
+
+        if dry_run:
+            typer.echo(f"Spec '{name}': {len(planned)} batch(es) planned (dry-run, not submitted)")
+        else:
+            typer.echo(f"Spec '{name}': submitted {len(planned)} batch(es) — {job_result}")
