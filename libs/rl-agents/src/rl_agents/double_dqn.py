@@ -9,19 +9,19 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 import jax
 import jax.numpy as jnp
 import optax
-from chex import dataclass
 from flax.training.train_state import TrainState
 from rl_components.buffers import ReplayBuffer
+from rl_components.structs import chex_struct
 
 from rl_agents.dqn import _EnvLike, _make_q_network
 
 
-@dataclass(frozen=True)
+@chex_struct(frozen=True, kw_only=True)
 class DoubleDQNConfig:
     LR: float = 3e-4
     BUFFER_SIZE: int = 100_000
@@ -38,27 +38,6 @@ class DoubleDQNConfig:
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
     NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
-
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            LR: float = 3e-4,
-            BUFFER_SIZE: int = 100_000,
-            BATCH_SIZE: int = 64,
-            TOTAL_TIMESTEPS: int = 200_000,
-            LEARNING_STARTS: int = 1_000,
-            TRAIN_FREQUENCY: int = 1,
-            TARGET_NETWORK_FREQUENCY: int = 1_000,
-            GAMMA: float = 0.99,
-            TAU: float = 1.0,
-            EPSILON_START: float = 1.0,
-            EPSILON_END: float = 0.05,
-            EPSILON_FRACTION: float = 0.5,
-            ENV_NAME: str = "MountainCar-v0",
-            SEED: int = 42,
-            NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp",
-        ) -> None: ...
 
 
 def make_train(config: DoubleDQNConfig, env: object, env_params: object | None = None):
