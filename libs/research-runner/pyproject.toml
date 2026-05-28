@@ -1,0 +1,15 @@
+[project]
+name = "research-runner"
+version = "0.1.0"
+description = "Stateless experiment runner implementing the ADR-007 plan-execute-record lifecycle."
+requires-python = ">=3.13"
+dependencies = [
+    "experiment-definition",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
