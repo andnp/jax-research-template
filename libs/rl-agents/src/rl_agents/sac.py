@@ -177,7 +177,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-                log_alpha_arr: jax.Array = alpha_state.params["log_alpha"]  # type: ignore[assignment]
+                log_alpha_arr = cast(jax.Array, alpha_state.params["log_alpha"])
                 alpha = jnp.exp(log_alpha_arr[0])
 
                 # CRITIC UPDATE
