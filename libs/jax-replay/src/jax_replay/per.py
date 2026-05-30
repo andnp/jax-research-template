@@ -11,7 +11,7 @@ def _next_power_of_two(capacity: int) -> int:
     return 1 << (capacity - 1).bit_length()
 
 
-def _minimum_sample_probability(state: PERBufferState, total_priority: jax.Array):
+def _minimum_sample_probability(state: PERBufferState, total_priority: jax.Array) -> jax.Array:
     storage_capacity = state.tree.shape[0] // 2
     all_leaf_priorities = state.tree[storage_capacity:]
     logical_capacity = state.logical_capacity.astype(jnp.uint32)
@@ -102,7 +102,7 @@ def per_update_priorities(
 ) -> PERBufferState:
     priorities = (jnp.abs(td_errors) + epsilon) ** alpha
 
-    def _update_one(tree, idx_priority):
+    def _update_one(tree: jax.Array, idx_priority: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, None]:
         idx, p = idx_priority
         return tree_update(tree, idx.astype(jnp.uint32), p), None
 
