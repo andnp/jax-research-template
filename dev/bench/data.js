@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780116842393,
+  "lastUpdate": 1780117240313,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -1973,6 +1973,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00001544796700814383",
             "extra": "mean: 36.49880001148631 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c699bc3cd8353f3f99c216b36a8f0ae5eb14e82",
+          "message": "chore: migrate type-checker from ty to pyrefly (#64)\n\nReplace the Astral `ty` type-checker with Meta's `pyrefly` across the\nmonorepo core.\n\n## Changes\n\n- **`pyproject.toml`**: Replace `ty~=0.0` dep with `pyrefly>=1.0`;\nreplace `[tool.ty.environment]` + `extra-paths` with `[tool.pyrefly]` +\n`search-path` + `replace-imports-with-any` for flax/chex (suppresses\nfalse positives from flax's internal `nn.Module.__init__` scope\nparameter)\n- **`CONTRIBUTING.md`**: Update dev workflow command\n- **`ROADMAP.md`**: Update technical debt item\n- **`scripts/copilot_hooks.py`**: Replace `ty` invocation with `pyrefly\ncheck`\n- **`cli/src/research_cli/lifecycle.py`**: Harvest automation now\nupdates `[tool.pyrefly].search-path`\n- **`tests/medium/test_cli_harvest.py`**: Update fixture pyproject\ntemplate\n- **`libs/experiment-definition/src/experiment_definition/db.py`**: Fix\ndict invariance — `params`/`jax_config` changed to `Mapping[str,\nobject]`\n- **`tests/small/test_rl_agents_dqn_atari.py`**: Add `# pyrefly: ignore`\non intentional-error test call\n- **`libs/rl-agents/src/rl_agents/sac.py`**: Fix pre-existing SAC test\nfailure — wrap `log_alpha` in a dict for flax `TrainState` compatibility\n(newer flax's `apply_gradients` does `OVERWRITE_WITH_GRADIENT in grads`\nwhich requires a dict-like pytree, not a raw array)\n\n## Verification\n\n```\nuv run pyrefly check  # 0 errors\nuv run pytest tests/small tests/medium  # 618/618 pass\n```",
+          "timestamp": "2026-05-29T22:55:18-06:00",
+          "tree_id": "2d6da080ff1598ec12c59c2602edf6f9a5e2d7c9",
+          "url": "https://github.com/andnp/jax-research-template/commit/0c699bc3cd8353f3f99c216b36a8f0ae5eb14e82"
+        },
+        "date": 1780117239681,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.267949854454546,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04224626031321763",
+            "extra": "mean: 159.54179966665075 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.914834755657732,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0025465231396552585",
+            "extra": "mean: 1.0930935819999945 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04250685092565429,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020196740266052768",
+            "extra": "mean: 23.525619475999974 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5691395287987601,
+            "unit": "iter/sec",
+            "range": "stddev: 0.042404018053574605",
+            "extra": "mean: 1.757038387600005 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 16502.902858071273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000017014624781785",
+            "extra": "mean: 60.59540000933339 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 49.23341117133044,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008657509562945665",
+            "extra": "mean: 20.31141000001071 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.8224339275344836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007169385573331967",
+            "extra": "mean: 354.30413099999214 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4059.4355491302267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000030324180945960363",
+            "extra": "mean: 246.33966665987828 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 42.21375220484707,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001654462503101869",
+            "extra": "mean: 23.68896266665388 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 314.3790698993514,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015266946131605552",
+            "extra": "mean: 3.1808733333302066 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 37.86326680779515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009787000847899414",
+            "extra": "mean: 26.4108220000215 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 31968.900650176525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011535214570699947",
+            "extra": "mean: 31.28040000319743 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 32266.183111577746,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011519758825075095",
+            "extra": "mean: 30.99219999285197 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 22631.39790296834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012563366837045051",
+            "extra": "mean: 44.18639998675644 usec\nrounds: 5"
           }
         ]
       }
