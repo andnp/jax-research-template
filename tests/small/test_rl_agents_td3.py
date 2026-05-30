@@ -12,7 +12,7 @@ class _MutableTD3Config(Protocol):
 
 
 class TestTD3Config:
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         cfg = TD3Config()
         assert cfg.LR == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
@@ -29,7 +29,7 @@ class TestTD3Config:
         assert cfg.ENV_NAME == "MountainCarContinuous-v0"
         assert cfg.SEED == 42
 
-    def test_frozen(self):
+    def test_frozen(self) -> None:
         cfg = TD3Config()
         try:
             mutable_cfg = cast(_MutableTD3Config, cfg)
@@ -38,7 +38,7 @@ class TestTD3Config:
         except AttributeError:
             pass
 
-    def test_custom_config(self):
+    def test_custom_config(self) -> None:
         cfg = TD3Config(POLICY_DELAY=3, TAU=0.01, EXPLORATION_NOISE=0.2)
         assert cfg.POLICY_DELAY == 3
         assert cfg.TAU == 0.01
@@ -46,7 +46,7 @@ class TestTD3Config:
 
 
 class TestCritic:
-    def test_output_shape(self):
+    def test_output_shape(self) -> None:
         critic = Critic()
         obs = jnp.zeros((4,))
         action = jnp.zeros((2,))
@@ -54,7 +54,7 @@ class TestCritic:
         q = cast(jax.Array, critic.apply(params, obs, action))
         assert q.shape == ()
 
-    def test_batch_output_shape(self):
+    def test_batch_output_shape(self) -> None:
         critic = Critic()
         obs = jnp.zeros((10, 4))
         action = jnp.zeros((10, 2))
@@ -64,14 +64,14 @@ class TestCritic:
 
 
 class TestActor:
-    def test_output_shape(self):
+    def test_output_shape(self) -> None:
         actor = Actor(action_dim=2)
         obs = jnp.zeros((4,))
         params = actor.init(jax.random.key(0), obs)
         action = cast(jax.Array, actor.apply(params, obs))
         assert action.shape == (2,)
 
-    def test_action_bounded(self):
+    def test_action_bounded(self) -> None:
         actor = Actor(action_dim=3)
         params = actor.init(jax.random.key(0), jnp.zeros((4,)))
         action = cast(jax.Array, actor.apply(params, jnp.ones((4,)) * 100))
@@ -80,7 +80,7 @@ class TestActor:
 
 
 class TestSoftUpdate:
-    def test_tau_one_is_hard_copy(self):
+    def test_tau_one_is_hard_copy(self) -> None:
         online = {"w": jnp.array([1.0, 2.0])}
         target = {"w": jnp.array([0.0, 0.0])}
         tau = 1.0
@@ -89,7 +89,7 @@ class TestSoftUpdate:
         )
         assert jnp.allclose(updated["w"], online["w"])
 
-    def test_tau_zero_is_no_update(self):
+    def test_tau_zero_is_no_update(self) -> None:
         online = {"w": jnp.array([1.0, 2.0])}
         target = {"w": jnp.array([3.0, 4.0])}
         tau = 0.0

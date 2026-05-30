@@ -1,7 +1,7 @@
 """Medium tests for rl_agents.td3 — gradient flow and JIT compilation."""
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -66,7 +66,7 @@ class TestTD3GradientFlow:
         assert metrics["returned_episode"].shape == (4,)
         assert metrics["returned_episode_returns"].shape == (4,)
 
-    def test_critic_params_change_after_update(self):
+    def test_critic_params_change_after_update(self) -> None:
         critic = Critic()
         obs_dim = (4,)
         action_dim = 2
@@ -79,7 +79,7 @@ class TestTD3GradientFlow:
         actions = jax.random.normal(jax.random.key(2), (16, 2))
         targets = jax.random.normal(jax.random.key(3), (16,))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             q = cast(jax.Array, critic.apply(params, obs, actions))
             return jnp.mean(jnp.square(q - targets))
 
@@ -92,7 +92,7 @@ class TestTD3GradientFlow:
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed
 
-    def test_actor_params_change_after_update(self):
+    def test_actor_params_change_after_update(self) -> None:
         actor = Actor(action_dim=2)
         obs_dim = (4,)
         params = actor.init(jax.random.key(0), jnp.zeros(obs_dim))
@@ -105,7 +105,7 @@ class TestTD3GradientFlow:
         critic = Critic()
         critic_params = critic.init(jax.random.key(2), jnp.zeros(obs_dim), jnp.zeros((2,)))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             actions = cast(jax.Array, actor.apply(params, obs))
             q = cast(jax.Array, critic.apply(critic_params, obs, actions))
             return -jnp.mean(q)
@@ -119,23 +119,23 @@ class TestTD3GradientFlow:
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed
 
-    def test_critic_jit(self):
+    def test_critic_jit(self) -> None:
         critic = Critic()
         params = critic.init(jax.random.key(0), jnp.zeros((4,)), jnp.zeros((2,)))
 
         @jax.jit
-        def forward(params, obs, action):
+        def forward(params: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
             return critic.apply(params, obs, action)
 
         q = forward(params, jnp.ones((4,)), jnp.ones((2,)))
         assert q.shape == ()
 
-    def test_actor_jit(self):
+    def test_actor_jit(self) -> None:
         actor = Actor(action_dim=2)
         params = actor.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def forward(params, obs):
+        def forward(params: Any, obs: jax.Array) -> jax.Array:
             return actor.apply(params, obs)
 
         action = forward(params, jnp.ones((4,)))
