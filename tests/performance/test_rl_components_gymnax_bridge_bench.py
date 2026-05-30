@@ -5,6 +5,7 @@ import gymnax.wrappers
 import jax
 import jax.numpy as jnp
 import pytest
+from typing import Any, Callable
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 
@@ -16,7 +17,7 @@ ACTIONS = jnp.ones((ROLLOUT_STEPS,), dtype=jnp.int32)
 
 
 class DummyCanonicalEnv:
-    def spec(self, params: None = None):
+    def spec(self, params: None = None) -> EnvSpec:
         del params
         return EnvSpec(
             id="dummy-benchmark",
@@ -27,14 +28,14 @@ class DummyCanonicalEnv:
             num_actions=2,
         )
 
-    def reset(self, key: chex.PRNGKey, params: None = None):
+    def reset(self, key: chex.PRNGKey, params: None = None) -> EnvReset[jax.Array, jax.Array]:
         del key, params
         return EnvReset(
             observation=jnp.zeros((4,), dtype=jnp.float32),
             state=jnp.array(0, dtype=jnp.int32),
         )
 
-    def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None):
+    def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
         del key, params
         next_state = state + jnp.asarray(action, dtype=jnp.int32)
         next_state_f32 = jnp.asarray(next_state, dtype=jnp.float32)
@@ -48,12 +49,12 @@ class DummyCanonicalEnv:
         )
 
 
-def _benchmark_rollout(benchmark, rollout_fn):
+def _benchmark_rollout(benchmark: Any, rollout_fn: Callable[..., Any]) -> None:
     compiled = jax.jit(rollout_fn)
     warm_result = compiled(RESET_KEY, STEP_KEYS, ACTIONS)
     jax.block_until_ready(warm_result)
 
-    def run_once():
+    def run_once() -> Any:
         result = compiled(RESET_KEY, STEP_KEYS, ACTIONS)
         jax.block_until_ready(result)
         return result
@@ -61,11 +62,11 @@ def _benchmark_rollout(benchmark, rollout_fn):
     benchmark.pedantic(run_once, rounds=BENCHMARK_ROUNDS)
 
 
-def _canonical_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array):
+def _canonical_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[jax.Array, jax.Array]:
     env = DummyCanonicalEnv()
     reset = env.reset(reset_key)
 
-    def _step(state: jax.Array, xs: tuple[jax.Array, jax.Array]):
+    def _step(state: jax.Array, xs: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
         step_key, action = xs
         transition = env.step(step_key, state, action)
         metric = (
@@ -81,11 +82,11 @@ def _canonical_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: j
     return final_state, metrics.sum()
 
 
-def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array):
+def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[jax.Array, jax.Array]:
     env = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyCanonicalEnv())
     _, state = env.reset(reset_key, None)
 
-    def _step(carry_state: jax.Array, xs: tuple[jax.Array, jax.Array]):
+    def _step(carry_state: jax.Array, xs: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
         step_key, action = xs
         observation, next_state, reward, done, info = env.step(step_key, carry_state, action, None)
         metric = (
@@ -102,11 +103,11 @@ def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.
     return final_state, metrics.sum()
 
 
-def _bridge_log_wrapper_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array):
+def _bridge_log_wrapper_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[Any, jax.Array]:
     env = gymnax.wrappers.LogWrapper(GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyCanonicalEnv()))
     _, state = env.reset(reset_key, None)  # type: ignore[not-iterable, invalid-argument-type, too-many-positional-arguments]  # gymnax JitWrapped
 
-    def _step(carry_state: object, xs: tuple[jax.Array, jax.Array]):
+    def _step(carry_state: object, xs: tuple[jax.Array, jax.Array]) -> tuple[object, jax.Array]:
         step_key, action = xs
         observation, next_state, reward, done, info = env.step(step_key, carry_state, action, None)  # type: ignore[not-iterable, invalid-argument-type, too-many-positional-arguments]  # gymnax JitWrapped
         metric = (
@@ -125,15 +126,15 @@ def _bridge_log_wrapper_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, a
 
 
 @pytest.mark.benchmark(group="env-seam-rollout")
-def test_canonical_env_rollout_speed(benchmark):
+def test_canonical_env_rollout_speed(benchmark: Any) -> None:
     _benchmark_rollout(benchmark, _canonical_rollout)
 
 
 @pytest.mark.benchmark(group="env-seam-rollout")
-def test_gymnax_bridge_rollout_speed(benchmark):
+def test_gymnax_bridge_rollout_speed(benchmark: Any) -> None:
     _benchmark_rollout(benchmark, _bridge_rollout)
 
 
 @pytest.mark.benchmark(group="env-seam-rollout")
-def test_gymnax_bridge_log_wrapper_rollout_speed(benchmark):
+def test_gymnax_bridge_log_wrapper_rollout_speed(benchmark: Any) -> None:
     _benchmark_rollout(benchmark, _bridge_log_wrapper_rollout)

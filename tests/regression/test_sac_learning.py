@@ -4,7 +4,7 @@ import jax
 from rl_agents.sac import SACConfig, make_train
 
 
-def test_sac_pendulum_learns():
+def test_sac_pendulum_learns() -> None:
     config = SACConfig(
         TOTAL_TIMESTEPS=50_000,
         ENV_NAME="Pendulum-v1",

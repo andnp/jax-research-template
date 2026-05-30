@@ -1,11 +1,12 @@
 import gymnax
 import gymnax.wrappers
 import jax
+from typing import Any
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def test_ppo_speed(benchmark):
+def test_ppo_speed(benchmark: Any) -> None:
     config = PPOConfig(
         TOTAL_TIMESTEPS=100_000,
         NUM_STEPS=64,
@@ -24,7 +25,7 @@ def test_ppo_speed(benchmark):
     # Warmup (compilation)
     jax.block_until_ready(train_jit(rng))
 
-    def run_train():
+    def run_train() -> Any:
         out = train_jit(rng)
         jax.block_until_ready(out)
         return out

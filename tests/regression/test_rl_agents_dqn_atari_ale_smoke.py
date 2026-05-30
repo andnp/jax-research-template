@@ -7,7 +7,7 @@ from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
-def test_dqn_atari_ale_smoke():
+def test_dqn_atari_ale_smoke() -> None:
     config = DQNAtariConfig(
         REPLAY_CAPACITY=16,
         MIN_REPLAY_CAPACITY_FRACTION=0.25,

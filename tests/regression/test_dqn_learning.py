@@ -12,7 +12,7 @@ def test_dqn_make_train_requires_explicit_env() -> None:
         make_train(*config_only_args)
 
 
-def test_dqn_cartpole_learns():
+def test_dqn_cartpole_learns() -> None:
     config = DQNConfig(
         ENV_NAME="CartPole-v1",
         TOTAL_TIMESTEPS=50_000,
