@@ -16,7 +16,7 @@ class FrameStackState[StateT]:
     frames: jax.Array
 
 
-class FrameStackWrapper[ObsT, StateT, ActionT, ParamsT]:
+class FrameStackWrapper[ObsT: jax.Array, StateT, ActionT, ParamsT]:
     def __init__(
         self,
         env: EnvProtocol[ObsT, StateT, ActionT, ParamsT],
@@ -43,7 +43,7 @@ class FrameStackWrapper[ObsT, StateT, ActionT, ParamsT]:
         self, key: chex.PRNGKey, params: ParamsT | None = None
     ) -> EnvReset[jax.Array, FrameStackState[StateT]]:
         inner_reset = self._env.reset(key, params)
-        obs: jax.Array = inner_reset.observation  # type: ignore[assignment]
+        obs: jax.Array = inner_reset.observation
         frames = jnp.stack([obs] * self._n_frames, axis=0)
         state = FrameStackState(inner_state=inner_reset.state, frames=frames)
         return EnvReset(observation=frames, state=state)
@@ -56,7 +56,7 @@ class FrameStackWrapper[ObsT, StateT, ActionT, ParamsT]:
         params: ParamsT | None = None,
     ) -> EnvStep[jax.Array, FrameStackState[StateT]]:
         inner_step = self._env.step(key, state.inner_state, action, params)
-        new_obs: jax.Array = inner_step.observation  # type: ignore[assignment]
+        new_obs: jax.Array = inner_step.observation
         rolled_frames = jnp.roll(state.frames, shift=-1, axis=0).at[-1].set(new_obs)
         reset_frames = jnp.stack([new_obs] * self._n_frames, axis=0)
         episode_done = jnp.logical_or(inner_step.terminated, inner_step.truncated)
