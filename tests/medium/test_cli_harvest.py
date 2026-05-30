@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from research_cli.main import app
 from typer.testing import CliRunner
 
@@ -38,7 +39,7 @@ def _create_component(project_root: Path, import_package: str) -> Path:
     return component_root
 
 
-def test_harvest_moves_package_creates_manifest_and_rewrites_imports(tmp_path: Path, monkeypatch) -> None:
+def test_harvest_moves_package_creates_manifest_and_rewrites_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Harvest must move the project component into libs/, create a real manifest, and rewrite imports back to the shared path."""
     workspace_root = tmp_path.resolve()
     _create_workspace_pyproject(workspace_root)

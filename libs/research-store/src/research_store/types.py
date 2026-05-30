@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from typing import override
 from uuid import UUID
 
 
@@ -36,5 +37,6 @@ class StoreURI:
     version: int
     kind: ArtifactKind
 
+    @override
     def __str__(self) -> str:
         return f"research://{self.experiment_id}/{self.execution_id}/{self.artifact_name}:{self.version}?kind={self.kind.value}"

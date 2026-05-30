@@ -17,11 +17,11 @@ class SlurmConfig:
     log_path: str = "slurm-%A_%a.out"
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]):
+    def from_dict(cls, d: dict[str, Any]) -> "SlurmConfig":
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     @classmethod
-    def from_json(cls, path: str):
+    def from_json(cls, path: str) -> "SlurmConfig":
         import json
         from pathlib import Path
 

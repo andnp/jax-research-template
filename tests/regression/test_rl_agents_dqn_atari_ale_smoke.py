@@ -7,7 +7,7 @@ from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
-def test_dqn_atari_ale_smoke():
+def test_dqn_atari_ale_smoke() -> None:
     config = DQNAtariConfig(
         REPLAY_CAPACITY=16,
         MIN_REPLAY_CAPACITY_FRACTION=0.25,
@@ -24,7 +24,7 @@ def test_dqn_atari_ale_smoke():
         cast(EnvProtocol, make_atari_adapter(AleAtariConfig(game="Pong")))
     )
 
-    train = make_train(config, runtime_config, env=env, env_params=None)
+    train = make_train(config, runtime_config, env=env, env_params=None)  # type: ignore[arg-type]
     out = jax.jit(train)(jax.random.key(0))
 
     metrics = out["metrics"]

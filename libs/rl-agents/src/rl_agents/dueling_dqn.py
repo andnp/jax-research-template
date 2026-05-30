@@ -9,20 +9,20 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import Literal, cast
+from typing import Callable, Literal, NamedTuple, TypedDict
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from jax_nn.typed_module import TypedApply
-from rl_components.buffers import ReplayBuffer
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
-
-from rl_agents.dqn import _EnvLike
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -75,10 +75,22 @@ def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> Duelin
     )
 
 
-def make_train(config: DuelingDQNConfig, env: object, env_params: object | None = None):
-    env = cast(_EnvLike, env)
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    target_params: VariableDict
+    buffer_state: ReplayBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
 
-    def train(rng):
+
+class DuelingDQNTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DuelingDQNTrainOutput]:
+    def train(rng: jax.Array) -> DuelingDQNTrainOutput:
         network = _make_dueling_q_network(config, env.action_space(env_params).n)
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).shape, dtype=env.observation_space(env_params).dtype)
@@ -99,7 +111,7 @@ def make_train(config: DuelingDQNConfig, env: object, env_params: object | None 
         rng, _rng = jax.random.split(rng)
         obsv, env_state = env.reset(_rng, env_params)
 
-        def _update_step(runner_state, t):
+        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
 
             epsilon = jnp.maximum(
@@ -127,11 +139,19 @@ def make_train(config: DuelingDQNConfig, env: object, env_params: object | None 
                 done[None, ...],
             )
 
-            def _do_train(train_state, target_params, buffer_state, rng):
+            def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-                def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
+                def _loss_fn(
+                    params: VariableDict,
+                    target_params: VariableDict,
+                    obs: jax.Array,
+                    actions: jax.Array,
+                    rewards: jax.Array,
+                    next_obs: jax.Array,
+                    dones: jax.Array,
+                ) -> jax.Array:
                     q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
@@ -168,10 +188,10 @@ def make_train(config: DuelingDQNConfig, env: object, env_params: object | None 
                 lambda: target_params,
             )
 
-            runner_state = (train_state, target_params, buffer_state, env_state, obsv, rng)
+            runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
             return runner_state, info
 
-        runner_state = (train_state, target_params, buffer_state, env_state, obsv, rng)
+        runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
         runner_state, metrics = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
         )

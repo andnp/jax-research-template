@@ -8,12 +8,12 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def dump_hlo(agent="ppo"):
+def dump_hlo(agent: str = "ppo") -> None:
     if agent == "ppo":
         config = PPOConfig(TOTAL_TIMESTEPS=100, ENV_NAME="CartPole-v1")
         env, env_params = gymnax.make(config.ENV_NAME)
         env = gymnax.wrappers.LogWrapper(env)
-        train_fn = make_train(config, env=env, env_params=env_params)
+        train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     else:
         raise ValueError(f"Agent {agent} not supported")
     

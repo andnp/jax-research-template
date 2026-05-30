@@ -28,7 +28,7 @@ def compute_nstep_returns(
 
     discount_powers = gamma ** jnp.arange(n, dtype=jnp.float32)
 
-    def _compute_single(t):
+    def _compute_single(t: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
         # Gather the n-step window starting at t, padded with zeros beyond end
         indices = t + jnp.arange(n)
         valid = indices < length

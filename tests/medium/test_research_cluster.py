@@ -4,13 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
-
 from research_cluster.config import SlurmConfig
 from research_cluster.script import build_job_script, build_sbatch_flags, write_job_script
 from research_cluster.submit import submit_experiment
 
 
-def test_slurm_config_defaults():
+def test_slurm_config_defaults() -> None:
     config = SlurmConfig()
     assert config.account is None
     assert config.partition is None
@@ -23,7 +22,7 @@ def test_slurm_config_defaults():
     assert config.log_path == "slurm-%A_%a.out"
 
 
-def test_slurm_config_from_dict():
+def test_slurm_config_from_dict() -> None:
     config = SlurmConfig.from_dict({
         "account": "test-acct",
         "partition": "gpu",
@@ -38,7 +37,7 @@ def test_slurm_config_from_dict():
     assert config.mem_per_cpu == "4G"
 
 
-def test_slurm_config_from_json(tmp_path: Path):
+def test_slurm_config_from_json(tmp_path: Path) -> None:
     json_file = tmp_path / "slurm.json"
     json_file.write_text(json.dumps({
         "account": "json-acct",
@@ -53,7 +52,7 @@ def test_slurm_config_from_json(tmp_path: Path):
     assert config.cpus_per_task == 4
 
 
-def test_build_sbatch_flags_minimal():
+def test_build_sbatch_flags_minimal() -> None:
     config = SlurmConfig()
     flags = build_sbatch_flags(config)
     assert "--time=2:59:00" in flags
@@ -63,14 +62,14 @@ def test_build_sbatch_flags_minimal():
     assert "--gpus-per-task" not in flags
 
 
-def test_build_sbatch_flags_with_gpu_and_account():
+def test_build_sbatch_flags_with_gpu_and_account() -> None:
     config = SlurmConfig(account="my-acct", gpus_per_task=2)
     flags = build_sbatch_flags(config)
     assert "--account=my-acct" in flags
     assert "--gpus-per-task=2" in flags
 
 
-def test_build_job_script_contains_essentials():
+def test_build_job_script_contains_essentials() -> None:
     config = SlurmConfig()
     script = build_job_script(
         config,
@@ -87,7 +86,7 @@ def test_build_job_script_contains_essentials():
     assert "my_spec" in script
 
 
-def test_build_job_script_with_modules():
+def test_build_job_script_with_modules() -> None:
     config = SlurmConfig(modules=["python/3.13", "cuda/12"])
     script = build_job_script(
         config,
@@ -100,7 +99,7 @@ def test_build_job_script_with_modules():
     assert "module load cuda/12" in script
 
 
-def test_build_job_script_empty_ids_raises():
+def test_build_job_script_empty_ids_raises() -> None:
     config = SlurmConfig()
     with pytest.raises(ValueError, match="must not be empty"):
         build_job_script(
@@ -112,7 +111,7 @@ def test_build_job_script_empty_ids_raises():
         )
 
 
-def test_write_job_script_creates_file(tmp_path: Path):
+def test_write_job_script_creates_file(tmp_path: Path) -> None:
     script = "#!/bin/bash\necho hello"
     out = tmp_path / "sub" / "job.sh"
     write_job_script(script, out)
@@ -120,7 +119,7 @@ def test_write_job_script_creates_file(tmp_path: Path):
     assert out.read_text().startswith("#!/bin/bash")
 
 
-def test_submit_experiment_dry_run(tmp_path: Path):
+def test_submit_experiment_dry_run(tmp_path: Path) -> None:
     config = SlurmConfig()
     script_path = tmp_path / "slurm_submit.sh"
     result = submit_experiment(

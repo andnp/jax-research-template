@@ -3,15 +3,14 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from experiment_definition.db import DatabaseManager
 from research_cli.main import app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
 
-def test_experiment_list_empty_db(tmp_path: Path):
+def test_experiment_list_empty_db(tmp_path: Path) -> None:
     db_path = tmp_path / "test.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -22,7 +21,7 @@ def test_experiment_list_empty_db(tmp_path: Path):
     assert "Description" in result.output
 
 
-def test_experiment_list_with_experiments(tmp_path: Path):
+def test_experiment_list_with_experiments(tmp_path: Path) -> None:
     db_path = tmp_path / "test.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -36,7 +35,7 @@ def test_experiment_list_with_experiments(tmp_path: Path):
     assert "Test experiment" in result.output
 
 
-def test_experiment_status_shows_run_counts(tmp_path: Path):
+def test_experiment_status_shows_run_counts(tmp_path: Path) -> None:
     db_path = tmp_path / "test.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -93,7 +92,7 @@ def _write_spec_file(tmp_path: Path, db_path: Path, executions_root: Path) -> Pa
     return spec_file
 
 
-def test_experiment_plan_with_spec(tmp_path: Path):
+def test_experiment_plan_with_spec(tmp_path: Path) -> None:
     db_path = tmp_path / "plan.sqlite"
     executions_root = tmp_path / "executions"
 
@@ -105,7 +104,7 @@ def test_experiment_plan_with_spec(tmp_path: Path):
     assert "batch" in result.output.lower()
 
 
-def test_experiment_run_with_spec(tmp_path: Path):
+def test_experiment_run_with_spec(tmp_path: Path) -> None:
     db_path = tmp_path / "run.sqlite"
     executions_root = tmp_path / "executions"
 
@@ -117,7 +116,7 @@ def test_experiment_run_with_spec(tmp_path: Path):
     assert "completed" in result.output.lower()
 
 
-def test_experiment_run_with_spec_filter(tmp_path: Path):
+def test_experiment_run_with_spec_filter(tmp_path: Path) -> None:
     db_path = tmp_path / "run_filtered.sqlite"
     executions_root = tmp_path / "executions"
 
@@ -128,7 +127,7 @@ def test_experiment_run_with_spec_filter(tmp_path: Path):
     assert "my_spec" in result.output
 
 
-def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path):
+def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path) -> None:
     db_path = tmp_path / "disc.sqlite"
     executions_root = tmp_path / "executions"
 
@@ -150,7 +149,7 @@ def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_executions_shows_execution_table(tmp_path: Path):
+def test_executions_shows_execution_table(tmp_path: Path) -> None:
     db_path = tmp_path / "exec.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -164,7 +163,7 @@ def test_executions_shows_execution_table(tmp_path: Path):
     assert "abc12345" in result.output
 
 
-def test_executions_empty_db(tmp_path: Path):
+def test_executions_empty_db(tmp_path: Path) -> None:
     db_path = tmp_path / "empty_exec.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -180,7 +179,7 @@ def test_executions_empty_db(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_invalidate_by_execution_id(tmp_path: Path):
+def test_invalidate_by_execution_id(tmp_path: Path) -> None:
     db_path = tmp_path / "inv.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -196,7 +195,7 @@ def test_invalidate_by_execution_id(tmp_path: Path):
     assert "Invalidated 1" in result.output
 
 
-def test_invalidate_by_git_commit(tmp_path: Path):
+def test_invalidate_by_git_commit(tmp_path: Path) -> None:
     db_path = tmp_path / "inv_commit.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -214,7 +213,7 @@ def test_invalidate_by_git_commit(tmp_path: Path):
     assert "Invalidated 2" in result.output
 
 
-def test_invalidate_no_args_fails(tmp_path: Path):
+def test_invalidate_no_args_fails(tmp_path: Path) -> None:
     db_path = tmp_path / "inv_noargs.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -223,7 +222,7 @@ def test_invalidate_no_args_fails(tmp_path: Path):
     assert result.exit_code == 1
 
 
-def test_invalidate_nonexistent_warns(tmp_path: Path):
+def test_invalidate_nonexistent_warns(tmp_path: Path) -> None:
     db_path = tmp_path / "inv_none.sqlite"
     with DatabaseManager(db_path) as db:
         db.initialize()
@@ -241,7 +240,7 @@ def test_invalidate_nonexistent_warns(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_batch_runs_planned_execution(tmp_path: Path):
+def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
     db_path = tmp_path / "eb.sqlite"
     executions_root = tmp_path / "executions"
     spec_file = _write_spec_file(tmp_path, db_path, executions_root)
@@ -269,7 +268,7 @@ def test_execute_batch_runs_planned_execution(tmp_path: Path):
     assert "completed" in result.output.lower()
 
 
-def test_execute_batch_nonexistent_execution_fails(tmp_path: Path):
+def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
     db_path = tmp_path / "eb_fail.sqlite"
     executions_root = tmp_path / "executions"
     spec_file = _write_spec_file(tmp_path, db_path, executions_root)
@@ -293,7 +292,7 @@ def test_execute_batch_nonexistent_execution_fails(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_submit_dry_run(tmp_path: Path):
+def test_submit_dry_run(tmp_path: Path) -> None:
     db_path = tmp_path / "submit.sqlite"
     executions_root = tmp_path / "executions"
     spec_file = _write_spec_file(tmp_path, db_path, executions_root)

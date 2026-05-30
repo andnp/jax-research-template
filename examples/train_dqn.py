@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from rl_agents.dqn import DQNConfig, make_train
 
 
-def main():
+def main() -> None:
     config = DQNConfig(
         TOTAL_TIMESTEPS=100_000,
         BUFFER_SIZE=50_000,
@@ -22,7 +22,7 @@ def main():
     rng = jax.random.PRNGKey(config.SEED)
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
 
     print(f"--- Training DQN on {config.ENV_NAME} ---")

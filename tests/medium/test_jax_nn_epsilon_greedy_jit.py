@@ -14,7 +14,7 @@ class TestEpsilonGreedyJIT:
         q = jnp.array([1.0, 2.0, 3.0])
 
         @jax.jit
-        def select(q, eps, key):
+        def select(q: jax.Array, eps: jax.Array, key: jax.Array) -> jax.Array:
             return epsilon_greedy_action(q, eps, key=key)
 
         action = select(q, 0.1, jax.random.key(SEED))
@@ -24,7 +24,7 @@ class TestEpsilonGreedyJIT:
         q = jnp.array([1.0, 5.0, 2.0])
 
         @jax.jit
-        def select(q, eps, key):
+        def select(q: jax.Array, eps: jax.Array, key: jax.Array) -> jax.Array:
             return epsilon_greedy_action(q, eps, key=key)
 
         eps = jnp.float32(0.0)

@@ -46,7 +46,7 @@ class DummyCanonicalEnv:
 
 
 class TestGymnaxCompatibilityBridgeJIT:
-    def test_log_wrapper_runs_over_bridge_under_jit(self):
+    def test_log_wrapper_runs_over_bridge_under_jit(self) -> None:
         env = gymnax.wrappers.LogWrapper(GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyCanonicalEnv()))
 
         reset = jax.jit(env.reset)(jax.random.key(0), None)
@@ -69,7 +69,7 @@ class TestGymnaxCompatibilityBridgeJIT:
         assert int(info["returned_episode_lengths"]) == 1
         assert int(info["custom_metric"]) == 1
 
-    def test_real_brax_adapter_runs_through_bridge_under_jit(self):
+    def test_real_brax_adapter_runs_through_bridge_under_jit(self) -> None:
         pytest.importorskip("brax")
 
         adapter = cast(EnvProtocol[jax.Array, object, jax.Array, None], make_brax_adapter(BraxConfig(env_name="inverted_pendulum")))
@@ -93,7 +93,7 @@ class TestGymnaxCompatibilityBridgeJIT:
         assert info["truncated"].shape == ()
         assert info["returned_episode"].shape == ()
 
-    def test_normalized_brax_adapter_runs_through_bridge_under_jit(self):
+    def test_normalized_brax_adapter_runs_through_bridge_under_jit(self) -> None:
         pytest.importorskip("brax")
 
         adapter = cast(EnvProtocol[jax.Array, object, jax.Array, None], make_brax_adapter(BraxConfig(env_name="inverted_pendulum")))

@@ -6,7 +6,7 @@ Target duration: < 1s.
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import jax  # type: ignore[import-untyped]
 import jax.numpy as jnp  # type: ignore[import-untyped]
@@ -35,7 +35,7 @@ class TestUniformJit:
         batch = Transition(obs=jnp.zeros((8, 4)), action=jnp.zeros((8,), dtype=jnp.int32), reward=jnp.zeros((8,)))
 
         @jax.jit
-        def _step(state, key):
+        def _step(state: Any, key: jax.Array) -> tuple[Any, Transition]:
             t = Transition(obs=jnp.ones(4), action=jnp.int32(1), reward=jnp.float32(1.0))
             state = add(state, t)
             batch = sample(state, key, batch_size=8, prototype=proto)
@@ -56,7 +56,7 @@ class TestUniformJit:
         state = init_buffer(proto, capacity)
 
         @jax.jit
-        def _add_one(state):
+        def _add_one(state: Any) -> Any:
             t = Transition(obs=jnp.ones(4), action=jnp.int32(0), reward=jnp.float32(0.0))
             return add(state, t)
 
@@ -71,7 +71,7 @@ class TestUniformJit:
         proto = _proto()
         capacity = 8
 
-        def _run_single(seed):
+        def _run_single(seed: jax.Array) -> jax.Array:
             state = init_buffer(proto, capacity)
             key = jax.random.key(seed)
             t = Transition(

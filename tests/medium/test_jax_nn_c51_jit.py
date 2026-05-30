@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
@@ -22,7 +24,7 @@ class TestCategoricalDistributionalJIT:
         target_probabilities = jax.nn.softmax(jnp.linspace(-1.0, 1.0, 51, dtype=jnp.float32))
 
         @jax.jit
-        def project_and_value(target_support, target_probabilities, support):
+        def project_and_value(target_support: jax.Array, target_probabilities: jax.Array, support: jax.Array) -> tuple[jax.Array, jax.Array]:
             projected = categorical_l2_project(target_support, target_probabilities, support)
             value = categorical_expected_value(projected, support)
             return projected, value
@@ -40,7 +42,7 @@ class TestCategoricalDistributionalJIT:
         variables = model.init(jax.random.key(SEED), x)
 
         @jax.jit
-        def forward_and_loss(variables, x, target_probabilities):
+        def forward_and_loss(variables: Any, x: jax.Array, target_probabilities: jax.Array) -> tuple[jax.Array, jax.Array]:
             logits = jnp.asarray(model.apply(variables, x))
             loss = categorical_cross_entropy(logits, target_probabilities)
             return logits, loss

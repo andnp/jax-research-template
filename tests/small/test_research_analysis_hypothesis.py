@@ -11,7 +11,7 @@ from research_analysis.hypothesis import (
 
 
 class TestWelchTtest:
-    def test_identical_groups_not_significant(self):
+    def test_identical_groups_not_significant(self) -> None:
         a = np.array([1.0, 2.0, 3.0, 4.0])
         b = np.array([1.0, 2.0, 3.0, 4.0])
         result = welch_ttest(a, b)
@@ -20,7 +20,7 @@ class TestWelchTtest:
         assert result.p_value == pytest.approx(1.0)
         assert not result.significant
 
-    def test_different_groups_significant(self):
+    def test_different_groups_significant(self) -> None:
         a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         b = np.array([10.0, 11.0, 12.0, 13.0, 14.0])
         result = welch_ttest(a, b)
@@ -28,14 +28,14 @@ class TestWelchTtest:
         assert result.p_value < 0.05
         assert result.t_statistic < 0.0
 
-    def test_means_correct(self):
+    def test_means_correct(self) -> None:
         a = np.array([1.0, 2.0, 7.0])
         b = np.array([4.0, 5.0, 6.0])
         result = welch_ttest(a, b)
         assert result.mean_a == pytest.approx(a.mean())
         assert result.mean_b == pytest.approx(b.mean())
 
-    def test_custom_alpha(self):
+    def test_custom_alpha(self) -> None:
         a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         b = np.array([3.0, 4.0, 5.0, 6.0, 7.0])
         result_strict = welch_ttest(a, b, alpha=0.001)
@@ -45,21 +45,21 @@ class TestWelchTtest:
         assert not result_strict.significant
         assert result_lenient.significant
 
-    def test_too_few_observations_raises(self):
+    def test_too_few_observations_raises(self) -> None:
         with pytest.raises(ValueError, match="at least 2"):
             welch_ttest(np.array([1.0]), np.array([1.0, 2.0]))
 
-    def test_invalid_alpha_raises(self):
+    def test_invalid_alpha_raises(self) -> None:
         with pytest.raises(ValueError, match="Alpha must be in"):
             welch_ttest(np.array([1.0, 2.0]), np.array([3.0, 4.0]), alpha=0.0)
 
-    def test_degrees_of_freedom_positive(self):
+    def test_degrees_of_freedom_positive(self) -> None:
         a = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         b = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
         result = welch_ttest(a, b)
         assert result.df > 0.0
 
-    def test_swap_groups_preserves_p_value_and_flips_statistic(self):
+    def test_swap_groups_preserves_p_value_and_flips_statistic(self) -> None:
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([4.0, 5.0, 6.0])
         first = welch_ttest(a, b)
@@ -69,7 +69,7 @@ class TestWelchTtest:
 
 
 class TestMannWhitneyUTest:
-    def test_identical_groups_not_significant(self):
+    def test_identical_groups_not_significant(self) -> None:
         a = np.array([1.0, 2.0, 3.0, 4.0])
         b = np.array([1.0, 2.0, 3.0, 4.0])
         result = mann_whitney_u_test(a, b)
@@ -78,7 +78,7 @@ class TestMannWhitneyUTest:
         assert result.rank_biserial_correlation == pytest.approx(0.0)
         assert not result.significant
 
-    def test_different_groups_significant(self):
+    def test_different_groups_significant(self) -> None:
         a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         b = np.array([10.0, 11.0, 12.0, 13.0, 14.0])
         result = mann_whitney_u_test(a, b)
@@ -87,14 +87,14 @@ class TestMannWhitneyUTest:
         assert result.u_statistic == pytest.approx(0.0)
         assert result.rank_biserial_correlation == pytest.approx(-1.0)
 
-    def test_medians_correct(self):
+    def test_medians_correct(self) -> None:
         a = np.array([1.0, 2.0, 7.0])
         b = np.array([4.0, 5.0, 6.0])
         result = mann_whitney_u_test(a, b)
         assert result.median_a == pytest.approx(2.0)
         assert result.median_b == pytest.approx(5.0)
 
-    def test_custom_alpha(self):
+    def test_custom_alpha(self) -> None:
         a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         b = np.array([10.0, 11.0, 12.0, 13.0, 14.0])
         result_strict = mann_whitney_u_test(a, b, alpha=0.001)
@@ -104,15 +104,15 @@ class TestMannWhitneyUTest:
         assert not result_strict.significant
         assert result_lenient.significant
 
-    def test_too_few_observations_raises(self):
+    def test_too_few_observations_raises(self) -> None:
         with pytest.raises(ValueError, match="at least 1"):
             mann_whitney_u_test(np.array([]), np.array([1.0, 2.0]))
 
-    def test_invalid_alpha_raises(self):
+    def test_invalid_alpha_raises(self) -> None:
         with pytest.raises(ValueError, match="Alpha must be in"):
             mann_whitney_u_test(np.array([1.0, 2.0]), np.array([3.0, 4.0]), alpha=0.0)
 
-    def test_swap_groups_preserves_p_value_and_flips_effect(self):
+    def test_swap_groups_preserves_p_value_and_flips_effect(self) -> None:
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([4.0, 5.0, 6.0])
         first = mann_whitney_u_test(a, b)
@@ -123,7 +123,7 @@ class TestMannWhitneyUTest:
         )
         assert first.u_statistic + second.u_statistic == pytest.approx(len(a) * len(b))
 
-    def test_ties_are_handled_without_false_positive(self):
+    def test_ties_are_handled_without_false_positive(self) -> None:
         a = np.array([1.0, 1.0, 2.0, 2.0])
         b = np.array([1.0, 2.0, 2.0, 3.0])
         result = mann_whitney_u_test(a, b)

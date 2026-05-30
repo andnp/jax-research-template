@@ -13,6 +13,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 .codanna/
+.testmondata
 
 # Byte-compiled files
 **/__pycache__/

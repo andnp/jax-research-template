@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def sweep_vmap_ppo():
+def sweep_vmap_ppo() -> None:
     batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
     steps_per_agent = 50_000
     
@@ -19,7 +19,7 @@ def sweep_vmap_ppo():
     
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
     
     results = []

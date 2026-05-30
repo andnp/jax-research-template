@@ -22,7 +22,7 @@ class ReplayBuffer:
         action_shape: tuple,
         action_dtype: jnp.dtype = jnp.float32,
         obs_dtype: jnp.dtype = jnp.float32,
-    ):
+    ) -> None:
         self.capacity = capacity
         self.obs_shape = obs_shape
         self.action_shape = action_shape
@@ -40,7 +40,7 @@ class ReplayBuffer:
             count=jnp.array(0),
         )
 
-    def add(self, state: ReplayBufferState, obs, action, reward, next_obs, done) -> ReplayBufferState:
+    def add(self, state: ReplayBufferState, obs: jax.Array, action: jax.Array, reward: jax.Array, next_obs: jax.Array, done: jax.Array) -> ReplayBufferState:
         # Vectorized add for multiple envs
         num_to_add = obs.shape[0]
         indices = (state.pointer + jnp.arange(num_to_add)) % self.capacity
@@ -61,7 +61,7 @@ class ReplayBuffer:
             count=jnp.minimum(state.count + num_to_add, self.capacity),
         )
 
-    def sample(self, state: ReplayBufferState, key, batch_size: int):
+    def sample(self, state: ReplayBufferState, key: jax.Array, batch_size: int) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
         indices = jax.random.randint(key, (batch_size,), 0, state.count)
         return (
             state.obs[indices],

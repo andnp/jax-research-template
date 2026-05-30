@@ -1,4 +1,4 @@
-from typing import Protocol, cast
+from typing import Callable, NamedTuple, TypedDict, cast
 
 import distrax
 import flax.linen as nn
@@ -7,7 +7,8 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
-from rl_components.buffers import ReplayBuffer
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
 
@@ -53,7 +54,7 @@ class Actor(nn.Module):
         log_std = jnp.clip(log_std, -20, 2)
         return mean, log_std
 
-    def sample(self, params, x, rng):
+    def sample(self, params: VariableDict, x: jax.Array, rng: jax.Array) -> tuple[jax.Array, jax.Array]:
         mean, log_std = _actor_apply(self, params, x)
         std = jnp.exp(log_std)
         normal = distrax.Normal(mean, std)
@@ -68,30 +69,6 @@ class Actor(nn.Module):
         return action, log_prob
 
 
-class _ObservationSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _ActionSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _EnvLike(Protocol):
-    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
-
-    def action_space(self, params: object | None = None) -> _ActionSpace: ...
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
-
-    def step(
-        self,
-        key: jax.Array,
-        state: object,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
-
-
 def _critic_apply(module: Critic, variables: VariableDict, x: jax.Array, a: jax.Array) -> jax.Array:
     return cast(jax.Array, module.apply(variables, x, a))
 
@@ -100,10 +77,24 @@ def _actor_apply(module: Actor, variables: VariableDict, x: jax.Array) -> tuple[
     return cast(tuple[jax.Array, jax.Array], module.apply(variables, x))
 
 
-def make_train(config: SACConfig, env: object, env_params: object | None = None):
-    env = cast(_EnvLike, env)
+class RunnerState(NamedTuple):
+    actor_state: TrainState
+    critic_state: TrainState
+    critic_target_params: VariableDict
+    alpha_state: TrainState
+    buffer_state: ReplayBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
 
-    def train(rng):
+
+class SACTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], SACTrainOutput]:
+    def train(rng: jax.Array) -> SACTrainOutput:
         # INIT NETWORKS
         rng, _rng_actor, _rng_critic = jax.random.split(rng, 3)
         action_dim = env.action_space(env_params).shape[0]
@@ -139,7 +130,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
         rng, _rng = jax.random.split(rng)
         obsv, env_state = env.reset(_rng, env_params)
 
-        def _update_step(runner_state, t):
+        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
             (
                 actor_state,
                 critic_state,
@@ -154,10 +145,10 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
             # SELECT ACTION
             rng, _rng = jax.random.split(rng)
 
-            def _random_action():
+            def _random_action() -> jax.Array:
                 return jax.random.uniform(_rng, (action_dim,), minval=-1, maxval=1)
 
-            def _policy_action():
+            def _policy_action() -> jax.Array:
                 action, _ = actor.sample(actor_state.params, last_obs, _rng)
                 return action
 
@@ -182,14 +173,33 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
             )
 
             # TRAIN
-            def _do_train(actor_state, critic_state, critic_target_params, alpha_state, buffer_state, rng):
+            def _do_train(
+                actor_state: TrainState,
+                critic_state: TrainState,
+                critic_target_params: VariableDict,
+                alpha_state: TrainState,
+                buffer_state: ReplayBufferState,
+                rng: jax.Array,
+            ) -> tuple[TrainState, TrainState, VariableDict, TrainState]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-                alpha = jnp.exp(alpha_state.params["log_alpha"][0])
+                log_alpha_arr = cast(jax.Array, alpha_state.params["log_alpha"])
+                alpha = jnp.exp(log_alpha_arr[0])
 
                 # CRITIC UPDATE
-                def _critic_loss_fn(critic_params, actor_params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng):
+                def _critic_loss_fn(
+                    critic_params: VariableDict,
+                    actor_params: VariableDict,
+                    critic_target_params: VariableDict,
+                    alpha: jax.Array,
+                    obs: jax.Array,
+                    actions: jax.Array,
+                    rewards: jax.Array,
+                    next_obs: jax.Array,
+                    dones: jax.Array,
+                    rng: jax.Array,
+                ) -> jax.Array:
                     rng, _rng = jax.random.split(rng)
                     next_actions, next_log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
                         actor_params, next_obs, jax.random.split(_rng, config.BATCH_SIZE)
@@ -202,7 +212,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                     next_q_min = jnp.min(next_q_values, axis=0)
                     target_q = rewards + config.GAMMA * (1.0 - dones) * (next_q_min - alpha * next_log_probs)
 
-                    def _single_critic_loss(params):
+                    def _single_critic_loss(params: VariableDict) -> jax.Array:
                         q = _critic_apply(critic, params, obs, actions)
                         return jnp.mean(jnp.square(q - jax.lax.stop_gradient(target_q)))
 
@@ -216,7 +226,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 critic_state = critic_state.apply_gradients(grads=critic_grads)
 
                 # ACTOR UPDATE
-                def _actor_loss_fn(actor_params, critic_params, alpha, obs, rng):
+                def _actor_loss_fn(actor_params: VariableDict, critic_params: VariableDict, alpha: jax.Array, obs: jax.Array, rng: jax.Array) -> jax.Array:
                     rng, _rng = jax.random.split(rng)
                     new_actions, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
                         actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE)
@@ -235,7 +245,7 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 actor_state = actor_state.apply_gradients(grads=actor_grads)
 
                 # ALPHA UPDATE
-                def _alpha_loss_fn(alpha_params, actor_params, obs, rng):
+                def _alpha_loss_fn(alpha_params: VariableDict, actor_params: VariableDict, obs: jax.Array, rng: jax.Array) -> jax.Array:
                     rng, _rng = jax.random.split(rng)
                     _, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE))
                     loss = -jnp.mean(alpha_params["log_alpha"] * (log_probs + target_entropy))
@@ -261,11 +271,19 @@ def make_train(config: SACConfig, env: object, env_params: object | None = None)
                 lambda: (actor_state, critic_state, critic_target_params, alpha_state),
             )
 
-            runner_state = (actor_state, critic_state, critic_target_params, alpha_state, buffer_state, env_state, obsv, rng)
+            runner_state = RunnerState(
+                actor_state=actor_state, critic_state=critic_state,
+                critic_target_params=critic_target_params, alpha_state=alpha_state,
+                buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+            )
             return runner_state, info
 
         # RUNNER
-        runner_state = (actor_state, critic_state, critic_target_params, alpha_state, buffer_state, env_state, obsv, rng)
+        runner_state = RunnerState(
+            actor_state=actor_state, critic_state=critic_state,
+            critic_target_params=critic_target_params, alpha_state=alpha_state,
+            buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+        )
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
         return {"runner_state": runner_state, "metrics": metrics}
 

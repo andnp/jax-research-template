@@ -1,6 +1,6 @@
 """Medium tests for rl_components.buffers — JIT compilation and functional correctness."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
@@ -8,12 +8,12 @@ from rl_components.buffers import ReplayBuffer
 
 
 class TestReplayBufferJIT:
-    def test_add_jittable(self):
+    def test_add_jittable(self) -> None:
         buf = ReplayBuffer(capacity=10, obs_shape=(4,), action_shape=())
         state = buf.init()
 
         @jax.jit
-        def add_one(state):
+        def add_one(state: Any) -> Any:
             return buf.add(
                 state,
                 obs=jnp.ones((1, 4)),
@@ -27,7 +27,7 @@ class TestReplayBufferJIT:
         assert int(state.pointer) == 1
         assert int(state.count) == 1
 
-    def test_sample_jittable(self):
+    def test_sample_jittable(self) -> None:
         buf = ReplayBuffer(capacity=10, obs_shape=(4,), action_shape=())
         state = buf.init()
         for _ in range(10):
@@ -41,19 +41,19 @@ class TestReplayBufferJIT:
             )
 
         @jax.jit
-        def sample(state, key):
+        def sample(state: Any, key: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
             return buf.sample(state, key, batch_size=4)
 
         key = jax.random.key(0)
         obs, actions, rewards, next_obs, dones = sample(state, key)
         assert obs.shape == (4, 4)
 
-    def test_add_sample_loop_in_scan(self):
+    def test_add_sample_loop_in_scan(self) -> None:
         """Buffer add + sample works inside lax.scan."""
         buf = ReplayBuffer(capacity=50, obs_shape=(2,), action_shape=(), action_dtype=jnp.int32)
         state = buf.init()
 
-        def step(carry, t):
+        def step(carry: tuple[Any, jax.Array], t: jax.Array) -> tuple[tuple[Any, jax.Array], jax.Array]:
             buf_state, key = carry
             key, k1 = jax.random.split(key)
             buf_state = buf.add(
@@ -72,12 +72,12 @@ class TestReplayBufferJIT:
         assert int(final_state.count) == 20
         assert means.shape == (20,)
 
-    def test_add_and_sample_uint8_observations_under_jit(self):
+    def test_add_and_sample_uint8_observations_under_jit(self) -> None:
         buf = ReplayBuffer(capacity=8, obs_shape=(2, 2, 1), action_shape=(), action_dtype=jnp.int32, obs_dtype=jnp.uint8)
         state = buf.init()
 
         @jax.jit
-        def add_and_sample(state, key):
+        def add_and_sample(state: Any, key: jax.Array) -> tuple[Any, tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]]:
             updated_state = buf.add(
                 state,
                 obs=jnp.full((1, 2, 2, 1), 7, dtype=jnp.uint8),
@@ -101,7 +101,7 @@ class TestReplayBufferJIT:
 
 
 class TestReplayBufferNetworkShapes:
-    def test_network_forward_with_sampled_obs(self):
+    def test_network_forward_with_sampled_obs(self) -> None:
         """Sampled observations have correct shape for a simple network forward pass."""
         import flax.linen as nn
 
@@ -116,7 +116,7 @@ class TestReplayBufferNetworkShapes:
                 ) -> jax.Array: ...
 
             @nn.compact
-            def __call__(self, x):
+            def __call__(self, x: jax.Array) -> jax.Array:
                 return nn.Dense(2)(x)
 
         buf = ReplayBuffer(capacity=10, obs_shape=(4,), action_shape=())

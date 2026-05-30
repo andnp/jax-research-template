@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Callable, cast
 
 import distrax
 import flax.linen as nn
@@ -9,7 +9,7 @@ from jax_nn.typed_module import TypedApply
 from rl_components.structs import chex_struct
 
 
-def _activation_fn(name: str):
+def _activation_fn(name: str) -> Callable[[jax.Array], jax.Array]:
     if name == "relu":
         return nn.relu
     return nn.tanh

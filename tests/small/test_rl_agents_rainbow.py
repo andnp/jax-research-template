@@ -81,7 +81,7 @@ class _ToyAtariEnv:
 
 
 class TestRainbowConfig:
-    def test_defaults_cover_c51_support_and_runtime_budget(self):
+    def test_defaults_cover_c51_support_and_runtime_budget(self) -> None:
         config = RainbowConfig()
         runtime_config = RainbowRuntimeConfig()
 
@@ -91,14 +91,14 @@ class TestRainbowConfig:
         assert config.N_STEP == 3
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
 
-    def test_runtime_helper_preserves_dqn_zoo_budget(self):
+    def test_runtime_helper_preserves_dqn_zoo_budget(self) -> None:
         config = RainbowConfig()
         runtime_config = rainbow_atari_runtime_from_dqn_zoo(config)
 
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
         assert rainbow_zoo_atari_total_train_env_steps(runtime_config) == 50_000_000
 
-    def test_schedule_helpers_match_dqn_atari_frame_conversion(self):
+    def test_schedule_helpers_match_dqn_atari_frame_conversion(self) -> None:
         rainbow_config = RainbowConfig()
         dqn_config = DQNAtariConfig()
 
@@ -127,7 +127,7 @@ class TestRainbowConfig:
             (8, 50_000),
         ],
     )
-    def test_should_learn_matches_dqn_atari_warmup_and_cadence(self, env_step: int, replay_size: int):
+    def test_should_learn_matches_dqn_atari_warmup_and_cadence(self, env_step: int, replay_size: int) -> None:
         rainbow_config = RainbowConfig()
         dqn_config = DQNAtariConfig()
 
@@ -146,14 +146,14 @@ class TestRainbowConfig:
             (10_001, False),
         ],
     )
-    def test_should_update_target_uses_env_step_cadence(self, env_step: int, expected: bool):
+    def test_should_update_target_uses_env_step_cadence(self, env_step: int, expected: bool) -> None:
         config = RainbowConfig()
 
         assert rainbow_zoo_atari_should_update_target(env_step, config) is expected
 
 
 class TestRainbowNetworkAndLoss:
-    def test_nature_network_emits_action_atom_logits(self):
+    def test_nature_network_emits_action_atom_logits(self) -> None:
         config = RainbowConfig()
         network = RainbowNatureNetwork(action_dim=4, num_atoms=config.NUM_ATOMS, observation_layout="fhwc")
         x = jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)
@@ -164,7 +164,7 @@ class TestRainbowNetworkAndLoss:
         assert logits.shape == (2, 4, 51)
         assert logits.dtype == jnp.float32
 
-    def test_expected_value_action_selection_uses_distribution_mean(self):
+    def test_expected_value_action_selection_uses_distribution_mean(self) -> None:
         support = jnp.array([-1.0, 0.0, 1.0], dtype=jnp.float32)
         logits = jnp.array(
             [
@@ -180,7 +180,7 @@ class TestRainbowNetworkAndLoss:
         assert q_values.shape == (2,)
         assert int(action) == 1
 
-    def test_categorical_target_and_loss_preserve_shapes_and_mass(self):
+    def test_categorical_target_and_loss_preserve_shapes_and_mass(self) -> None:
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
         next_probabilities = jnp.array(
             [
@@ -199,7 +199,7 @@ class TestRainbowNetworkAndLoss:
         npt.assert_allclose(jnp.sum(targets, axis=-1), jnp.ones((2,), dtype=jnp.float32), atol=1e-6)
         assert loss.shape == ()
 
-    def test_categorical_losses_preserve_batch_axis(self):
+    def test_categorical_losses_preserve_batch_axis(self) -> None:
         logits = jnp.log(
             jnp.array(
                 [
@@ -222,7 +222,7 @@ class TestRainbowNetworkAndLoss:
         assert losses.shape == (2,)
         assert jnp.all(losses >= 0.0)
 
-    def test_double_q_distributional_targets_use_online_selection_and_target_evaluation(self):
+    def test_double_q_distributional_targets_use_online_selection_and_target_evaluation(self) -> None:
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
         online_next_probabilities = jnp.array(
             [
@@ -291,7 +291,7 @@ class TestRainbowNetworkAndLoss:
         )
         assert not jnp.allclose(double_q_target_probabilities, target_greedy_probabilities)
 
-    def test_categorical_target_support_masks_terminals_and_applies_n_step_discount(self):
+    def test_categorical_target_support_masks_terminals_and_applies_n_step_discount(self) -> None:
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
 
         target_support = categorical_target_support(
@@ -313,7 +313,7 @@ class TestRainbowNetworkAndLoss:
             atol=1e-6,
         )
 
-    def test_categorical_target_probabilities_match_golden_projection_cases(self):
+    def test_categorical_target_probabilities_match_golden_projection_cases(self) -> None:
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
         n_step_projected = categorical_target_probabilities(
             rewards=jnp.array([0.5], dtype=jnp.float32),
@@ -361,7 +361,7 @@ class TestRainbowNetworkAndLoss:
 
 
 class TestRainbowOptimizerParity:
-    def test_rmsprop_builder_matches_dqn_atari_baseline_updates(self):
+    def test_rmsprop_builder_matches_dqn_atari_baseline_updates(self) -> None:
         rainbow_config = RainbowConfig()
         dqn_config = DQNAtariConfig()
         params = {"w": jnp.array([1.0, -2.0], dtype=jnp.float32)}
@@ -382,7 +382,7 @@ class TestRainbowOptimizerParity:
             )
             params = jax.tree_util.tree_map(lambda value, update: value + update, params, rainbow_updates)
 
-    def test_initialize_train_state_wires_rmsprop_builder(self):
+    def test_initialize_train_state_wires_rmsprop_builder(self) -> None:
         config = RainbowConfig(
             REPLAY_CAPACITY=16,
             LEARNING_RATE=1e-3,
@@ -418,13 +418,13 @@ class TestRainbowOptimizerParity:
 
 
 class TestRainbowTrainPath:
-    def test_make_train_requires_explicit_env(self):
+    def test_make_train_requires_explicit_env(self) -> None:
         train_factory = cast(Callable[..., object], make_train)
 
         with pytest.raises(TypeError):
             train_factory(RainbowConfig(), RainbowRuntimeConfig())
 
-    def test_initialize_train_state_uses_per_buffer_with_logical_capacity(self):
+    def test_initialize_train_state_uses_per_buffer_with_logical_capacity(self) -> None:
         config = RainbowConfig(REPLAY_CAPACITY=17)
         _network, _prototype, runner_state = initialize_train_state(
             config,
@@ -439,7 +439,7 @@ class TestRainbowTrainPath:
 
 
 class TestRainbowNStepAccumulator:
-    def test_nonterminal_insert_waits_for_exact_n_step_rewards(self):
+    def test_nonterminal_insert_waits_for_exact_n_step_rewards(self) -> None:
         config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
         prototype = RainbowTransition(
             obs=jnp.zeros((1,), dtype=jnp.float32),
@@ -495,7 +495,7 @@ class TestRainbowNStepAccumulator:
         assert int(accumulator.size) == 2
         npt.assert_allclose(accumulator.obs[:, 0], jnp.array([2.0, 3.0, 0.0], dtype=jnp.float32))
 
-    def test_terminal_step_flushes_all_pending_transitions(self):
+    def test_terminal_step_flushes_all_pending_transitions(self) -> None:
         config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
         prototype = RainbowTransition(
             obs=jnp.zeros((1,), dtype=jnp.float32),

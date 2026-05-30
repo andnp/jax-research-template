@@ -2,14 +2,16 @@
 
 from pathlib import Path
 
+import pytest
 import research_cli.doctor as doctor_module
+from research_cli.doctor import EnvironmentCommandResult, GitCommandResult, JaxProbeResult
 from research_cli.main import app
 from typer.testing import CliRunner
 
 runner = CliRunner()
 
 
-def test_research_doctor_aggregates_config_git_and_environment_failures(tmp_path: Path, monkeypatch) -> None:
+def test_research_doctor_aggregates_config_git_and_environment_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace_root = tmp_path.resolve()
     core_root = workspace_root / "core"
     core_root.mkdir(parents=True)
@@ -23,17 +25,17 @@ def test_research_doctor_aggregates_config_git_and_environment_failures(tmp_path
     )
     monkeypatch.chdir(workspace_root)
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         assert cwd == core_root.resolve()
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return doctor_module.GitCommandResult(returncode=128, stdout="", stderr="fatal: not a git repository")
         raise AssertionError(f"Unexpected git command: {args!r}")
 
-    def run_environment_command(args: tuple[str, ...]):
+    def run_environment_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return doctor_module.EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return doctor_module.JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
 
     monkeypatch.setattr(doctor_module, "_run_git", run_git)
@@ -57,7 +59,7 @@ def test_research_doctor_aggregates_config_git_and_environment_failures(tmp_path
     assert result.output.rstrip().endswith("overall: FAIL")
 
 
-def test_research_doctor_resolves_workspace_root_from_child_project_repo(tmp_path: Path, monkeypatch) -> None:
+def test_research_doctor_resolves_workspace_root_from_child_project_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace_root = tmp_path.resolve()
     core_root = workspace_root / "core"
     child_project_root = workspace_root / "projects" / "demo"
@@ -70,7 +72,7 @@ def test_research_doctor_resolves_workspace_root_from_child_project_repo(tmp_pat
     )
     monkeypatch.chdir(child_project_root)
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         assert cwd == core_root.resolve()
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return doctor_module.GitCommandResult(returncode=0, stdout="true\n", stderr="")
@@ -80,11 +82,11 @@ def test_research_doctor_resolves_workspace_root_from_child_project_repo(tmp_pat
             return doctor_module.GitCommandResult(returncode=0, stdout="", stderr="")
         raise AssertionError(f"Unexpected git command: {args!r}")
 
-    def run_environment_command(args: tuple[str, ...]):
+    def run_environment_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return doctor_module.EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return doctor_module.JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
 
     monkeypatch.setattr(doctor_module, "_run_git", run_git)

@@ -12,7 +12,7 @@ def tree_update(tree: jax.Array, leaf_index: jax.Array, priority: jax.Array) -> 
     idx = jnp.uint32(leaf_index + capacity)
     tree = tree.at[idx].set(priority)
 
-    def _propagate(carry):
+    def _propagate(carry: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
         tree, idx = carry
         idx = idx >> 1  # parent
         left = tree[idx << 1]
@@ -20,7 +20,7 @@ def tree_update(tree: jax.Array, leaf_index: jax.Array, priority: jax.Array) -> 
         tree = tree.at[idx].set(left + right)
         return tree, idx
 
-    def _cond(carry):
+    def _cond(carry: tuple[jax.Array, jax.Array]) -> jax.Array:
         _, idx = carry
         return idx > 1
 
@@ -35,7 +35,7 @@ def tree_sample(tree: jax.Array, key: jax.Array, capacity: int) -> jax.Array:
 
 
 def _tree_find(tree: jax.Array, target: jax.Array, capacity: int) -> jax.Array:
-    def _descend(carry):
+    def _descend(carry: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
         idx, target = carry
         left_val = tree[idx << 1]
         go_left = target < left_val
@@ -43,7 +43,7 @@ def _tree_find(tree: jax.Array, target: jax.Array, capacity: int) -> jax.Array:
         target = jnp.where(go_left, target, target - left_val)
         return idx, target
 
-    def _cond(carry):
+    def _cond(carry: tuple[jax.Array, jax.Array]) -> jax.Array:
         idx, _ = carry
         return idx < jnp.uint32(capacity)
 
@@ -56,7 +56,7 @@ def tree_sample_batch(tree: jax.Array, key: jax.Array, capacity: int, batch_size
     segment_size = total / batch_size
     keys = jax.random.split(key, batch_size)
 
-    def _sample_segment(key_i, segment_idx):
+    def _sample_segment(key_i: jax.Array, segment_idx: jax.Array) -> jax.Array:
         low = segment_size * segment_idx
         target = low + jax.random.uniform(key_i, ()) * segment_size
         return _tree_find(tree, target, capacity)

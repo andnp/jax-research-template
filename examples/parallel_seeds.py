@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def main():
+def main() -> None:
     # Philosophical constraint: NUM_ENVS is now implicitly 1 in the agent logic.
     # We scale by running multiple independent experiments (seeds) in parallel.
     NUM_SEEDS = 16 
@@ -28,7 +28,7 @@ def main():
     
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
 
     # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.

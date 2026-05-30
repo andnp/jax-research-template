@@ -1,14 +1,16 @@
-from typing import Literal, Protocol, cast
+from typing import Callable, Literal, NamedTuple, Protocol, TypedDict
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from jax_nn.initializers import legacy_dqn_uniform
 from jax_nn.layers import NatureCNN
 from jax_nn.typed_module import TypedApply
-from rl_components.buffers import ReplayBuffer
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
 
@@ -42,31 +44,6 @@ class QNetwork(TypedApply[jax.Array], nn.Module):
         x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
         return x
-
-
-class _ObservationSpace(Protocol):
-    shape: tuple[int, ...]
-    dtype: jnp.dtype
-
-
-class _ActionSpace(Protocol):
-    n: int
-
-
-class _EnvLike(Protocol):
-    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
-
-    def action_space(self, params: object | None = None) -> _ActionSpace: ...
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
-
-    def step(
-        self,
-        key: jax.Array,
-        state: object,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
 class _HasNetworkPreset(Protocol):
@@ -150,10 +127,22 @@ def _make_q_network(
     )
 
 
-def make_train(config: DQNConfig, env: object, env_params: object | None = None):
-    env = cast(_EnvLike, env)
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    target_params: VariableDict
+    buffer_state: ReplayBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
 
-    def train(rng):
+
+class DQNTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DQNTrainOutput]:
+    def train(rng: jax.Array) -> DQNTrainOutput:
         # INIT NETWORK
         observation_shape = tuple(env.observation_space(env_params).shape)
         network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)
@@ -183,7 +172,7 @@ def make_train(config: DQNConfig, env: object, env_params: object | None = None)
         rng, _rng = jax.random.split(rng)
         obsv, env_state = env.reset(_rng, env_params)  # gymnax JitWrapped
 
-        def _update_step(runner_state, t):
+        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
             train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
 
             # EPSILON GREEDY
@@ -217,11 +206,19 @@ def make_train(config: DQNConfig, env: object, env_params: object | None = None)
             )
 
             # TRAIN
-            def _do_train(train_state, target_params, buffer_state, rng):
+            def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-                def _loss_fn(params, target_params, obs, actions, rewards, next_obs, dones):
+                def _loss_fn(
+                    params: VariableDict,
+                    target_params: VariableDict,
+                    obs: jax.Array,
+                    actions: jax.Array,
+                    rewards: jax.Array,
+                    next_obs: jax.Array,
+                    dones: jax.Array,
+                ) -> jax.Array:
                     q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
@@ -256,11 +253,11 @@ def make_train(config: DQNConfig, env: object, env_params: object | None = None)
                 lambda: target_params,
             )
 
-            runner_state = (train_state, target_params, buffer_state, env_state, obsv, rng)
+            runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
             return runner_state, info
 
         # RUNNER
-        runner_state = (train_state, target_params, buffer_state, env_state, obsv, rng)
+        runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
         runner_state, metrics = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
         )

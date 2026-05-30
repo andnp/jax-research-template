@@ -6,6 +6,7 @@ from typing import cast
 import chex
 import jax
 import jax.numpy as jnp
+import pytest
 import rl_components.brax as brax_module
 from rl_components.brax import BraxAdapter, BraxConfig
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
@@ -120,7 +121,7 @@ class FakeBraxEnv:
 
 
 class TestGymnaxSpaceTranslation:
-    def test_discrete_and_continuous_specs_map_to_minimal_space_objects(self):
+    def test_discrete_and_continuous_specs_map_to_minimal_space_objects(self) -> None:
         discrete = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyDiscreteEnv())
         continuous = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyContinuousEnv())
 
@@ -141,7 +142,7 @@ class TestGymnaxSpaceTranslation:
 
 
 class TestGymnaxCompatibilityBridge:
-    def test_step_folds_terminated_and_truncated_into_done(self):
+    def test_step_folds_terminated_and_truncated_into_done(self) -> None:
         bridge = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyDiscreteEnv())
 
         observation, state = bridge.reset(jax.random.key(0))
@@ -153,14 +154,14 @@ class TestGymnaxCompatibilityBridge:
 
         assert observation.shape == (4,)
         assert next_observation.shape == (4,)
-        assert int(next_state) == 1
+        assert int(cast(jax.Array, next_state)) == 1
         assert float(reward) == 1.0
         assert bool(done) is True
         assert bool(info["terminated"]) is False
         assert bool(info["truncated"]) is True
         assert int(info["episode_length"]) == 1
 
-    def test_brax_adapter_step_is_gymnax_loop_compatible(self, monkeypatch):
+    def test_brax_adapter_step_is_gymnax_loop_compatible(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: FakeBraxEnv())
         adapter = cast(EnvProtocol[jax.Array, FakeBraxState, jax.Array, None], BraxAdapter(BraxConfig(env_name="fake")))
         bridge = GymnaxCompatibilityBridge(adapter)
@@ -186,7 +187,7 @@ class TestGymnaxCompatibilityBridge:
         assert jnp.allclose(spec.action_high, jnp.array([2.0, 10.0], dtype=jnp.float32))
         assert observation.shape == (3,)
         assert next_observation.shape == (3,)
-        assert next_state.obs.shape == (3,)
+        assert cast(FakeBraxState, next_state).obs.shape == (3,)
         assert float(reward) == 2.5
         assert bool(done) is True
         assert bool(info["terminated"]) is False

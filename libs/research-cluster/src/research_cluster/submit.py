@@ -17,7 +17,7 @@ def submit_experiment(
     working_dir: Path | None = None,
     script_path: Path | None = None,
     dry_run: bool = False,
-):
+) -> str | None:
     script = build_job_script(
         config,
         execution_ids,

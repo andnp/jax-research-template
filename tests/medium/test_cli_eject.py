@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from research_cli.main import app
 from typer.testing import CliRunner
 
@@ -23,7 +24,7 @@ def _create_project(workspace_root: Path, project_name: str) -> Path:
     return project_root
 
 
-def test_eject_copies_package_and_rewrites_project_imports(tmp_path: Path, monkeypatch) -> None:
+def test_eject_copies_package_and_rewrites_project_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Eject must copy the package tree and rewrite shared-lib imports inside the target project."""
     workspace_root = tmp_path.resolve()
     (workspace_root / "pyproject.toml").write_text(

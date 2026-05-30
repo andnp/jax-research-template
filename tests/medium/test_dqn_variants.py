@@ -1,5 +1,7 @@
 """Medium tests for DQN variants — Double DQN and Dueling DQN gradient flow."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -11,7 +13,7 @@ from rl_agents.dueling_dqn import DuelingDQNConfig, DuelingQNetwork, _make_dueli
 
 
 class TestDoubleDQNGradient:
-    def test_double_dqn_target_uses_online_for_selection(self):
+    def test_double_dqn_target_uses_online_for_selection(self) -> None:
         """In Double DQN, online net selects actions, target net evaluates them."""
         net = _make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
         key = jax.random.key(0)
@@ -27,7 +29,7 @@ class TestDoubleDQNGradient:
         next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
         assert next_q_value.shape == (8,)
 
-    def test_double_dqn_params_change(self):
+    def test_double_dqn_params_change(self) -> None:
         net = _make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         target_params = params
@@ -41,7 +43,7 @@ class TestDoubleDQNGradient:
         next_obs = jax.random.normal(jax.random.key(4), (16, 4))
         dones = jnp.zeros((16,))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
             next_q_online = net.apply(params, next_obs)
@@ -57,7 +59,7 @@ class TestDoubleDQNGradient:
         new_flat = jax.tree_util.tree_leaves(new_state.params)
         assert any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
 
-    def test_double_dqn_can_use_nature_preset(self):
+    def test_double_dqn_can_use_nature_preset(self) -> None:
         net = _make_q_network(
             DoubleDQNConfig(NETWORK_PRESET="nature_cnn"),
             action_dim=3,
@@ -70,19 +72,19 @@ class TestDoubleDQNGradient:
 
 
 class TestDuelingDQNGradient:
-    def test_dueling_network_output_shape(self):
+    def test_dueling_network_output_shape(self) -> None:
         net = DuelingQNetwork(action_dim=4)
         params = net.init(jax.random.key(0), jnp.zeros((8,)))
         q = net.apply(params, jnp.ones((8,)))
         assert q.shape == (4,)
 
-    def test_dueling_batch_shape(self):
+    def test_dueling_batch_shape(self) -> None:
         net = DuelingQNetwork(action_dim=3)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         q = net.apply(params, jnp.ones((10, 4)))
         assert q.shape == (10, 3)
 
-    def test_dueling_params_change_after_update(self):
+    def test_dueling_params_change_after_update(self) -> None:
         net = DuelingQNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
@@ -92,7 +94,7 @@ class TestDuelingDQNGradient:
         obs = jax.random.normal(jax.random.key(1), (16, 4))
         targets = jax.random.normal(jax.random.key(2), (16, 2))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             q = net.apply(params, obs)
             return jnp.mean(jnp.square(q - targets))
 
@@ -102,21 +104,21 @@ class TestDuelingDQNGradient:
         new_flat = jax.tree_util.tree_leaves(new_state.params)
         assert any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
 
-    def test_dueling_jit(self):
+    def test_dueling_jit(self) -> None:
         net = DuelingQNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def forward(params, x):
+        def forward(params: Any, x: jax.Array) -> jax.Array:
             return net.apply(params, x)
 
         q = forward(params, jnp.ones((4,)))
         assert q.shape == (2,)
 
-    def test_dueling_network_uses_mlp_by_default(self):
+    def test_dueling_network_uses_mlp_by_default(self) -> None:
         net = _make_dueling_q_network(DuelingDQNConfig(), action_dim=2)
         assert isinstance(net, DuelingQNetwork)
 
-    def test_dueling_network_rejects_nature_preset_until_specified(self):
+    def test_dueling_network_rejects_nature_preset_until_specified(self) -> None:
         with pytest.raises(ValueError, match="not yet supported"):
             _make_dueling_q_network(DuelingDQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=2)

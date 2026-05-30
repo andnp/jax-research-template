@@ -1,7 +1,7 @@
 """Medium tests for rl_agents.sac — gradient flow and JIT compilation."""
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import chex
 import jax
@@ -12,12 +12,14 @@ from flax.training.train_state import TrainState
 from rl_agents.sac import Actor, Critic, SACConfig, make_train
 from rl_components.action_normalization import ActionNormalizationWrapper
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
+from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 
 
 @dataclass(frozen=True)
 class FakeObservationSpace:
     shape: tuple[int, ...]
+    dtype: jnp.dtype = jnp.float32
 
 
 @dataclass(frozen=True)
@@ -26,11 +28,11 @@ class FakeActionSpace:
 
 
 class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(3,))
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
         del params
         return FakeActionSpace(shape=(2,))
 
@@ -129,7 +131,7 @@ class TestSACGradientFlow:
         config_only_args = [config]
 
         with pytest.raises(TypeError, match="env"):
-            make_train(*config_only_args)
+            make_train(*config_only_args)  # type: ignore[arg-type]
 
     def test_make_train_accepts_normalized_canonical_env_via_bridge(self) -> None:
         config = SACConfig(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)
@@ -143,13 +145,13 @@ class TestSACGradientFlow:
         )
         gymnax_env = GymnaxCompatibilityBridge(normalized_env)
 
-        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))
+        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))  # type: ignore[arg-type]
         metrics = out["metrics"]
 
         assert metrics["returned_episode"].shape == (4,)
         assert metrics["returned_episode_returns"].shape == (4,)
 
-    def test_critic_params_change_after_update(self):
+    def test_critic_params_change_after_update(self) -> None:
         """Critic parameters should change after a gradient step."""
         critic = Critic()
         obs_dim = (4,)
@@ -163,7 +165,7 @@ class TestSACGradientFlow:
         actions = jax.random.normal(jax.random.key(2), (16, 2))
         targets = jax.random.normal(jax.random.key(3), (16,))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             q = cast(jax.Array, critic.apply(params, obs, actions))
             return jnp.mean(jnp.square(q - targets))
 
@@ -176,7 +178,7 @@ class TestSACGradientFlow:
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed
 
-    def test_actor_params_change_after_update(self):
+    def test_actor_params_change_after_update(self) -> None:
         """Actor parameters should change after a gradient step."""
         actor = Actor(action_dim=2)
         obs_dim = (4,)
@@ -187,7 +189,7 @@ class TestSACGradientFlow:
 
         obs = jax.random.normal(jax.random.key(1), (16, 4))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             actions, log_probs = jax.vmap(
                 lambda o, k: actor.sample(params, o, k),
                 in_axes=(0, 0),
@@ -203,25 +205,25 @@ class TestSACGradientFlow:
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed
 
-    def test_critic_jit(self):
+    def test_critic_jit(self) -> None:
         """Critic forward pass should JIT-compile."""
         critic = Critic()
         params = critic.init(jax.random.key(0), jnp.zeros((4,)), jnp.zeros((2,)))
 
         @jax.jit
-        def forward(params, obs, action):
+        def forward(params: Any, obs: jax.Array, action: jax.Array) -> jax.Array:
             return critic.apply(params, obs, action)
 
         q = forward(params, jnp.ones((4,)), jnp.ones((2,)))
         assert q.shape == ()
 
-    def test_actor_sample_jit(self):
+    def test_actor_sample_jit(self) -> None:
         """Actor sampling should JIT-compile."""
         actor = Actor(action_dim=2)
         params = actor.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def sample(params, obs, key):
+        def sample(params: Any, obs: jax.Array, key: jax.Array) -> tuple[jax.Array, jax.Array]:
             return actor.sample(params, obs, key)
 
         action, log_prob = sample(params, jnp.ones((4,)), jax.random.key(1))

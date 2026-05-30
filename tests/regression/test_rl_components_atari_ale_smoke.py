@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 
 
-def test_ale_adapter_reset_and_step_shapes():
+def test_ale_adapter_reset_and_step_shapes() -> None:
     config = AleAtariConfig(game="Pong", frame_stack=4, frame_skip=4)
     env = make_atari_adapter(config)
 

@@ -23,7 +23,7 @@ from research_store.store import Store
 from rl_agents.dqn import DQNConfig, make_train
 
 
-def main():
+def main() -> None:
     # ── 1. Define the experiment ──────────────────────────────────────────────
     exp = Experiment("DQN CartPole Integration", description="Full pipeline demo")
 
@@ -85,7 +85,7 @@ def main():
     )
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_fn = jax.jit(train_fn)
 
     print("Training DQN on CartPole-v1 (100k steps)...")

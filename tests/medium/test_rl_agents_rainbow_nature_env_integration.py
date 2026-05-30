@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import override
 
 import jax
 import jax.numpy as jnp
 from rl_agents.rainbow import RainbowConfig, make_train, rainbow_atari_runtime_from_dqn_zoo
+from rl_components.gym_env import DiscreteActionSpace, ObservationSpace
 
 
 @dataclass(frozen=True)
@@ -17,11 +19,11 @@ class FakeActionSpace:
 
 
 class FakeAtariLikeEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(4, 84, 84, 1), dtype=jnp.uint8)
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
         del params
         return FakeActionSpace(n=3)
 
@@ -51,7 +53,7 @@ class FakeAtariLikeEnv:
 
 
 class TestRainbowNatureEnvIntegration:
-    def test_make_train_accepts_injected_atari_like_env(self):
+    def test_make_train_accepts_injected_atari_like_env(self) -> None:
         config = RainbowConfig(
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,
@@ -78,14 +80,16 @@ class TestRainbowNatureEnvIntegration:
         assert buffer_state.data["3"].dtype == jnp.uint8
         assert int(buffer_state.logical_capacity) == 16
 
-    def test_make_train_inserts_n_step_transitions_and_flushes_terminals(self):
+    def test_make_train_inserts_n_step_transitions_and_flushes_terminals(self) -> None:
         class EpisodeCyclingEnv(FakeAtariLikeEnv):
+            @override
             def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
                 del key, params
                 observation = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
                 state = jnp.array(0, dtype=jnp.int32)
                 return observation, state
 
+            @override
             def step(
                 self,
                 key: jax.Array,

@@ -7,12 +7,12 @@ from rl_components.types import PPOConfig
 _config = PPOConfig(TOTAL_TIMESTEPS=80_000, ENV_NAME="CartPole-v1", NORMALIZE_OBSERVATIONS=True)
 
 
-def test_ppo_cartpole_learns():
+def test_ppo_cartpole_learns() -> None:
     # Simple PPO configuration for a quick test
     rng = jax.random.PRNGKey(_config.SEED)
     env, env_params = gymnax.make(_config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(_config, env=env, env_params=env_params)
+    train_fn = make_train(_config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
 
     out = train_jit(rng)

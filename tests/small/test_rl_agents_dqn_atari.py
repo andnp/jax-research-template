@@ -66,7 +66,7 @@ class _ToyAtariEnv:
 
 
 class TestDQNAtariConfig:
-    def test_defaults_keep_learner_fields_only(self):
+    def test_defaults_keep_learner_fields_only(self) -> None:
         config = DQNAtariConfig()
 
         assert config.REPLAY_CAPACITY == 1_000_000
@@ -84,14 +84,14 @@ class TestDQNAtariConfig:
         assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
         assert config.ADDITIONAL_DISCOUNT == 0.99
 
-    def test_runtime_defaults_preserve_previous_training_budget(self):
+    def test_runtime_defaults_preserve_previous_training_budget(self) -> None:
         runtime_config = DQNAtariRuntimeConfig()
 
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
         assert runtime_config.SEED == 42
         assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
 
-    def test_runtime_helper_preserves_dqn_zoo_baseline(self):
+    def test_runtime_helper_preserves_dqn_zoo_baseline(self) -> None:
         config = DQNAtariConfig()
         runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
 
@@ -99,14 +99,14 @@ class TestDQNAtariConfig:
         assert runtime_config.SEED == 42
         assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
 
-    def test_rmsprop_builder_uses_exact_deepmind_settings(self):
+    def test_rmsprop_builder_uses_exact_deepmind_settings(self) -> None:
         transform = build_dqn_zoo_atari_rmsprop(DQNAtariConfig())
 
         assert isinstance(transform, optax.GradientTransformation)
 
 
 class TestDQNAtariEnvStepConversions:
-    def test_frame_counted_periods_convert_to_env_steps(self):
+    def test_frame_counted_periods_convert_to_env_steps(self) -> None:
         config = DQNAtariConfig()
         runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
 
@@ -117,16 +117,16 @@ class TestDQNAtariEnvStepConversions:
         assert dqn_zoo_atari_total_train_env_steps(runtime_config) == 50_000_000
         assert dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config) == 1_000_000
 
-    def test_frames_to_env_steps_requires_exact_division(self):
+    def test_frames_to_env_steps_requires_exact_division(self) -> None:
         with pytest.raises(ValueError, match="divide evenly"):
             dqn_zoo_atari_frames_to_env_steps(17, 4)
 
-    def test_min_replay_capacity_matches_fraction(self):
+    def test_min_replay_capacity_matches_fraction(self) -> None:
         assert dqn_zoo_atari_min_replay_capacity(DQNAtariConfig()) == 50_000
 
 
 class TestDQNAtariExplorationSchedule:
-    def test_epsilon_stays_at_begin_during_replay_warmup(self):
+    def test_epsilon_stays_at_begin_during_replay_warmup(self) -> None:
         config = DQNAtariConfig()
         runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
         warmup_last_step = dqn_zoo_atari_min_replay_capacity(config)
@@ -134,7 +134,7 @@ class TestDQNAtariExplorationSchedule:
         assert dqn_zoo_atari_exploration_epsilon(0, config, runtime_config) == 1.0
         assert dqn_zoo_atari_exploration_epsilon(warmup_last_step, config, runtime_config) == 1.0
 
-    def test_epsilon_decays_linearly_after_warmup_and_clamps_at_end(self):
+    def test_epsilon_decays_linearly_after_warmup_and_clamps_at_end(self) -> None:
         config = DQNAtariConfig()
         runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
         warmup = dqn_zoo_atari_min_replay_capacity(config)
@@ -147,7 +147,7 @@ class TestDQNAtariExplorationSchedule:
 
 
 class TestDQNAtariLearnGating:
-    def test_should_learn_requires_warmup_and_env_step_period(self):
+    def test_should_learn_requires_warmup_and_env_step_period(self) -> None:
         config = DQNAtariConfig()
         min_replay = dqn_zoo_atari_min_replay_capacity(config)
 
@@ -158,13 +158,13 @@ class TestDQNAtariLearnGating:
 
 
 class TestDQNAtariTrainPath:
-    def test_make_train_requires_explicit_env(self):
+    def test_make_train_requires_explicit_env(self) -> None:
         config_only_args = [DQNAtariConfig(), DQNAtariRuntimeConfig()]
 
         with pytest.raises(TypeError):
             make_train(*config_only_args)  # pyrefly: ignore[bad-argument-type]
 
-    def test_make_train_runs_with_env_seam_and_emits_metrics(self):
+    def test_make_train_runs_with_env_seam_and_emits_metrics(self) -> None:
         config = DQNAtariConfig(
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,

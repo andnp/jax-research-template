@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 from jax_nn.layers import NatureCNN
@@ -16,7 +18,7 @@ class TestNatureCNNJIT:
         variables = model.init(jax.random.key(SEED), x)
 
         @jax.jit
-        def forward(variables, x):
+        def forward(variables: Any, x: jax.Array) -> jax.Array:
             return model.apply(variables, x)
 
         y = forward(variables, x)
@@ -28,7 +30,7 @@ class TestNatureCNNJIT:
         variables = model.init(jax.random.key(SEED), x)
 
         @jax.jit
-        def forward(variables, x):
+        def forward(variables: Any, x: jax.Array) -> jax.Array:
             return model.apply(variables, x)
 
         y = forward(variables, x)

@@ -23,6 +23,7 @@ dependencies = [
     "pandas>=2.0",
     "pydantic~=2.12",
     "scipy>=1.14",
+    "rich",
     "experiment-definition",
     "jax-nn",
     "jax-replay",
@@ -30,6 +31,7 @@ dependencies = [
     "research-analysis",
     "research-cli",
     "research-instrument",
+    "research-plot",
     "research-runner",
     "research-store",
     "rl-agents",
@@ -55,6 +57,7 @@ research-analysis = { workspace = true }
 research-cli = { workspace = true }
 research-cluster = { workspace = true }
 research-instrument = { workspace = true }
+research-plot = { workspace = true }
 research-runner = { workspace = true }
 research-store = { workspace = true }
 rl-agents = { workspace = true }
@@ -81,12 +84,16 @@ line-length = 180
 select = ["E", "F", "B", "I"]
 ignore = ["E731"]
 
+[tool.ruff.lint.per-file-ignores]
+"cli/**" = ["B008"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
 [tool.pyrefly]
-replace-imports-with-any = ["flax.*", "chex.*"]
+preset = "strict"
+replace-imports-with-any = ["chex.*", "flax.linen.*"]
 search-path = [
     "libs/jax-nn/src",
     "libs/jax-replay/src",
@@ -99,3 +106,8 @@ search-path = [
     "libs/rl-agents/src",
     "libs/rl-components/src",
 ]
+
+[tool.pyrefly.errors]
+unannotated-return = true
+implicit-any-empty-container = false
+implicit-any-type-argument = false

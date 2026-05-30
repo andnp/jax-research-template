@@ -8,6 +8,8 @@ dependencies = [
     "numpy~=2.0",
     "polars~=1.22",
     "scipy~=1.14",
+    "rich",
+    "research-plot",
 ]
 
 [build-system]

@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def main():
+def main() -> None:
     config = PPOConfig(
         TOTAL_TIMESTEPS=500_000,
         NUM_STEPS=64,
@@ -21,7 +21,7 @@ def main():
     rng = jax.random.PRNGKey(config.SEED)
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
 
     print(f"--- Training PPO on {config.ENV_NAME} ---")

@@ -5,18 +5,18 @@ from experiment_definition.experiment import Experiment
 
 
 class TestMetricWhitelist:
-    def test_empty_experiment(self):
+    def test_empty_experiment(self) -> None:
         exp = Experiment("test")
         wl = metric_whitelist(exp)
         assert wl == frozenset()
 
-    def test_single_metric(self):
+    def test_single_metric(self) -> None:
         exp = Experiment("test")
         exp.add_metric("reward", type="float", frequency="per_episode")
         wl = metric_whitelist(exp)
         assert wl == frozenset({"reward"})
 
-    def test_multiple_metrics(self):
+    def test_multiple_metrics(self) -> None:
         exp = Experiment("test")
         exp.add_metric("reward", type="float", frequency="per_episode")
         exp.add_metric("loss", type="float", frequency="per_update")
@@ -24,7 +24,7 @@ class TestMetricWhitelist:
         wl = metric_whitelist(exp)
         assert wl == frozenset({"reward", "loss", "eval_reward"})
 
-    def test_returns_frozenset(self):
+    def test_returns_frozenset(self) -> None:
         exp = Experiment("test")
         exp.add_metric("x", type="int", frequency="per_episode")
         wl = metric_whitelist(exp)

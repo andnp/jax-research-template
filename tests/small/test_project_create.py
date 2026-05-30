@@ -1,6 +1,7 @@
 """Small tests for the project create command surface."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from jinja2 import BaseLoader, Environment
@@ -99,10 +100,10 @@ def test_project_create_dry_run_does_not_render_or_invoke_git(tmp_path: Path, mo
 
     calls: list[str] = []
 
-    def fake_run_copy(*args, **kwargs):
+    def fake_run_copy(*args: Any, **kwargs: Any) -> None:
         calls.append("copier")
 
-    def fake_run(args: list[str], cwd: Path):
+    def fake_run(args: list[str], cwd: Path) -> None:
         calls.append("subprocess")
 
     monkeypatch.setattr(project_module, "run_copy", fake_run_copy)
@@ -207,14 +208,14 @@ def test_project_create_renders_then_initializes_git_without_github_repo(tmp_pat
 
     calls: list[tuple[str, object, object]] = []
 
-    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs):
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
         assert data == {"project_name": "demo"}
         assert kwargs == {"defaults": True}
         project_root.mkdir()
         (project_root / "README.md").write_text("# demo\n", encoding="utf-8")
 
-    def fake_run(args: list[str], cwd: Path):
+    def fake_run(args: list[str], cwd: Path) -> None:
         calls.append((args[0], args, cwd))
 
     monkeypatch.setattr(project_module, "run_copy", fake_run_copy)
@@ -240,14 +241,14 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
 
     calls: list[tuple[str, object, object]] = []
 
-    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs):
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
         assert data == {"project_name": "demo"}
         assert kwargs == {"defaults": True}
         project_root.mkdir()
         (project_root / "README.md").write_text("# demo\n", encoding="utf-8")
 
-    def fake_run(args: list[str], cwd: Path):
+    def fake_run(args: list[str], cwd: Path) -> None:
         calls.append((args[0], args, cwd))
 
     monkeypatch.setattr(project_module, "run_copy", fake_run_copy)
