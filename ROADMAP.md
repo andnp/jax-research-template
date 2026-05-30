@@ -33,7 +33,7 @@ Optimizing for high-performance computing.
 
 ## Technical Debt & Maintenance
 - [x] Continuous integration (CI) for all libraries using `uv run pytest`.
-- [ ] Enforce 100% type coverage via `ty check` in all `libs/`.
+- [ ] Enforce 100% type coverage via `pyrefly check` in all `libs/`.
 - [ ] Performance regression suite using `pytest-benchmark`.
 - [x] Add `research-instrument` SQLite persistent storage backend.
 - [x] Add rl-components test coverage (buffer, networks, types).

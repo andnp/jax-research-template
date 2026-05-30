@@ -162,7 +162,7 @@ class TestDQNAtariTrainPath:
         config_only_args = [DQNAtariConfig(), DQNAtariRuntimeConfig()]
 
         with pytest.raises(TypeError):
-            make_train(*config_only_args)
+            make_train(*config_only_args)  # pyrefly: ignore[bad-argument-type]
 
     def test_make_train_runs_with_env_seam_and_emits_metrics(self):
         config = DQNAtariConfig(

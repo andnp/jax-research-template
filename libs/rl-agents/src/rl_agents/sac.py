@@ -1,17 +1,17 @@
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 
 import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from chex import dataclass
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.buffers import ReplayBuffer
+from rl_components.structs import chex_struct
 
 
-@dataclass(frozen=True)
+@chex_struct(frozen=True, kw_only=True)
 class SACConfig:
     LR: float = 3e-4
     BUFFER_SIZE: int = 100_000
@@ -25,24 +25,6 @@ class SACConfig:
     TARGET_ENTROPY: float | None = None
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
-
-    if TYPE_CHECKING:
-        def __init__(
-            self,
-            *,
-            LR: float = 3e-4,
-            BUFFER_SIZE: int = 100_000,
-            BATCH_SIZE: int = 256,
-            TOTAL_TIMESTEPS: int = 1_000_000,
-            LEARNING_STARTS: int = 5_000,
-            TRAIN_FREQUENCY: int = 1,
-            GAMMA: float = 0.99,
-            TAU: float = 0.005,
-            ALPHA: float = 0.2,
-            TARGET_ENTROPY: float | None = None,
-            ENV_NAME: str = "MountainCarContinuous-v0",
-            SEED: int = 42,
-        ) -> None: ...
 
 
 class Critic(nn.Module):

@@ -95,7 +95,7 @@ def run_post_tool_hooks(ctx: HookContext) -> None:
             sub_path = REPO_ROOT / sub
             # Use 'uv run' to ensure we use the workspace's environment
             ruff = sh(["uv", "run", "ruff", "check", "."], sub_path)
-            ty = sh(["uv", "run", "ty", "check", "."], sub_path)
+            pyrefly = sh(["uv", "run", "pyrefly", "check"], sub_path)
             
             # Run pyright only on changed files in this subrepo
             sub_files = [str(REPO_ROOT / f) for f in python_files if find_subrepo(f) == sub]
@@ -104,8 +104,8 @@ def run_post_tool_hooks(ctx: HookContext) -> None:
             failed = []
             if ruff.returncode != 0:
                 failed.append("ruff")
-            if ty.returncode != 0:
-                failed.append("ty")
+            if pyrefly.returncode != 0:
+                failed.append("pyrefly")
             if pyright.returncode != 0:
                 failed.append("pyright")
 
@@ -114,8 +114,8 @@ def run_post_tool_hooks(ctx: HookContext) -> None:
                 err = f"[Hook] Validation failed for subrepo: {sub}\n"
                 if ruff.returncode != 0:
                     err += f"--- Ruff Errors ---\n{ruff.stdout}{ruff.stderr}\n"
-                if ty.returncode != 0:
-                    err += f"--- Ty Errors ---\n{ty.stdout}{ty.stderr}\n"
+                if pyrefly.returncode != 0:
+                    err += f"--- Pyrefly Errors ---\n{pyrefly.stdout}{pyrefly.stderr}\n"
                 if pyright.returncode != 0:
                     err += f"--- Pyright Errors (changed files) ---\n{pyright.stdout}{pyright.stderr}"
                 messages.append(err)

@@ -15,7 +15,7 @@ We prioritize reproducibility, high performance, and code reuse.
 We use `uv` for dependency management.
 ```bash
 uv sync
-uv run ty check .
+uv run pyrefly check
 uv run ruff check .
 ```
 
