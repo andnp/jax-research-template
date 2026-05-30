@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal, NamedTuple, cast
+from typing import Literal, NamedTuple, cast
 
 import flax.linen as nn
 import jax
@@ -11,6 +11,7 @@ from jax_nn.distributional import (
     categorical_l2_project,
 )
 from jax_nn.layers import NatureCNN, NoisyLinear
+from jax_nn.typed_module import TypedApply
 from jax_replay.per import init_per_buffer, per_add, per_sample, per_update_priorities
 from jax_replay.types import PERBufferState
 from rl_components.structs import chex_struct
@@ -59,20 +60,11 @@ class _NStepAccumulatorState:
     size: jax.Array
 
 
-class RainbowNatureNetwork(nn.Module):
+class RainbowNatureNetwork(TypedApply[jax.Array], nn.Module):
     action_dim: int
     num_atoms: int
     observation_layout: Literal["hwc", "fhwc"]
     dtype: jnp.dtype = jnp.float32
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:

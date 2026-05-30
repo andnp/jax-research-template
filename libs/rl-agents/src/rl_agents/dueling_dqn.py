@@ -9,7 +9,7 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 import flax.linen as nn
 import jax
@@ -18,6 +18,7 @@ import optax
 from flax.training.train_state import TrainState
 from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
+from jax_nn.typed_module import TypedApply
 from rl_components.buffers import ReplayBuffer
 from rl_components.structs import chex_struct
 
@@ -43,7 +44,7 @@ class DuelingDQNConfig:
     NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
 
 
-class DuelingQNetwork(nn.Module):
+class DuelingQNetwork(TypedApply[jax.Array], nn.Module):
     """Q-network with a dueling architecture.
 
     A shared feature extractor feeds into a DuelingHead that
@@ -51,15 +52,6 @@ class DuelingQNetwork(nn.Module):
     """
 
     action_dim: int
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:

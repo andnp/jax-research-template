@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from jax_nn.initializers import legacy_dqn_uniform
+from jax_nn.typed_module import TypedApply
 
 
-class NatureCNN(nn.Module):
+class NatureCNN(TypedApply[Array], nn.Module):
     """Canonical Atari convolutional torso from the DQN Nature paper.
 
     Expects channel-last image observations and applies the standard three-layer
@@ -31,15 +30,6 @@ class NatureCNN(nn.Module):
     """
 
     dtype: jnp.dtype = jnp.float32
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: Array,
-            *,
-            rngs: object | None = None,
-        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:
@@ -70,7 +60,7 @@ class NatureCNN(nn.Module):
         return x.reshape(x.shape[:-3] + (-1,))
 
 
-class NoisyLinear(nn.Module):
+class NoisyLinear(TypedApply[Array], nn.Module):
     """Noisy linear layer with factored Gaussian noise (Fortunato et al., 2017).
 
     Implements:
@@ -99,15 +89,6 @@ class NoisyLinear(nn.Module):
     features: int
     sigma_init: float = 0.5
     dtype: jnp.dtype = jnp.float32
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: Array,
-            *,
-            rngs: object | None = None,
-        ) -> Array: ...
 
     @nn.compact
     def __call__(self, x: Array) -> Array:

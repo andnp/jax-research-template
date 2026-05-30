@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import Literal, Protocol, cast
 
 import flax.linen as nn
 import jax
@@ -7,6 +7,7 @@ import optax
 from flax.training.train_state import TrainState
 from jax_nn.initializers import legacy_dqn_uniform
 from jax_nn.layers import NatureCNN
+from jax_nn.typed_module import TypedApply
 from rl_components.buffers import ReplayBuffer
 from rl_components.structs import chex_struct
 
@@ -30,17 +31,8 @@ class DQNConfig:
     NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
 
 
-class QNetwork(nn.Module):
+class QNetwork(TypedApply[jax.Array], nn.Module):
     action_dim: int
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -82,18 +74,9 @@ class _HasNetworkPreset(Protocol):
     def NETWORK_PRESET(self) -> Literal["mlp", "nature_cnn"]: ...
 
 
-class NatureQNetwork(nn.Module):
+class NatureQNetwork(TypedApply[jax.Array], nn.Module):
     action_dim: int
     observation_layout: Literal["hwc", "fhwc"]
-
-    if TYPE_CHECKING:
-        def apply(
-            self,
-            variables: object,
-            x: jax.Array,
-            *,
-            rngs: object | None = None,
-        ) -> jax.Array: ...
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
