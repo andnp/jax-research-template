@@ -5,7 +5,7 @@ from pathlib import Path
 from .config import SlurmConfig
 
 
-def build_sbatch_flags(config: SlurmConfig):
+def build_sbatch_flags(config: SlurmConfig) -> str:
     flags: list[str] = []
     if config.account:
         flags.append(f"#SBATCH --account={config.account}")
@@ -28,7 +28,7 @@ def build_job_script(
     spec_name: str,
     *,
     working_dir: Path | None = None,
-):
+) -> str:
     if not execution_ids:
         raise ValueError("execution_ids must not be empty.")
 
@@ -77,7 +77,7 @@ def build_job_script(
 def write_job_script(
     script: str,
     output_path: Path,
-):
+) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(script)
     return output_path
