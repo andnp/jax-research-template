@@ -16,11 +16,11 @@ from research_runner.types import ExecutionContext, ExecutionResult
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _trivial_train_fn(ctx: ExecutionContext):
+def _trivial_train_fn(ctx: ExecutionContext) -> ExecutionResult:
     return ExecutionResult(metadata={"trained": True})
 
 
-def _make_experiment(name: str = "TestSweep"):
+def _make_experiment(name: str = "TestSweep") -> Experiment:
     algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
     env = Component(name="TestEnv", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
     exp = Experiment(name, description="test experiment")
@@ -44,7 +44,7 @@ class TestRunExperiment:
     def executions_root(self, tmp_path: Path) -> Path:
         return tmp_path / "results" / "executions"
 
-    def test_happy_path(self, db_path: Path, executions_root: Path):
+    def test_happy_path(self, db_path: Path, executions_root: Path) -> None:
         """
         Full lifecycle: sync experiment, plan, execute with trivial callback,
         verify execution roots, DB status, manifest, and artifacts.
@@ -83,7 +83,7 @@ class TestRunExperiment:
                 assert artifacts is not None
                 assert artifacts.root_path == str(root)
 
-    def test_on_batch_complete_invoked(self, db_path: Path, executions_root: Path):
+    def test_on_batch_complete_invoked(self, db_path: Path, executions_root: Path) -> None:
         """
         The on_batch_complete callback receives each execution root as it finishes.
         """
@@ -102,7 +102,7 @@ class TestRunExperiment:
         assert len(completed_roots) == len(roots)
         assert completed_roots == roots
 
-    def test_already_satisfied_returns_empty(self, db_path: Path, executions_root: Path):
+    def test_already_satisfied_returns_empty(self, db_path: Path, executions_root: Path) -> None:
         """
         Running the same experiment twice returns an empty list because all
         runs are already COMPLETED.
@@ -154,7 +154,7 @@ class TestExecuteBatch:
             assert len(planned) >= 1
         return planned[0]
 
-    def test_happy_path(self, db_path: Path, executions_root: Path):
+    def test_happy_path(self, db_path: Path, executions_root: Path) -> None:
         """
         Manually plan a batch then execute it; verify status transitions
         and manifest creation.
@@ -177,14 +177,14 @@ class TestExecuteBatch:
             assert execution is not None
             assert execution.status == "COMPLETED"
 
-    def test_failure_sets_failed_status(self, db_path: Path, executions_root: Path):
+    def test_failure_sets_failed_status(self, db_path: Path, executions_root: Path) -> None:
         """
         When the train callback raises, the execution status is set to FAILED
         and the exception propagates.
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
-        def _failing_train_fn(ctx: ExecutionContext):
+        def _failing_train_fn(ctx: ExecutionContext) -> ExecutionResult:
             raise RuntimeError("Training exploded")
 
         with pytest.raises(RuntimeError, match="Training exploded"):
@@ -206,7 +206,7 @@ class TestExecuteBatch:
 
 
 class TestDeriveMetricsDbPath:
-    def test_with_executions_ancestor(self):
+    def test_with_executions_ancestor(self) -> None:
         """
         When execution_root contains an 'executions' ancestor directory,
         metrics.sqlite is placed next to it.
@@ -215,7 +215,7 @@ class TestDeriveMetricsDbPath:
         result = _derive_metrics_db_path(root)
         assert result == Path("/tmp/results/metrics.sqlite")
 
-    def test_without_executions_ancestor_raises(self):
+    def test_without_executions_ancestor_raises(self) -> None:
         """
         When execution_root has no 'executions' ancestor, raises ValueError
         to force explicit metrics_db_path.
@@ -224,7 +224,7 @@ class TestDeriveMetricsDbPath:
         with pytest.raises(ValueError, match="Pass metrics_db_path explicitly"):
             _derive_metrics_db_path(root)
 
-    def test_executions_is_root_itself(self):
+    def test_executions_is_root_itself(self) -> None:
         """
         When the execution_root directory is itself named 'executions',
         metrics.sqlite is placed in its parent.
@@ -238,7 +238,7 @@ class TestDeriveMetricsDbPath:
 
 
 class TestCaptureGitMetadata:
-    def test_returns_tuple_of_two(self):
+    def test_returns_tuple_of_two(self) -> None:
         """
         capture_git_metadata returns a 2-tuple; each element is str or None.
         """

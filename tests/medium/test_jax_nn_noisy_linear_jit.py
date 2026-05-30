@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
@@ -17,7 +19,7 @@ class TestNoisyLinearJIT:
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
 
         @jax.jit
-        def forward(variables, x, noise_key):
+        def forward(variables: Any, x: jax.Array, noise_key: jax.Array) -> jax.Array:
             return model.apply(variables, x, rngs={"noise": noise_key})
 
         y = forward(variables, x, jax.random.key(99))
@@ -29,7 +31,7 @@ class TestNoisyLinearJIT:
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
 
         @jax.jit
-        def loss_fn(params, x, noise_key):
+        def loss_fn(params: Any, x: jax.Array, noise_key: jax.Array) -> jax.Array:
             y = model.apply({"params": params}, x, rngs={"noise": noise_key})
             return jnp.sum(y**2)
 
@@ -43,7 +45,7 @@ class TestNoisyLinearJIT:
         variables = model.init({"params": jax.random.key(SEED), "noise": jax.random.key(SEED + 1)}, x)
 
         @jax.jit
-        def forward(variables, x, noise_key):
+        def forward(variables: Any, x: jax.Array, noise_key: jax.Array) -> jax.Array:
             return model.apply(variables, x, rngs={"noise": noise_key})
 
         y1 = forward(variables, x, jax.random.key(100))

@@ -1,6 +1,7 @@
 """Medium tests for rl_agents.ppo — gradient flow and JIT compilation."""
 
 from dataclasses import dataclass
+from typing import Any, override
 
 import jax
 import jax.numpy as jnp
@@ -99,10 +100,12 @@ class FakeContinuousEnv:
 
 
 class LargeMagnitudeDiscreteEnv(FakeDiscreteEnv):
+    @override
     def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
         del key, params
         return jnp.full((4,), 1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
 
+    @override
     def step(
         self,
         key: jax.Array,
@@ -121,10 +124,12 @@ class LargeMagnitudeDiscreteEnv(FakeDiscreteEnv):
 
 
 class LargeMagnitudeContinuousEnv(FakeContinuousEnv):
+    @override
     def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
         del key, params
         return jnp.full((4,), -1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
 
+    @override
     def step(
         self,
         key: jax.Array,
@@ -144,6 +149,7 @@ class LargeMagnitudeContinuousEnv(FakeContinuousEnv):
 
 
 class RewardLoggingEnv(FakeDiscreteEnv):
+    @override
     def step(
         self,
         key: jax.Array,
@@ -184,7 +190,7 @@ class TestPPOGradientFlow:
         with pytest.raises(TypeError, match="env"):
             make_train(*config_only_args)
 
-    def test_params_change_after_update(self):
+    def test_params_change_after_update(self) -> None:
         """ActorCritic params should change after a PPO gradient step."""
         net = ActorCritic(action_dim=2)
         key = jax.random.key(0)
@@ -202,7 +208,7 @@ class TestPPOGradientFlow:
         advantages = jax.random.normal(jax.random.key(3), (batch_size,))
         targets = jax.random.normal(jax.random.key(4), (batch_size,))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             probs, value = net.apply(params, obs)
             log_prob = probs.log_prob(actions)
 
@@ -230,13 +236,13 @@ class TestPPOGradientFlow:
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed, "Parameters did not change after gradient step"
 
-    def test_ppo_loss_jit(self):
+    def test_ppo_loss_jit(self) -> None:
         """PPO loss should JIT-compile without errors."""
         net = ActorCritic(action_dim=3)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def compute_loss(params, obs, actions, old_log_probs, advantages, targets):
+        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, old_log_probs: jax.Array, advantages: jax.Array, targets: jax.Array) -> jax.Array:
             probs, value = net.apply(params, obs)
             log_prob = probs.log_prob(actions)
             ratio = jnp.exp(log_prob - old_log_probs)
@@ -330,7 +336,7 @@ class TestContinuousPPOGradientFlow:
         assert metrics["returned_episode"].shape == (2,)
         assert metrics["returned_episode_returns"].shape == (2,)
 
-    def test_params_change_after_update(self):
+    def test_params_change_after_update(self) -> None:
         net = ContinuousActorCritic(action_dim=2)
         key = jax.random.key(0)
         params = net.init(key, jnp.zeros((4,)))
@@ -347,7 +353,7 @@ class TestContinuousPPOGradientFlow:
         advantages = jax.random.normal(jax.random.key(3), (batch_size,))
         targets = jax.random.normal(jax.random.key(4), (batch_size,))
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             policy, value = net.apply(params, obs)
             log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
 
@@ -373,12 +379,12 @@ class TestContinuousPPOGradientFlow:
         assert loss.shape == ()
         assert any_changed, "Parameters did not change after continuous PPO gradient step"
 
-    def test_continuous_ppo_loss_jit(self):
+    def test_continuous_ppo_loss_jit(self) -> None:
         net = ContinuousActorCritic(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def compute_loss(params, obs, actions, old_log_probs, advantages, targets):
+        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, old_log_probs: jax.Array, advantages: jax.Array, targets: jax.Array) -> jax.Array:
             policy, value = net.apply(params, obs)
             log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
             ratio = jnp.exp(log_prob - old_log_probs)

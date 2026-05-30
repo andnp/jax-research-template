@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -51,7 +52,7 @@ class FakeAtariLikeEnv:
 
 
 class TestRainbowNatureEnvIntegration:
-    def test_make_train_accepts_injected_atari_like_env(self):
+    def test_make_train_accepts_injected_atari_like_env(self) -> None:
         config = RainbowConfig(
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,
@@ -78,14 +79,16 @@ class TestRainbowNatureEnvIntegration:
         assert buffer_state.data["3"].dtype == jnp.uint8
         assert int(buffer_state.logical_capacity) == 16
 
-    def test_make_train_inserts_n_step_transitions_and_flushes_terminals(self):
+    def test_make_train_inserts_n_step_transitions_and_flushes_terminals(self) -> None:
         class EpisodeCyclingEnv(FakeAtariLikeEnv):
+            @override
             def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
                 del key, params
                 observation = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
                 state = jnp.array(0, dtype=jnp.int32)
                 return observation, state
 
+            @override
             def step(
                 self,
                 key: jax.Array,

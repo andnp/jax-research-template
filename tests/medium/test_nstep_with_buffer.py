@@ -73,7 +73,7 @@ class TestNstepWithBuffer:
         dones = jnp.zeros(4)
 
         @jax.jit
-        def _compute(rewards, dones):
+        def _compute(rewards: jax.Array, dones: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
             return compute_nstep_returns(rewards, dones, gamma=0.99, n=2)
 
         nstep_r, _, _ = _compute(rewards, dones)

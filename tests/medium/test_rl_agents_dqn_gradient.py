@@ -3,12 +3,13 @@
 import jax
 import jax.numpy as jnp
 import optax
+from typing import Any
 from flax.training.train_state import TrainState
 from rl_agents.dqn import DQNConfig, _make_q_network
 
 
 class TestDQNGradientFlow:
-    def test_params_change_after_update(self):
+    def test_params_change_after_update(self) -> None:
         """Network parameters should change after a gradient step."""
         net = _make_q_network(DQNConfig(), action_dim=2)
         key = jax.random.key(0)
@@ -25,7 +26,7 @@ class TestDQNGradientFlow:
         dones = jnp.zeros((32,))
         target_params = params
 
-        def loss_fn(params):
+        def loss_fn(params: Any) -> jax.Array:
             q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
             next_q = net.apply(target_params, next_obs)
@@ -44,13 +45,13 @@ class TestDQNGradientFlow:
         assert any_changed, "Parameters did not change after gradient step"
         assert float(loss) > 0
 
-    def test_loss_fn_jit(self):
+    def test_loss_fn_jit(self) -> None:
         """Loss function should be JIT-compilable."""
         net = _make_q_network(DQNConfig(), action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
-        def compute_loss(params, obs, actions, rewards, next_obs, dones):
+        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, rewards: jax.Array, next_obs: jax.Array, dones: jax.Array) -> jax.Array:
             q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
             next_q = net.apply(params, next_obs)
@@ -67,7 +68,7 @@ class TestDQNGradientFlow:
         loss = compute_loss(params, obs, actions, rewards, next_obs, dones)
         assert loss.shape == ()
 
-    def test_nature_q_network_gradient_and_jit(self):
+    def test_nature_q_network_gradient_and_jit(self) -> None:
         """Nature preset should support gradient flow for Atari-style stacked observations."""
         net = _make_q_network(
             DQNConfig(NETWORK_PRESET="nature_cnn"),
@@ -77,7 +78,7 @@ class TestDQNGradientFlow:
         params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
 
         @jax.jit
-        def compute_loss(params, obs, actions, rewards, next_obs, dones):
+        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, rewards: jax.Array, next_obs: jax.Array, dones: jax.Array) -> jax.Array:
             q_values = net.apply(params, obs)
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
             next_q = net.apply(params, next_obs)

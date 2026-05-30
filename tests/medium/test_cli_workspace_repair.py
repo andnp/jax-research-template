@@ -3,33 +3,34 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 from research_cli.main import app
 from typer.testing import CliRunner
 
 runner = CliRunner()
 
 
-def _git(cwd: Path, *args: str):
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["git", *args], cwd=cwd, check=False, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return result
 
 
-def _init_repo(repo_root: Path):
+def _init_repo(repo_root: Path) -> None:
     repo_root.mkdir(parents=True, exist_ok=True)
     _git(repo_root, "init", "--initial-branch=main")
     _git(repo_root, "config", "user.name", "Test User")
     _git(repo_root, "config", "user.email", "test@example.com")
 
 
-def _create_shell_workspace(workspace_root: Path):
+def _create_shell_workspace(workspace_root: Path) -> None:
     _init_repo(workspace_root)
     (workspace_root / "projects").mkdir()
     (workspace_root / "pyproject.toml").write_text("[tool.uv]\npackage = false\n", encoding="utf-8")
     (workspace_root / "research.yaml").write_text("core_path: core\nstorage_backend: local\n", encoding="utf-8")
 
 
-def test_workspace_repair_restores_recorded_submodule_revision_and_cleans_submodule(tmp_path: Path, monkeypatch) -> None:
+def test_workspace_repair_restores_recorded_submodule_revision_and_cleans_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     core_origin = tmp_path / "core-origin"
     _init_repo(core_origin)
     tracked_file = core_origin / "tracked.txt"
