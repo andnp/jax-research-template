@@ -1,10 +1,11 @@
 import math
-from typing import NamedTuple, Protocol, cast
+from typing import Any, Callable, NamedTuple, Protocol, cast
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
 
@@ -23,6 +24,14 @@ class _ObservationNormState(NamedTuple):
     observation_count: jax.Array
     mean: jax.Array
     m2: jax.Array
+
+
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    env_state: object
+    last_obs: jax.Array
+    obs_norm_state: _ObservationNormState
+    rng: jax.Array
 
 
 class _ObservationSpace(Protocol):
@@ -121,7 +130,7 @@ def _maybe_normalize_observation(
     return _normalize_observation(state, obs, eps=eps, clip=clip)
 
 
-def make_train(config: PPOConfig, env: object, env_params: object | None = None):
+def make_train(config: PPOConfig, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     env = cast(_EnvLike, env)
     if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
         raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
@@ -129,7 +138,7 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
     normalize_observations = config.NORMALIZE_OBSERVATIONS
     reward_scale = jnp.asarray(config.REWARD_SCALE, dtype=jnp.float32)
 
-    def train(rng):
+    def train(rng: jax.Array) -> dict[str, Any]:
         # INIT NETWORK
         action_space = env.action_space(env_params)
         continuous_actions = not _is_discrete_action_space(action_space)
@@ -159,11 +168,11 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
         obs_norm_state = _init_observation_norm_state(obsv)
 
         # TRAIN LOOP
-        def _update_step(runner_state, unused):
+        def _update_step(runner_state: RunnerState, unused: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
             train_state, env_state, last_obs, obs_norm_state, rng = runner_state
 
             # COLLECT TRAJECTORIES
-            def _env_step(runner_state, unused):
+            def _env_step(runner_state: RunnerState, unused: jax.Array) -> tuple[RunnerState, Transition]:
                 train_state, env_state, last_obs, obs_norm_state, rng = runner_state
                 normalized_obs = _maybe_normalize_observation(
                     last_obs,
@@ -185,7 +194,7 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
                 scaled_reward = reward * reward_scale
                 obs_norm_state = _maybe_update_observation_norm_state(obs_norm_state, obsv, enabled=normalize_observations)
                 transition = Transition(done, action, value, scaled_reward, log_prob, normalized_obs, info)
-                runner_state = (train_state, env_state, obsv, obs_norm_state, rng)
+                runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv, obs_norm_state=obs_norm_state, rng=rng)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(_env_step, runner_state, None, config.NUM_STEPS)
@@ -201,8 +210,8 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
             )
             _, last_val = network.apply(train_state.params, normalized_last_obs)
 
-            def _calculate_gae(traj_batch, last_val):
-                def _get_advantages(gae_and_next_value, transition):
+            def _calculate_gae(traj_batch: Transition, last_val: jax.Array) -> tuple[jax.Array, jax.Array]:
+                def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition) -> tuple[tuple[jax.Array, jax.Array], jax.Array]:
                     gae, next_value = gae_and_next_value
                     done, value, reward = (
                         transition.done,
@@ -225,11 +234,11 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
             advantages, targets = _calculate_gae(traj_batch, last_val)
 
             # UPDATE NETWORK
-            def _update_epoch(update_state, unused):
-                def _update_minbatch(train_state, batch_info):
+            def _update_epoch(update_state: tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], unused: jax.Array) -> tuple[tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], Any]:
+                def _update_minbatch(train_state: TrainState, batch_info: tuple[Transition, jax.Array, jax.Array]) -> tuple[TrainState, tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]]:
                     traj_batch, advantages, targets = batch_info
 
-                    def _loss_fn(params, traj_batch, advantages, targets):
+                    def _loss_fn(params: VariableDict, traj_batch: Transition, advantages: jax.Array, targets: jax.Array) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
                         # RERUN NETWORK
                         policy, value = network.apply(params, traj_batch.obs)
                         log_prob = _sum_action_event_terms(policy.log_prob(traj_batch.action), is_continuous=continuous_actions)
@@ -285,11 +294,11 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
             metric = jax.tree_util.tree_map(lambda x: x.mean(), traj_batch.info)
             metric["returned_episode_returns"] = traj_batch.info["returned_episode_returns"].mean()
 
-            runner_state = (train_state, env_state, last_obs, obs_norm_state, update_state[-1])
+            runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=last_obs, obs_norm_state=obs_norm_state, rng=update_state[-1])
             return runner_state, metric
 
         num_updates = config.TOTAL_TIMESTEPS // config.NUM_STEPS
-        runner_state = (train_state, env_state, obsv, obs_norm_state, rng)
+        runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv, obs_norm_state=obs_norm_state, rng=rng)
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, None, num_updates)
         return {"runner_state": runner_state, "metrics": metrics}
 
