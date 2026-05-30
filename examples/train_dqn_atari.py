@@ -8,7 +8,7 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_total_train_env_steps,
     make_train,
 )
-from rl_components.atari import JAXAtariConfig, make_atari_adapter
+from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
@@ -33,8 +33,8 @@ def main():
         cast(
             EnvProtocol[jax.Array, object, jax.Array, None],
             make_atari_adapter(
-                JAXAtariConfig(
-                    game="pong",
+                AleAtariConfig(
+                    game="Pong",
                     frame_skip=config.NUM_ACTION_REPEATS,
                 )
             ),
@@ -43,7 +43,7 @@ def main():
     train_fn = make_train(config, runtime_config, env=env, env_params=None)
     train_jit = jax.jit(train_fn)
 
-    print("--- Training DQN on JAXAtari Pong ---")
+    print("--- Training DQN on ALE Pong ---")
     print("Compiling & running quick signs-of-life probe...")
     start_time = time.time()
     out = train_jit(rng)
