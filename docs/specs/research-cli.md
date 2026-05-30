@@ -126,7 +126,7 @@ Example:
 
 ```yaml
 core_path: core
-github_owner: rlcore
+github_owner: my-org
 storage_backend: local
 doctor:
     expected_accelerators:

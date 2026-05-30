@@ -36,6 +36,7 @@ dependencies = [
     "research-store",
     "rl-agents",
     "rl-components",
+    "process-control",
 ]
 
 [project.scripts]
@@ -62,6 +63,7 @@ research-runner = { workspace = true }
 research-store = { workspace = true }
 rl-agents = { workspace = true }
 rl-components = { workspace = true }
+process-control = { workspace = true }
 
 [tool.uv.workspace]
 members = ["libs/*", "cli"]
@@ -105,6 +107,7 @@ search-path = [
     "libs/research-store/src",
     "libs/rl-agents/src",
     "libs/rl-components/src",
+    "libs/process-control/src",
 ]
 
 [tool.pyrefly.errors]
