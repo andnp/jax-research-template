@@ -134,7 +134,7 @@ def test_check_environment_health_uses_non_mutating_uv_query_and_reports_jax_bac
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
     def probe_jax():
-        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=None, run_command=run_command, probe_jax=probe_jax)
 
@@ -144,6 +144,7 @@ def test_check_environment_health_uses_non_mutating_uv_query_and_reports_jax_bac
     assert "uv responded to '--version': uv 0.7.2." in report.diagnostics[0].message
     assert "Default backend: cpu." in report.diagnostics[1].message
     assert "Detected device platforms: cpu." in report.diagnostics[1].message
+    assert "XLA compute verified." in report.diagnostics[1].message
     assert "No doctor.expected_accelerators were configured. Observed accelerators: cpu." in report.diagnostics[2].message
 
 
@@ -155,7 +156,7 @@ def test_check_environment_health_reports_uv_failure_without_skipping_jax_probe(
         return EnvironmentCommandResult(returncode=127, stdout="", stderr="uv: command not found")
 
     def probe_jax():
-        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=None, run_command=run_command, probe_jax=probe_jax)
 
@@ -174,7 +175,7 @@ def test_check_environment_health_fails_when_expected_accelerator_is_missing(tmp
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
     def probe_jax():
-        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=("gpu",), run_command=run_command, probe_jax=probe_jax)
 
@@ -192,7 +193,7 @@ def test_check_environment_health_maps_vendor_specific_gpu_platforms_to_gpu_expe
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
     def probe_jax():
-        return JaxProbeResult(ok=True, backend="cuda", device_platforms=("cuda", "cpu"))
+        return JaxProbeResult(ok=True, backend="cuda", device_platforms=("cuda", "cpu"), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=("gpu",), run_command=run_command, probe_jax=probe_jax)
 
@@ -250,7 +251,7 @@ def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
     def probe_jax():
-        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
+        return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = run_doctor(
         workspace_root=workspace_root,

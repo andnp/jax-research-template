@@ -71,6 +71,7 @@ class JaxProbeResult:
     backend: str | None
     device_platforms: tuple[str, ...]
     error: str | None = None
+    compute_verified: bool = False
 
 
 class JaxProbeRunner(Protocol):
@@ -324,7 +325,16 @@ def _probe_jax():
     except (ImportError, RuntimeError) as exc:
         return JaxProbeResult(ok=False, backend=None, device_platforms=(), error=str(exc))
 
-    return JaxProbeResult(ok=True, backend=backend, device_platforms=device_platforms)
+    compute_verified = False
+    try:
+        jnp = importlib.import_module("jax.numpy")
+        result = jax.jit(lambda x: x + 1)(jnp.array(1.0))
+        float(result)
+        compute_verified = True
+    except Exception:
+        pass
+
+    return JaxProbeResult(ok=True, backend=backend, device_platforms=device_platforms, compute_verified=compute_verified)
 
 
 def _blocked_diagnostic(name: GitCheckName, resolved_path: Path, reason: str):
@@ -399,10 +409,11 @@ def _uv_diagnostic(result: EnvironmentCommandResult):
 def _jax_import_diagnostic(result: JaxProbeResult):
     if result.ok:
         platform_text = ", ".join(result.device_platforms) if result.device_platforms else "none"
+        compute_text = "XLA compute verified." if result.compute_verified else "XLA compute check failed."
         return EnvironmentDiagnostic(
             name="jax_import",
             ok=True,
-            message=f"JAX imported successfully. Default backend: {result.backend}. Detected device platforms: {platform_text}.",
+            message=f"JAX imported successfully. Default backend: {result.backend}. Detected device platforms: {platform_text}. {compute_text}",
         )
 
     detail = result.error if result.error else "JAX import failed."
