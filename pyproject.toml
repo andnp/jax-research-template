@@ -23,6 +23,7 @@ dependencies = [
     "pandas>=2.0",
     "pydantic~=2.12",
     "scipy>=1.14",
+    "rich",
     "experiment-definition",
     "jax-nn",
     "jax-replay",
@@ -30,6 +31,7 @@ dependencies = [
     "research-analysis",
     "research-cli",
     "research-instrument",
+    "research-plot",
     "research-runner",
     "research-store",
     "rl-agents",
@@ -55,6 +57,7 @@ research-analysis = { workspace = true }
 research-cli = { workspace = true }
 research-cluster = { workspace = true }
 research-instrument = { workspace = true }
+research-plot = { workspace = true }
 research-runner = { workspace = true }
 research-store = { workspace = true }
 rl-agents = { workspace = true }

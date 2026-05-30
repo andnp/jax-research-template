@@ -1,11 +1,12 @@
 import math
-from typing import Any, Callable, NamedTuple, Protocol, cast
+from typing import Any, Callable, NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
 
@@ -34,39 +35,11 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-class _ObservationSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _ActionSpace(Protocol):
-    n: int
-
-
-class _ContinuousActionSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _EnvLike(Protocol):
-    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
-
-    def action_space(self, params: object | None = None) -> _ActionSpace: ...
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
-
-    def step(
-        self,
-        key: jax.Array,
-        state: object,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
-
-
 def _is_discrete_action_space(action_space: object) -> bool:
     return hasattr(action_space, "n")
 
 
-def _continuous_action_dim(action_space: _ContinuousActionSpace) -> int:
+def _continuous_action_dim(action_space: ContinuousActionSpace) -> int:
     if len(action_space.shape) != 1:
         raise ValueError(f"continuous PPO expects a flat action shape, got {action_space.shape}")
     return action_space.shape[0]
@@ -130,8 +103,7 @@ def _maybe_normalize_observation(
     return _normalize_observation(state, obs, eps=eps, clip=clip)
 
 
-def make_train(config: PPOConfig, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
+def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
         raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
 
@@ -143,10 +115,10 @@ def make_train(config: PPOConfig, env: object, env_params: object | None = None)
         action_space = env.action_space(env_params)
         continuous_actions = not _is_discrete_action_space(action_space)
         if continuous_actions:
-            continuous_action_space = cast(_ContinuousActionSpace, action_space)
+            continuous_action_space = cast(ContinuousActionSpace, action_space)
             network = ContinuousActorCritic(_continuous_action_dim(continuous_action_space), activation="tanh")
         else:
-            discrete_action_space = cast(_ActionSpace, action_space)
+            discrete_action_space = cast(DiscreteActionSpace, action_space)
             network = ActorCritic(discrete_action_space.n, activation="tanh")
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(env.observation_space(env_params).shape)

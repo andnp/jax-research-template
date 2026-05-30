@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -50,24 +52,24 @@ class GymnaxCompatibilityBridge[ObservationT, StateT, ActionT, ParamsT]:
     def __getattr__(self, name: str) -> object:
         return getattr(self._env, name)
 
-    def observation_space(self, params: ParamsT | None = None) -> GymnaxSpace:
-        return _observation_space_from_spec(self._env.spec(params))
+    def observation_space(self, params: object | None = None) -> GymnaxSpace:
+        return _observation_space_from_spec(self._env.spec(cast(ParamsT | None, params)))
 
-    def action_space(self, params: ParamsT | None = None) -> GymnaxSpace | GymnaxDiscreteSpace:
-        return _action_space_from_spec(self._env.spec(params))
+    def action_space(self, params: object | None = None) -> GymnaxSpace | GymnaxDiscreteSpace:
+        return _action_space_from_spec(self._env.spec(cast(ParamsT | None, params)))
 
-    def reset(self, key: chex.PRNGKey, params: ParamsT | None = None) -> tuple[ObservationT, StateT]:
-        reset = self._env.reset(key, params)
+    def reset(self, key: chex.PRNGKey, params: object | None = None) -> tuple[ObservationT, StateT]:
+        reset = self._env.reset(key, cast(ParamsT | None, params))
         return reset.observation, reset.state
 
     def step(
         self,
         key: chex.PRNGKey,
-        state: StateT,
+        state: object,
         action: ActionT,
-        params: ParamsT | None = None,
-    ) -> tuple[ObservationT, StateT, jax.Array, jax.Array, dict[str, jax.Array]]:
-        transition = self._env.step(key, state, action, params)
+        params: object | None = None,
+    ) -> tuple[ObservationT, object, jax.Array, jax.Array, dict[str, jax.Array]]:
+        transition = self._env.step(key, cast(StateT, state), action, cast(ParamsT | None, params))
         done = jnp.logical_or(transition.terminated, transition.truncated)
         info = dict(transition.info)
         info.setdefault("terminated", jnp.asarray(transition.terminated))

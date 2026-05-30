@@ -1404,6 +1404,8 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "polars" },
+    { name = "research-plot" },
+    { name = "rich" },
     { name = "scipy" },
 ]
 
@@ -1412,6 +1414,8 @@ requires-dist = [
     { name = "numba", specifier = "~=0.61" },
     { name = "numpy", specifier = "~=2.0" },
     { name = "polars", specifier = "~=1.22" },
+    { name = "research-plot", virtual = "libs/research-plot" },
+    { name = "rich" },
     { name = "scipy", specifier = "~=1.14" },
 ]
 
@@ -1475,8 +1479,10 @@ dependencies = [
     { name = "research-analysis" },
     { name = "research-cli" },
     { name = "research-instrument" },
+    { name = "research-plot" },
     { name = "research-runner" },
     { name = "research-store" },
+    { name = "rich" },
     { name = "rl-agents" },
     { name = "rl-components" },
     { name = "scipy" },
@@ -1516,8 +1522,10 @@ requires-dist = [
     { name = "research-analysis", editable = "libs/research-analysis" },
     { name = "research-cli", editable = "cli" },
     { name = "research-instrument", editable = "libs/research-instrument" },
+    { name = "research-plot", virtual = "libs/research-plot" },
     { name = "research-runner", editable = "libs/research-runner" },
     { name = "research-store", editable = "libs/research-store" },
+    { name = "rich" },
     { name = "rl-agents", editable = "libs/rl-agents" },
     { name = "rl-components", editable = "libs/rl-components" },
     { name = "scipy", specifier = ">=1.14" },
@@ -1555,6 +1563,12 @@ requires-dist = [
 name = "research-plot"
 version = "0.1.0"
 source = { virtual = "libs/research-plot" }
+dependencies = [
+    { name = "matplotlib" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "matplotlib" }]
 
 [[package]]
 name = "research-runner"

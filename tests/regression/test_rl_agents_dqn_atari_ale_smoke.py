@@ -24,7 +24,7 @@ def test_dqn_atari_ale_smoke() -> None:
         cast(EnvProtocol, make_atari_adapter(AleAtariConfig(game="Pong")))
     )
 
-    train = make_train(config, runtime_config, env=env, env_params=None)
+    train = make_train(config, runtime_config, env=env, env_params=None)  # type: ignore[arg-type]
     out = jax.jit(train)(jax.random.key(0))
 
     metrics = out["metrics"]

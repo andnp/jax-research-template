@@ -1,9 +1,10 @@
 [project]
 name = "research-plot"
 version = "0.1.0"
-description = "Stub — not yet implemented"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "matplotlib",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]

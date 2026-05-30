@@ -58,7 +58,7 @@ class TestRewardScaleValidation:
         config = PPOConfig(REWARD_SCALE=reward_scale)
 
         with pytest.raises(ValueError, match="REWARD_SCALE"):
-            make_train(config, env=_ValidationEnv(), env_params=None)
+            make_train(config, env=_ValidationEnv(), env_params=None)  # type: ignore[arg-type]
 
 
 class TestPPOClippedObjective:

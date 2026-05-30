@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -18,6 +20,7 @@ from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 @dataclass(frozen=True)
 class FakeObservationSpace:
     shape: tuple[int, ...]
+    dtype: jnp.dtype = jnp.float32
 
 
 @dataclass(frozen=True)
@@ -26,11 +29,11 @@ class FakeActionSpace:
 
 
 class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(3,))
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
         del params
         return FakeActionSpace(shape=(2,))
 
@@ -129,7 +132,7 @@ class TestSACGradientFlow:
         config_only_args = [config]
 
         with pytest.raises(TypeError, match="env"):
-            make_train(*config_only_args)
+            make_train(*config_only_args)  # type: ignore[arg-type]
 
     def test_make_train_accepts_normalized_canonical_env_via_bridge(self) -> None:
         config = SACConfig(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)
@@ -143,7 +146,7 @@ class TestSACGradientFlow:
         )
         gymnax_env = GymnaxCompatibilityBridge(normalized_env)
 
-        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))
+        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))  # type: ignore[arg-type]
         metrics = out["metrics"]
 
         assert metrics["returned_episode"].shape == (4,)

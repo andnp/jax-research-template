@@ -82,11 +82,11 @@ def _canonical_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: j
     return final_state, metrics.sum()
 
 
-def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[jax.Array, jax.Array]:
+def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[object, jax.Array]:
     env = GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyCanonicalEnv())
     _, state = env.reset(reset_key, None)
 
-    def _step(carry_state: jax.Array, xs: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+    def _step(carry_state: object, xs: tuple[jax.Array, jax.Array]) -> tuple[object, jax.Array]:
         step_key, action = xs
         observation, next_state, reward, done, info = env.step(step_key, carry_state, action, None)
         metric = (

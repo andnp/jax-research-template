@@ -1,4 +1,4 @@
-from typing import Any, Callable, Literal, NamedTuple, cast
+from typing import Any, Callable, Literal, NamedTuple
 
 import flax.linen as nn
 import jax
@@ -15,9 +15,10 @@ from jax_nn.layers import NatureCNN, NoisyLinear
 from jax_nn.typed_module import TypedApply
 from jax_replay.per import init_per_buffer, per_add, per_sample, per_update_priorities
 from jax_replay.types import PERBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import _EnvLike, _infer_nature_observation_layout, _prepare_nature_observations
+from rl_agents.dqn import _infer_nature_observation_layout, _prepare_nature_observations
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -338,12 +339,10 @@ def _per_add_batched_transitions(
 
 def initialize_train_state(
     config: RainbowConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     rng: jax.Array,
     env_params: object | None = None,
 ) -> tuple[RainbowNatureNetwork, RainbowTransition, "RunnerState"]:
-    env = cast(_EnvLike, env)
-
     observation_space = env.observation_space(env_params)
     action_space = env.action_space(env_params)
     observation_shape = tuple(observation_space.shape)
@@ -390,13 +389,11 @@ def initialize_train_state(
 def make_train_step(
     config: RainbowConfig,
     runtime_config: RainbowRuntimeConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     network: RainbowNatureNetwork,
     replay_prototype: RainbowTransition,
     env_params: object | None = None,
 ) -> Callable[["RunnerState", jax.Array], tuple["RunnerState", dict[str, jax.Array]]]:
-    env = cast(_EnvLike, env)
-
     del runtime_config
     support = rainbow_support(config)
     bootstrap_discount = config.ADDITIONAL_DISCOUNT**config.N_STEP
@@ -535,10 +532,9 @@ class RunnerState(NamedTuple):
 def make_train(
     config: RainbowConfig,
     runtime_config: RainbowRuntimeConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     env_params: object | None = None,
 ) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
     total_env_steps = rainbow_zoo_atari_total_train_env_steps(runtime_config)
 
     def train(rng: jax.Array) -> dict[str, Any]:

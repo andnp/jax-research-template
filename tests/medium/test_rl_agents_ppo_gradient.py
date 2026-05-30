@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, override
 
+from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -16,6 +18,7 @@ from rl_components.types import PPOConfig
 @dataclass(frozen=True)
 class FakeObservationSpace:
     shape: tuple[int, ...]
+    dtype: jnp.dtype = jnp.float32
 
 
 @dataclass(frozen=True)
@@ -29,11 +32,11 @@ class FakeContinuousActionSpace:
 
 
 class FakeDiscreteEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(4,))
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
         del params
         return FakeActionSpace(n=2)
 
@@ -64,11 +67,11 @@ class FakeDiscreteEnv:
 
 
 class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(4,))
 
-    def action_space(self, params: object | None = None) -> FakeContinuousActionSpace:
+    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
         del params
         return FakeContinuousActionSpace(shape=(2,))
 
@@ -188,7 +191,7 @@ class TestPPOGradientFlow:
         config_only_args = [config]
 
         with pytest.raises(TypeError, match="env"):
-            make_train(*config_only_args)
+            make_train(*config_only_args)  # type: ignore[arg-type]
 
     def test_params_change_after_update(self) -> None:
         """ActorCritic params should change after a PPO gradient step."""

@@ -18,7 +18,7 @@ def profile_ppo(steps: int = 1000) -> None:
     rng = jax.random.PRNGKey(config.SEED)
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
     
     print("Warmup (compiling)...")

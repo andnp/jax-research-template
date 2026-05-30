@@ -9,7 +9,7 @@ This decomposition helps the agent learn which states are valuable
 without having to learn the effect of each action at every state.
 """
 
-from typing import Any, Callable, Literal, NamedTuple, cast
+from typing import Any, Callable, Literal, NamedTuple
 
 import flax.linen as nn
 import jax
@@ -21,9 +21,8 @@ from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from jax_nn.typed_module import TypedApply
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
-
-from rl_agents.dqn import _EnvLike
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -85,9 +84,7 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: DuelingDQNConfig, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
-
+def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     def train(rng: jax.Array) -> dict[str, Any]:
         network = _make_dueling_q_network(config, env.action_space(env_params).n)
         rng, _rng = jax.random.split(rng)

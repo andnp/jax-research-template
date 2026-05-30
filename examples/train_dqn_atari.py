@@ -40,7 +40,7 @@ def main() -> None:
             ),
         )
     )
-    train_fn = make_train(config, runtime_config, env=env, env_params=None)
+    train_fn = make_train(config, runtime_config, env=env, env_params=None)  # type: ignore[arg-type]
     train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on ALE Pong ---")

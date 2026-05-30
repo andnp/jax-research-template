@@ -4,6 +4,7 @@ from typing import override
 import jax
 import jax.numpy as jnp
 from rl_agents.rainbow import RainbowConfig, make_train, rainbow_atari_runtime_from_dqn_zoo
+from rl_components.gym_env import DiscreteActionSpace, ObservationSpace
 
 
 @dataclass(frozen=True)
@@ -18,11 +19,11 @@ class FakeActionSpace:
 
 
 class FakeAtariLikeEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(4, 84, 84, 1), dtype=jnp.uint8)
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
         del params
         return FakeActionSpace(n=3)
 

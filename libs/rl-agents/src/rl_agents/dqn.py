@@ -1,4 +1,4 @@
-from typing import Any, Callable, Literal, NamedTuple, Protocol, cast
+from typing import Any, Callable, Literal, NamedTuple, Protocol
 
 import flax.linen as nn
 import jax
@@ -10,6 +10,7 @@ from jax_nn.initializers import legacy_dqn_uniform
 from jax_nn.layers import NatureCNN
 from jax_nn.typed_module import TypedApply
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
 
@@ -43,31 +44,6 @@ class QNetwork(TypedApply[jax.Array], nn.Module):
         x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
         return x
-
-
-class _ObservationSpace(Protocol):
-    shape: tuple[int, ...]
-    dtype: jnp.dtype
-
-
-class _ActionSpace(Protocol):
-    n: int
-
-
-class _EnvLike(Protocol):
-    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
-
-    def action_space(self, params: object | None = None) -> _ActionSpace: ...
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
-
-    def step(
-        self,
-        key: jax.Array,
-        state: object,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
 class _HasNetworkPreset(Protocol):
@@ -160,9 +136,7 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: DQNConfig, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
-
+def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     def train(rng: jax.Array) -> dict[str, Any]:
         # INIT NETWORK
         observation_shape = tuple(env.observation_space(env_params).shape)

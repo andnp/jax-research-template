@@ -9,7 +9,7 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
-from typing import Any, Callable, Literal, NamedTuple, cast
+from typing import Any, Callable, Literal, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -17,9 +17,10 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import _EnvLike, _make_q_network
+from rl_agents.dqn import _make_q_network
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -50,9 +51,7 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: DoubleDQNConfig, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
-
+def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     def train(rng: jax.Array) -> dict[str, Any]:
         observation_shape = tuple(env.observation_space(env_params).shape)
         network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)

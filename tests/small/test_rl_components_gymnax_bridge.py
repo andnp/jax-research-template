@@ -154,7 +154,7 @@ class TestGymnaxCompatibilityBridge:
 
         assert observation.shape == (4,)
         assert next_observation.shape == (4,)
-        assert int(next_state) == 1
+        assert int(cast(jax.Array, next_state)) == 1
         assert float(reward) == 1.0
         assert bool(done) is True
         assert bool(info["terminated"]) is False
@@ -187,7 +187,7 @@ class TestGymnaxCompatibilityBridge:
         assert jnp.allclose(spec.action_high, jnp.array([2.0, 10.0], dtype=jnp.float32))
         assert observation.shape == (3,)
         assert next_observation.shape == (3,)
-        assert next_state.obs.shape == (3,)
+        assert cast(FakeBraxState, next_state).obs.shape == (3,)
         assert float(reward) == 2.5
         assert bool(done) is True
         assert bool(info["terminated"]) is False

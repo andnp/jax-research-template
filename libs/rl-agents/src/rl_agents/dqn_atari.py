@@ -1,4 +1,4 @@
-from typing import Any, Callable, NamedTuple, cast
+from typing import Any, Callable, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -7,9 +7,10 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.heads import epsilon_greedy_action
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import NatureQNetwork, _EnvLike, _infer_nature_observation_layout
+from rl_agents.dqn import NatureQNetwork, _infer_nature_observation_layout
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -158,12 +159,10 @@ class RunnerState(NamedTuple):
 
 def initialize_train_state(
     config: DQNAtariConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     rng: jax.Array,
     env_params: object | None = None,
 ) -> tuple[NatureQNetwork, ReplayBuffer, RunnerState]:
-    env = cast(_EnvLike, env)
-
     observation_space = env.observation_space(env_params)
     action_space = env.action_space(env_params)
     observation_shape = tuple(observation_space.shape)
@@ -200,13 +199,11 @@ def initialize_train_state(
 def make_train_step(
     config: DQNAtariConfig,
     runtime_config: DQNAtariRuntimeConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     network: NatureQNetwork,
     buffer: ReplayBuffer,
     env_params: object | None = None,
 ) -> Callable[[RunnerState, jax.Array], tuple[RunnerState, dict[str, jax.Array]]]:
-    env = cast(_EnvLike, env)
-
     min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
     learn_period_env_steps = dqn_zoo_atari_learn_period_env_steps(config)
     target_update_period_env_steps = dqn_zoo_atari_target_update_period_env_steps(config)
@@ -315,10 +312,9 @@ def make_train_step(
 def make_train(
     config: DQNAtariConfig,
     runtime_config: DQNAtariRuntimeConfig,
-    env: object,
+    env: GymEnv[DiscreteActionSpace],
     env_params: object | None = None,
 ) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
     total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
 
     def train(rng: jax.Array) -> dict[str, Any]:
