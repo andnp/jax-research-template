@@ -1,8 +1,6 @@
 from typing import cast
 
 import jax
-import pytest
-
 from rl_agents.dqn_atari import DQNAtariConfig, dqn_atari_runtime_from_dqn_zoo, make_train
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 from rl_components.env_protocol import EnvProtocol

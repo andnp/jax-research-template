@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 
 

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
+import ale_py  # noqa: F401  # registers ALE namespace with gymnasium
 import gymnasium
 from gymnasium.wrappers import AtariPreprocessing
 
-import chex
-import jax
-import jax.numpy as jnp
-
-from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.frame_stack import FrameStackWrapper
 from rl_components.python_env_bridge import PythonEnvBridge
 from rl_components.structs import chex_struct

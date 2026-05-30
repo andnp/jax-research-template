@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 from typing import Callable
 
 import chex
@@ -9,13 +8,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
+from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 
 class PythonEnvBridge:
     """Wraps a gymnasium ALE environment as a JAX-compatible EnvProtocol.
 
-    StateT = jnp.uint8[state_size] — the serialized ALE emulator state bytes.
+    StateT = jnp.uint8[1] — a dummy state token (actual ALE state is stored internally).
     Calls to reset() and step() cross the JIT boundary via jax.experimental.io_callback.
     The env's step is side-effectful; use ordered=True to guarantee sequential ordering
     when this is called inside jax.lax.scan.
@@ -29,6 +28,7 @@ class PythonEnvBridge:
     _num_actions: int
     _state_size: int
     _env_id: str
+    _ale_state: object  # opaque ALEState from cloneState()
 
     def __init__(
         self,
@@ -42,9 +42,9 @@ class PythonEnvBridge:
         obs_arr = np.asarray(raw_obs)
         self._obs_shape = obs_arr.shape
         self._obs_dtype = obs_arr.dtype
-        # Determine serialized state size
-        state_bytes = self._env.unwrapped.ale.getState()  # type: ignore[attr-defined]
-        self._state_size = len(state_bytes)
+        # ale-py 0.11+ uses opaque ALEState; store internally, pass dummy token through JAX
+        self._state_size = 1
+        self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
         # Determine num actions
         self._num_actions = int(self._env.action_space.n)  # type: ignore[union-attr]
         # Re-sync to a clean state for actual use
@@ -67,9 +67,9 @@ class PythonEnvBridge:
 
         def _do_reset(seed_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             raw_obs, _ = self._env.reset(seed=int(seed_arr))
-            state_bytes = self._env.unwrapped.ale.getState()  # type: ignore[attr-defined]
+            self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
-            state = np.frombuffer(state_bytes, dtype=np.uint8).copy()
+            state = np.zeros(1, dtype=np.uint8)  # dummy token
             return obs, state
 
         obs, state = jax.experimental.io_callback(
@@ -87,12 +87,13 @@ class PythonEnvBridge:
         del key, params
 
         def _do_step(state_arr: np.ndarray, action_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-            self._env.unwrapped.ale.setState(state_arr.tobytes())  # type: ignore[attr-defined]
+            self._env.unwrapped.ale.restoreState(self._ale_state)  # type: ignore[attr-defined]
             raw_obs, reward, terminated, truncated, _ = self._env.step(int(action_arr))
             if terminated or truncated:
                 raw_obs, _ = self._env.reset()
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
-            next_state = np.frombuffer(self._env.unwrapped.ale.getState(), dtype=np.uint8).copy()  # type: ignore[attr-defined]
+            self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
+            next_state = np.zeros(1, dtype=np.uint8)  # dummy token
             return (
                 obs,
                 np.array(reward, dtype=np.float32),
