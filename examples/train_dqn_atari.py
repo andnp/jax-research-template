@@ -13,7 +13,7 @@ from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
-def main():
+def main() -> None:
     config = DQNAtariConfig(
         REPLAY_CAPACITY=5_000,
         MIN_REPLAY_CAPACITY_FRACTION=0.2,

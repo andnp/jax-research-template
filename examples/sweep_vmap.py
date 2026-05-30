@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def sweep_vmap_ppo():
+def sweep_vmap_ppo() -> None:
     batch_sizes = [1, 2, 4, 8, 16, 32, 64, 128]
     steps_per_agent = 50_000
     

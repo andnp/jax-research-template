@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from rl_agents.dqn import DQNConfig, make_train
 
 
-def main():
+def main() -> None:
     config = DQNConfig(
         TOTAL_TIMESTEPS=100_000,
         BUFFER_SIZE=50_000,

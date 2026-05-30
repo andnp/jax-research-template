@@ -23,7 +23,7 @@ from research_store.store import Store
 from rl_agents.dqn import DQNConfig, make_train
 
 
-def main():
+def main() -> None:
     # ── 1. Define the experiment ──────────────────────────────────────────────
     exp = Experiment("DQN CartPole Integration", description="Full pipeline demo")
 

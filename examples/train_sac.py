@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from rl_agents.sac import SACConfig, make_train
 
 
-def main():
+def main() -> None:
     config = SACConfig(
         TOTAL_TIMESTEPS=100_000,
         BUFFER_SIZE=100_000,

@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def main():
+def main() -> None:
     # Philosophical constraint: NUM_ENVS is now implicitly 1 in the agent logic.
     # We scale by running multiple independent experiments (seeds) in parallel.
     NUM_SEEDS = 16 

@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def profile_ppo(steps=1000):
+def profile_ppo(steps: int = 1000) -> None:
     config = PPOConfig(
         TOTAL_TIMESTEPS=steps,
         NUM_STEPS=64,

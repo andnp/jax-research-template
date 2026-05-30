@@ -8,7 +8,7 @@ from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
 
-def dump_hlo(agent="ppo"):
+def dump_hlo(agent: str = "ppo") -> None:
     if agent == "ppo":
         config = PPOConfig(TOTAL_TIMESTEPS=100, ENV_NAME="CartPole-v1")
         env, env_params = gymnax.make(config.ENV_NAME)
