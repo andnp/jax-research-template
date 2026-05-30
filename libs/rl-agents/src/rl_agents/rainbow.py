@@ -1,10 +1,11 @@
-from typing import Literal, NamedTuple, cast
+from typing import Any, Callable, Literal, NamedTuple, cast
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from jax_nn.distributional import (
     categorical_cross_entropy,
     categorical_expected_value,
@@ -111,7 +112,7 @@ def rainbow_atari_runtime_from_dqn_zoo(
     num_iterations: int = 200,
     num_train_frames_per_iteration: int = 1_000_000,
     seed: int = 42,
-):
+) -> RainbowRuntimeConfig:
     if num_iterations < 0:
         raise ValueError("num_iterations must be non-negative.")
     if num_train_frames_per_iteration < 0:
@@ -321,7 +322,7 @@ def _per_add_batched_transitions(
     transitions: RainbowTransition,
     insert_mask: jax.Array,
 ) -> PERBufferState:
-    def _add_one(state, xs):
+    def _add_one(state: PERBufferState, xs: tuple[RainbowTransition, jax.Array]) -> tuple[PERBufferState, None]:
         transition, should_add = xs
         state = jax.lax.cond(
             should_add,
@@ -340,7 +341,7 @@ def initialize_train_state(
     env: object,
     rng: jax.Array,
     env_params: object | None = None,
-):
+) -> tuple[RainbowNatureNetwork, RainbowTransition, "RunnerState"]:
     env = cast(_EnvLike, env)
 
     observation_space = env.observation_space(env_params)
@@ -374,7 +375,15 @@ def initialize_train_state(
 
     rng, reset_rng = jax.random.split(rng)
     last_obs, env_state = env.reset(reset_rng, env_params)
-    runner_state = (train_state, target_params, buffer_state, env_state, last_obs, rng, n_step_accumulator)
+    runner_state = RunnerState(
+        train_state=train_state,
+        target_params=target_params,
+        buffer_state=buffer_state,
+        env_state=env_state,
+        last_obs=last_obs,
+        rng=rng,
+        n_step_accumulator=n_step_accumulator,
+    )
     return network, replay_prototype, runner_state
 
 
@@ -385,15 +394,15 @@ def make_train_step(
     network: RainbowNatureNetwork,
     replay_prototype: RainbowTransition,
     env_params: object | None = None,
-):
+) -> Callable[["RunnerState", jax.Array], tuple["RunnerState", dict[str, jax.Array]]]:
     env = cast(_EnvLike, env)
 
     del runtime_config
     support = rainbow_support(config)
     bootstrap_discount = config.ADDITIONAL_DISCOUNT**config.N_STEP
     def _loss(
-        params: object,
-        target_params: object,
+        params: VariableDict,
+        target_params: VariableDict,
         obs: jax.Array,
         actions: jax.Array,
         rewards: jax.Array,
@@ -423,7 +432,7 @@ def make_train_step(
         weighted_loss = per_example_loss * jax.lax.stop_gradient(importance_weights)
         return jnp.mean(weighted_loss), per_example_loss
 
-    def train_step(runner_state, step_index):
+    def train_step(runner_state: "RunnerState", step_index: jax.Array) -> tuple["RunnerState", dict[str, jax.Array]]:
         train_state, target_params, buffer_state, env_state, last_obs, rng, n_step_accumulator = runner_state
 
         env_step = step_index + 1
@@ -446,7 +455,7 @@ def make_train_step(
 
         can_learn = _rainbow_zoo_atari_should_learn_array(env_step, buffer_state.count, config)
 
-        def _do_learn(args):
+        def _do_learn(args: tuple[TrainState, VariableDict, PERBufferState, jax.Array]) -> tuple[TrainState, PERBufferState, jax.Array]:
             train_state, target_params, buffer_state, learn_rng = args
             sampled_batch, importance_weights, batch_indices = per_sample(
                 buffer_state,
@@ -457,7 +466,7 @@ def make_train_step(
             )
             online_obs_noise_rng, online_next_noise_rng, target_next_noise_rng = jax.random.split(learn_rng, 3)
 
-            def _loss_with_priorities(params: object):
+            def _loss_with_priorities(params: VariableDict) -> tuple[jax.Array, jax.Array]:
                 return _loss(
                     params,
                     target_params,
@@ -478,7 +487,7 @@ def make_train_step(
             buffer_state = per_update_priorities(buffer_state, batch_indices, per_example_loss)
             return train_state.apply_gradients(grads=grads), buffer_state, loss
 
-        def _skip_learn(args):
+        def _skip_learn(args: tuple[TrainState, VariableDict, PERBufferState, jax.Array]) -> tuple[TrainState, PERBufferState, jax.Array]:
             train_state, _target_params, buffer_state, _learn_rng = args
             return train_state, buffer_state, jnp.asarray(0.0)
 
@@ -499,10 +508,28 @@ def make_train_step(
         step_metrics["loss"] = loss
         step_metrics["max_q"] = jnp.max(rainbow_expected_q_values(action_logits, support))
 
-        next_runner_state = (train_state, target_params, buffer_state, env_state, obs, rng, n_step_accumulator)
+        next_runner_state = RunnerState(
+            train_state=train_state,
+            target_params=target_params,
+            buffer_state=buffer_state,
+            env_state=env_state,
+            last_obs=obs,
+            rng=rng,
+            n_step_accumulator=n_step_accumulator,
+        )
         return next_runner_state, step_metrics
 
     return train_step
+
+
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    target_params: VariableDict
+    buffer_state: PERBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
+    n_step_accumulator: _NStepAccumulatorState
 
 
 def make_train(
@@ -510,11 +537,11 @@ def make_train(
     runtime_config: RainbowRuntimeConfig,
     env: object,
     env_params: object | None = None,
-):
+) -> Callable[[jax.Array], dict[str, Any]]:
     env = cast(_EnvLike, env)
     total_env_steps = rainbow_zoo_atari_total_train_env_steps(runtime_config)
 
-    def train(rng):
+    def train(rng: jax.Array) -> dict[str, Any]:
         network, replay_prototype, runner_state = initialize_train_state(config, env, rng, env_params)
         train_step = make_train_step(config, runtime_config, env, network, replay_prototype, env_params)
         runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))

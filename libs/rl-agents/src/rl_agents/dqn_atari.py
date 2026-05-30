@@ -1,11 +1,12 @@
-from typing import cast
+from typing import Any, Callable, NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
+from flax.typing import VariableDict
 from jax_nn.heads import epsilon_greedy_action
-from rl_components.buffers import ReplayBuffer
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.structs import chex_struct
 
 from rl_agents.dqn import NatureQNetwork, _EnvLike, _infer_nature_observation_layout
@@ -64,7 +65,7 @@ def dqn_atari_runtime_from_dqn_zoo(
     num_train_frames_per_iteration: int = 1_000_000,
     seed: int = 42,
     eval_exploration_epsilon: float = 0.05,
-):
+) -> DQNAtariRuntimeConfig:
     if num_iterations < 0:
         raise ValueError("num_iterations must be non-negative.")
     if num_train_frames_per_iteration < 0:
@@ -146,12 +147,21 @@ def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtari
     return env_step % dqn_zoo_atari_learn_period_env_steps(config) == 0
 
 
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    target_params: VariableDict
+    buffer_state: ReplayBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
+
+
 def initialize_train_state(
     config: DQNAtariConfig,
     env: object,
     rng: jax.Array,
     env_params: object | None = None,
-):
+) -> tuple[NatureQNetwork, ReplayBuffer, RunnerState]:
     env = cast(_EnvLike, env)
 
     observation_space = env.observation_space(env_params)
@@ -183,7 +193,7 @@ def initialize_train_state(
 
     rng, reset_rng = jax.random.split(rng)
     last_obs, env_state = env.reset(reset_rng, env_params)
-    runner_state = (train_state, target_params, buffer_state, env_state, last_obs, rng)
+    runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=last_obs, rng=rng)
     return network, buffer, runner_state
 
 
@@ -194,7 +204,7 @@ def make_train_step(
     network: NatureQNetwork,
     buffer: ReplayBuffer,
     env_params: object | None = None,
-):
+) -> Callable[[RunnerState, jax.Array], tuple[RunnerState, dict[str, jax.Array]]]:
     env = cast(_EnvLike, env)
 
     min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
@@ -211,7 +221,15 @@ def make_train_step(
         ) * progress
         return jnp.where(warmup_complete, decayed, config.EXPLORATION_EPSILON_BEGIN)
 
-    def _loss(params, target_params, obs, actions, rewards, next_obs, dones):
+    def _loss(
+        params: VariableDict,
+        target_params: VariableDict,
+        obs: jax.Array,
+        actions: jax.Array,
+        rewards: jax.Array,
+        next_obs: jax.Array,
+        dones: jax.Array,
+    ) -> jax.Array:
         q_values = network.apply(params, obs)
         q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
 
@@ -221,7 +239,7 @@ def make_train_step(
         td_error = q_action - jax.lax.stop_gradient(targets)
         return jnp.mean(jnp.square(td_error))
 
-    def train_step(runner_state, step_index):
+    def train_step(runner_state: RunnerState, step_index: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
         train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
 
         env_step = step_index + 1
@@ -243,7 +261,7 @@ def make_train_step(
 
         can_learn = (buffer_state.count >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
 
-        def _do_learn(args):
+        def _do_learn(args: tuple[TrainState, VariableDict, ReplayBufferState]) -> tuple[TrainState, jax.Array]:
             train_state, target_params, buffer_state = args
             indices = jax.random.randint(
                 sample_rng,
@@ -267,7 +285,7 @@ def make_train_step(
             )
             return train_state.apply_gradients(grads=grads), loss
 
-        def _skip_learn(args):
+        def _skip_learn(args: tuple[TrainState, VariableDict, ReplayBufferState]) -> tuple[TrainState, jax.Array]:
             train_state, _target_params, _buffer_state = args
             return train_state, jnp.asarray(0.0)
 
@@ -288,7 +306,7 @@ def make_train_step(
         step_metrics["epsilon"] = epsilon
         step_metrics["loss"] = loss
 
-        next_runner_state = (train_state, target_params, buffer_state, env_state, obs, rng)
+        next_runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obs, rng=rng)
         return next_runner_state, step_metrics
 
     return train_step
@@ -299,11 +317,11 @@ def make_train(
     runtime_config: DQNAtariRuntimeConfig,
     env: object,
     env_params: object | None = None,
-):
+) -> Callable[[jax.Array], dict[str, Any]]:
     env = cast(_EnvLike, env)
     total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
 
-    def train(rng):
+    def train(rng: jax.Array) -> dict[str, Any]:
         network, buffer, runner_state = initialize_train_state(config, env, rng, env_params)
         train_step = make_train_step(config, runtime_config, env, network, buffer, env_params)
         runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))
