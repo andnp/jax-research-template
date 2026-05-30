@@ -55,6 +55,7 @@ jax-utils = { workspace = true }
 research-analysis = { workspace = true }
 research-cli = { workspace = true }
 research-instrument = { workspace = true }
+research-runner = { workspace = true }
 research-store = { workspace = true }
 rl-agents = { workspace = true }
 rl-components = { workspace = true }
