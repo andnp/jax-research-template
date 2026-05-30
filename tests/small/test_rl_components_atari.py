@@ -1,5 +1,9 @@
 """Small tests for the JAXAtari canonical adapter."""
 
+import pytest
+
+jaxatari = pytest.importorskip("jaxatari")
+
 from dataclasses import dataclass
 from typing import cast
 

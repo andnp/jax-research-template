@@ -7,11 +7,15 @@ from typing import Protocol, cast
 import chex
 import jax
 import jax.numpy as jnp
-from jaxatari.core import make as make_jaxatari_env
-from jaxatari.wrappers import AtariWrapper, LogWrapper, PixelObsWrapper
 
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.structs import chex_struct
+
+try:
+    from jaxatari.core import make as make_jaxatari_env  # type: ignore[import-not-found]
+    from jaxatari.wrappers import AtariWrapper, LogWrapper, PixelObsWrapper  # type: ignore[import-not-found]
+except ImportError:
+    pass
 
 
 class _Space(Protocol):
@@ -76,9 +80,9 @@ class JAXAtariAdapter:
 
     def __init__(self, config: JAXAtariConfig) -> None:
         self.config = config
-        base_env = make_jaxatari_env(config.game)
+        base_env = make_jaxatari_env(config.game)  # pyright: ignore[reportPossiblyUnboundVariable]
         atari_env = _as_wrapped_atari_env(
-            AtariWrapper(
+            AtariWrapper(  # pyright: ignore[reportPossiblyUnboundVariable]
                 base_env,
                 frame_stack_size=config.frame_stack,
                 frame_skip=config.frame_skip,
@@ -86,13 +90,13 @@ class JAXAtariAdapter:
                 max_pooling=config.max_pooling,
             )
         )
-        pixel_env = PixelObsWrapper(
+        pixel_env = PixelObsWrapper(  # pyright: ignore[reportPossiblyUnboundVariable]
             atari_env,
             do_pixel_resize=_resize_is_required(atari_env, config.resize_shape),
             pixel_resize_shape=config.resize_shape,
             grayscale=config.grayscale,
         )
-        wrapped_env = _as_wrapped_atari_env(LogWrapper(pixel_env) if config.log_returns else pixel_env)
+        wrapped_env = _as_wrapped_atari_env(LogWrapper(pixel_env) if config.log_returns else pixel_env)  # pyright: ignore[reportPossiblyUnboundVariable]
         self._env = wrapped_env
 
     def spec(self, params: None = None) -> EnvSpec:

@@ -1,5 +1,9 @@
 """Medium integration tests for the JAXAtari adapter under JIT."""
 
+import pytest
+
+jaxatari = pytest.importorskip("jaxatari")
+
 from dataclasses import dataclass
 
 import chex
