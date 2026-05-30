@@ -89,6 +89,7 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
         (src_dir / "db.py").write_text(
             "from collections import namedtuple\n"
             "ExperimentRow = namedtuple('ExperimentRow', ['id', 'name', 'description', 'created_at'])\n"
+            "ExecutionRow = namedtuple('ExecutionRow', ['id', 'experiment_id', 'status', 'created_at'])\n"
             "class DatabaseManager:\n"
             "    def __init__(self, *a, **kw): pass\n"
             "    def __enter__(self): return self\n"
@@ -117,6 +118,7 @@ def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) 
     _write_fake_jax_package(core_root)
     _write_fake_stub_package(core_root, "experiment-definition", "experiment_definition")
     _write_fake_stub_package(core_root, "research-runner", "research_runner")
+    _write_fake_stub_package(core_root, "research-cluster", "research_cluster")
     _git(core_root, env, "add", ".")
     _git(core_root, env, "commit", "-m", "fixture core")
 

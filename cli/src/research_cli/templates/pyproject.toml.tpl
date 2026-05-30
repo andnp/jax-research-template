@@ -21,4 +21,5 @@ members = [
 
 [tool.uv.sources]
 experiment-definition = {{ workspace = true }}
+research-cluster = {{ workspace = true }}
 research-runner = {{ workspace = true }}
