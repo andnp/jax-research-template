@@ -86,7 +86,8 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pyrefly]
-replace-imports-with-any = ["flax.*", "chex.*"]
+preset = "strict"
+replace-imports-with-any = ["chex.*", "flax.linen.*"]
 search-path = [
     "libs/jax-nn/src",
     "libs/jax-replay/src",
@@ -99,3 +100,8 @@ search-path = [
     "libs/rl-agents/src",
     "libs/rl-components/src",
 ]
+
+[tool.pyrefly.errors]
+unannotated-return = true
+implicit-any-empty-container = false
+implicit-any-type-argument = false
