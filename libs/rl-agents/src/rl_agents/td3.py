@@ -1,4 +1,4 @@
-from typing import Any, Callable, NamedTuple, Protocol, cast
+from typing import Any, Callable, NamedTuple, cast
 
 import flax.linen as nn
 import jax
@@ -8,6 +8,7 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
 
@@ -54,30 +55,6 @@ class Actor(nn.Module):
         return jnp.tanh(x)
 
 
-class _ObservationSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _ActionSpace(Protocol):
-    shape: tuple[int, ...]
-
-
-class _EnvLike(Protocol):
-    def observation_space(self, params: object | None = None) -> _ObservationSpace: ...
-
-    def action_space(self, params: object | None = None) -> _ActionSpace: ...
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, object]: ...
-
-    def step(
-        self,
-        key: jax.Array,
-        state: object,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, object, jax.Array, jax.Array, dict[str, jax.Array]]: ...
-
-
 def _critic_apply(module: Critic, variables: VariableDict, x: jax.Array, a: jax.Array) -> jax.Array:
     return cast(jax.Array, module.apply(variables, x, a))
 
@@ -97,9 +74,7 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: TD3Config, env: object, env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    env = cast(_EnvLike, env)
-
+def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
     def train(rng: jax.Array) -> dict[str, Any]:
         # INIT NETWORKS
         rng, _rng_actor, _rng_critic = jax.random.split(rng, 3)

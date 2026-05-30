@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -13,6 +15,7 @@ from rl_agents.td3 import Actor, Critic, TD3Config, make_train
 @dataclass(frozen=True)
 class FakeObservationSpace:
     shape: tuple[int, ...]
+    dtype: jnp.dtype = jnp.float32
 
 
 @dataclass(frozen=True)
@@ -21,11 +24,11 @@ class FakeActionSpace:
 
 
 class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> FakeObservationSpace:
+    def observation_space(self, params: object | None = None) -> ObservationSpace:
         del params
         return FakeObservationSpace(shape=(3,))
 
-    def action_space(self, params: object | None = None) -> FakeActionSpace:
+    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
         del params
         return FakeActionSpace(shape=(2,))
 
