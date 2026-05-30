@@ -23,7 +23,6 @@ python_version:
   default: "3.13"
   choices:
     - "3.13"
-    - "3.12"
 
 algorithm:
   type: str
@@ -35,6 +34,7 @@ algorithm:
     - "double_dqn"
     - "dueling_dqn"
     - "sac"
+    - "td3"
 
 env_name:
   type: str
