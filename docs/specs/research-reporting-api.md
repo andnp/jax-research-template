@@ -108,6 +108,7 @@ class StatisticalTestDetails:
     is_significant: bool
     assumptions: dict[str, Any]
     justification: str
+    intermediate_tests: dict[str, StatisticalTestDetails]  # e.g., "normality_a", "normality_b"
 
 @dataclass(frozen=True)
 class ABComparisonReport:
@@ -120,6 +121,7 @@ class ABComparisonReport:
     difference_in_means: float
     difference_ci: tuple[float, float]
     test_details: StatisticalTestDetails
+    distribution_plot_path: Path | None  # Path to saved distribution PDF/violin plot
 
 @dataclass(frozen=True)
 class HyperparameterSensitivityReport:
@@ -130,6 +132,7 @@ class HyperparameterSensitivityReport:
     maximization_bias: float
     sensitivity_slice: dict[Any, float]  # Value -> performance
     sensitivity_best: dict[Any, float]   # Value -> performance
+    sensitivity_plot_path: Path | None   # Path to saved sensitivity curve PDF
 
 @dataclass(frozen=True)
 class BenchmarkBakeoffReport:
@@ -138,6 +141,7 @@ class BenchmarkBakeoffReport:
     ecdf_scores: dict[str, dict[str, float]]  # Algo -> Env -> ECDF
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]  # Algo A -> Algo B -> Adjusted P-value
+    ecdf_plot_path: Path | None          # Path to saved ECDF curve PDF
 ```
 
 ---
@@ -146,13 +150,14 @@ class BenchmarkBakeoffReport:
 
 When `verbose=True`, the reporter writes to the standard output using `rich` console panels. Every report must output:
 1. **Design Summary Panel:** Outlining identified independent/dependent variables and sample structure (e.g., repeated measures availability).
-2. **Methodology Justification Box:** Explaining *why* a particular test was chosen (e.g., "We selected the Wilcoxon Signed-Rank test instead of a paired t-test because the Shapiro-Wilk test rejected normality (p=0.003), and random seeds are paired").
+2. **Methodology Justification Box:** Explaining *why* a particular test was chosen, printing normality check scores (e.g., Shapiro-Wilk test statistic and p-value) and other intermediate test metrics.
 3. **Findings & Interpretation Section:** Presenting statistics, significance, and a plain-English translation of p-values (e.g., "This p-value indicates a 1.2% probability of observing this performance gap purely due to random seed variation under identical algorithms").
 4. **Correction Logs (For Hypers):** Explaining maximization bias and showing the contrast between raw averages and corrected estimates.
+5. **Artifact Outputs Panel:** Surfacing the file paths of generated diagnostic distribution plots (e.g. violin plots or PDFs) saved in the experiment's analysis directory.
 
 ---
 
 ## 6. Non-Goals
 
-- **Plot Generation:** This API does not write files or render matplotlib figures directly. Visualizations must be handled separately by importing the data into `research-plot`.
+- **Interactive GUI Rendering:** This API does not launch interactive GUI windows or web servers. Plotting is restricted to generating and saving static diagnostic visual artifacts (violin plots, ECDF curves) directly to the file system using `research-plot`.
 - **Dynamic DB Writing:** This is a read-only API. It does not modify logical runs, hyperparameter configs, or execution metadata tables in the sqlite registry.
