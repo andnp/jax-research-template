@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780119390855,
+  "lastUpdate": 1780165496712,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -2339,6 +2339,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00001547142887033157",
             "extra": "mean: 36.11039999213972 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "266879ff5c3a8fda9543996ba09eb4d9dad43261",
+          "message": "feat: add research-runner plan-execute-record lifecycle library (#65)\n\n## Summary\n\nExtracts the experiment execution lifecycle from missingness-rl into a\nreusable research-runner library in core/libs/research-runner/.\n\n## Changes\n\n### experiment-definition\n- Expose Experiment.name property for downstream consumers\n\n### research-runner (new library)\n- **types.py**: ExecutionContext and ExecutionResult frozen dataclasses\n— the contract between runner and user-provided training callbacks\n- **runner.py**: Core lifecycle — run_experiment() (batch loop until all\nruns satisfied), execute_batch() (single execution lifecycle: create\ndir, call train_fn, record artifacts)\n- **git.py**: capture_git_metadata() for recording commit SHA and\nworking-tree diff at execution time\n- **pyproject.toml**: Package definition depending on\nexperiment-definition\n\n### Workspace registration\n- Added research-runner to core pyproject.toml dependencies\n- Updated uv.lock\n\n### Tests\n- 9 integration tests covering: happy-path batch execution, failure\nrecording, already-satisfied experiments, on_batch_complete callback,\nmetrics DB path derivation, and git metadata capture\n\n## Design\n\nThe runner accepts a train_fn(ctx: ExecutionContext) -> ExecutionResult\ncallback, keeping all project-specific training logic in the consumer.\nThe runner handles:\n1. Resolving experiments and hyperparameters from the database\n2. Planning execution batches\n3. Creating execution directories\n4. Calling the training callback with full context\n5. Recording execution artifacts (including git metadata and metrics DB\npath)\n\nBuilt on ADR-007 (database-centric orchestration) and ADR-008\n(relational experiment schema).",
+          "timestamp": "2026-05-30T12:19:28-06:00",
+          "tree_id": "a6ae62a2991526a7df18938605f1fee3a3868a95",
+          "url": "https://github.com/andnp/jax-research-template/commit/266879ff5c3a8fda9543996ba09eb4d9dad43261"
+        },
+        "date": 1780165496087,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.567149732517274,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01861978676147975",
+            "extra": "mean: 179.62513099999455 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9878453834561014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008012220309738109",
+            "extra": "mean: 1.0123041689999848 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.03928217605131156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029000205549699374",
+            "extra": "mean: 25.456838203000004 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5848018558918963,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015834281844120186",
+            "extra": "mean: 1.7099808933999951 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 19063.959579444276,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000014857120740632045",
+            "extra": "mean: 52.45500001365144 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 45.46426075374767,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007028128223290294",
+            "extra": "mean: 21.995298800004548 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.6173234130041725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004371005510338796",
+            "extra": "mean: 382.06971099998555 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 5084.849183849857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001156905914686717",
+            "extra": "mean: 196.6626666482322 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 42.699809309789885,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009868091020424179",
+            "extra": "mean: 23.41930833332147 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 425.64535994961443,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004533843777648917",
+            "extra": "mean: 2.349373666656144 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 38.24434051641892,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00040364701369090245",
+            "extra": "mean: 26.147659666681495 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 40174.5181163781,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013663130327639012",
+            "extra": "mean: 24.891399993975938 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 40434.75452679379,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013837360103639993",
+            "extra": "mean: 24.731199971483875 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 24208.15136863407,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000024719151956880047",
+            "extra": "mean: 41.30840000016178 usec\nrounds: 5"
           }
         ]
       }
