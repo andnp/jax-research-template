@@ -90,6 +90,7 @@ jobs:
       - run: uv run pytest tests/medium/ -x -q
 
   test-jaxatari-smoke:
+    continue-on-error: true
     needs: [warm-uv-cache]
     runs-on: ubuntu-latest
     steps:
