@@ -153,12 +153,29 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
             )
 
             # TRAIN
-            def _do_train(actor_state: TrainState, critic_state: TrainState, critic_target_params: VariableDict, actor_target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, TrainState, VariableDict, VariableDict]:
+            def _do_train(
+                actor_state: TrainState,
+                critic_state: TrainState,
+                critic_target_params: VariableDict,
+                actor_target_params: VariableDict,
+                buffer_state: ReplayBufferState,
+                rng: jax.Array,
+            ) -> tuple[TrainState, TrainState, VariableDict, VariableDict]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 # CRITIC UPDATE
-                def _critic_loss_fn(critic_params: VariableDict, actor_target_params: VariableDict, critic_target_params: VariableDict, obs: jax.Array, actions: jax.Array, rewards: jax.Array, next_obs: jax.Array, dones: jax.Array, rng: jax.Array) -> jax.Array:
+                def _critic_loss_fn(
+                    critic_params: VariableDict,
+                    actor_target_params: VariableDict,
+                    critic_target_params: VariableDict,
+                    obs: jax.Array,
+                    actions: jax.Array,
+                    rewards: jax.Array,
+                    next_obs: jax.Array,
+                    dones: jax.Array,
+                    rng: jax.Array,
+                ) -> jax.Array:
                     rng, _rng_noise = jax.random.split(rng)
 
                     # Target policy smoothing
@@ -189,7 +206,12 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 critic_state = critic_state.apply_gradients(grads=critic_grads)
 
                 # DELAYED ACTOR UPDATE
-                def _update_actor(actor_state: TrainState, critic_state: TrainState, critic_target_params: VariableDict, actor_target_params: VariableDict) -> tuple[TrainState, VariableDict, VariableDict]:
+                def _update_actor(
+                    actor_state: TrainState,
+                    critic_state: TrainState,
+                    critic_target_params: VariableDict,
+                    actor_target_params: VariableDict,
+                ) -> tuple[TrainState, VariableDict, VariableDict]:
                     def _actor_loss_fn(actor_params: VariableDict, critic_params: VariableDict, obs: jax.Array) -> jax.Array:
                         new_actions = _actor_apply(actor, actor_params, obs)
                         q_values = jax.vmap(
@@ -217,7 +239,12 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                     )
                     return actor_state, critic_target_params, actor_target_params
 
-                def _skip_actor(actor_state: TrainState, critic_state: TrainState, critic_target_params: VariableDict, actor_target_params: VariableDict) -> tuple[TrainState, VariableDict, VariableDict]:
+                def _skip_actor(
+                    actor_state: TrainState,
+                    critic_state: TrainState,
+                    critic_target_params: VariableDict,
+                    actor_target_params: VariableDict,
+                ) -> tuple[TrainState, VariableDict, VariableDict]:
                     return actor_state, critic_target_params, actor_target_params
 
                 should_update_actor = (t % config.POLICY_DELAY == 0)
@@ -240,11 +267,19 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 lambda: (actor_state, critic_state, critic_target_params, actor_target_params),
             )
 
-            runner_state = RunnerState(actor_state=actor_state, critic_state=critic_state, critic_target_params=critic_target_params, actor_target_params=actor_target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+            runner_state = RunnerState(
+                actor_state=actor_state, critic_state=critic_state,
+                critic_target_params=critic_target_params, actor_target_params=actor_target_params,
+                buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+            )
             return runner_state, info
 
         # RUNNER
-        runner_state = RunnerState(actor_state=actor_state, critic_state=critic_state, critic_target_params=critic_target_params, actor_target_params=actor_target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+        runner_state = RunnerState(
+            actor_state=actor_state, critic_state=critic_state,
+            critic_target_params=critic_target_params, actor_target_params=actor_target_params,
+            buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+        )
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
         return {"runner_state": runner_state, "metrics": metrics}
 

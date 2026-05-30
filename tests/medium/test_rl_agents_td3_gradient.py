@@ -3,13 +3,12 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
-
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from rl_agents.td3 import Actor, Critic, TD3Config, make_train
+from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
 
 
 @dataclass(frozen=True)
