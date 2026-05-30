@@ -1,4 +1,4 @@
-from typing import Any, Callable, Literal, NamedTuple
+from typing import Callable, Literal, NamedTuple, TypedDict
 
 import flax.linen as nn
 import jax
@@ -529,15 +529,20 @@ class RunnerState(NamedTuple):
     n_step_accumulator: _NStepAccumulatorState
 
 
+class RainbowTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
 def make_train(
     config: RainbowConfig,
     runtime_config: RainbowRuntimeConfig,
     env: GymEnv[DiscreteActionSpace],
     env_params: object | None = None,
-) -> Callable[[jax.Array], dict[str, Any]]:
+) -> Callable[[jax.Array], RainbowTrainOutput]:
     total_env_steps = rainbow_zoo_atari_total_train_env_steps(runtime_config)
 
-    def train(rng: jax.Array) -> dict[str, Any]:
+    def train(rng: jax.Array) -> RainbowTrainOutput:
         network, replay_prototype, runner_state = initialize_train_state(config, env, rng, env_params)
         train_step = make_train_step(config, runtime_config, env, network, replay_prototype, env_params)
         runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))

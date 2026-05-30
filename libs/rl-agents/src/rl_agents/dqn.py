@@ -1,4 +1,4 @@
-from typing import Any, Callable, Literal, NamedTuple, Protocol
+from typing import Callable, Literal, NamedTuple, Protocol, TypedDict
 
 import flax.linen as nn
 import jax
@@ -136,8 +136,13 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    def train(rng: jax.Array) -> dict[str, Any]:
+class DQNTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DQNTrainOutput]:
+    def train(rng: jax.Array) -> DQNTrainOutput:
         # INIT NETWORK
         observation_shape = tuple(env.observation_space(env_params).shape)
         network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)

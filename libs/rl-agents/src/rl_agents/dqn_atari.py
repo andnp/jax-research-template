@@ -1,4 +1,4 @@
-from typing import Any, Callable, NamedTuple
+from typing import Callable, NamedTuple, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -309,15 +309,20 @@ def make_train_step(
     return train_step
 
 
+class DQNAtariTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
 def make_train(
     config: DQNAtariConfig,
     runtime_config: DQNAtariRuntimeConfig,
     env: GymEnv[DiscreteActionSpace],
     env_params: object | None = None,
-) -> Callable[[jax.Array], dict[str, Any]]:
+) -> Callable[[jax.Array], DQNAtariTrainOutput]:
     total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
 
-    def train(rng: jax.Array) -> dict[str, Any]:
+    def train(rng: jax.Array) -> DQNAtariTrainOutput:
         network, buffer, runner_state = initialize_train_state(config, env, rng, env_params)
         train_step = make_train_step(config, runtime_config, env, network, buffer, env_params)
         runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))

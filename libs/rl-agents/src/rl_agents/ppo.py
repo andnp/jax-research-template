@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, NamedTuple, cast
+from typing import Any, Callable, NamedTuple, TypedDict, cast
 
 import jax
 import jax.numpy as jnp
@@ -103,14 +103,19 @@ def _maybe_normalize_observation(
     return _normalize_observation(state, obs, eps=eps, clip=clip)
 
 
-def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
+class PPOTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], PPOTrainOutput]:
     if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
         raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
 
     normalize_observations = config.NORMALIZE_OBSERVATIONS
     reward_scale = jnp.asarray(config.REWARD_SCALE, dtype=jnp.float32)
 
-    def train(rng: jax.Array) -> dict[str, Any]:
+    def train(rng: jax.Array) -> PPOTrainOutput:
         # INIT NETWORK
         action_space = env.action_space(env_params)
         continuous_actions = not _is_discrete_action_space(action_space)

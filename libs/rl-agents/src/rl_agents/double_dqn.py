@@ -9,7 +9,7 @@ The only change from vanilla DQN is in the target computation:
     Double DQN:    target = r + γ · Q_target(s', argmax_a' Q_online(s', a'))
 """
 
-from typing import Any, Callable, Literal, NamedTuple
+from typing import Callable, Literal, NamedTuple, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -51,8 +51,13 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    def train(rng: jax.Array) -> dict[str, Any]:
+class DoubleDQNTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DoubleDQNTrainOutput]:
+    def train(rng: jax.Array) -> DoubleDQNTrainOutput:
         observation_shape = tuple(env.observation_space(env_params).shape)
         network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)
         rng, _rng = jax.random.split(rng)

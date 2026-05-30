@@ -1,4 +1,4 @@
-from typing import Any, Callable, NamedTuple, cast
+from typing import Callable, NamedTuple, TypedDict, cast
 
 import distrax
 import flax.linen as nn
@@ -88,8 +88,13 @@ class RunnerState(NamedTuple):
     rng: jax.Array
 
 
-def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], dict[str, Any]]:
-    def train(rng: jax.Array) -> dict[str, Any]:
+class SACTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], SACTrainOutput]:
+    def train(rng: jax.Array) -> SACTrainOutput:
         # INIT NETWORKS
         rng, _rng_actor, _rng_critic = jax.random.split(rng, 3)
         action_dim = env.action_space(env_params).shape[0]
