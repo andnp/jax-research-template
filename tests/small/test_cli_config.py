@@ -4,7 +4,7 @@ import pytest
 from research_cli.config import ResearchConfigError, load_research_config
 
 
-def _write_config(tmp_path: Path, content: str):
+def _write_config(tmp_path: Path, content: str) -> Path:
     config_path = tmp_path / "research.yaml"
     config_path.write_text(content, encoding="utf-8")
     return config_path

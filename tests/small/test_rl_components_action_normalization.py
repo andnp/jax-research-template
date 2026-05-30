@@ -51,7 +51,7 @@ class DummyContinuousEnv:
 
 
 class TestActionNormalizationWrapper:
-    def test_spec_exposes_normalized_bounds_and_step_maps_back_to_native_range(self):
+    def test_spec_exposes_normalized_bounds_and_step_maps_back_to_native_range(self) -> None:
         env = cast(
             EnvProtocol[jax.Array, RecordedStep, jax.Array, None],
             DummyContinuousEnv(
@@ -133,7 +133,7 @@ class TestActionNormalizationWrapper:
             ),
         ],
     )
-    def test_spec_rejects_invalid_wrapped_specs(self, spec: EnvSpec, message: str):
+    def test_spec_rejects_invalid_wrapped_specs(self, spec: EnvSpec, message: str) -> None:
         wrapper = ActionNormalizationWrapper(
             cast(EnvProtocol[jax.Array, RecordedStep, jax.Array, None], DummyContinuousEnv(spec))
         )
@@ -141,7 +141,7 @@ class TestActionNormalizationWrapper:
         with pytest.raises(ValueError, match=message):
             wrapper.spec()
 
-    def test_step_rejects_normalized_action_shape_mismatch(self):
+    def test_step_rejects_normalized_action_shape_mismatch(self) -> None:
         env = cast(
             EnvProtocol[jax.Array, RecordedStep, jax.Array, None],
             DummyContinuousEnv(

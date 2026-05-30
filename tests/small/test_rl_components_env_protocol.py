@@ -38,7 +38,7 @@ class DummyEnv:
 
 
 class TestEnvSpec:
-    def test_supports_discrete_and_bounded_continuous_metadata(self):
+    def test_supports_discrete_and_bounded_continuous_metadata(self) -> None:
         discrete = EnvSpec(
             id="pong",
             observation_shape=(84, 84, 4),
@@ -64,7 +64,7 @@ class TestEnvSpec:
         assert jnp.allclose(continuous.action_low, jnp.full((8,), -1.0, dtype=jnp.float32))
         assert jnp.allclose(continuous.action_high, jnp.full((8,), 1.0, dtype=jnp.float32))
 
-    def test_rejects_discrete_specs_with_continuous_bounds(self):
+    def test_rejects_discrete_specs_with_continuous_bounds(self) -> None:
         with pytest.raises(ValueError, match="continuous action bounds"):
             EnvSpec(
                 id="broken-discrete",
@@ -76,7 +76,7 @@ class TestEnvSpec:
                 action_high=jnp.array(1, dtype=jnp.int32),
             )
 
-    def test_rejects_partial_continuous_bounds(self):
+    def test_rejects_partial_continuous_bounds(self) -> None:
         with pytest.raises(ValueError, match="require both"):
             EnvSpec(
                 id="broken-continuous",
@@ -86,7 +86,7 @@ class TestEnvSpec:
                 action_low=jnp.array([-1.0, -1.0], dtype=jnp.float32),
             )
 
-    def test_allows_continuous_bounds_without_deep_semantic_validation(self):
+    def test_allows_continuous_bounds_without_deep_semantic_validation(self) -> None:
         spec = EnvSpec(
             id="lightweight-continuous",
             observation_shape=(3,),
@@ -101,7 +101,7 @@ class TestEnvSpec:
         assert spec.action_low.shape == (1,)
         assert spec.action_high.shape == (2,)
 
-    def test_allows_traced_continuous_bounds_inside_jit(self):
+    def test_allows_traced_continuous_bounds_inside_jit(self) -> None:
         @jax.jit
         def build_spec(action_low: jax.Array, action_high: jax.Array) -> tuple[jax.Array, jax.Array]:
             spec = EnvSpec(
@@ -126,7 +126,7 @@ class TestEnvSpec:
 
 
 class TestEnvProtocol:
-    def test_runtime_protocol_matches_expected_methods(self):
+    def test_runtime_protocol_matches_expected_methods(self) -> None:
         env: EnvProtocol[jax.Array, jax.Array, jax.Array, None] = DummyEnv()
         reset = env.reset(jax.random.key(0))
         transition = env.step(jax.random.key(1), reset.state, jnp.array(2, dtype=jnp.int32))

@@ -22,13 +22,13 @@ def make_backend(db_path: Path, *, batch_size: int = 100) -> SQLiteBackend:
 
 
 class TestSQLiteBackendBasic:
-    def test_requires_explicit_experiment_identity(self):
+    def test_requires_explicit_experiment_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend_cls = cast(Callable[..., object], SQLiteBackend)
             with pytest.raises(TypeError):
                 backend_cls(Path(tmpdir) / "test.db")
 
-    def test_write_and_query(self):
+    def test_write_and_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
             frames = [MetricFrame(name="reward", value=1.5, global_step=0, seed_id=0)]
@@ -39,7 +39,7 @@ class TestSQLiteBackendBasic:
             assert result[0].global_step == 0
             backend.close()
 
-    def test_batch_buffering(self):
+    def test_batch_buffering(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db", batch_size=5)
             for i in range(3):
@@ -50,7 +50,7 @@ class TestSQLiteBackendBasic:
             assert len(result) == 3
             backend.close()
 
-    def test_flush_on_close(self):
+    def test_flush_on_close(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
             backend = make_backend(db_path)
@@ -64,7 +64,7 @@ class TestSQLiteBackendBasic:
             assert result[0].value == 42.0
             backend2.close()
 
-    def test_query_with_seed_filter(self):
+    def test_query_with_seed_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
             backend.write_batch([
@@ -76,7 +76,7 @@ class TestSQLiteBackendBasic:
             assert result[0].value == 2.0
             backend.close()
 
-    def test_metric_names(self):
+    def test_metric_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
             backend.write_batch([
@@ -88,7 +88,7 @@ class TestSQLiteBackendBasic:
             assert sorted(names) == ["loss", "reward"]
             backend.close()
 
-    def test_ordering_by_step(self):
+    def test_ordering_by_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
             backend.write_batch([
@@ -101,14 +101,14 @@ class TestSQLiteBackendBasic:
             assert steps == [0, 1, 2]
             backend.close()
 
-    def test_empty_query(self):
+    def test_empty_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = make_backend(Path(tmpdir) / "test.db")
             result = backend.query("nonexistent")
             assert result == []
             backend.close()
 
-    def test_identity_bound_backends_can_share_one_database(self):
+    def test_identity_bound_backends_can_share_one_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "shared.db"
             backend_one = SQLiteBackend(
@@ -149,7 +149,7 @@ class TestSQLiteBackendBasic:
                 assert "idx_metrics_run_metric_name_step" in index_names
                 assert "idx_metrics_execution_metric_name_step" in index_names
 
-    def test_existing_table_is_migrated_to_metric_name_when_identity_is_present(self):
+    def test_existing_table_is_migrated_to_metric_name_when_identity_is_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "legacy.db"
             with sqlite3.connect(db_path) as conn:
@@ -205,7 +205,7 @@ class TestSQLiteBackendBasic:
                     (10, 101, 1001, "reward", 7, 3.0),
                 ]
 
-    def test_legacy_table_without_identity_columns_is_rejected(self):
+    def test_legacy_table_without_identity_columns_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "legacy.db"
             with sqlite3.connect(db_path) as conn:

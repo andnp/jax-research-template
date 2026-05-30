@@ -19,7 +19,7 @@ def test_check_git_health_resolves_relative_core_path_and_uses_only_read_only_gi
 
     calls: list[tuple[tuple[str, ...], Path]] = []
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         calls.append((args, cwd))
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return GitCommandResult(returncode=0, stdout="true\n", stderr="")
@@ -62,7 +62,7 @@ def test_check_git_health_blocks_downstream_checks_when_path_is_not_a_git_workin
     core_dir = workspace_root / "core"
     core_dir.mkdir(parents=True)
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         assert cwd == core_dir.resolve()
         assert args == ("git", "rev-parse", "--is-inside-work-tree")
         return GitCommandResult(returncode=128, stdout="", stderr="fatal: not a git repository")
@@ -82,7 +82,7 @@ def test_check_git_health_fails_when_head_is_detached(tmp_path: Path) -> None:
     core_dir = workspace_root / "core"
     core_dir.mkdir(parents=True)
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         assert cwd == core_dir.resolve()
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return GitCommandResult(returncode=0, stdout="true\n", stderr="")
@@ -105,7 +105,7 @@ def test_check_git_health_treats_untracked_files_as_dirty(tmp_path: Path) -> Non
     core_dir = workspace_root / "core"
     core_dir.mkdir(parents=True)
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         assert cwd == core_dir.resolve()
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return GitCommandResult(returncode=0, stdout="true\n", stderr="")
@@ -128,12 +128,12 @@ def test_check_environment_health_uses_non_mutating_uv_query_and_reports_jax_bac
 
     calls: list[tuple[str, ...]] = []
 
-    def run_command(args: tuple[str, ...]):
+    def run_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         calls.append(args)
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=None, run_command=run_command, probe_jax=probe_jax)
@@ -151,11 +151,11 @@ def test_check_environment_health_uses_non_mutating_uv_query_and_reports_jax_bac
 def test_check_environment_health_reports_uv_failure_without_skipping_jax_probe(tmp_path: Path) -> None:
     del tmp_path
 
-    def run_command(args: tuple[str, ...]):
+    def run_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=127, stdout="", stderr="uv: command not found")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=None, run_command=run_command, probe_jax=probe_jax)
@@ -170,11 +170,11 @@ def test_check_environment_health_reports_uv_failure_without_skipping_jax_probe(
 def test_check_environment_health_fails_when_expected_accelerator_is_missing(tmp_path: Path) -> None:
     del tmp_path
 
-    def run_command(args: tuple[str, ...]):
+    def run_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=("gpu",), run_command=run_command, probe_jax=probe_jax)
@@ -188,11 +188,11 @@ def test_check_environment_health_fails_when_expected_accelerator_is_missing(tmp
 def test_check_environment_health_maps_vendor_specific_gpu_platforms_to_gpu_expectations(tmp_path: Path) -> None:
     del tmp_path
 
-    def run_command(args: tuple[str, ...]):
+    def run_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cuda", device_platforms=("cuda", "cpu"), compute_verified=True)
 
     report = check_environment_health(expected_accelerators=("gpu",), run_command=run_command, probe_jax=probe_jax)
@@ -205,11 +205,11 @@ def test_check_environment_health_maps_vendor_specific_gpu_platforms_to_gpu_expe
 def test_check_environment_health_blocks_expectation_check_when_jax_probe_fails(tmp_path: Path) -> None:
     del tmp_path
 
-    def run_command(args: tuple[str, ...]):
+    def run_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=False, backend=None, device_platforms=(), error="No module named 'jax'")
 
     report = check_environment_health(expected_accelerators=("cpu",), run_command=run_command, probe_jax=probe_jax)
@@ -224,7 +224,7 @@ def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -
     workspace_root = tmp_path.resolve()
     (workspace_root / "core").mkdir()
 
-    def load_config(config_path: Path):
+    def load_config(config_path: Path) -> ResearchConfig:
         assert config_path == workspace_root / "research.yaml"
         return ResearchConfig(
             core_path=Path("core"),
@@ -235,7 +235,7 @@ def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -
     git_calls: list[tuple[tuple[str, ...], Path]] = []
     environment_calls: list[tuple[str, ...]] = []
 
-    def run_git(args: tuple[str, ...], cwd: Path):
+    def run_git(args: tuple[str, ...], cwd: Path) -> GitCommandResult:
         git_calls.append((args, cwd))
         if args == ("git", "rev-parse", "--is-inside-work-tree"):
             return GitCommandResult(returncode=0, stdout="true\n", stderr="")
@@ -245,12 +245,12 @@ def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -
             return GitCommandResult(returncode=0, stdout="", stderr="")
         raise AssertionError(f"Unexpected git command: {args!r}")
 
-    def run_environment_command(args: tuple[str, ...]):
+    def run_environment_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         environment_calls.append(args)
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",), compute_verified=True)
 
     report = run_doctor(
@@ -278,18 +278,18 @@ def test_run_doctor_aggregates_all_groups_when_config_is_valid(tmp_path: Path) -
 def test_run_doctor_reports_blocked_git_and_environment_expectations_when_config_is_invalid(tmp_path: Path) -> None:
     workspace_root = tmp_path.resolve()
 
-    def load_config(config_path: Path):
+    def load_config(config_path: Path) -> ResearchConfig:
         assert config_path == workspace_root / "research.yaml"
         raise ResearchConfigError("Invalid research.yaml at '/tmp/research.yaml': missing required key(s): core_path.")
 
     environment_calls: list[tuple[str, ...]] = []
 
-    def run_environment_command(args: tuple[str, ...]):
+    def run_environment_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         environment_calls.append(args)
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=0, stdout="uv 0.7.2\n", stderr="")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=True, backend="cpu", device_platforms=("cpu",))
 
     report = run_doctor(
@@ -313,15 +313,15 @@ def test_run_doctor_reports_blocked_git_and_environment_expectations_when_config
 def test_render_doctor_report_is_deterministic_and_readable(tmp_path: Path) -> None:
     workspace_root = tmp_path.resolve()
 
-    def load_config(config_path: Path):
+    def load_config(config_path: Path) -> ResearchConfig:
         assert config_path == workspace_root / "research.yaml"
         raise ResearchConfigError("research.yaml not found at '/tmp/workspace/research.yaml'.")
 
-    def run_environment_command(args: tuple[str, ...]):
+    def run_environment_command(args: tuple[str, ...]) -> EnvironmentCommandResult:
         assert args == ("uv", "--version")
         return EnvironmentCommandResult(returncode=127, stdout="", stderr="uv: command not found")
 
-    def probe_jax():
+    def probe_jax() -> JaxProbeResult:
         return JaxProbeResult(ok=False, backend=None, device_platforms=(), error="No module named 'jax'")
 
     report = run_doctor(
