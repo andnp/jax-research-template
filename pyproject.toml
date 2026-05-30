@@ -14,7 +14,6 @@ dependencies = [
     "flax~=0.12",
     "gymnax~=0.0",
     "jax~=0.9",
-    "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
     "jaxlib~=0.9",
     "jaxtyping~=0.3",
     "matplotlib>=3.9",
@@ -54,6 +53,7 @@ jax-replay = { workspace = true }
 jax-utils = { workspace = true }
 research-analysis = { workspace = true }
 research-cli = { workspace = true }
+research-cluster = { workspace = true }
 research-instrument = { workspace = true }
 research-runner = { workspace = true }
 research-store = { workspace = true }

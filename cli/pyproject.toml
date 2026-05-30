@@ -6,6 +6,9 @@ dependencies = [
     "typer~=0.12",
     "copier~=9.4",
     "PyYAML~=6.0",
+    "experiment-definition",
+    "research-runner",
+    "research-cluster",
 ]
 
 [project.scripts]

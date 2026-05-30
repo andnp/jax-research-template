@@ -648,3 +648,137 @@ def test_context_manager_opens_and_closes() -> None:
         assert db.conn is not None
     # After __exit__, conn should be None
     assert db._conn is None  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Invalidation
+# ---------------------------------------------------------------------------
+
+
+def test_invalidate_execution_sets_status(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=20)  # type: ignore[union-attr]
+
+    execution_id = db.add_execution(hostname="node-inv")
+    db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "COMPLETED")
+
+    result = db.invalidate_execution(execution_id)
+
+    assert result is True
+    assert db.get_execution(execution_id).status == "INVALID"  # type: ignore[union-attr]
+
+
+def test_invalidate_execution_nonexistent_returns_false(db: DatabaseManager) -> None:
+    assert db.invalidate_execution(999999) is False
+
+
+def test_invalidate_execution_makes_runs_unsatisfied(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=21)  # type: ignore[union-attr]
+
+    execution_id = db.add_execution(hostname="node-inv2")
+    db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "COMPLETED")
+
+    assert run_id not in [r.id for r in db.list_unsatisfied_runs(exp_id)]
+
+    db.invalidate_execution(execution_id)
+
+    assert run_id in [r.id for r in db.list_unsatisfied_runs(exp_id)]
+
+
+def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
+    e1 = db.add_execution(hostname="n1", git_commit="aaa111")
+    db.update_execution_status(e1, "COMPLETED")
+    e2 = db.add_execution(hostname="n2", git_commit="aaa111")
+    db.update_execution_status(e2, "COMPLETED")
+    e3 = db.add_execution(hostname="n3", git_commit="bbb222")
+    db.update_execution_status(e3, "COMPLETED")
+
+    invalidated = db.invalidate_executions_by_commit("aaa111")
+
+    assert sorted(invalidated) == sorted([e1, e2])
+    assert db.get_execution(e1).status == "INVALID"  # type: ignore[union-attr]
+    assert db.get_execution(e2).status == "INVALID"  # type: ignore[union-attr]
+    assert db.get_execution(e3).status == "COMPLETED"  # type: ignore[union-attr]
+
+
+def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
+    e_pending = db.add_execution(hostname="n1", git_commit="ccc333")
+    e_running = db.add_execution(hostname="n2", git_commit="ccc333")
+    db.update_execution_status(e_running, "RUNNING")
+    e_completed = db.add_execution(hostname="n3", git_commit="ccc333")
+    db.update_execution_status(e_completed, "COMPLETED")
+
+    invalidated = db.invalidate_executions_by_commit("ccc333")
+
+    assert invalidated == [e_completed]
+    assert db.get_execution(e_pending).status == "PENDING"  # type: ignore[union-attr]
+    assert db.get_execution(e_running).status == "RUNNING"  # type: ignore[union-attr]
+    assert db.get_execution(e_completed).status == "INVALID"  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# list_executions
+# ---------------------------------------------------------------------------
+
+
+def test_list_executions_unfiltered(db: DatabaseManager) -> None:
+    db.add_execution(hostname="n1")
+    db.add_execution(hostname="n2")
+
+    rows = db.list_executions()
+
+    assert len(rows) == 2
+
+
+def test_list_executions_filter_by_status(db: DatabaseManager) -> None:
+    e1 = db.add_execution(hostname="n1")
+    e2 = db.add_execution(hostname="n2")
+    db.update_execution_status(e2, "COMPLETED")
+
+    rows = db.list_executions(status="COMPLETED")
+
+    assert len(rows) == 1
+    assert rows[0].id == e2
+
+
+def test_list_executions_filter_by_experiment(populated_db: DatabaseManager) -> None:
+    db = populated_db
+    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
+    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    hyper_id = db.add_hyperparam_config({"lr": 1e-3})
+    exp1_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    exp2_id = db.add_experiment("Other Exp")
+
+    run1 = db.add_run(exp1_id, algo_ver.id, env_ver.id, hyper_id, seed=30)  # type: ignore[union-attr]
+    run2 = db.add_run(exp2_id, algo_ver.id, env_ver.id, hyper_id, seed=31)  # type: ignore[union-attr]
+
+    exec1 = db.add_execution(hostname="n1")
+    db.link_execution_run(exec1, run1)
+    exec2 = db.add_execution(hostname="n2")
+    db.link_execution_run(exec2, run2)
+
+    rows = db.list_executions(exp1_id)
+
+    assert len(rows) == 1
+    assert rows[0].id == exec1
+
+
+def test_list_executions_filter_by_git_commit(db: DatabaseManager) -> None:
+    db.add_execution(hostname="n1", git_commit="ccc333")
+    db.add_execution(hostname="n2", git_commit="ddd444")
+
+    rows = db.list_executions(git_commit="ccc333")
+
+    assert len(rows) == 1
+    assert rows[0].git_commit == "ccc333"
