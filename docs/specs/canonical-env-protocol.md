@@ -45,8 +45,8 @@ Gymnax is useful, but its API should not define the shared architecture for the 
 
 Instead, Gymnax should adapt into the canonical protocol.
 
-### 4.2 JAXAtari fit
-JAXAtari adapts into the canonical protocol. The adapter owns ALE-specific state, exposes Atari observation and action metadata through `EnvSpec`, and layers the default DeepMind-style pixel preprocessing contract on top without changing agent-facing interfaces.
+### 4.2 ALE-py / Gymnasium fit
+ALE-py (via Gymnasium) adapts into the canonical protocol. The adapter owns ALE-specific state, exposes Atari observation and action metadata through `EnvSpec`, and layers the default DeepMind-style pixel preprocessing contract on top without changing agent-facing interfaces.
 
 The default preprocessing contract for the Atari pixel path is:
 - frame stack = 4,
@@ -67,4 +67,4 @@ Brax should adapt into the same protocol with continuous `action_shape` and floa
 - No vector-environment framework.
 
 ## 6. Dependency Note
-The workspace and library configuration pin `jaxatari` directly to the upstream GitHub tag `v0.1` so the adapter dependency remains explicit and reproducible.
+The workspace and library configuration depend on `ale-py>=0.10` and `gymnasium[atari]>=1.0` for Atari environment support.

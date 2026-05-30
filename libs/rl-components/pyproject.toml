@@ -9,7 +9,9 @@ dependencies = [
     "distrax>=0.1.8",
     "flax~=0.12",
     "jax-nn",
-    "jaxatari @ git+https://github.com/k4ntz/JAXAtari@v0.1",
+    "ale-py>=0.10",
+    "gymnasium[atari]>=1.0",
+    "opencv-python-headless>=4.0",
     "jax~=0.9",
 ]
 

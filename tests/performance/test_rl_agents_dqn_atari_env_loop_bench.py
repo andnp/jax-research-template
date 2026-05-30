@@ -19,7 +19,7 @@ from rl_agents.dqn_atari import (
     initialize_train_state,
     make_train,
 )
-from rl_components.atari import JAXAtariConfig, make_atari_adapter
+from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_compat_env
@@ -34,8 +34,8 @@ ENV_ONLY_ACTIONS = jnp.arange(ROLLOUT_STEPS, dtype=jnp.int32) % 6
 POLICY_KEYS = jax.random.split(jax.random.key(2), ROLLOUT_STEPS)
 TRAIN_KEY = jax.random.key(3)
 REPLAY_SAMPLE_KEY = jax.random.key(4)
-BENCHMARK_ENV_VAR = "JAXATARI_BENCHMARKS"
-PONG_GAME = "pong"
+BENCHMARK_ENV_VAR = "ALE_BENCHMARKS"
+PONG_GAME = "Pong"
 ATARI_OBSERVATION_SHAPE = (4, 84, 84, 1)
 ATARI_ACTIONS = 6
 EPSILON = jnp.asarray(0.05, dtype=jnp.float32)
@@ -151,7 +151,7 @@ def _make_fake_env() -> _EnvLike:
 
 def _require_real_benchmarks() -> None:
     if os.environ.get(BENCHMARK_ENV_VAR) != "1":
-        pytest.skip(f"Set {BENCHMARK_ENV_VAR}=1 to run real JAXAtari benchmarks.")
+        pytest.skip(f"Set {BENCHMARK_ENV_VAR}=1 to run real ALE benchmarks.")
 
 
 def _make_real_env_or_skip() -> _EnvLike:
@@ -162,12 +162,12 @@ def _make_real_env_or_skip() -> _EnvLike:
             make_gymnax_compat_env(
                 cast(
                     EnvProtocol[jax.Array, object, jax.Array, None],
-                    make_atari_adapter(JAXAtariConfig(game=PONG_GAME)),
+                    make_atari_adapter(AleAtariConfig(game=PONG_GAME)),
                 )
             ),
         )
     except (FileNotFoundError, ImportError, OSError, RuntimeError, ValueError) as exc:
-        pytest.skip(f"JAXAtari Pong benchmark environment unavailable: {exc}")
+        pytest.skip(f"ALE Pong benchmark environment unavailable: {exc}")
 
 
 def _benchmark_compiled(benchmark: object, target: Callable[[], object], *, rounds: int = BENCHMARK_ROUNDS) -> None:
