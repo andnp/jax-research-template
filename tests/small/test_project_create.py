@@ -1,9 +1,9 @@
 """Small tests for the project create command surface."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
-from typing import Any
 from jinja2 import BaseLoader, Environment
 from research_cli import project as project_module
 from research_cli.main import app

@@ -1,10 +1,11 @@
 """Medium tests for DQN variants — Double DQN and Dueling DQN gradient flow."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import optax
 import pytest
-from typing import Any
 from flax.training.train_state import TrainState
 from rl_agents.double_dqn import DoubleDQNConfig
 from rl_agents.dqn import NatureQNetwork, _make_q_network

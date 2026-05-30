@@ -1,11 +1,12 @@
 """Performance benchmarks for canonical env rollout vs Gymnax bridge overhead."""
 
+from typing import Any, Callable
+
 import chex
 import gymnax.wrappers
 import jax
 import jax.numpy as jnp
 import pytest
-from typing import Any, Callable
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 

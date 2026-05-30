@@ -6,8 +6,8 @@ from typing import cast
 import chex
 import jax
 import jax.numpy as jnp
-import rl_components.brax as brax_module
 import pytest
+import rl_components.brax as brax_module
 from rl_components.brax import BraxAdapter, BraxConfig
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge, GymnaxDiscreteSpace, GymnaxSpace

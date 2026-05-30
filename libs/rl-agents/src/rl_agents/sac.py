@@ -173,7 +173,14 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
             )
 
             # TRAIN
-            def _do_train(actor_state: TrainState, critic_state: TrainState, critic_target_params: VariableDict, alpha_state: TrainState, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, TrainState, VariableDict, TrainState]:
+            def _do_train(
+                actor_state: TrainState,
+                critic_state: TrainState,
+                critic_target_params: VariableDict,
+                alpha_state: TrainState,
+                buffer_state: ReplayBufferState,
+                rng: jax.Array,
+            ) -> tuple[TrainState, TrainState, VariableDict, TrainState]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
@@ -181,7 +188,18 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 alpha = jnp.exp(log_alpha_arr[0])
 
                 # CRITIC UPDATE
-                def _critic_loss_fn(critic_params: VariableDict, actor_params: VariableDict, critic_target_params: VariableDict, alpha: jax.Array, obs: jax.Array, actions: jax.Array, rewards: jax.Array, next_obs: jax.Array, dones: jax.Array, rng: jax.Array) -> jax.Array:
+                def _critic_loss_fn(
+                    critic_params: VariableDict,
+                    actor_params: VariableDict,
+                    critic_target_params: VariableDict,
+                    alpha: jax.Array,
+                    obs: jax.Array,
+                    actions: jax.Array,
+                    rewards: jax.Array,
+                    next_obs: jax.Array,
+                    dones: jax.Array,
+                    rng: jax.Array,
+                ) -> jax.Array:
                     rng, _rng = jax.random.split(rng)
                     next_actions, next_log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
                         actor_params, next_obs, jax.random.split(_rng, config.BATCH_SIZE)
@@ -253,11 +271,19 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 lambda: (actor_state, critic_state, critic_target_params, alpha_state),
             )
 
-            runner_state = RunnerState(actor_state=actor_state, critic_state=critic_state, critic_target_params=critic_target_params, alpha_state=alpha_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+            runner_state = RunnerState(
+                actor_state=actor_state, critic_state=critic_state,
+                critic_target_params=critic_target_params, alpha_state=alpha_state,
+                buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+            )
             return runner_state, info
 
         # RUNNER
-        runner_state = RunnerState(actor_state=actor_state, critic_state=critic_state, critic_target_params=critic_target_params, alpha_state=alpha_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+        runner_state = RunnerState(
+            actor_state=actor_state, critic_state=critic_state,
+            critic_target_params=critic_target_params, alpha_state=alpha_state,
+            buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+        )
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
         return {"runner_state": runner_state, "metrics": metrics}
 

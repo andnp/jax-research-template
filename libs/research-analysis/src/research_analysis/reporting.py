@@ -6,24 +6,23 @@ with pedagogical explanations and diagnostic plotting.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
-from pathlib import Path
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import scipy.stats as stats
+from experiment_definition.db import DatabaseManager
+from research_plot import plot_distributions, plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from experiment_definition.db import DatabaseManager
-from research_analysis.bootstrap import bootstrap_ci
 from research_analysis.hypothesis import mann_whitney_u_test, welch_ttest
-from research_plot import plot_distributions, plot_ecdf, plot_sensitivity
 
 
 @dataclass(frozen=True)
@@ -425,7 +424,7 @@ def analyze_hypers(
 
     # Identify the raw averages per value
     raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
-    winning_val = max(raw_means, key=raw_means.get)
+    winning_val = max(raw_means, key=lambda k: raw_means[k])
     raw_winner_mean = raw_means[winning_val]
 
     # 2. Bootstrapped Two-Stage Tuning
@@ -443,7 +442,7 @@ def analyze_hypers(
             resampled_means[val] = np.mean([records[i]["value"] for i in resampled_idx])
 
         # Pick winner based on resampled data
-        resampled_winner = max(resampled_means, key=resampled_means.get)
+        resampled_winner = max(resampled_means, key=lambda k: resampled_means[k])
         # Record the TRUE sample mean of that winning configuration from original data
         bootstrap_winner_means.append(raw_means[resampled_winner])
 

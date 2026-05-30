@@ -211,11 +211,22 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
             advantages, targets = _calculate_gae(traj_batch, last_val)
 
             # UPDATE NETWORK
-            def _update_epoch(update_state: tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], unused: jax.Array) -> tuple[tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], Any]:
-                def _update_minbatch(train_state: TrainState, batch_info: tuple[Transition, jax.Array, jax.Array]) -> tuple[TrainState, tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]]:
+            def _update_epoch(
+                update_state: tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array],
+                unused: jax.Array,
+            ) -> tuple[tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], Any]:
+                def _update_minbatch(
+                    train_state: TrainState,
+                    batch_info: tuple[Transition, jax.Array, jax.Array],
+                ) -> tuple[TrainState, tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]]:
                     traj_batch, advantages, targets = batch_info
 
-                    def _loss_fn(params: VariableDict, traj_batch: Transition, advantages: jax.Array, targets: jax.Array) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
+                    def _loss_fn(
+                        params: VariableDict,
+                        traj_batch: Transition,
+                        advantages: jax.Array,
+                        targets: jax.Array,
+                    ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
                         # RERUN NETWORK
                         policy, value = network.apply(params, traj_batch.obs)
                         log_prob = _sum_action_event_terms(policy.log_prob(traj_batch.action), is_continuous=continuous_actions)

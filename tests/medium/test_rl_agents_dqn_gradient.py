@@ -1,9 +1,10 @@
 """Medium tests for rl_agents.dqn — gradient flow and JIT compilation."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import optax
-from typing import Any
 from flax.training.train_state import TrainState
 from rl_agents.dqn import DQNConfig, _make_q_network
 

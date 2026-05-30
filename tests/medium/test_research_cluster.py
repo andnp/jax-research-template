@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from research_cluster.config import SlurmConfig
 from research_cluster.script import build_job_script, build_sbatch_flags, write_job_script
 from research_cluster.submit import submit_experiment

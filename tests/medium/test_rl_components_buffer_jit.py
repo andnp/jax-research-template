@@ -1,6 +1,6 @@
 """Medium tests for rl_components.buffers — JIT compilation and functional correctness."""
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp

@@ -742,7 +742,7 @@ def test_list_executions_unfiltered(db: DatabaseManager) -> None:
 
 
 def test_list_executions_filter_by_status(db: DatabaseManager) -> None:
-    e1 = db.add_execution(hostname="n1")
+    _ = db.add_execution(hostname="n1")
     e2 = db.add_execution(hostname="n2")
     db.update_execution_status(e2, "COMPLETED")
 

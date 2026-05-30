@@ -1,7 +1,8 @@
+from typing import Any
+
 import gymnax
 import gymnax.wrappers
 import jax
-from typing import Any
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 

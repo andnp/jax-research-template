@@ -1,8 +1,9 @@
+from typing import Any
+
 import gymnax
 import gymnax.wrappers
 import jax
 import pytest
-from typing import Any
 from rl_agents.dqn import DQNConfig
 from rl_agents.dqn import make_train as make_dqn
 from rl_agents.ppo import make_train as make_ppo

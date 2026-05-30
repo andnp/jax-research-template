@@ -3,14 +3,13 @@
 from dataclasses import dataclass
 from typing import Any, override
 
-from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
-
 import jax
 import jax.numpy as jnp
 import optax
 import pytest
 from flax.training.train_state import TrainState
 from rl_agents.ppo import _sum_action_event_terms, make_train
+from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
 

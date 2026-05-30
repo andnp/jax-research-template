@@ -1,8 +1,9 @@
 """Medium tests for rl_components.networks — ActorCritic forward pass and JIT."""
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
-from typing import Any
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 
 

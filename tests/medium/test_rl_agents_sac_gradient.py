@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -14,6 +12,7 @@ from flax.training.train_state import TrainState
 from rl_agents.sac import Actor, Critic, SACConfig, make_train
 from rl_components.action_normalization import ActionNormalizationWrapper
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
+from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
 from rl_components.gymnax_bridge import GymnaxCompatibilityBridge
 
 

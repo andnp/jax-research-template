@@ -7,8 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import typer
-
-from experiment_definition.db import DatabaseManager, ExecutionRow, ExperimentRow
+from experiment_definition.db import DatabaseManager, ExperimentRow
 from research_runner.types import ExperimentSpec
 
 experiment_app = typer.Typer(help="Manage experiments.")

@@ -9,7 +9,7 @@ Rules from science_guide.md:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -54,7 +54,7 @@ def plot_distributions(
     
     # Custom styling for violin bodies
     colors = ["#1f77b4", "#ff7f0e"]  # Consistent Blue & Orange
-    for i, pc in enumerate(parts["bodies"]):
+    for i, pc in enumerate(cast(list[Any], parts["bodies"])):
         pc.set_facecolor(colors[i % len(colors)])
         pc.set_edgecolor("black")
         pc.set_alpha(0.6)
