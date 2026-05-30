@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780165496712,
+  "lastUpdate": 1780179940765,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -2461,6 +2461,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000024719151956880047",
             "extra": "mean: 41.30840000016178 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a73c0682a8253e1f4115041be4233f4f95616d7f",
+          "message": "feat(types): enable pyrefly strict mode with full annotation pass (#73)\n\n## Summary\n\nEnables pyrefly strict mode (preset = \"strict\") across the entire core\ncodebase, achieving **0 type errors** across all 13 libraries.\n\n## What Changed\n\n### Pyrefly config\n- `preset = \"strict\"` with `replace-imports-with-any = [\"chex.*\",\n\"flax.linen.*\"]`\n- Suppressed `implicit-any-empty-container` and\n`implicit-any-type-argument` (inferred type args on JAX containers)\n\n### Annotation pass (14 commits)\nFull type annotation across: rl-components, rl-agents (DQN family, PPO,\nSAC), jax-replay, research-cluster, research-store, all examples and\ntests.\n\n### Quality improvements (5 commits)\n\n**Option A — Shared GymEnv Protocol** (`96278cc`)  \nExtracted duplicated `_ObservationSpace`, `_ActionSpace`, `_EnvLike`\nProtocols from 8 agents into a single `rl_components.gym_env` module\nwith `ObservationSpace`, `DiscreteActionSpace`, `ContinuousActionSpace`,\n`GymEnv[ActionSpaceT]`.\n\n**Option B — TrainOutput TypedDicts** (`ae0c930`)  \nAdded typed output classes for each agent (`DQNTrainOutput`,\n`PPOTrainOutput`, `SACTrainOutput`, etc.) replacing `dict[str, Any]`\nreturn types.\n\n**Option C — FrameStack ObsT bound** (`6e78b06`)  \nBounded `FrameStackWrapper[ObsT: jax.Array, ...]` so array-stacking\noperations are type-safe without `# type: ignore`.\n\n**Option D — ALEInterface Protocol** (`c1181a3`)  \nDefined `_ALEInterface` and `_ALEEnv` Protocols in\n`python_env_bridge.py` to remove 4 `attr-defined` ignores on ALE state\nmanagement.\n\n**Option E — SAC alpha cast** (`e667c12`)  \nReplaced `# type: ignore[assignment]` with explicit `cast(jax.Array,\n...)` for alpha parameter extraction.\n\n## Test Results\n- 455 small tests passing\n- 229 medium tests passing\n- 0 pyrefly errors (rl-* code)",
+          "timestamp": "2026-05-30T16:20:16-06:00",
+          "tree_id": "89c87a6dbb35a584f5a7048abb5d254dd28d66b4",
+          "url": "https://github.com/andnp/jax-research-template/commit/a73c0682a8253e1f4115041be4233f4f95616d7f"
+        },
+        "date": 1780179940557,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.586764109615593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009137888658364502",
+            "extra": "mean: 151.81961633333194 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9926786426098314,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00408212572130276",
+            "extra": "mean: 1.007375355000003 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.03899857481123998,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16185596722455176",
+            "extra": "mean: 25.641962683000017 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5864311584593249,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007452302945261032",
+            "extra": "mean: 1.7052299925999932 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 16664.389199993067,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000028904530258105928",
+            "extra": "mean: 60.008200000538636 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 45.568549265369406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005721238261396381",
+            "extra": "mean: 21.944960199994057 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.6495507852682993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003000222359899747",
+            "extra": "mean: 377.4224693333205 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 5066.283880384837,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000035865343948675046",
+            "extra": "mean: 197.38333334847388 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 44.842950793545874,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003486848014237694",
+            "extra": "mean: 22.30004899998524 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 488.3002447542898,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003989190568035166",
+            "extra": "mean: 2.047920333325237 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 40.25799145956013,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00019608727963334405",
+            "extra": "mean: 24.839788666668028 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 40342.752020669155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013393262358961491",
+            "extra": "mean: 24.787600000308885 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 32793.33637194159,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015809885212174555",
+            "extra": "mean: 30.494000020553358 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 26896.180739513162,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000016823148805927922",
+            "extra": "mean: 37.180000003900204 usec\nrounds: 5"
           }
         ]
       }
