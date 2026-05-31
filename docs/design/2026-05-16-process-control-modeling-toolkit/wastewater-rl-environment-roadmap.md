@@ -49,16 +49,17 @@ Standardized plant layouts + influent patterns + evaluation criteria:
 - **What's interesting**: The classic BSM1 aeration control problem. Trade off energy (aeration) against effluent quality (ammonia).
 - **Enrichment opportunities**: Add sensor noise/lag to DO and NH₄ measurements; add occasional sensor dropout; vary influent composition (not just flow).
 
-#### BSM1 Nitrate Recycle Control
-- **Action**: 1–2D `[Q_a]` or `[Q_a, Q_rs]` (internal recycle, return sludge)
-- **Observation**: ~4D — NO₃ in R2, effluent NH₄, flow, pumping energy proxy
+#### BSM1 Nitrate Recycle Control ✅ *Implemented*
+- **Action**: 2D `[Q_a, Q_rs]` (internal recycle ratio, return sludge ratio)
+- **Observation**: 6D — NO₃ R2, effluent NH₄/NO₃, flow, Q_a, Q_rs
 - **What's interesting**: Different energy-quality trade-off from DO control. Recycle rates affect denitrification efficiency.
-- **Implementation**: Trivial extension of existing BSM1 — expose Q_a/Q_rs as actions instead of fixed ratios.
+- **Implementation**: Q_a via DosingSystem (reverse-acting PI on NO₃ R2), Q_rs via RampLimitedActuator.
 
-#### BSM1 Combined Control
-- **Action**: 3–4D `[kla_34, kla_5, Q_a, Q_rs]`
-- **Observation**: ~6D — union of DO and recycle observations
+#### BSM1 Combined Control ✅ *Implemented*
+- **Action**: 4D `[kla_34, kla_5, Q_a, Q_rs]`
+- **Observation**: 11D — DO R3/R5, effluent NH₄/NO₃, NO₃ R2, flow, influent NH₄, aeration power, dq/dt, Q_a, Q_rs
 - **What's interesting**: Full BSM1 control problem with coupled aeration and pumping trade-offs.
+- **Implementation**: Composes DosingSystem loops (kla, Q_a) + RampLimitedActuator (Q_rs). Asymmetric blower ramp + VFD startup delay.
 
 ### Tier 2: New Unit Models Required
 
@@ -69,12 +70,12 @@ Standardized plant layouts + influent patterns + evaluation criteria:
 - **What's interesting**: Integrating dynamics with lag. Failure mode = solids washout during storms. SRT management.
 - **Enrichment**: Add blanket-height sensor with noise and sampling delay; storm-event disturbances.
 
-#### Chemical Phosphorus Dosing
-- **New model needed**: `chemistry/precipitation.py` — metal-salt (FeCl₃) precipitation of phosphate
-- **Action**: 1D `[FeCl₃_dose]`
-- **Observation**: ~3D — influent PO₄, effluent PO₄, chemical cost proxy
+#### Chemical Phosphorus Dosing ✅ *Implemented*
+- **Module**: `chemistry/precipitation.py` — FeCl₃ precipitation with Monod-type saturation
+- **Action**: 1D `[FeCl₃_dose]` (mg-Fe/L)
+- **Observation**: 5D — effluent PO₄, flow, dose, influent PO₄, dq/dt
 - **What's interesting**: Simple process with clear cost-quality trade-off. Monod-like kinetics.
-- **Enrichment**: Sensor delay on effluent PO₄; varying influent P load.
+- **Implementation**: Diurnal influent PO₄ via SinusoidalChannel, DosingSystem loop (PO₄ sensor → PI → pump), instantaneous precipitation. Reward penalises effluent violation² + normalised chemical cost.
 
 ### Tier 3: BSM2 Components (each a standalone environment)
 
@@ -174,13 +175,14 @@ Each environment should support at least two observation profiles:
 | Two-stage chlorine | ✅ Done | `benchmarks/chlorine_two_stage.py` | Two basins in series |
 | pH neutralisation | ✅ Done | `benchmarks/ph_neutralization.py` | CSTR with titration |
 | Equalization tank | ✅ Done | `benchmarks/equalization_tank.py` | Level control |
-| BSM1 reduced (6-var) | ✅ Done | `benchmarks/bsm1_reduced.py` | 2 reactors, perfect settler |
-| BSM1 full (13-var ASM1) | ✅ Done | `benchmarks/bsm1.py` | 5 reactors, perfect settler |
+| BSM1 DO control (13-var ASM1) | ✅ Done | `benchmarks/bsm1.py` | 5 reactors, perfect settler, 2D action |
 | BSM1 nitrate recycle | ✅ Done | `benchmarks/bsm1_recycle.py` | 2D action [Q_a, Q_rs] ratios |
-| BSM1 combined | Planned | — | kla + Q_a + Q_rs |
+| BSM1 combined | ✅ Done | `benchmarks/bsm1_combined.py` | 4D action [kla_34, kla_5, Q_a, Q_rs], 11D obs |
+| H₂S scrubber | ✅ Done | `benchmarks/h2s_scrubber.py` | 3-loop supervisory control, 3D action |
 | Takács clarifier | ✅ Done | `units/takacs_settler.py` | 10-layer 1D settler model |
 | Sludge blanket control | ✅ Done | `benchmarks/sludge_blanket.py` | 1D action [Q_u], 4D obs |
-| Chemical P dosing | Planned | — | New chemistry model |
+| Chemical P dosing | ✅ Done | `benchmarks/chem_p_dosing.py` | FeCl₃ precipitation, 1D action |
+| BSM1-LT (seasonal) | ✅ Done | `benchmarks/bsm1_lt.py` | Arrhenius kinetics, 10D obs |
 | Anaerobic digester | Planned | — | ADM1-inspired |
 | Membrane fouling | Planned | — | New unit model |
 
@@ -192,6 +194,6 @@ Each environment should support at least two observation profiles:
 2. **Takács settler** → **sludge blanket control** — high-value new unit model, enables realistic BSM1
 3. **Chemical P dosing** — simple standalone environment, 1D action
 4. **Anaerobic digester** — complex model but clean control interface
-5. **BSM1-LT dynamics** — temperature variation + seasonal influent for existing BSM1
+5. ~~**BSM1-LT dynamics**~~ ✅ Done — Arrhenius temperature correction + seasonal benchmark
 6. **ASM2d** → **bio-P environments** — major new biological model
 7. **MBR** — membrane dynamics, niche but interesting
