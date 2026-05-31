@@ -171,10 +171,7 @@ class BSM1BenchmarkConfig:
 
     max_disturbance_events: int = 16
 
-    # Sensor fidelity: "realistic" = noisy sensors (default), "pure" = true values
-    sensor_fidelity: str = "realistic"
-
-    # Sensor parameters for realistic mode
+    # Sensor parameters (set all to zero for ideal/pure sensors)
     # DO probes (fast response, ~30s lag)
     do_noise_std: float = 0.05   # g O₂/m³
     do_lag: float = 0.9          # first-order lag coefficient
@@ -337,9 +334,8 @@ def make_bsm1_benchmark(
     mean_flow = jnp.array(config.mean_flow)
     internal_recycle_ratio = jnp.array(config.internal_recycle_ratio)
     return_sludge_ratio = jnp.array(config.return_sludge_ratio)
-    is_realistic = config.sensor_fidelity == "realistic"
 
-    # Sensor params (only used in realistic mode, but always constructed)
+    # Sensor params
     do_params = DOSensorParams(
         noise_std=config.do_noise_std,
         lag_coefficient=config.do_lag,
@@ -352,7 +348,6 @@ def make_bsm1_benchmark(
     )
 
     # Max aeration power for normalisation
-    v_aerobic = config.v3 + config.v4 + config.v5
     kla_max_total = config.kla_34_max * (config.v3 + config.v4) + config.kla_5_max * config.v5
     power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
@@ -476,27 +471,17 @@ def make_bsm1_benchmark(
         )
 
         effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio)
-        if is_realistic:
-            obs = jnp.array([
-                effluent.s_nh / 35.0,
-                effluent.s_no / 20.0,
-                r3.s_o / 8.0,
-                r5.s_o / 8.0,
-                r2.s_no / 20.0,
-                mean_flow / mean_flow,
-                influent.s_nh / 35.0,
-                0.0,  # aeration power (no action yet)
-                0.0,  # dq/dt
-            ])
-        else:
-            obs = jnp.array([
-                effluent.s_nh / 35.0,
-                effluent.s_no / 20.0,
-                r3.s_o / 8.0,
-                r5.s_o / 8.0,
-                r2.s_no / 20.0,
-                mean_flow / mean_flow,
-            ])
+        obs = jnp.array([
+            effluent.s_nh / 35.0,
+            effluent.s_no / 20.0,
+            r3.s_o / 8.0,
+            r5.s_o / 8.0,
+            r2.s_no / 20.0,
+            mean_flow / mean_flow,
+            influent.s_nh / 35.0,
+            0.0,  # aeration power (no action yet)
+            0.0,  # dq/dt
+        ])
         return plant_state, obs
 
     def step(
@@ -544,57 +529,38 @@ def make_bsm1_benchmark(
         effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
 
         # 10. Sensors and observation
-        if is_realistic:
-            new_do3, do3_reading = do_step(state.sensors.do_r3, new_r3.s_o, do_params, k_do3)
-            new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)
-            new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
-            new_no3e, no3e_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3e)
-            new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
-            new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
+        new_do3, do3_reading = do_step(state.sensors.do_r3, new_r3.s_o, do_params, k_do3)
+        new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)
+        new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
+        new_no3e, no3e_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3e)
+        new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
+        new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
 
-            # Derived signals
-            aeration_power = (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
-            dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
+        aeration_power = (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
+        dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
-            new_sensors = BSM1SensorState(
-                do_r3=new_do3, do_r5=new_do5,
-                nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
-                nh4_inf=new_nh4i, last_q_in=q_in,
-            )
+        new_sensors = BSM1SensorState(
+            do_r3=new_do3, do_r5=new_do5,
+            nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
+            nh4_inf=new_nh4i, last_q_in=q_in,
+        )
 
-            obs = jnp.array([
-                nh4e_reading / 35.0,
-                no3e_reading / 20.0,
-                do3_reading / 8.0,
-                do5_reading / 8.0,
-                no3r2_reading / 20.0,
-                q_in / mean_flow,
-                nh4i_reading / 35.0,
-                aeration_power,
-                dq_dt,
-            ])
+        obs = jnp.array([
+            nh4e_reading / 35.0,
+            no3e_reading / 20.0,
+            do3_reading / 8.0,
+            do5_reading / 8.0,
+            no3r2_reading / 20.0,
+            q_in / mean_flow,
+            nh4i_reading / 35.0,
+            aeration_power,
+            dq_dt,
+        ])
 
-            # Reward from sensor readings (matches what an online agent would see)
-            reward = -(
-                config.reward_w_nh * nh4e_reading ** 2
-                + config.reward_w_no * no3e_reading ** 2
-            )
-        else:
-            new_sensors = state.sensors
-
-            obs = jnp.array([
-                effluent.s_nh / 35.0,
-                effluent.s_no / 20.0,
-                new_r3.s_o / 8.0,
-                new_r5.s_o / 8.0,
-                new_r2.s_no / 20.0,
-                q_in / mean_flow,
-            ])
-
-            reward = -(
-                config.reward_w_nh * effluent.s_nh ** 2
-                + config.reward_w_no * effluent.s_no ** 2
-            )
+        reward = -(
+            config.reward_w_nh * nh4e_reading ** 2
+            + config.reward_w_no * no3e_reading ** 2
+        )
 
         new_state = BSM1PlantState(
             step_count=state.step_count + 1,
