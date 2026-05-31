@@ -4,19 +4,20 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import DosePumpState
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
-from process_control.disturbances.schedule import DisturbanceSchedule
-from process_control.disturbances.schedule import create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
-from process_control.scenarios.diurnal_source import DiurnalSourceState
+from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.units.biological_reactor import BiologicalReactorParams
-from process_control.units.biological_reactor import BiologicalReactorState
-from process_control.units.biological_reactor import mix_streams
+from process_control.sensors.do_sensor import DOSensorParams, DOSensorState
+from process_control.sensors.do_sensor import reset as do_reset
+from process_control.sensors.do_sensor import step as do_step
+from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
+from process_control.sensors.residual_analyzer import reset as ra_reset
+from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.units.biological_reactor import BiologicalReactorParams, BiologicalReactorState, mix_streams
 from process_control.units.biological_reactor import reset as reactor_reset
 from process_control.units.biological_reactor import step as reactor_step
 
@@ -32,11 +33,11 @@ class BSM1ReducedBenchmarkConfig:
       - action[0]: aeration rate kla (h⁻¹) for the aerobic reactor
       - action[1]: internal recycle ratio (Q_int / Q_in)
 
-    Observation (4D):
-      - s_nh_effluent / 35: normalized effluent ammonia
-      - s_no_effluent / 20: normalized effluent nitrate
-      - s_o_aerobic / 8:    normalized aerobic dissolved oxygen
-      - Q_in / mean_flow:   normalized influent flow
+    Observation (4D) — all from sensor readings:
+      - sensed_nh4_eff / 35: effluent ammonia (residual analyzer)
+      - sensed_no3_eff / 20: effluent nitrate (residual analyzer)
+      - sensed_do / 8:       aerobic DO (DO probe)
+      - Q_in / mean_flow:    normalised influent flow
     """
     dt: float = 0.02  # hours (~1.2 min per step)
 
@@ -93,6 +94,28 @@ class BSM1ReducedBenchmarkConfig:
 
     max_disturbance_events: int = 16
 
+    # Sensor parameters (set all to zero for ideal/pure sensors)
+    do_noise_std: float = 0.05
+    do_lag: float = 0.9
+    do_drift_rate: float = 0.001
+    analyzer_noise_std: float = 0.3
+    analyzer_lag: float = 0.8
+    analyzer_sample_period: int = 8
+
+
+@dataclass(frozen=True)
+class BSM1ReducedSensorState:
+    do_aerobic: DOSensorState
+    nh4_eff: ResidualAnalyzerState
+    no3_eff: ResidualAnalyzerState
+
+
+jax.tree_util.register_dataclass(
+    BSM1ReducedSensorState,
+    data_fields=["do_aerobic", "nh4_eff", "no3_eff"],
+    meta_fields=[],
+)
+
 
 @dataclass(frozen=True)
 class BSM1ReducedPlantState:
@@ -103,6 +126,7 @@ class BSM1ReducedPlantState:
     kla_actuator: DosePumpState
     recycle_actuator: DosePumpState
     disturbance_schedule: DisturbanceSchedule
+    sensors: BSM1ReducedSensorState
 
 
 jax.tree_util.register_dataclass(
@@ -115,6 +139,7 @@ jax.tree_util.register_dataclass(
         "kla_actuator",
         "recycle_actuator",
         "disturbance_schedule",
+        "sensors",
     ],
     meta_fields=[],
 )
@@ -189,6 +214,18 @@ def make_bsm1_reduced_benchmark(
     return_sludge_ratio = jnp.array(config.return_sludge_ratio)
     mean_flow = jnp.array(config.mean_flow)
 
+    # Sensor params
+    do_params = DOSensorParams(
+        noise_std=config.do_noise_std,
+        lag_coefficient=config.do_lag,
+        drift_rate=config.do_drift_rate,
+    )
+    analyzer_params = ResidualAnalyzerParams(
+        noise_std=config.analyzer_noise_std,
+        lag_coefficient=config.analyzer_lag,
+        sample_period=config.analyzer_sample_period,
+    )
+
     # Pre-built influent composition (constant, only flow varies)
     influent_composition = BiologicalReactorState(
         s_s=jnp.array(config.influent_s_s),
@@ -216,6 +253,12 @@ def make_bsm1_reduced_benchmark(
         kla_state = dose_pump_reset(k4)
         recycle_state = dose_pump_reset(k5)
 
+        sensors = BSM1ReducedSensorState(
+            do_aerobic=DOSensorState.create(config.aerobic_init_s_o),
+            nh4_eff=ResidualAnalyzerState.create(),
+            no3_eff=ResidualAnalyzerState.create(),
+        )
+
         plant_state = BSM1ReducedPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src_state,
@@ -224,6 +267,7 @@ def make_bsm1_reduced_benchmark(
             kla_actuator=kla_state,
             recycle_actuator=recycle_state,
             disturbance_schedule=create_empty(config.max_disturbance_events),
+            sensors=sensors,
         )
 
         effluent, _ = _clarify(aerobic_state, mean_flow, return_sludge_ratio)
@@ -240,7 +284,8 @@ def make_bsm1_reduced_benchmark(
         action: jax.Array,
         rng_key: jax.Array,
     ) -> tuple[BSM1ReducedPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, _k2 = jax.random.split(rng_key)
+        k1, k_sensors = jax.random.split(rng_key)
+        k_do, k_nh4, k_no3 = jax.random.split(k_sensors, 3)
 
         # 1. Influent flow (composition is fixed; only flow varies)
         new_source_state, _transport, Q_in, _demand = source_step(
@@ -279,18 +324,29 @@ def make_bsm1_reduced_benchmark(
         # 8. Clarifier: effluent quality
         effluent, _ = _clarify(new_aerobic_state, Q_aerobic, Q_rs / jnp.maximum(Q_aerobic, 1.0))
 
-        # 9. Observation
+        # 9. Sensors
+        new_do, do_reading = do_step(state.sensors.do_aerobic, new_aerobic_state.s_o, do_params, k_do)
+        new_nh4, nh4_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4)
+        new_no3, no3_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3)
+
+        new_sensors = BSM1ReducedSensorState(
+            do_aerobic=new_do,
+            nh4_eff=new_nh4,
+            no3_eff=new_no3,
+        )
+
+        # 10. Observation (from sensor readings)
         obs = jnp.array([
-            effluent.s_nh / 35.0,
-            effluent.s_no / 20.0,
-            new_aerobic_state.s_o / 8.0,
+            nh4_reading / 35.0,
+            no3_reading / 20.0,
+            do_reading / 8.0,
             Q_in / mean_flow,
         ])
 
-        # 10. Reward: penalize effluent ammonia and nitrate (weighted)
+        # 11. Reward (from sensor readings)
         reward = -(
-            config.reward_w_nh * effluent.s_nh ** 2
-            + config.reward_w_no * effluent.s_no ** 2
+            config.reward_w_nh * nh4_reading ** 2
+            + config.reward_w_no * no3_reading ** 2
         )
 
         new_state = BSM1ReducedPlantState(
@@ -301,6 +357,7 @@ def make_bsm1_reduced_benchmark(
             kla_actuator=new_kla_state,
             recycle_actuator=new_recycle_state,
             disturbance_schedule=state.disturbance_schedule,
+            sensors=new_sensors,
         )
 
         info: dict[str, jax.Array] = {

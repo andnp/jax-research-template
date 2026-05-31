@@ -12,10 +12,10 @@ Control challenge:
   - Too low underflow → blanket rises, effluent TSS spikes
 
 Action (1D): normalised underflow rate [Q_u / Q_u_max]
-Observation (4D):
-  blanket_height / depth
-  effluent_tss / 100
-  underflow_tss / 10000
+Observation (4D) — all from sensor readings:
+  sensed_blanket_height / depth  (concentration analyzer)
+  sensed_eff_tss / 100           (concentration analyzer)
+  sensed_und_tss / 10000         (concentration analyzer)
   q_feed / q_mean
 """
 from collections.abc import Callable
@@ -24,21 +24,16 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import DosePumpState
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
-from process_control.disturbances.schedule import DisturbanceSchedule
-from process_control.disturbances.schedule import create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
-from process_control.scenarios.diurnal_source import DiurnalSourceState
+from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.units.takacs_settler import TakacsSettlerParams
-from process_control.units.takacs_settler import TakacsSettlerState
-from process_control.units.takacs_settler import compute_blanket_height
-from process_control.units.takacs_settler import get_effluent_tss
-from process_control.units.takacs_settler import get_underflow_tss
+from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
+from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.units.takacs_settler import TakacsSettlerParams, TakacsSettlerState, compute_blanket_height, get_effluent_tss, get_underflow_tss
 from process_control.units.takacs_settler import reset as settler_reset
 from process_control.units.takacs_settler import step as settler_step
 
@@ -80,27 +75,28 @@ class SludgeBlanketConfig:
 
     max_disturbance_events: int = 16
 
+    # Sensor parameters (set all to zero / sample_period=1 for ideal sensors)
+    # TSS analyzers (blanket height, effluent TSS, underflow TSS)
+    analyzer_noise_std: float = 5.0  # g/m³ TSS noise
+    analyzer_lag: float = 0.8  # first-order lag coefficient
+    analyzer_sample_period: int = 8  # steps between samples (~10 min)
 
-@dataclass(frozen=True)
+
+@jax_dataclass
+class SludgeBlanketSensorState:
+    blanket_height: ResidualAnalyzerState
+    eff_tss: ResidualAnalyzerState
+    und_tss: ResidualAnalyzerState
+
+
+@jax_dataclass
 class SludgeBlanketPlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
     settler_state: TakacsSettlerState
     underflow_actuator: DosePumpState
     disturbance_schedule: DisturbanceSchedule
-
-
-jax.tree_util.register_dataclass(
-    SludgeBlanketPlantState,
-    data_fields=[
-        "step_count",
-        "source_state",
-        "settler_state",
-        "underflow_actuator",
-        "disturbance_schedule",
-    ],
-    meta_fields=[],
-)
+    sensors: SludgeBlanketSensorState
 
 
 def make_sludge_blanket_benchmark(
@@ -137,6 +133,12 @@ def make_sludge_blanket_benchmark(
     blanket_threshold = config.blanket_threshold
     eff_tss_limit = jnp.array(config.eff_tss_limit)
 
+    analyzer_params = ResidualAnalyzerParams(
+        noise_std=config.analyzer_noise_std,
+        lag_coefficient=config.analyzer_lag,
+        sample_period=config.analyzer_sample_period,
+    )
+
     def reset(rng_key: jax.Array) -> tuple[SludgeBlanketPlantState, jax.Array]:
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
@@ -144,12 +146,19 @@ def make_sludge_blanket_benchmark(
         settler = settler_reset(config.feed_tss, settler_params, k2)
         pump = dose_pump_reset(k3)
 
+        sensors = SludgeBlanketSensorState(
+            blanket_height=ResidualAnalyzerState.create(),
+            eff_tss=ResidualAnalyzerState.create(),
+            und_tss=ResidualAnalyzerState.create(),
+        )
+
         plant_state = SludgeBlanketPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src,
             settler_state=settler,
             underflow_actuator=pump,
             disturbance_schedule=create_empty(config.max_disturbance_events),
+            sensors=sensors,
         )
 
         blanket_h = compute_blanket_height(settler, settler_params, blanket_threshold)
@@ -171,7 +180,8 @@ def make_sludge_blanket_benchmark(
         action: jax.Array,
         rng_key: jax.Array,
     ) -> tuple[SludgeBlanketPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, _k2 = jax.random.split(rng_key)
+        k1, k_sensors = jax.random.split(rng_key)
+        k_bh, k_eff, k_und = jax.random.split(k_sensors, 3)
 
         # 1. Flow
         new_source, _transport, q_in, _demand = source_step(
@@ -194,27 +204,38 @@ def make_sludge_blanket_benchmark(
             dt,
         )
 
-        # 4. Observations
+        # 4. True measurements
         blanket_h = compute_blanket_height(new_settler, settler_params, blanket_threshold)
         eff_tss = get_effluent_tss(new_settler)
         und_tss = get_underflow_tss(new_settler)
 
-        obs = jnp.array([
-            blanket_h / depth,
-            eff_tss / 100.0,
-            und_tss / 10000.0,
-            q_in / mean_flow,
-        ])
+        # 5. Sensors
+        new_bh_sensor, bh_reading = ra_step(state.sensors.blanket_height, blanket_h, analyzer_params, k_bh)
+        new_eff_sensor, eff_reading = ra_step(state.sensors.eff_tss, eff_tss, analyzer_params, k_eff)
+        new_und_sensor, und_reading = ra_step(state.sensors.und_tss, und_tss, analyzer_params, k_und)
 
-        # 5. Reward
-        # Penalise effluent TSS above limit
-        eff_penalty = (eff_tss / eff_tss_limit) ** 2
+        new_sensors = SludgeBlanketSensorState(
+            blanket_height=new_bh_sensor,
+            eff_tss=new_eff_sensor,
+            und_tss=new_und_sensor,
+        )
 
-        # Penalise blanket rising above 70% of depth
-        blanket_frac = blanket_h / depth
+        # 6. Observation (from sensor readings)
+        obs = jnp.array(
+            [
+                bh_reading / depth,
+                eff_reading / 100.0,
+                und_reading / 10000.0,
+                q_in / mean_flow,
+            ]
+        )
+
+        # 7. Reward (from sensor readings)
+        eff_penalty = (eff_reading / eff_tss_limit) ** 2
+
+        blanket_frac = bh_reading / depth
         blanket_penalty = jnp.maximum(0.0, blanket_frac - 0.7) ** 2
 
-        # Penalise pumping energy
         energy_penalty = q_u / q_u_max
 
         reward = -(config.reward_w_eff * eff_penalty + config.reward_w_blanket * blanket_penalty + config.reward_w_energy * energy_penalty)
@@ -225,6 +246,7 @@ def make_sludge_blanket_benchmark(
             settler_state=new_settler,
             underflow_actuator=new_pump,
             disturbance_schedule=state.disturbance_schedule,
+            sensors=new_sensors,
         )
 
         info: dict[str, jax.Array] = {
