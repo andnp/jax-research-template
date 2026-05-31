@@ -61,7 +61,6 @@ from process_control.units.scrubber_sump import (
 from process_control.units.scrubber_sump import reset as sump_reset
 from process_control.units.scrubber_sump import step as sump_step
 
-
 # ── Configuration ─────────────────────────────────────────────────────
 
 
@@ -207,7 +206,8 @@ def make_h2s_scrubber_benchmark(
         output_min=config.caustic_pump_min,
         output_max=config.caustic_pump_max,
         max_integral=config.caustic_max_integral,
-        max_ramp_rate=config.caustic_max_ramp,
+        max_ramp_up=config.caustic_max_ramp,
+        max_ramp_down=config.caustic_max_ramp,
     )
 
     bleach_params = DosingSystemParams(
@@ -222,7 +222,8 @@ def make_h2s_scrubber_benchmark(
         output_min=config.bleach_pump_min,
         output_max=config.bleach_pump_max,
         max_integral=config.bleach_max_integral,
-        max_ramp_rate=config.bleach_max_ramp,
+        max_ramp_up=config.bleach_max_ramp,
+        max_ramp_down=config.bleach_max_ramp,
     )
 
     makeup_params = DosingSystemParams(
@@ -237,7 +238,8 @@ def make_h2s_scrubber_benchmark(
         output_min=config.makeup_pump_min,
         output_max=config.makeup_pump_max,
         max_integral=config.makeup_max_integral,
-        max_ramp_rate=config.makeup_max_ramp,
+        max_ramp_up=config.makeup_max_ramp,
+        max_ramp_down=config.makeup_max_ramp,
     )
 
     # Cost per pump unit per step

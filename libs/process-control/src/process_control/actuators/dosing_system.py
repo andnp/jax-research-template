@@ -49,7 +49,9 @@ class DosingSystemParams:
     max_integral: float = 200.0   # anti-windup clamp
 
     # ── Pump actuator ─────────────────────────────────────────────
-    max_ramp_rate: float = 50.0   # output units per hour
+    max_ramp_up: float = 50.0     # max output increase per hour
+    max_ramp_down: float = 50.0   # max output decrease per hour (coast-down)
+    startup_delay: float = 0.0    # hours of VFD init when going from off to on
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class DosingSystemState:
     sensor_drift: jax.Array
     pi_integral: jax.Array
     pump_output: jax.Array
+    startup_remaining: jax.Array
 
     @staticmethod
     def create(initial_pv: float = 0.0, initial_pump: float = 50.0) -> "DosingSystemState":
@@ -66,12 +69,13 @@ class DosingSystemState:
             sensor_drift=jnp.array(0.0),
             pi_integral=jnp.array(0.0),
             pump_output=jnp.array(initial_pump),
+            startup_remaining=jnp.array(0.0),
         )
 
 
 jax.tree_util.register_dataclass(
     DosingSystemState,
-    data_fields=["sensor_value", "sensor_drift", "pi_integral", "pump_output"],
+    data_fields=["sensor_value", "sensor_drift", "pi_integral", "pump_output", "startup_remaining"],
     meta_fields=[],
 )
 
@@ -144,15 +148,34 @@ def step(
     )
     command = jnp.clip(command, params.output_min, params.output_max)
 
-    # ── 4. Pump: ramp-rate limiting ───────────────────────────────
-    max_change = params.max_ramp_rate * dt
-    delta = jnp.clip(command - state.pump_output, -max_change, max_change)
-    new_pump = jnp.clip(state.pump_output + delta, params.output_min, params.output_max)
+    # ── 4. Startup delay (VFD init when going off → on) ─────────
+    was_off = state.pump_output <= params.output_min
+    wants_on = command > params.output_min
+    timer_expired = state.startup_remaining <= 0.0
+    new_startup = jnp.where(
+        was_off & wants_on & timer_expired,
+        jnp.array(params.startup_delay),
+        jnp.maximum(state.startup_remaining - dt, 0.0),
+    )
+    in_startup = new_startup > 0.0
+    effective_command = jnp.where(in_startup, params.output_min, command)
+
+    # ── 5. Asymmetric ramp-rate limiting ──────────────────────────
+    delta = effective_command - state.pump_output
+    max_up = params.max_ramp_up * dt
+    max_down = params.max_ramp_down * dt
+    clamped_delta = jnp.where(
+        delta > 0,
+        jnp.minimum(delta, max_up),
+        jnp.maximum(delta, -max_down),
+    )
+    new_pump = jnp.clip(state.pump_output + clamped_delta, params.output_min, params.output_max)
 
     new_state = DosingSystemState(
         sensor_value=sensed_pv,
         sensor_drift=new_drift,
         pi_integral=new_integral,
         pump_output=new_pump,
+        startup_remaining=new_startup,
     )
     return new_state, sensed_pv, new_pump, pi_output

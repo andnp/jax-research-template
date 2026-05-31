@@ -55,7 +55,7 @@ class ChlorineTwoStageBenchmarkConfig:
     # Dose pump
     pump_max_dose: float = 5.0
     pump_min_dose: float = 0.0
-    pump_max_ramp_rate: float = 10.0
+    pump_max_ramp_rate: float = 10.0  # symmetric (chemical dosing pump)
 
     # PI controller
     pi_kp: float = 0.1
@@ -146,7 +146,8 @@ def make_chlorine_two_stage_benchmark(
         output_min=config.pump_min_dose,
         output_max=config.pump_max_dose,
         max_integral=config.pi_max_integral,
-        max_ramp_rate=config.pump_max_ramp_rate,
+        max_ramp_up=config.pump_max_ramp_rate,
+        max_ramp_down=config.pump_max_ramp_rate,
     )
 
     dt = jnp.array(config.dt)

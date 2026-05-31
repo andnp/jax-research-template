@@ -146,7 +146,8 @@ def make_bsm1_recycle_benchmark(
         output_min=config.q_a_ratio_min,
         output_max=config.q_a_ratio_max,
         max_integral=config.q_a_max_integral,
-        max_ramp_rate=config.q_a_ramp_rate,
+        max_ramp_up=config.q_a_ramp_rate,
+        max_ramp_down=config.q_a_ramp_rate,
     )
 
     # Q_rs: bare ramp-limited actuator (no natural sensor feedback)

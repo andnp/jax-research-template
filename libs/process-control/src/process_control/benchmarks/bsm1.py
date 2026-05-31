@@ -47,25 +47,30 @@ class BSM1BenchmarkConfig:
       aeration_power:  normalised total aeration power
       dq/dt:           flow rate of change
     """
+
     dt: float = 0.02  # hours (~1.2 min)
 
     # ── Control mode ──────────────────────────────────────────────
     control_mode: int = DIRECT
 
     # Reactor volumes (m³) — BSM1 standard
-    v1: float = 1000.0   # anoxic 1
-    v2: float = 1000.0   # anoxic 2
-    v3: float = 1333.0   # aerobic 1
-    v4: float = 1333.0   # aerobic 2
-    v5: float = 1333.0   # aerobic 3
+    v1: float = 1000.0  # anoxic 1
+    v2: float = 1000.0  # anoxic 2
+    v3: float = 1333.0  # aerobic 1
+    v4: float = 1333.0  # aerobic 2
+    v5: float = 1333.0  # aerobic 3
 
-    # Aeration limits for zones 3-4 and zone 5
+    # Aeration limits for zones 3-4 and zone 5 (asymmetric = VFD blower dynamics)
     kla_34_min: float = 0.0
     kla_34_max: float = 10.0
-    kla_34_ramp_rate: float = 5.0
+    kla_34_ramp_up: float = 5.0  # h⁻¹ per hour (blower spin-up)
+    kla_34_ramp_down: float = 8.0  # h⁻¹ per hour (coast-down, faster)
+    kla_34_startup_delay: float = 0.05  # hours (~3 min VFD init)
     kla_5_min: float = 0.0
     kla_5_max: float = 10.0
-    kla_5_ramp_rate: float = 5.0
+    kla_5_ramp_up: float = 5.0
+    kla_5_ramp_down: float = 8.0
+    kla_5_startup_delay: float = 0.05
 
     # DO control PI parameters (used in SUPERVISORY/FEEDFORWARD modes)
     do_kp: float = 2.0
@@ -284,7 +289,9 @@ def make_bsm1_benchmark(
         output_min=config.kla_34_min,
         output_max=config.kla_34_max,
         max_integral=config.do_max_integral,
-        max_ramp_rate=config.kla_34_ramp_rate,
+        max_ramp_up=config.kla_34_ramp_up,
+        max_ramp_down=config.kla_34_ramp_down,
+        startup_delay=config.kla_34_startup_delay,
     )
     # DosingSystem params for kla_5 loop (DO R5 → PI → kla_5)
     kla_5_dosing = DosingSystemParams(
@@ -299,7 +306,9 @@ def make_bsm1_benchmark(
         output_min=config.kla_5_min,
         output_max=config.kla_5_max,
         max_integral=config.do_max_integral,
-        max_ramp_rate=config.kla_5_ramp_rate,
+        max_ramp_up=config.kla_5_ramp_up,
+        max_ramp_down=config.kla_5_ramp_down,
+        startup_delay=config.kla_5_startup_delay,
     )
 
     source_params = DiurnalSourceParams(

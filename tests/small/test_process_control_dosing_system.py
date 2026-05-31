@@ -1,12 +1,9 @@
 import jax
 import jax.numpy as jnp
-
 from process_control.actuators.dosing_system import (
     DIRECT,
     FEEDFORWARD,
-    SUPERVISORY,
     DosingSystemParams,
-    DosingSystemState,
     reset,
     step,
 )
@@ -36,7 +33,7 @@ class TestDosingSystem:
         params = DosingSystemParams(
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=5.0, ki=1.0, ff=0.0, output_min=0.0, output_max=125.0,
-            max_integral=200.0, max_ramp_rate=1000.0,
+            max_integral=200.0, max_ramp_up=1000.0, max_ramp_down=1000.0,
         )
         state = reset(5.0, 0.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -50,7 +47,7 @@ class TestDosingSystem:
         params = DosingSystemParams(
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=100.0, ki=0.0, ff=0.0, output_min=0.0, output_max=125.0,
-            max_integral=200.0, max_ramp_rate=10.0,  # 10 units/hour
+            max_integral=200.0, max_ramp_up=10.0, max_ramp_down=10.0,  # 10 units/hour
         )
         state = reset(5.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.1)  # 0.1 hour
@@ -77,7 +74,7 @@ class TestDosingSystem:
         params = DosingSystemParams(
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=10.0, ki=0.0, ff=0.0, output_min=0.0, output_max=125.0,
-            max_integral=200.0, max_ramp_rate=1e6,
+            max_integral=200.0, max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(9.5, 0.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -92,7 +89,7 @@ class TestDosingSystem:
         params = DosingSystemParams(
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=0.0, ki=10.0, ff=0.0, output_min=0.0, output_max=125.0,
-            max_integral=200.0, max_ramp_rate=1e6,
+            max_integral=200.0, max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(5.0, 0.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.1)
@@ -124,7 +121,7 @@ class TestDirectMode:
         params = DosingSystemParams(
             control_mode=DIRECT,
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
-            max_ramp_rate=1e6,
+            max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -140,7 +137,7 @@ class TestDirectMode:
             control_mode=DIRECT, base_setpoint=9.0,
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=1.0, ki=0.0, ff=0.0,
-            max_ramp_rate=1e6,
+            max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -160,7 +157,7 @@ class TestFeedforwardMode:
             control_mode=FEEDFORWARD, base_setpoint=9.0,
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=1.0, ki=0.0, ff=50.0,
-            max_ramp_rate=1e6,
+            max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -173,7 +170,7 @@ class TestFeedforwardMode:
             control_mode=FEEDFORWARD, base_setpoint=9.0,
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=1.0, ki=0.0, ff=50.0,
-            max_ramp_rate=1e6,
+            max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
@@ -187,7 +184,7 @@ class TestFeedforwardMode:
             control_mode=FEEDFORWARD, base_setpoint=9.0,
             sensor_noise_std=0.0, sensor_lag=0.0, sensor_drift_rate=0.0,
             kp=1.0, ki=0.0, ff=50.0,
-            max_ramp_rate=1e6,
+            max_ramp_up=1e6, max_ramp_down=1e6,
         )
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
