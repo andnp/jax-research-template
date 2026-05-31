@@ -18,6 +18,7 @@ These appendix pages support the main design doc. They are drill-down references
 - [Proposed implementation order](proposed-implementation-order.md)
 - [Realism and operations extensions](realism-and-operations-extensions.md)
 - [Validation, schema governance, assembly, and module certification](validation-schema-assembly-and-module-certification.md)
+- [Wastewater RL environment roadmap](wastewater-rl-environment-roadmap.md)
 
 Each appendix page follows the same pattern:
 

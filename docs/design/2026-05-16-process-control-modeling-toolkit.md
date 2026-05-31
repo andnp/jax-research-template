@@ -462,3 +462,4 @@ Detailed appendix pages live in [`docs/design/2026-05-16-process-control-modelin
 - [Proposed implementation order](2026-05-16-process-control-modeling-toolkit/proposed-implementation-order.md)
 - [Realism and operations extensions](2026-05-16-process-control-modeling-toolkit/realism-and-operations-extensions.md)
 - [Validation, schema governance, assembly, and module certification](2026-05-16-process-control-modeling-toolkit/validation-schema-assembly-and-module-certification.md)
+- [Wastewater RL environment roadmap](2026-05-16-process-control-modeling-toolkit/wastewater-rl-environment-roadmap.md)
