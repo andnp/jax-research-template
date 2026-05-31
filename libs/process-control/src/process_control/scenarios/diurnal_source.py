@@ -5,6 +5,7 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.chemistry.demand_model import compute_demand
+from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
 from process_control.transport import BulkProperties, Composition, Hydraulics, Transport
 
 
@@ -49,19 +50,21 @@ def step(
 ) -> tuple[DiurnalSourceState, Transport, jax.Array, jax.Array]:
     k1, k2, k3 = jax.random.split(rng_key, 3)
 
+    # Flow channel: double-harmonic diurnal waveform (sin + cos)
     t = (step_count % params.steps_per_day) / params.steps_per_day
-    diurnal = jnp.sin(2.0 * jnp.pi * t) + jnp.cos(4.0 * jnp.pi * t)
-    diurnal_base = params.mean_flow + (params.diurnal_amplitude / 2.0) * diurnal
+    diurnal_signal = jnp.sin(2.0 * jnp.pi * t) + jnp.cos(4.0 * jnp.pi * t)
 
-    flow_drift_delta = jax.random.normal(k1) * params.drift_scale
-    new_flow_drift = jnp.clip(
-        state.flow_drift + flow_drift_delta,
-        -params.diurnal_amplitude / 2.0,
-        params.diurnal_amplitude / 2.0,
+    flow_channel = ChannelParams(
+        mean=params.mean_flow, amplitude=params.diurnal_amplitude / 2.0,
+        min_value=params.min_flow, max_value=params.max_flow,
+        drift_scale=params.drift_scale,
+        drift_clip=params.diurnal_amplitude / 2.0,
+    )
+    new_flow_drift, flow = channel_step(
+        state.flow_drift, diurnal_signal, flow_channel, k1,
     )
 
-    flow = jnp.clip(diurnal_base + new_flow_drift, params.min_flow, params.max_flow)
-
+    # Demand composition (drift-only, no sinusoidal pattern)
     demand_drift_delta = jax.random.normal(k2) * params.drift_scale * 0.1
     new_demand_drift = jnp.clip(state.demand_drift + demand_drift_delta, -0.25, 0.25)
 
