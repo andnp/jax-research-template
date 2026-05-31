@@ -27,6 +27,25 @@ class MetricFrame:
     seed_id: int
 
 
+def subsample_frames(frames: list[MetricFrame], factor: int) -> list[MetricFrame]:
+    """Return only frames whose global_step is divisible by *factor*.
+
+    Step indices are preserved exactly so downstream analyses that reference
+    specific update numbers (e.g. ``switch_update``, ``recovery_slope``)
+    continue to work correctly on the subsampled data.
+
+    Args:
+        frames: Source frames in any order.
+        factor: Keep one frame every *factor* steps. Must be >= 1.
+            A factor of 1 returns all frames unchanged.
+    """
+    if factor < 1:
+        raise ValueError(f"subsample factor must be >= 1; received {factor}.")
+    if factor == 1:
+        return frames
+    return [f for f in frames if f.global_step % factor == 0]
+
+
 class StorageBackend(Protocol):
     """Pluggable persistence layer for collected metrics.
 
