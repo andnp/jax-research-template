@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-
 from process_control.benchmarks.bsm1 import (
     BSM1BenchmarkConfig,
     make_bsm1_benchmark,
@@ -11,6 +10,8 @@ from process_control.units.asm1 import (
     compute_cod,
     compute_tss,
     mix_streams,
+)
+from process_control.units.asm1 import (
     step as asm1_step,
 )
 
@@ -290,7 +291,13 @@ class TestBSM1Benchmark:
 
     def test_ideal_sensors_match_true_state(self) -> None:
         """With zero noise, zero lag, and sample_period=1, sensor readings
-        should exactly match true state values."""
+        should match true state values.
+
+        DO sensors live inside DosingSystem loops and read the *previous*
+        step's reactor DO (one-step delay).  With ideal settings the sensed
+        value equals the previous true DO, so we compare against the reactor
+        state that was read, not the newly-advanced state.
+        """
         config = BSM1BenchmarkConfig(
             do_noise_std=0.0, do_lag=0.0, do_drift_rate=0.0,
             analyzer_noise_std=0.0, analyzer_lag=0.0, analyzer_sample_period=1,
@@ -301,11 +308,13 @@ class TestBSM1Benchmark:
         state, _ = reset_fn(k1)
 
         for _ in range(10):
+            prev_r3_so = state.reactor3.s_o
+            prev_r5_so = state.reactor5.s_o
             k_step, key = jax.random.split(key)
             state, obs, _, _, info = step_fn(state, jnp.array([3.0, 3.0]), k_step)
 
-        # DO reading should match true state
-        assert jnp.allclose(obs[2], info["s_o_r3"] / 8.0, atol=1e-5)
-        assert jnp.allclose(obs[3], info["s_o_r5"] / 8.0, atol=1e-5)
-        # Effluent NH4 reading should match true state
+        # DO reading should match previous-step true state (DosingSystem delay)
+        assert jnp.allclose(obs[2], prev_r3_so / 8.0, atol=1e-5)
+        assert jnp.allclose(obs[3], prev_r5_so / 8.0, atol=1e-5)
+        # Effluent NH4 reading should match current true state (standalone sensor)
         assert jnp.allclose(obs[0], info["s_nh_effluent"] / 35.0, atol=1e-5)

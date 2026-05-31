@@ -4,17 +4,32 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.dosing_system import (
+    DIRECT,
+    DosingSystemParams,
+    DosingSystemState,
+)
+from process_control.actuators.dosing_system import reset as dosing_reset
+from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1SensorState, _clarify_asm1, _create_default_sensors
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, _clarify_asm1
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
-from process_control.scenarios.diurnal_source import reset as source_reset
-from process_control.sensors.do_sensor import DOSensorParams
+from process_control.scenarios.diurnal_source import (
+    DiurnalSourceParams,
+    DiurnalSourceState,
+)
+from process_control.scenarios.diurnal_source import (
+    reset as source_reset,
+)
+from process_control.scenarios.diurnal_source import (
+    step as source_step,
+)
+from process_control.sensors.do_sensor import DOSensorParams, DOSensorState
 from process_control.sensors.do_sensor import step as do_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams
+from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import step as ra_step
-from process_control.scenarios.diurnal_source import step as source_step
 from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
@@ -35,14 +50,30 @@ class BSM1RecycleConfig:
     Observation (6D) — all from sensor readings:
       sensed_nh4_eff / 35:  effluent ammonia (residual analyzer)
       sensed_no3_eff / 20:  effluent nitrate (residual analyzer)
-      sensed_no3_r2 / 20:   anoxic nitrate (residual analyzer)
+      sensed_no3_r2 / 20:   anoxic nitrate (from Q_a DosingSystem sensor)
       sensed_do_r5 / 8:     DO in reactor 5 (DO probe)
       q_in / q_mean:        normalised influent flow
       q_a / q_max:          normalised internal recycle (actuator feedback)
     """
+
+    # ── Control mode ──────────────────────────────────────────────
+    # Applies to Q_a loop (DosingSystem). Q_rs is always direct.
+    control_mode: int = DIRECT
+
     # Fixed aeration setpoints (BSM1 steady-state values, h⁻¹)
     kla_34_fixed: float = 6.0
     kla_5_fixed: float = 3.5
+
+    # Q_a control PI parameters (reverse-acting: negative gains)
+    # Higher Q_a → more denitrification → lower NO3_R2
+    q_a_kp: float = -0.5
+    q_a_ki: float = -0.1
+    q_a_ff: float = 3.0  # feed-forward bias (BSM1 default ratio)
+    q_a_base_setpoint: float = 5.0  # target NO3_R2 (g/m³) for FEEDFORWARD
+    q_a_max_integral: float = 10.0
+    q_a_sensor_noise_std: float = 0.3
+    q_a_sensor_lag: float = 0.8
+    q_a_sensor_drift_rate: float = 0.001
 
     # Internal recycle (Q_a) actuator limits (as ratio of Q_in)
     q_a_ratio_min: float = 0.5
@@ -63,7 +94,17 @@ class BSM1RecycleConfig:
     bsm1: BSM1BenchmarkConfig = BSM1BenchmarkConfig()
 
 
-@dataclass(frozen=True)
+@jax_dataclass
+class BSM1RecycleObsSensors:
+    """Standalone observation sensors for the recycle benchmark."""
+
+    do_r5: DOSensorState
+    nh4_eff: ResidualAnalyzerState
+    no3_eff: ResidualAnalyzerState
+    last_q_in: jax.Array
+
+
+@jax_dataclass
 class BSM1RecyclePlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
@@ -72,29 +113,10 @@ class BSM1RecyclePlantState:
     reactor3: ASM1State
     reactor4: ASM1State
     reactor5: ASM1State
-    q_a_actuator: RampLimitedActuatorState
+    q_a_loop: DosingSystemState
     q_rs_actuator: RampLimitedActuatorState
     disturbance_schedule: DisturbanceSchedule
-    sensors: BSM1SensorState
-
-
-jax.tree_util.register_dataclass(
-    BSM1RecyclePlantState,
-    data_fields=[
-        "step_count",
-        "source_state",
-        "reactor1",
-        "reactor2",
-        "reactor3",
-        "reactor4",
-        "reactor5",
-        "q_a_actuator",
-        "q_rs_actuator",
-        "disturbance_schedule",
-        "sensors",
-    ],
-    meta_fields=[],
-)
+    sensors: BSM1RecycleObsSensors
 
 
 def make_bsm1_recycle_benchmark(
@@ -111,11 +133,23 @@ def make_bsm1_recycle_benchmark(
     p4 = ASM1Params(volume=bsm1.v4)
     p5 = ASM1Params(volume=bsm1.v5)
 
-    # Recycle ratio actuators (ramp-rate limited)
-    q_a_pump = RampLimitedActuatorParams(
-        max_output=config.q_a_ratio_max, min_output=config.q_a_ratio_min,
+    # Q_a DosingSystem: NO3_R2 sensor + PI + ramp-limited actuator
+    q_a_dosing = DosingSystemParams(
+        control_mode=config.control_mode,
+        base_setpoint=config.q_a_base_setpoint,
+        sensor_noise_std=config.q_a_sensor_noise_std,
+        sensor_lag=config.q_a_sensor_lag,
+        sensor_drift_rate=config.q_a_sensor_drift_rate,
+        kp=config.q_a_kp,
+        ki=config.q_a_ki,
+        ff=config.q_a_ff,
+        output_min=config.q_a_ratio_min,
+        output_max=config.q_a_ratio_max,
+        max_integral=config.q_a_max_integral,
         max_ramp_rate=config.q_a_ramp_rate,
     )
+
+    # Q_rs: bare ramp-limited actuator (no natural sensor feedback)
     q_rs_pump = RampLimitedActuatorParams(
         max_output=config.q_rs_ratio_max,
         min_output=config.q_rs_ratio_min,
@@ -140,7 +174,7 @@ def make_bsm1_recycle_benchmark(
     kla_5_fixed = jnp.array(config.kla_5_fixed)
     q_a_ratio_max = jnp.array(config.q_a_ratio_max)
 
-    # Sensor params (inherited from BSM1 config)
+    # Standalone observation sensor params
     do_params = DOSensorParams(
         noise_std=bsm1.do_noise_std,
         lag_coefficient=bsm1.do_lag,
@@ -257,9 +291,16 @@ def make_bsm1_recycle_benchmark(
             k1,
         )
 
-        # Initialise actuators at BSM1 default ratios
-        q_a_state = RampLimitedActuatorState(current_output=init_q_a_ratio)
+        # Q_a DosingSystem initialised at BSM1 default ratio, sensor at R2 NO3
+        q_a_state = dosing_reset(bsm1.r2_s_no, float(bsm1.internal_recycle_ratio), k2)
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
+
+        sensors = BSM1RecycleObsSensors(
+            do_r5=DOSensorState.create(bsm1.r5_s_o),
+            nh4_eff=ResidualAnalyzerState.create(),
+            no3_eff=ResidualAnalyzerState.create(),
+            last_q_in=jnp.array(bsm1.mean_flow),
+        )
 
         plant_state = BSM1RecyclePlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
@@ -269,10 +310,10 @@ def make_bsm1_recycle_benchmark(
             reactor3=r3,
             reactor4=r4,
             reactor5=r5,
-            q_a_actuator=q_a_state,   # repurposed: stores Q_a ratio
-            q_rs_actuator=q_rs_state,    # repurposed: stores Q_rs ratio
+            q_a_loop=q_a_state,
+            q_rs_actuator=q_rs_state,
             disturbance_schedule=create_empty(bsm1.max_disturbance_events),
-            sensors=_create_default_sensors(bsm1.mean_flow, bsm1.r3_s_o, bsm1.r5_s_o),
+            sensors=sensors,
         )
 
         effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * init_q_rs_ratio)
@@ -294,59 +335,61 @@ def make_bsm1_recycle_benchmark(
         rng_key: jax.Array,
     ) -> tuple[BSM1RecyclePlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
         k1, k_sensors = jax.random.split(rng_key)
-        k_do5, k_nh4e, k_no3e, k_no3r2 = jax.random.split(k_sensors, 4)
+        k_qa, k_do5, k_nh4e, k_no3e = jax.random.split(k_sensors, 4)
 
         # 1. Influent flow
         new_source, _transport, q_in, _demand = source_step(
             state.source_state, state.step_count, source_params, k1,
         )
 
-        # 2. Recycle ratio actuators (ramp-rate limited)
-        new_q_a_state, q_a_ratio = actuator_step(state.q_a_actuator, action[0], q_a_pump, dt)
+        # 2. Q_a DosingSystem: reads previous-step NO3_R2, computes Q_a ratio
+        new_q_a_loop, no3r2_reading, q_a_ratio, pi_q_a = dosing_step(
+            state.q_a_loop, action[0], state.reactor2.s_no,
+            q_a_dosing, dt, k_qa,
+        )
+
+        # 3. Q_rs actuator (bare ramp-limited)
         new_q_rs_state, q_rs_ratio = actuator_step(state.q_rs_actuator, action[1], q_rs_pump, dt)
 
-        # 3. Derived flows
+        # 4. Derived flows
         q_a = q_in * q_a_ratio
         q_rs = q_in * q_rs_ratio
         q_total = q_in + q_rs + q_a
         q_to_clarifier = q_in + q_rs
 
-        # 4. Clarifier
+        # 5. Clarifier
         _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs)
 
-        # 5. R1: influent + return sludge + internal recycle
+        # 6. R1: influent + return sludge + internal recycle
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
         inlet_r1, _ = mix_streams(inlet_rs, q_after_1, state.reactor5, q_a)
         new_r1 = asm1_step(state.reactor1, inlet_r1, q_total, jnp.array(0.0), p1, dt)
 
-        # 6. R2 (anoxic)
+        # 7. R2 (anoxic)
         new_r2 = asm1_step(state.reactor2, new_r1, q_total, jnp.array(0.0), p2, dt)
 
-        # 7. R3, R4 (aerobic, fixed kla)
+        # 8. R3, R4 (aerobic, fixed kla)
         new_r3 = asm1_step(state.reactor3, new_r2, q_total, kla_34_fixed, p3, dt)
         new_r4 = asm1_step(state.reactor4, new_r3, q_total, kla_34_fixed, p4, dt)
 
-        # 8. R5 (aerobic, fixed kla)
+        # 9. R5 (aerobic, fixed kla)
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5_fixed, p5, dt)
 
-        # 9. Effluent
+        # 10. Effluent
         effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
 
-        # 10. Sensors
+        # 11. Standalone observation sensors
         new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
         new_no3e, no3e_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3e)
-        new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
 
-        new_sensors = BSM1SensorState(
-            do_r3=state.sensors.do_r3,  # not used in recycle benchmark
+        new_sensors = BSM1RecycleObsSensors(
             do_r5=new_do5,
-            nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
-            nh4_inf=state.sensors.nh4_inf,  # not used in recycle benchmark
+            nh4_eff=new_nh4e, no3_eff=new_no3e,
             last_q_in=q_in,
         )
 
-        # 11. Observation (from sensor readings)
+        # 12. Observation (NO3_R2 comes from Q_a DosingSystem's sensor)
         obs = jnp.array([
             nh4e_reading / 35.0,
             no3e_reading / 20.0,
@@ -356,7 +399,7 @@ def make_bsm1_recycle_benchmark(
             q_a_ratio / q_a_ratio_max,
         ])
 
-        # 12. Reward: effluent quality (from sensors) + pumping energy penalty
+        # 13. Reward: effluent quality (from sensors) + pumping energy penalty
         reward = -(
             config.reward_w_nh * nh4e_reading ** 2
             + config.reward_w_no * no3e_reading ** 2
@@ -368,7 +411,7 @@ def make_bsm1_recycle_benchmark(
             source_state=new_source,
             reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
             reactor4=new_r4, reactor5=new_r5,
-            q_a_actuator=new_q_a_state,
+            q_a_loop=new_q_a_loop,
             q_rs_actuator=new_q_rs_state,
             disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,

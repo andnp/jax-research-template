@@ -4,22 +4,24 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.blower import BlowerParams, BlowerState
-from process_control.actuators.blower import reset as blower_reset
-from process_control.actuators.blower import step as blower_step
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.dosing_system import (
+    DIRECT,
+    DosingSystemParams,
+    DosingSystemState,
+)
+from process_control.actuators.dosing_system import reset as dosing_reset
+from process_control.actuators.dosing_system import step as dosing_step
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.do_sensor import DOSensorParams, DOSensorState
-from process_control.sensors.do_sensor import reset as do_reset
-from process_control.sensors.do_sensor import step as do_step
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as ra_reset
 from process_control.sensors.residual_analyzer import step as ra_step
-from process_control.units.asm1 import ASM1Params, ASM1State, compute_tss, mix_streams
+from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
+
 @dataclass(frozen=True)
 class BSM1BenchmarkConfig:
     """Full BSM1-layout wastewater treatment benchmark using complete ASM1 kinetics.
@@ -34,15 +36,21 @@ class BSM1BenchmarkConfig:
       action[0]: kla for aerobic reactors 3 and 4 (h⁻¹)
       action[1]: kla for aerobic reactor 5 (h⁻¹)
 
-    Observation (6D):
+    Observation (9D):
       s_nh_eff / 35:   normalised effluent ammonia
       s_no_eff / 20:   normalised effluent nitrate
       s_o_r3 / 8:      normalised DO in reactor 3
       s_o_r5 / 8:      normalised DO in reactor 5
       s_no_r2 / 20:    normalised nitrate in reactor 2 (anoxic feedback signal)
       Q_in / Q_mean:   normalised influent flow
+      s_nh_inf / 35:   normalised influent ammonia
+      aeration_power:  normalised total aeration power
+      dq/dt:           flow rate of change
     """
     dt: float = 0.02  # hours (~1.2 min)
+
+    # ── Control mode ──────────────────────────────────────────────
+    control_mode: int = DIRECT
 
     # Reactor volumes (m³) — BSM1 standard
     v1: float = 1000.0   # anoxic 1
@@ -51,19 +59,24 @@ class BSM1BenchmarkConfig:
     v4: float = 1333.0   # aerobic 2
     v5: float = 1333.0   # aerobic 3
 
-    # Aeration actuators for zones 3-4 and zone 5
+    # Aeration limits for zones 3-4 and zone 5
+    kla_34_min: float = 0.0
     kla_34_max: float = 10.0
-    kla_34_ramp_up: float = 5.0
-    kla_34_ramp_down: float = 8.0
-    kla_34_startup_delay: float = 0.05
+    kla_34_ramp_rate: float = 5.0
+    kla_5_min: float = 0.0
     kla_5_max: float = 10.0
-    kla_5_ramp_up: float = 5.0
-    kla_5_ramp_down: float = 8.0
-    kla_5_startup_delay: float = 0.05
+    kla_5_ramp_rate: float = 5.0
+
+    # DO control PI parameters (used in SUPERVISORY/FEEDFORWARD modes)
+    do_kp: float = 2.0
+    do_ki: float = 0.5
+    do_ff: float = 5.0  # feed-forward bias (kla at rest)
+    do_base_setpoint: float = 2.0  # mg/L DO target for FEEDFORWARD
+    do_max_integral: float = 20.0
 
     # Fixed flow fractions (ratios of Q_in)
     internal_recycle_ratio: float = 3.0  # Q_a = ratio × Q_in
-    return_sludge_ratio: float = 1.0     # Q_r = ratio × Q_in
+    return_sludge_ratio: float = 1.0  # Q_r = ratio × Q_in
 
     # Influent composition — BSM1 dry-weather values (g/m³ or mol/m³)
     inf_s_i: float = 30.0
@@ -171,46 +184,24 @@ class BSM1BenchmarkConfig:
 
     max_disturbance_events: int = 16
 
-    # Sensor parameters (set all to zero for ideal/pure sensors)
-    # DO probes (fast response, ~30s lag)
+    # DO sensor parameters (within DosingSystem loops)
     do_noise_std: float = 0.05   # g O₂/m³
     do_lag: float = 0.9          # first-order lag coefficient
     do_drift_rate: float = 0.001 # drift per step
-    # Concentration analyzers (NH₄, NO₃: 10-min sample period ≈ 8 steps at dt=0.02h)
+
+    # Concentration analyzers (NH₄, NO₃: standalone observation sensors)
     analyzer_noise_std: float = 0.3  # g/m³
     analyzer_lag: float = 0.8        # lag coefficient
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
-@dataclass(frozen=True)
-class BSM1SensorState:
-    """Sensor states for realistic instrumentation mode."""
-    do_r3: DOSensorState
-    do_r5: DOSensorState
+
+@jax_dataclass
+class BSM1ObsSensors:
+    """Standalone observation-only sensors (not part of any control loop)."""
     nh4_eff: ResidualAnalyzerState
     no3_eff: ResidualAnalyzerState
     no3_r2: ResidualAnalyzerState
     nh4_inf: ResidualAnalyzerState
     last_q_in: jax.Array
-jax.tree_util.register_dataclass(
-    BSM1SensorState,
-    data_fields=[
-        "do_r3", "do_r5",
-        "nh4_eff", "no3_eff", "no3_r2", "nh4_inf",
-        "last_q_in",
-    ],
-    meta_fields=[],
-)
-def _create_default_sensors(mean_flow: float, r3_do: float, r5_do: float) -> BSM1SensorState:
-    """Create initial sensor states (used in both pure and realistic modes)."""
-    return BSM1SensorState(
-        do_r3=DOSensorState.create(r3_do),
-        do_r5=DOSensorState.create(r5_do),
-        nh4_eff=ResidualAnalyzerState.create(),
-        no3_eff=ResidualAnalyzerState.create(),
-        no3_r2=ResidualAnalyzerState.create(),
-        nh4_inf=ResidualAnalyzerState.create(),
-        last_q_in=jnp.array(mean_flow),
-    )
-@jax_dataclass
 class BSM1PlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
@@ -219,27 +210,11 @@ class BSM1PlantState:
     reactor3: ASM1State
     reactor4: ASM1State
     reactor5: ASM1State
-    kla_34_blower: BlowerState
-    kla_5_blower: BlowerState
+    kla_34_loop: DosingSystemState
+    kla_5_loop: DosingSystemState
     disturbance_schedule: DisturbanceSchedule
-    sensors: BSM1SensorState
-jax.tree_util.register_dataclass(
-    BSM1PlantState,
-    data_fields=[
-        "step_count",
-        "source_state",
-        "reactor1",
-        "reactor2",
-        "reactor3",
-        "reactor4",
-        "reactor5",
-        "kla_34_blower",
-        "kla_5_blower",
-        "disturbance_schedule",
-        "sensors",
-    ],
-    meta_fields=[],
-)
+    sensors: BSM1ObsSensors
+
 def _clarify_asm1(
     r5: ASM1State,
     q_aerobic: jax.Array,
@@ -283,6 +258,7 @@ def _clarify_asm1(
         s_alk=r5.s_alk,
     )
     return effluent, return_sludge
+
 def make_bsm1_benchmark(
     config: BSM1BenchmarkConfig,
 ) -> tuple[
@@ -295,17 +271,35 @@ def make_bsm1_benchmark(
     p4 = ASM1Params(volume=config.v4)
     p5 = ASM1Params(volume=config.v5)
 
-    blower_34_params = BlowerParams(
-        max_kla=config.kla_34_max,
-        max_ramp_up=config.kla_34_ramp_up,
-        max_ramp_down=config.kla_34_ramp_down,
-        startup_delay=config.kla_34_startup_delay,
+    # DosingSystem params for kla_34 loop (DO R3 → PI → kla_34)
+    kla_34_dosing = DosingSystemParams(
+        control_mode=config.control_mode,
+        base_setpoint=config.do_base_setpoint,
+        sensor_noise_std=config.do_noise_std,
+        sensor_lag=config.do_lag,
+        sensor_drift_rate=config.do_drift_rate,
+        kp=config.do_kp,
+        ki=config.do_ki,
+        ff=config.do_ff,
+        output_min=config.kla_34_min,
+        output_max=config.kla_34_max,
+        max_integral=config.do_max_integral,
+        max_ramp_rate=config.kla_34_ramp_rate,
     )
-    blower_5_params = BlowerParams(
-        max_kla=config.kla_5_max,
-        max_ramp_up=config.kla_5_ramp_up,
-        max_ramp_down=config.kla_5_ramp_down,
-        startup_delay=config.kla_5_startup_delay,
+    # DosingSystem params for kla_5 loop (DO R5 → PI → kla_5)
+    kla_5_dosing = DosingSystemParams(
+        control_mode=config.control_mode,
+        base_setpoint=config.do_base_setpoint,
+        sensor_noise_std=config.do_noise_std,
+        sensor_lag=config.do_lag,
+        sensor_drift_rate=config.do_drift_rate,
+        kp=config.do_kp,
+        ki=config.do_ki,
+        ff=config.do_ff,
+        output_min=config.kla_5_min,
+        output_max=config.kla_5_max,
+        max_integral=config.do_max_integral,
+        max_ramp_rate=config.kla_5_ramp_rate,
     )
 
     source_params = DiurnalSourceParams(
@@ -325,12 +319,7 @@ def make_bsm1_benchmark(
     internal_recycle_ratio = jnp.array(config.internal_recycle_ratio)
     return_sludge_ratio = jnp.array(config.return_sludge_ratio)
 
-    # Sensor params
-    do_params = DOSensorParams(
-        noise_std=config.do_noise_std,
-        lag_coefficient=config.do_lag,
-        drift_rate=config.do_drift_rate,
-    )
+    # Standalone observation sensor params
     analyzer_params = ResidualAnalyzerParams(
         noise_std=config.analyzer_noise_std,
         lag_coefficient=config.analyzer_lag,
@@ -441,10 +430,17 @@ def make_bsm1_benchmark(
             config.r5_s_alk,
             k1,
         )
-        kla_34_state = blower_reset(0.0, k2)
-        kla_5_state = blower_reset(0.0, k3)
 
-        sensors = _create_default_sensors(config.mean_flow, config.r3_s_o, config.r5_s_o)
+        kla_34_state = dosing_reset(config.r3_s_o, 0.0, k2)
+        kla_5_state = dosing_reset(config.r5_s_o, 0.0, k3)
+
+        sensors = BSM1ObsSensors(
+            nh4_eff=ResidualAnalyzerState.create(),
+            no3_eff=ResidualAnalyzerState.create(),
+            no3_r2=ResidualAnalyzerState.create(),
+            nh4_inf=ResidualAnalyzerState.create(),
+            last_q_in=jnp.array(config.mean_flow),
+        )
 
         plant_state = BSM1PlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
@@ -454,8 +450,8 @@ def make_bsm1_benchmark(
             reactor3=r3,
             reactor4=r4,
             reactor5=r5,
-            kla_34_blower=kla_34_state,
-            kla_5_blower=kla_5_state,
+            kla_34_loop=kla_34_state,
+            kla_5_loop=kla_5_state,
             disturbance_schedule=create_empty(config.max_disturbance_events),
             sensors=sensors,
         )
@@ -480,16 +476,22 @@ def make_bsm1_benchmark(
         rng_key: jax.Array,
     ) -> tuple[BSM1PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
         k1, k_sensors = jax.random.split(rng_key)
-        k_do3, k_do5, k_nh4e, k_no3e, k_no3r2, k_nh4i = jax.random.split(k_sensors, 6)
+        k_kla34, k_kla5, k_nh4e, k_no3e, k_no3r2, k_nh4i = jax.random.split(k_sensors, 6)
 
         # 1. Influent flow (composition fixed at BSM1 dry-weather values)
         new_source, _transport, q_in, _demand = source_step(
             state.source_state, state.step_count, source_params, k1,
         )
 
-        # 2. Actuators
-        new_kla_34_state, kla_34 = blower_step(state.kla_34_blower, action[0], blower_34_params, dt)
-        new_kla_5_state, kla_5 = blower_step(state.kla_5_blower, action[1], blower_5_params, dt)
+        # 2. DosingSystem loops: read previous-step reactor DO, compute kla
+        new_kla34_loop, do3_reading, kla_34, pi_kla34 = dosing_step(
+            state.kla_34_loop, action[0], state.reactor3.s_o,
+            kla_34_dosing, dt, k_kla34,
+        )
+        new_kla5_loop, do5_reading, kla_5, pi_kla5 = dosing_step(
+            state.kla_5_loop, action[1], state.reactor5.s_o,
+            kla_5_dosing, dt, k_kla5,
+        )
 
         # 3. Derived flows
         q_a = q_in * internal_recycle_ratio   # internal recycle (R5 → R1)
@@ -518,9 +520,7 @@ def make_bsm1_benchmark(
         # 9. Effluent quality from clarifier
         effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
 
-        # 10. Sensors and observation
-        new_do3, do3_reading = do_step(state.sensors.do_r3, new_r3.s_o, do_params, k_do3)
-        new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)
+        # 10. Standalone observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
         new_no3e, no3e_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3e)
         new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
@@ -529,8 +529,7 @@ def make_bsm1_benchmark(
         aeration_power = (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
-        new_sensors = BSM1SensorState(
-            do_r3=new_do3, do_r5=new_do5,
+        new_sensors = BSM1ObsSensors(
             nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
             nh4_inf=new_nh4i, last_q_in=q_in,
         )
@@ -557,8 +556,8 @@ def make_bsm1_benchmark(
             source_state=new_source,
             reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
             reactor4=new_r4, reactor5=new_r5,
-            kla_34_blower=new_kla_34_state,
-            kla_5_blower=new_kla_5_state,
+            kla_34_loop=new_kla34_loop,
+            kla_5_loop=new_kla5_loop,
             disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
