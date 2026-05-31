@@ -269,7 +269,7 @@ class TestBSM1Benchmark:
             readings.append(float(obs[2]))  # DO R3 reading (normalised)
             true_vals.append(float(info["s_o_r3"]) / 8.0)
 
-        diffs = [abs(r - t) for r, t in zip(readings, true_vals)]
+        diffs = [abs(r - t) for r, t in zip(readings, true_vals, strict=True)]
         assert max(diffs) > 0.001, "Sensor noise appears absent"
 
     def test_obs_includes_influent_and_aeration(self) -> None:
@@ -299,8 +299,12 @@ class TestBSM1Benchmark:
         state that was read, not the newly-advanced state.
         """
         config = BSM1BenchmarkConfig(
-            do_noise_std=0.0, do_lag=0.0, do_drift_rate=0.0,
-            analyzer_noise_std=0.0, analyzer_lag=0.0, analyzer_sample_period=1,
+            do_noise_std=0.0,
+            do_lag=0.0,
+            do_drift_rate=0.0,
+            analyzer_noise_std=0.0,
+            analyzer_lag=0.0,
+            analyzer_sample_period=1,
         )
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(42)

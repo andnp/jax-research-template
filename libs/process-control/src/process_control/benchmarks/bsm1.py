@@ -190,18 +190,19 @@ class BSM1BenchmarkConfig:
     max_disturbance_events: int = 16
 
     # DO sensor parameters (within DosingSystem loops)
-    do_noise_std: float = 0.05   # g O₂/m³
-    do_lag: float = 0.9          # first-order lag coefficient
-    do_drift_rate: float = 0.001 # drift per step
+    do_noise_std: float = 0.05  # g O₂/m³
+    do_lag: float = 0.9  # first-order lag coefficient
+    do_drift_rate: float = 0.001  # drift per step
 
     # Concentration analyzers (NH₄, NO₃: standalone observation sensors)
     analyzer_noise_std: float = 0.3  # g/m³
-    analyzer_lag: float = 0.8        # lag coefficient
+    analyzer_lag: float = 0.8  # lag coefficient
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
 
 @jax_dataclass
 class BSM1ObsSensors:
     """Standalone observation-only sensors (not part of any control loop)."""
+
     nh4_eff: ResidualAnalyzerState
     no3_eff: ResidualAnalyzerState
     no3_r2: ResidualAnalyzerState
@@ -466,17 +467,19 @@ def make_bsm1_benchmark(
         )
 
         effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio)
-        obs = jnp.array([
-            effluent.s_nh / 35.0,
-            effluent.s_no / 20.0,
-            r3.s_o / 8.0,
-            r5.s_o / 8.0,
-            r2.s_no / 20.0,
-            mean_flow / mean_flow,
-            influent.s_nh / 35.0,
-            0.0,  # aeration power (no action yet)
-            0.0,  # dq/dt
-        ])
+        obs = jnp.array(
+            [
+                effluent.s_nh / 35.0,
+                effluent.s_no / 20.0,
+                r3.s_o / 8.0,
+                r5.s_o / 8.0,
+                r2.s_no / 20.0,
+                mean_flow / mean_flow,
+                influent.s_nh / 35.0,
+                0.0,  # aeration power (no action yet)
+                0.0,  # dq/dt
+            ]
+        )
         return plant_state, obs
 
     def step(
@@ -489,24 +492,35 @@ def make_bsm1_benchmark(
 
         # 1. Influent flow (composition fixed at BSM1 dry-weather values)
         new_source, _transport, q_in, _demand = source_step(
-            state.source_state, state.step_count, source_params, k1,
+            state.source_state,
+            state.step_count,
+            source_params,
+            k1,
         )
 
         # 2. DosingSystem loops: read previous-step reactor DO, compute kla
         new_kla34_loop, do3_reading, kla_34, pi_kla34 = dosing_step(
-            state.kla_34_loop, action[0], state.reactor3.s_o,
-            kla_34_dosing, dt, k_kla34,
+            state.kla_34_loop,
+            action[0],
+            state.reactor3.s_o,
+            kla_34_dosing,
+            dt,
+            k_kla34,
         )
         new_kla5_loop, do5_reading, kla_5, pi_kla5 = dosing_step(
-            state.kla_5_loop, action[1], state.reactor5.s_o,
-            kla_5_dosing, dt, k_kla5,
+            state.kla_5_loop,
+            action[1],
+            state.reactor5.s_o,
+            kla_5_dosing,
+            dt,
+            k_kla5,
         )
 
         # 3. Derived flows
-        q_a = q_in * internal_recycle_ratio   # internal recycle (R5 → R1)
-        q_rs = q_in * return_sludge_ratio      # external recycle (clarifier → R1)
-        q_total = q_in + q_rs + q_a           # flow through all 5 reactors
-        q_to_clarifier = q_in + q_rs          # flow from R5 into clarifier
+        q_a = q_in * internal_recycle_ratio  # internal recycle (R5 → R1)
+        q_rs = q_in * return_sludge_ratio  # external recycle (clarifier → R1)
+        q_total = q_in + q_rs + q_a  # flow through all 5 reactors
+        q_to_clarifier = q_in + q_rs  # flow from R5 into clarifier
 
         # 4. Clarifier: return sludge from previous R5
         _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs)
@@ -539,32 +553,37 @@ def make_bsm1_benchmark(
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
         new_sensors = BSM1ObsSensors(
-            nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
-            nh4_inf=new_nh4i, last_q_in=q_in,
+            nh4_eff=new_nh4e,
+            no3_eff=new_no3e,
+            no3_r2=new_no3r2,
+            nh4_inf=new_nh4i,
+            last_q_in=q_in,
         )
 
-        obs = jnp.array([
-            nh4e_reading / 35.0,
-            no3e_reading / 20.0,
-            do3_reading / 8.0,
-            do5_reading / 8.0,
-            no3r2_reading / 20.0,
-            q_in / mean_flow,
-            nh4i_reading / 35.0,
-            aeration_power,
-            dq_dt,
-        ])
-
-        reward = -(
-            config.reward_w_nh * nh4e_reading ** 2
-            + config.reward_w_no * no3e_reading ** 2
+        obs = jnp.array(
+            [
+                nh4e_reading / 35.0,
+                no3e_reading / 20.0,
+                do3_reading / 8.0,
+                do5_reading / 8.0,
+                no3r2_reading / 20.0,
+                q_in / mean_flow,
+                nh4i_reading / 35.0,
+                aeration_power,
+                dq_dt,
+            ]
         )
+
+        reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2)
 
         new_state = BSM1PlantState(
             step_count=state.step_count + 1,
             source_state=new_source,
-            reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
-            reactor4=new_r4, reactor5=new_r5,
+            reactor1=new_r1,
+            reactor2=new_r2,
+            reactor3=new_r3,
+            reactor4=new_r4,
+            reactor5=new_r5,
             kla_34_loop=new_kla34_loop,
             kla_5_loop=new_kla5_loop,
             disturbance_schedule=state.disturbance_schedule,

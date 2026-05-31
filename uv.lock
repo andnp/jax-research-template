@@ -14,6 +14,7 @@ members = [
     "jax-nn",
     "jax-replay",
     "jax-utils",
+    "process-control",
     "research-analysis",
     "research-cli",
     "research-cluster",
@@ -1309,6 +1310,17 @@ wheels = [
 ]
 
 [[package]]
+name = "process-control"
+version = "0.1.0"
+source = { editable = "libs/process-control" }
+dependencies = [
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jax", specifier = "~=0.9" }]
+
+[[package]]
 name = "prometheus-client"
 version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1567,6 +1579,7 @@ name = "research-analysis"
 version = "0.1.0"
 source = { editable = "libs/research-analysis" }
 dependencies = [
+    { name = "experiment-definition" },
     { name = "numba" },
     { name = "numpy" },
     { name = "polars" },
@@ -1577,6 +1590,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "experiment-definition", editable = "libs/experiment-definition" },
     { name = "numba", specifier = "~=0.61" },
     { name = "numpy", specifier = "~=2.0" },
     { name = "polars", specifier = "~=1.22" },
@@ -1641,6 +1655,7 @@ dependencies = [
     { name = "numpy" },
     { name = "optax" },
     { name = "pandas" },
+    { name = "process-control" },
     { name = "pydantic" },
     { name = "research-analysis" },
     { name = "research-cli" },
@@ -1684,6 +1699,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "optax", specifier = "~=0.2" },
     { name = "pandas", specifier = ">=2.0" },
+    { name = "process-control", editable = "libs/process-control" },
     { name = "pydantic", specifier = "~=2.12" },
     { name = "research-analysis", editable = "libs/research-analysis" },
     { name = "research-cli", editable = "cli" },
