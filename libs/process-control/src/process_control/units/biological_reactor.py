@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control.integration import rk4_step
+
 
 @dataclass(frozen=True)
 class BiologicalReactorParams:
@@ -108,24 +110,17 @@ def mix_streams(
     return mixed, total_flow
 
 
-def step(
+def _derivatives(
     state: BiologicalReactorState,
     inlet: BiologicalReactorState,
     inlet_flow: jax.Array,
     kla: jax.Array,
     params: BiologicalReactorParams,
-    dt: jax.Array,
 ) -> BiologicalReactorState:
-    """Advance biological reactor by one time step using forward Euler.
-
-    kla is the volumetric oxygen transfer coefficient (h⁻¹). Set kla=0 for
-    anoxic operation. The Euler step is stable for typical BSM1 timesteps
-    (dt ≤ 0.05 h) and standard kinetic constants.
-    """
-    # Hydraulic dilution rate (h⁻¹)
+    """Compute time derivatives for all state variables (g/m³/h)."""
     D = inlet_flow / params.volume
 
-    # Aerobic heterotrophic growth (COD removal with O₂)
+    # Aerobic heterotrophic growth
     r_h_aero = (
         params.mu_h
         * (state.s_s / (params.k_s + state.s_s))
@@ -133,7 +128,7 @@ def step(
         * state.x_bh
     )
 
-    # Anoxic heterotrophic growth (denitrification with NO₃)
+    # Anoxic heterotrophic growth (denitrification)
     r_h_anox = (
         params.mu_h
         * params.eta_g
@@ -155,37 +150,53 @@ def step(
     r_decay_h = params.b_h * state.x_bh
     r_decay_a = params.b_a * state.x_ba
 
-    # Mass balances (g m⁻³ h⁻¹)
-    ds_s = (
-        D * (inlet.s_s - state.s_s)
-        - (r_h_aero + r_h_anox) / params.y_h
-        + (1.0 - params.f_p) * (r_decay_h + r_decay_a)
-    )
-    ds_o = (
-        D * (inlet.s_o - state.s_o)
-        + kla * (params.s_o_sat - state.s_o)
-        - (1.0 - params.y_h) / params.y_h * r_h_aero
-        - (4.57 - params.y_a) / params.y_a * r_auto
-    )
-    ds_no = (
-        D * (inlet.s_no - state.s_no)
-        - (1.0 - params.y_h) / (2.86 * params.y_h) * r_h_anox
-        + 1.0 / params.y_a * r_auto
-    )
-    ds_nh = (
-        D * (inlet.s_nh - state.s_nh)
-        - params.i_xb * (r_h_aero + r_h_anox)
-        - (params.i_xb + 1.0 / params.y_a) * r_auto
-    )
-    dx_bh = D * (inlet.x_bh - state.x_bh) + (r_h_aero + r_h_anox) - r_decay_h
-    dx_ba = D * (inlet.x_ba - state.x_ba) + r_auto - r_decay_a
-
-    # Forward Euler with non-negativity enforcement
     return BiologicalReactorState(
-        s_s=jnp.maximum(state.s_s + ds_s * dt, 0.0),
-        s_o=jnp.clip(state.s_o + ds_o * dt, 0.0, params.s_o_sat),
-        s_no=jnp.maximum(state.s_no + ds_no * dt, 0.0),
-        s_nh=jnp.maximum(state.s_nh + ds_nh * dt, 0.0),
-        x_bh=jnp.maximum(state.x_bh + dx_bh * dt, 0.0),
-        x_ba=jnp.maximum(state.x_ba + dx_ba * dt, 0.0),
+        s_s=(
+            D * (inlet.s_s - state.s_s)
+            - (r_h_aero + r_h_anox) / params.y_h
+            + (1.0 - params.f_p) * (r_decay_h + r_decay_a)
+        ),
+        s_o=(
+            D * (inlet.s_o - state.s_o)
+            + kla * (params.s_o_sat - state.s_o)
+            - (1.0 - params.y_h) / params.y_h * r_h_aero
+            - (4.57 - params.y_a) / params.y_a * r_auto
+        ),
+        s_no=(
+            D * (inlet.s_no - state.s_no)
+            - (1.0 - params.y_h) / (2.86 * params.y_h) * r_h_anox
+            + 1.0 / params.y_a * r_auto
+        ),
+        s_nh=(
+            D * (inlet.s_nh - state.s_nh)
+            - params.i_xb * (r_h_aero + r_h_anox)
+            - (params.i_xb + 1.0 / params.y_a) * r_auto
+        ),
+        x_bh=D * (inlet.x_bh - state.x_bh) + (r_h_aero + r_h_anox) - r_decay_h,
+        x_ba=D * (inlet.x_ba - state.x_ba) + r_auto - r_decay_a,
+    )
+
+
+def step(
+    state: BiologicalReactorState,
+    inlet: BiologicalReactorState,
+    inlet_flow: jax.Array,
+    kla: jax.Array,
+    params: BiologicalReactorParams,
+    dt: jax.Array,
+) -> BiologicalReactorState:
+    """Advance biological reactor by one time step using RK4 integration.
+
+    kla is the volumetric oxygen transfer coefficient (h⁻¹). Set kla=0 for
+    anoxic operation. Non-negativity is enforced after integration.
+    """
+    raw = rk4_step(_derivatives, state, dt, inlet, inlet_flow, kla, params)
+
+    return BiologicalReactorState(
+        s_s=jnp.maximum(raw.s_s, 0.0),
+        s_o=jnp.clip(raw.s_o, 0.0, params.s_o_sat),
+        s_no=jnp.maximum(raw.s_no, 0.0),
+        s_nh=jnp.maximum(raw.s_nh, 0.0),
+        x_bh=jnp.maximum(raw.x_bh, 0.0),
+        x_ba=jnp.maximum(raw.x_ba, 0.0),
     )

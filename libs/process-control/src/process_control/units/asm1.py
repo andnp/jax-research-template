@@ -3,6 +3,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control._jax_dataclass import jax_dataclass
+from process_control.integration import rk4_step
+
 
 @dataclass(frozen=True)
 class ASM1Params:
@@ -165,40 +168,23 @@ def compute_cod(state: ASM1State) -> jax.Array:
     return state.s_i + state.s_s + state.x_i + state.x_s + state.x_bh + state.x_ba + state.x_p
 
 
-def step(
+def _derivatives(
     state: ASM1State,
     inlet: ASM1State,
     inlet_flow: jax.Array,
     kla: jax.Array,
     params: ASM1Params,
-    dt: jax.Array,
 ) -> ASM1State:
-    """Advance ASM1 reactor by one time step using forward Euler integration.
-
-    The step implements all 8 ASM1 processes:
-      ρ1  aerobic growth of heterotrophs
-      ρ2  anoxic growth of heterotrophs (denitrification)
-      ρ3  aerobic growth of autotrophs (nitrification)
-      ρ4  decay of heterotrophs
-      ρ5  decay of autotrophs
-      ρ6  ammonification of soluble organic N
-      ρ7  hydrolysis of particulate substrate
-      ρ8  hydrolysis of particulate organic N
-
-    Non-negativity is enforced after integration (jnp.maximum / jnp.clip).
-    kla is the volumetric O₂ transfer rate (h⁻¹); set to 0 for anoxic operation.
-    """
-    D = inlet_flow / params.volume  # hydraulic dilution rate (h⁻¹)
+    """Compute time derivatives for all 13 ASM1 state variables (g/m³/h)."""
+    D = inlet_flow / params.volume
 
     # ── Process rates ──────────────────────────────────────────────────────────
-    # ρ1: aerobic heterotrophic growth
     r1 = (
         params.mu_h
         * (state.s_s / (params.k_s + state.s_s))
         * (state.s_o / (params.k_o_h + state.s_o))
         * state.x_bh
     )
-    # ρ2: anoxic heterotrophic growth (denitrification)
     r2 = (
         params.mu_h
         * params.eta_g
@@ -207,83 +193,93 @@ def step(
         * (state.s_no / (params.k_no + state.s_no))
         * state.x_bh
     )
-    # ρ3: autotrophic growth (nitrification)
     r3 = (
         params.mu_a
         * (state.s_nh / (params.k_nh + state.s_nh))
         * (state.s_o / (params.k_o_a + state.s_o))
         * state.x_ba
     )
-    # ρ4, ρ5: decay
     r4 = params.b_h * state.x_bh
     r5 = params.b_a * state.x_ba
-
-    # ρ6: ammonification
     r6 = params.k_a * state.s_nd * state.x_bh
 
-    # ρ7: hydrolysis of X_S
     x_s_ratio = (state.x_s / jnp.maximum(state.x_bh, 1e-6))
     hydrolysis_switching = (
         state.s_o / (params.k_o_h + state.s_o)
         + params.eta_h * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no))
     )
     r7 = params.k_h * (x_s_ratio / (params.k_x + x_s_ratio)) * hydrolysis_switching * state.x_bh
-
-    # ρ8: hydrolysis of X_ND (proportional to X_S hydrolysis)
     r8 = (state.x_nd / jnp.maximum(state.x_s, 1e-6)) * r7
 
     # ── Mass balances ──────────────────────────────────────────────────────────
-    ds_i = D * (inlet.s_i - state.s_i)
-    ds_s = D * (inlet.s_s - state.s_s) - (r1 + r2) / params.y_h + r7
-    dx_i = D * (inlet.x_i - state.x_i)
-    dx_s = D * (inlet.x_s - state.x_s) + (1.0 - params.f_p) * (r4 + r5) - r7
-    dx_bh = D * (inlet.x_bh - state.x_bh) + r1 + r2 - r4
-    dx_ba = D * (inlet.x_ba - state.x_ba) + r3 - r5
-    dx_p = D * (inlet.x_p - state.x_p) + params.f_p * (r4 + r5)
-    ds_o = (
-        D * (inlet.s_o - state.s_o)
-        + kla * (params.s_o_sat - state.s_o)
-        - (1.0 - params.y_h) / params.y_h * r1
-        - (4.57 - params.y_a) / params.y_a * r3
-    )
-    ds_no = (
-        D * (inlet.s_no - state.s_no)
-        - (1.0 - params.y_h) / (2.86 * params.y_h) * r2
-        + r3 / params.y_a
-    )
-    ds_nh = (
-        D * (inlet.s_nh - state.s_nh)
-        - params.i_xb * (r1 + r2)
-        - (params.i_xb + 1.0 / params.y_a) * r3
-        + r6
-    )
-    ds_nd = D * (inlet.s_nd - state.s_nd) - r6 + r8
-    dx_nd = (
-        D * (inlet.x_nd - state.x_nd)
-        + (params.i_xb - params.f_p * params.i_xp) * (r4 + r5)
-        - r8
-    )
-    ds_alk = (
-        D * (inlet.s_alk - state.s_alk)
-        - params.i_xb / 14.0 * r1
-        + ((1.0 - params.y_h) / (2.86 * params.y_h) - params.i_xb) / 14.0 * r2
-        - (params.i_xb + 1.0 / (7.0 * params.y_a)) / 14.0 * r3
-        + r6 / 14.0
+    return ASM1State(
+        s_i=D * (inlet.s_i - state.s_i),
+        s_s=D * (inlet.s_s - state.s_s) - (r1 + r2) / params.y_h + r7,
+        x_i=D * (inlet.x_i - state.x_i),
+        x_s=D * (inlet.x_s - state.x_s) + (1.0 - params.f_p) * (r4 + r5) - r7,
+        x_bh=D * (inlet.x_bh - state.x_bh) + r1 + r2 - r4,
+        x_ba=D * (inlet.x_ba - state.x_ba) + r3 - r5,
+        x_p=D * (inlet.x_p - state.x_p) + params.f_p * (r4 + r5),
+        s_o=(
+            D * (inlet.s_o - state.s_o)
+            + kla * (params.s_o_sat - state.s_o)
+            - (1.0 - params.y_h) / params.y_h * r1
+            - (4.57 - params.y_a) / params.y_a * r3
+        ),
+        s_no=(
+            D * (inlet.s_no - state.s_no)
+            - (1.0 - params.y_h) / (2.86 * params.y_h) * r2
+            + r3 / params.y_a
+        ),
+        s_nh=(
+            D * (inlet.s_nh - state.s_nh)
+            - params.i_xb * (r1 + r2)
+            - (params.i_xb + 1.0 / params.y_a) * r3
+            + r6
+        ),
+        s_nd=D * (inlet.s_nd - state.s_nd) - r6 + r8,
+        x_nd=(
+            D * (inlet.x_nd - state.x_nd)
+            + (params.i_xb - params.f_p * params.i_xp) * (r4 + r5)
+            - r8
+        ),
+        s_alk=(
+            D * (inlet.s_alk - state.s_alk)
+            - params.i_xb / 14.0 * r1
+            + ((1.0 - params.y_h) / (2.86 * params.y_h) - params.i_xb) / 14.0 * r2
+            - (params.i_xb + 1.0 / (7.0 * params.y_a)) / 14.0 * r3
+            + r6 / 14.0
+        ),
     )
 
-    # ── Euler step with physical bounds ───────────────────────────────────────
+
+def step(
+    state: ASM1State,
+    inlet: ASM1State,
+    inlet_flow: jax.Array,
+    kla: jax.Array,
+    params: ASM1Params,
+    dt: jax.Array,
+) -> ASM1State:
+    """Advance ASM1 reactor by one time step using RK4 integration.
+
+    Implements all 8 ASM1 processes. Non-negativity enforced after integration.
+    kla is the volumetric O₂ transfer rate (h⁻¹); set to 0 for anoxic operation.
+    """
+    raw = rk4_step(_derivatives, state, dt, inlet, inlet_flow, kla, params)
+
     return ASM1State(
-        s_i=jnp.maximum(state.s_i + ds_i * dt, 0.0),
-        s_s=jnp.maximum(state.s_s + ds_s * dt, 0.0),
-        x_i=jnp.maximum(state.x_i + dx_i * dt, 0.0),
-        x_s=jnp.maximum(state.x_s + dx_s * dt, 0.0),
-        x_bh=jnp.maximum(state.x_bh + dx_bh * dt, 0.0),
-        x_ba=jnp.maximum(state.x_ba + dx_ba * dt, 0.0),
-        x_p=jnp.maximum(state.x_p + dx_p * dt, 0.0),
-        s_o=jnp.clip(state.s_o + ds_o * dt, 0.0, params.s_o_sat),
-        s_no=jnp.maximum(state.s_no + ds_no * dt, 0.0),
-        s_nh=jnp.maximum(state.s_nh + ds_nh * dt, 0.0),
-        s_nd=jnp.maximum(state.s_nd + ds_nd * dt, 0.0),
-        x_nd=jnp.maximum(state.x_nd + dx_nd * dt, 0.0),
-        s_alk=state.s_alk + ds_alk * dt,  # alkalinity can be negative
+        s_i=jnp.maximum(raw.s_i, 0.0),
+        s_s=jnp.maximum(raw.s_s, 0.0),
+        x_i=jnp.maximum(raw.x_i, 0.0),
+        x_s=jnp.maximum(raw.x_s, 0.0),
+        x_bh=jnp.maximum(raw.x_bh, 0.0),
+        x_ba=jnp.maximum(raw.x_ba, 0.0),
+        x_p=jnp.maximum(raw.x_p, 0.0),
+        s_o=jnp.clip(raw.s_o, 0.0, params.s_o_sat),
+        s_no=jnp.maximum(raw.s_no, 0.0),
+        s_nh=jnp.maximum(raw.s_nh, 0.0),
+        s_nd=jnp.maximum(raw.s_nd, 0.0),
+        x_nd=jnp.maximum(raw.x_nd, 0.0),
+        s_alk=raw.s_alk,
     )
