@@ -28,7 +28,6 @@ import jax.numpy as jnp
 from process_control._jax_dataclass import jax_dataclass
 from process_control.integration import rk4_step
 
-
 # ── Parameters ────────────────────────────────────────────────────────
 
 

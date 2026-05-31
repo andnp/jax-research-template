@@ -8,23 +8,49 @@ from process_control._jax_dataclass import jax_dataclass
 from process_control.actuators.dosing_system import (
     DIRECT,
     DosingSystemParams,
+    DosingSystemState,
 )
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
-from process_control.disturbances.schedule import apply_active, create_empty
-from process_control.plant_state import PlantState
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
+from process_control.disturbances.schedule import DisturbanceSchedule, apply_active, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.flow_sensor import FlowSensorParams
+from process_control.sensors.flow_sensor import FlowSensorParams, FlowSensorState
 from process_control.sensors.flow_sensor import reset as flow_sensor_reset
 from process_control.sensors.flow_sensor import step as flow_sensor_step
 from process_control.signal_bus import SignalBus
-from process_control.units.contact_basin import ContactBasinParams
+from process_control.units.contact_basin import ContactBasinParams, ContactBasinState
 from process_control.units.contact_basin import reset as basin_reset
 from process_control.units.contact_basin import step as basin_step
 from process_control.units.mixer import MixerState
 from process_control.units.mixer import step as mixer_step
+
+
+@dataclass(frozen=True)
+class PlantState:
+    step_count: jax.Array
+    source_state: DiurnalSourceState
+    basin_state: ContactBasinState
+    flow_sensor_state: FlowSensorState
+    dosing_loop: DosingSystemState
+    last_dose: jax.Array
+    disturbance_schedule: DisturbanceSchedule
+
+
+jax.tree_util.register_dataclass(
+    PlantState,
+    data_fields=[
+        "step_count",
+        "source_state",
+        "basin_state",
+        "flow_sensor_state",
+        "dosing_loop",
+        "last_dose",
+        "disturbance_schedule",
+    ],
+    meta_fields=[],
+)
 
 
 @dataclass(frozen=True)
@@ -44,7 +70,7 @@ class ChlorineBenchmarkConfig:
 
     pump_max_dose: float = 5.0
     pump_min_dose: float = 0.0
-    pump_max_ramp_rate: float = 10.0
+    pump_max_ramp_rate: float = 10.0  # symmetric (chemical dosing pump)
 
     pi_kp: float = 0.1
     pi_ki: float = 0.1
@@ -115,7 +141,8 @@ def make_chlorine_benchmark(
         output_min=config.pump_min_dose,
         output_max=config.pump_max_dose,
         max_integral=config.pi_max_integral,
-        max_ramp_rate=config.pump_max_ramp_rate,
+        max_ramp_up=config.pump_max_ramp_rate,
+        max_ramp_down=config.pump_max_ramp_rate,
     )
 
     dt = jnp.array(config.dt)

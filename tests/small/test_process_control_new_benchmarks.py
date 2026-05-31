@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-
 from process_control.benchmarks.chlorine_two_stage import (
     ChlorineTwoStageBenchmarkConfig,
     make_chlorine_two_stage_benchmark,
