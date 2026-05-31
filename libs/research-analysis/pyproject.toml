@@ -18,3 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+experiment-definition = { workspace = true }
+research-plot = { workspace = true }

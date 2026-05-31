@@ -25,17 +25,10 @@ class ToleranceInterval:
 
 def tolerance_interval_confidence(num_samples: int, *, coverage: float, rank_span: int) -> float:
     """Calculate the achieved confidence for a given sample size, coverage, and rank span."""
-    return sum(
-        math.comb(num_samples, failures)
-        * (coverage**failures)
-        * ((1.0 - coverage) ** (num_samples - failures))
-        for failures in range(rank_span)
-    )
+    return sum(math.comb(num_samples, failures) * (coverage**failures) * ((1.0 - coverage) ** (num_samples - failures)) for failures in range(rank_span))
 
 
-def tolerance_interval_order_indices(
-    num_samples: int, *, confidence: float = 0.95, coverage: float = 0.90
-) -> tuple[int, int]:
+def tolerance_interval_order_indices(num_samples: int, *, confidence: float = 0.95, coverage: float = 0.90) -> tuple[int, int]:
     """Determine the rank-order indices for a non-parametric tolerance interval.
 
     Finds the smallest rank span j - i that achieves the target confidence.
@@ -52,18 +45,13 @@ def tolerance_interval_order_indices(
         raise ValueError(f"coverage must be in (0, 1), got {coverage}.")
 
     for rank_span in range(1, num_samples):
-        achieved_confidence = tolerance_interval_confidence(
-            num_samples, coverage=coverage, rank_span=rank_span
-        )
+        achieved_confidence = tolerance_interval_confidence(num_samples, coverage=coverage, rank_span=rank_span)
         if achieved_confidence >= confidence:
             lower_index = (num_samples - 1 - rank_span) // 2
             upper_index = lower_index + rank_span
             return lower_index, upper_index
 
-    raise ValueError(
-        f"Insufficient samples ({num_samples}) to form a tolerance interval with "
-        f"confidence={confidence} and coverage={coverage}."
-    )
+    raise ValueError(f"Insufficient samples ({num_samples}) to form a tolerance interval with confidence={confidence} and coverage={coverage}.")
 
 
 def pointwise_tolerance_interval(
@@ -79,9 +67,7 @@ def pointwise_tolerance_interval(
         array = array[:, np.newaxis]
 
     n_seeds = array.shape[0]
-    lower_idx, upper_idx = tolerance_interval_order_indices(
-        n_seeds, confidence=confidence, coverage=coverage
-    )
+    lower_idx, upper_idx = tolerance_interval_order_indices(n_seeds, confidence=confidence, coverage=coverage)
 
     sorted_data = np.sort(array, axis=0)
     ci_low = sorted_data[lower_idx]
@@ -117,7 +103,7 @@ def select_median_run_index(data: NDArray[np.floating]) -> int:
         raise ValueError("Input data must not be empty.")
 
     median_score = np.median(mean_scores)
-    
+
     # Select the index of the run closest to the median score, breaking ties stably.
     min_diff = np.inf
     best_index = -1
@@ -126,5 +112,5 @@ def select_median_run_index(data: NDArray[np.floating]) -> int:
         if diff < min_diff:
             min_diff = diff
             best_index = idx
-            
+
     return best_index

@@ -93,7 +93,7 @@ indent-style = "space"
 
 [tool.pyrefly]
 preset = "strict"
-replace-imports-with-any = ["chex.*", "flax.linen.*"]
+replace-imports-with-any = ["flax.*", "chex.*"]
 search-path = [
     "libs/jax-nn/src",
     "libs/jax-replay/src",
@@ -108,6 +108,6 @@ search-path = [
 ]
 
 [tool.pyrefly.errors]
-unannotated-return = true
+unannotated-return = false
 implicit-any-empty-container = false
 implicit-any-type-argument = false

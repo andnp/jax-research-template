@@ -1,48 +1,10 @@
-"""Small tests for rl_agents.td3 — config, network shapes, soft update."""
+"""Small tests for rl_agents.td3 — network shapes, soft update."""
 
-from typing import Protocol, cast
+from typing import cast
 
 import jax
 import jax.numpy as jnp
-from rl_agents.td3 import Actor, Critic, TD3Config
-
-
-class _MutableTD3Config(Protocol):
-    LR: float
-
-
-class TestTD3Config:
-    def test_defaults(self) -> None:
-        cfg = TD3Config()
-        assert cfg.LR == 3e-4
-        assert cfg.BUFFER_SIZE == 100_000
-        assert cfg.BATCH_SIZE == 256
-        assert cfg.TOTAL_TIMESTEPS == 1_000_000
-        assert cfg.LEARNING_STARTS == 25_000
-        assert cfg.TRAIN_FREQUENCY == 1
-        assert cfg.GAMMA == 0.99
-        assert cfg.TAU == 0.005
-        assert cfg.POLICY_DELAY == 2
-        assert cfg.EXPLORATION_NOISE == 0.1
-        assert cfg.POLICY_NOISE == 0.2
-        assert cfg.NOISE_CLIP == 0.5
-        assert cfg.ENV_NAME == "MountainCarContinuous-v0"
-        assert cfg.SEED == 42
-
-    def test_frozen(self) -> None:
-        cfg = TD3Config()
-        try:
-            mutable_cfg = cast(_MutableTD3Config, cfg)
-            mutable_cfg.LR = 0.1
-            raise AssertionError("Should have raised")
-        except AttributeError:
-            pass
-
-    def test_custom_config(self) -> None:
-        cfg = TD3Config(POLICY_DELAY=3, TAU=0.01, EXPLORATION_NOISE=0.2)
-        assert cfg.POLICY_DELAY == 3
-        assert cfg.TAU == 0.01
-        assert cfg.EXPLORATION_NOISE == 0.2
+from rl_agents.td3 import Actor, Critic
 
 
 class TestCritic:

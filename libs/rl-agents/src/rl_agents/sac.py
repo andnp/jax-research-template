@@ -180,7 +180,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 alpha_state: TrainState,
                 buffer_state: ReplayBufferState,
                 rng: jax.Array,
-            ) -> tuple[TrainState, TrainState, VariableDict, TrainState]:
+            ) -> tuple[TrainState, TrainState, VariableDict, TrainState, jax.Array, jax.Array]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
@@ -262,13 +262,13 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                     critic_state.params,
                 )
 
-                return actor_state, critic_state, critic_target_params, alpha_state
+                return actor_state, critic_state, critic_target_params, alpha_state, critic_loss, actor_loss
 
             can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
-            actor_state, critic_state, critic_target_params, alpha_state = jax.lax.cond(
+            actor_state, critic_state, critic_target_params, alpha_state, critic_loss, actor_loss = jax.lax.cond(
                 can_train,
                 lambda: _do_train(actor_state, critic_state, critic_target_params, alpha_state, buffer_state, rng),
-                lambda: (actor_state, critic_state, critic_target_params, alpha_state),
+                lambda: (actor_state, critic_state, critic_target_params, alpha_state, jnp.array(0.0), jnp.array(0.0)),
             )
 
             runner_state = RunnerState(
@@ -276,6 +276,9 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 critic_target_params=critic_target_params, alpha_state=alpha_state,
                 buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
             )
+            info = dict(info)
+            info["critic_loss"] = critic_loss
+            info["actor_loss"] = actor_loss
             return runner_state, info
 
         # RUNNER

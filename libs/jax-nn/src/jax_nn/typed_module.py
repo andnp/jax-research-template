@@ -12,8 +12,6 @@ T_co = TypeVar("T_co", covariant=True)
 class TypedApply(Generic[T_co]):
     """Generic mixin providing a typed apply() signature for flax nn.Module subclasses.
 
-    Eliminates the ``if TYPE_CHECKING: def apply(...)`` pattern.
-
     Usage (always put TypedApply before nn.Module in the bases)::
 
         class MyNet(TypedApply[jax.Array], nn.Module):
