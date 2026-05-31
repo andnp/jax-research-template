@@ -4,32 +4,25 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import DosePumpState
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
-from process_control.controllers.pi_controller import PIControllerParams
-from process_control.controllers.pi_controller import PIControllerState
+from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
-from process_control.disturbances.schedule import DisturbanceSchedule
-from process_control.disturbances.schedule import apply_active, create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
-from process_control.scenarios.diurnal_source import DiurnalSourceState
+from process_control.disturbances.schedule import DisturbanceSchedule, apply_active, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.flow_sensor import FlowSensorParams
-from process_control.sensors.flow_sensor import FlowSensorState
+from process_control.sensors.flow_sensor import FlowSensorParams, FlowSensorState
 from process_control.sensors.flow_sensor import reset as flow_sensor_reset
 from process_control.sensors.flow_sensor import step as flow_sensor_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams
-from process_control.sensors.residual_analyzer import ResidualAnalyzerState
+from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import reset as residual_reset
 from process_control.sensors.residual_analyzer import step as residual_step
 from process_control.signal_bus import SignalBus
 from process_control.transport import Composition, Hydraulics, Transport
-from process_control.units.contact_basin import ContactBasinParams
-from process_control.units.contact_basin import ContactBasinState
+from process_control.units.contact_basin import ContactBasinParams, ContactBasinState
 from process_control.units.contact_basin import reset as basin_reset
 from process_control.units.contact_basin import step as basin_step
 from process_control.units.mixer import MixerState
@@ -293,8 +286,8 @@ def make_chlorine_two_stage_benchmark(
         signal_bus = SignalBus(flow=sensed_flow, outlet_residual=sensed_residual)
         obs = _build_observation(signal_bus, realized_dose, target_residual)
 
-        # 10. Reward
-        reward = -((outlet_residual - target_residual) ** 2)
+        # 10. Reward (from sensor reading — matches what an online agent would see)
+        reward = -((sensed_residual - target_residual) ** 2)
 
         new_state = TwoStageChlorinePlantState(
             step_count=state.step_count + 1,

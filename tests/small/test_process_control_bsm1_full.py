@@ -147,7 +147,7 @@ class TestASM1Unit:
 
 class TestBSM1Benchmark:
     def test_reset_returns_state_and_obs(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, _step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(42)
 
@@ -157,7 +157,7 @@ class TestBSM1Benchmark:
         assert state.step_count == 0
 
     def test_step_returns_correct_shapes(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(42)
         k1, k2 = jax.random.split(key)
@@ -176,7 +176,7 @@ class TestBSM1Benchmark:
         assert "kla_34" in info
 
     def test_all_five_reactors_advance(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(0)
         k1, key = jax.random.split(key)
@@ -198,7 +198,7 @@ class TestBSM1Benchmark:
         re-equilibrate from the initial anoxic transient. Steady-state BSM1 DO ≈ 2 g/m³.
         We assert DO > 1.0 to verify aerobic response without requiring full convergence.
         """
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(2)
         k1, key = jax.random.split(key)
@@ -212,7 +212,7 @@ class TestBSM1Benchmark:
         assert float(info["s_o_r5"]) > 1.0
 
     def test_no_aeration_collapses_do(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(3)
         k1, key = jax.random.split(key)
@@ -226,7 +226,7 @@ class TestBSM1Benchmark:
         assert float(info["s_o_r5"]) < 0.5
 
     def test_effluent_non_negative(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         key = jax.random.PRNGKey(7)
         k1, key = jax.random.split(key)
@@ -239,7 +239,7 @@ class TestBSM1Benchmark:
             assert float(info["s_no_effluent"]) >= 0.0
 
     def test_jit_compatible(self) -> None:
-        config = BSM1BenchmarkConfig()
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
         reset_fn, step_fn = make_bsm1_benchmark(config)
         jit_reset = jax.jit(reset_fn)
         jit_step = jax.jit(step_fn)
@@ -251,3 +251,81 @@ class TestBSM1Benchmark:
 
         assert obs2.shape == (6,)
         assert reward.shape == ()
+
+
+class TestBSM1RealisticMode:
+    def test_realistic_obs_shape(self) -> None:
+        config = BSM1BenchmarkConfig(sensor_fidelity="realistic")
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        k1, k2 = jax.random.split(jax.random.PRNGKey(0))
+        state, obs = reset_fn(k1)
+
+        assert obs.shape == (9,)
+
+        _, obs2, _, _, _ = step_fn(state, jnp.array([3.0, 3.0]), k2)
+        assert obs2.shape == (9,)
+
+    def test_sensor_noise_is_nonzero(self) -> None:
+        """Realistic sensor readings should differ from true values due to noise."""
+        config = BSM1BenchmarkConfig(sensor_fidelity="realistic")
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        key = jax.random.PRNGKey(42)
+        k1, key = jax.random.split(key)
+        state, _ = reset_fn(k1)
+
+        # Collect multiple readings and true values
+        readings = []
+        true_vals = []
+        for _ in range(50):
+            k_step, key = jax.random.split(key)
+            state, obs, _, _, info = step_fn(state, jnp.array([3.0, 3.0]), k_step)
+            readings.append(float(obs[2]))  # DO R3 reading (normalised)
+            true_vals.append(float(info["s_o_r3"]) / 8.0)  # true value (normalised)
+
+        # Sensor readings should not exactly match true values
+        diffs = [abs(r - t) for r, t in zip(readings, true_vals)]
+        assert max(diffs) > 0.001, "Sensor noise appears absent"
+
+    def test_realistic_includes_extra_channels(self) -> None:
+        """Realistic mode should include influent NH4 and aeration power."""
+        config = BSM1BenchmarkConfig(sensor_fidelity="realistic")
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        key = jax.random.PRNGKey(10)
+        k1, key = jax.random.split(key)
+        state, _ = reset_fn(k1)
+
+        # Run enough steps for the analyzer to sample (sample_period=8)
+        for _ in range(20):
+            k_step, key = jax.random.split(key)
+            state, obs, _, _, _ = step_fn(state, jnp.array([3.0, 3.0]), k_step)
+
+        # Channel 6: influent NH4 (should be nonzero after analyzer samples)
+        assert float(obs[6]) > 0.1
+
+        # Channel 7: aeration power (should be > 0 with kla=3)
+        assert float(obs[7]) > 0.0
+
+    def test_realistic_jit_compatible(self) -> None:
+        config = BSM1BenchmarkConfig(sensor_fidelity="realistic")
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        jit_reset = jax.jit(reset_fn)
+        jit_step = jax.jit(step_fn)
+
+        k1, k2 = jax.random.split(jax.random.PRNGKey(99))
+        state, obs = jit_reset(k1)
+        _, obs2, reward, _, _ = jit_step(state, jnp.array([3.0, 3.0]), k2)
+
+        assert obs.shape == (9,)
+        assert obs2.shape == (9,)
+        assert reward.shape == ()
+
+    def test_pure_mode_unchanged(self) -> None:
+        """Pure mode should produce identical results to pre-sensor code."""
+        config = BSM1BenchmarkConfig(sensor_fidelity="pure")
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        k1, k2 = jax.random.split(jax.random.PRNGKey(7))
+        state, obs = reset_fn(k1)
+
+        assert obs.shape == (6,)
+        _, obs2, _, _, _ = step_fn(state, jnp.array([3.0, 3.0]), k2)
+        assert obs2.shape == (6,)

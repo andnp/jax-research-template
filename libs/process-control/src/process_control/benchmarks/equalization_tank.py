@@ -4,26 +4,20 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import DosePumpState
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
-from process_control.controllers.pi_controller import PIControllerParams
-from process_control.controllers.pi_controller import PIControllerState
+from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
-from process_control.disturbances.schedule import DisturbanceSchedule
-from process_control.disturbances.schedule import apply_active, create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
-from process_control.scenarios.diurnal_source import DiurnalSourceState
+from process_control.disturbances.schedule import DisturbanceSchedule, apply_active, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.level_sensor import LevelSensorParams
-from process_control.sensors.level_sensor import LevelSensorState
+from process_control.sensors.level_sensor import LevelSensorParams, LevelSensorState
 from process_control.sensors.level_sensor import reset as level_sensor_reset
 from process_control.sensors.level_sensor import step as level_sensor_step
-from process_control.units.tank import TankParams
-from process_control.units.tank import TankState
+from process_control.units.tank import TankParams, TankState
 from process_control.units.tank import reset as tank_reset
 from process_control.units.tank import step as tank_step
 
@@ -221,8 +215,8 @@ def make_equalization_tank_benchmark(
             ]
         )
 
-        # 7. Reward: negative MSE on level setpoint
-        reward = -((true_level - target_level) ** 2)
+        # 7. Reward: from sensor reading (matches what an online agent would see)
+        reward = -((measured_level - target_level) ** 2)
 
         new_state = EqualizationPlantState(
             step_count=state.step_count + 1,

@@ -4,29 +4,23 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
 from process_control.chemistry.ph_model import PhModelParams, compute_ph
-from process_control.controllers.pi_controller import PIControllerParams
+from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
-from process_control.disturbances.schedule import create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
+from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.ph_sensor import PhSensorParams
+from process_control.sensors.ph_sensor import PhSensorParams, PhSensorState
 from process_control.sensors.ph_sensor import reset as ph_sensor_reset
 from process_control.sensors.ph_sensor import step as ph_sensor_step
-from process_control.units.cstr import CSTRParams
+from process_control.units.cstr import CSTRParams, CSTRState
 from process_control.units.cstr import reset as cstr_reset
 from process_control.units.cstr import step as cstr_step
-from process_control.controllers.pi_controller import PIControllerState
-from process_control.actuators.dose_pump import DosePumpState
-from process_control.sensors.ph_sensor import PhSensorState
-from process_control.scenarios.diurnal_source import DiurnalSourceState
-from process_control.units.cstr import CSTRState
-from process_control.disturbances.schedule import DisturbanceSchedule
 
 
 @dataclass(frozen=True)
@@ -231,8 +225,8 @@ def make_ph_neutralization_benchmark(
             ]
         )
 
-        # 8. Reward: negative MSE on pH setpoint
-        reward = -((true_ph - target_ph) ** 2)
+        # 8. Reward: from sensor reading (matches what an online agent would see)
+        reward = -((measured_ph - target_ph) ** 2)
 
         new_state = PhPlantState(
             step_count=state.step_count + 1,

@@ -66,7 +66,8 @@ class TestPhNeutralizationBenchmark:
         state, _ = reset_fn(k1)
         _, _, reward, _, info = step_fn(state, jnp.array(7.5), k2)
 
-        expected = -((info["true_ph"] - config.target_ph) ** 2)
+        # Reward is computed from sensor reading, not true state
+        expected = -((info["measured_ph"] - config.target_ph) ** 2)
         assert jnp.allclose(reward, expected)
 
     def test_jit_compatible(self) -> None:
@@ -135,8 +136,9 @@ class TestEqualizationTankBenchmark:
         state, _ = reset_fn(k1)
         _, _, reward, _, info = step_fn(state, jnp.array(75.0), k2)
 
+        # Reward is computed from sensor reading, not true state
         target = config.target_level_fraction * config.tank_max_level
-        expected = -((info["true_level"] - target) ** 2)
+        expected = -((info["measured_level"] - target) ** 2)
         assert jnp.allclose(reward, expected)
 
     def test_jit_compatible(self) -> None:

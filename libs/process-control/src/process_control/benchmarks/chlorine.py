@@ -208,8 +208,8 @@ def make_chlorine_benchmark(
         signal_bus = SignalBus(flow=sensed_flow, outlet_residual=sensed_residual)
         obs = _build_observation(signal_bus, realized_dose, target_residual)
 
-        # 8. Reward
-        reward = -((outlet_residual - target_residual) ** 2)
+        # 8. Reward (from sensor reading — matches what an online agent would see)
+        reward = -((sensed_residual - target_residual) ** 2)
 
         new_state = PlantState(
             step_count=state.step_count + 1,

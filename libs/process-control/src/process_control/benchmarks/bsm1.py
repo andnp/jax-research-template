@@ -4,19 +4,20 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import DosePumpState
+from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
 from process_control.actuators.dose_pump import reset as dose_pump_reset
 from process_control.actuators.dose_pump import step as dose_pump_step
-from process_control.disturbances.schedule import DisturbanceSchedule
-from process_control.disturbances.schedule import create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
-from process_control.scenarios.diurnal_source import DiurnalSourceState
+from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.units.asm1 import ASM1Params
-from process_control.units.asm1 import ASM1State
-from process_control.units.asm1 import mix_streams
+from process_control.sensors.do_sensor import DOSensorParams, DOSensorState
+from process_control.sensors.do_sensor import reset as do_reset
+from process_control.sensors.do_sensor import step as do_step
+from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
+from process_control.sensors.residual_analyzer import reset as ra_reset
+from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.units.asm1 import ASM1Params, ASM1State, compute_tss, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
 
@@ -170,6 +171,55 @@ class BSM1BenchmarkConfig:
 
     max_disturbance_events: int = 16
 
+    # Sensor fidelity: "realistic" = noisy sensors (default), "pure" = true values
+    sensor_fidelity: str = "realistic"
+
+    # Sensor parameters for realistic mode
+    # DO probes (fast response, ~30s lag)
+    do_noise_std: float = 0.05   # g O₂/m³
+    do_lag: float = 0.9          # first-order lag coefficient
+    do_drift_rate: float = 0.001 # drift per step
+    # Concentration analyzers (NH₄, NO₃: 10-min sample period ≈ 8 steps at dt=0.02h)
+    analyzer_noise_std: float = 0.3  # g/m³
+    analyzer_lag: float = 0.8        # lag coefficient
+    analyzer_sample_period: int = 8  # steps between samples (~10 min)
+
+
+@dataclass(frozen=True)
+class BSM1SensorState:
+    """Sensor states for realistic instrumentation mode."""
+    do_r3: DOSensorState
+    do_r5: DOSensorState
+    nh4_eff: ResidualAnalyzerState
+    no3_eff: ResidualAnalyzerState
+    no3_r2: ResidualAnalyzerState
+    nh4_inf: ResidualAnalyzerState
+    last_q_in: jax.Array
+
+
+jax.tree_util.register_dataclass(
+    BSM1SensorState,
+    data_fields=[
+        "do_r3", "do_r5",
+        "nh4_eff", "no3_eff", "no3_r2", "nh4_inf",
+        "last_q_in",
+    ],
+    meta_fields=[],
+)
+
+
+def _create_default_sensors(mean_flow: float, r3_do: float, r5_do: float) -> BSM1SensorState:
+    """Create initial sensor states (used in both pure and realistic modes)."""
+    return BSM1SensorState(
+        do_r3=DOSensorState.create(r3_do),
+        do_r5=DOSensorState.create(r5_do),
+        nh4_eff=ResidualAnalyzerState.create(),
+        no3_eff=ResidualAnalyzerState.create(),
+        no3_r2=ResidualAnalyzerState.create(),
+        nh4_inf=ResidualAnalyzerState.create(),
+        last_q_in=jnp.array(mean_flow),
+    )
+
 
 @jax_dataclass
 class BSM1PlantState:
@@ -183,6 +233,7 @@ class BSM1PlantState:
     kla_34_actuator: DosePumpState
     kla_5_actuator: DosePumpState
     disturbance_schedule: DisturbanceSchedule
+    sensors: BSM1SensorState
 
 
 jax.tree_util.register_dataclass(
@@ -198,6 +249,7 @@ jax.tree_util.register_dataclass(
         "kla_34_actuator",
         "kla_5_actuator",
         "disturbance_schedule",
+        "sensors",
     ],
     meta_fields=[],
 )
@@ -285,6 +337,24 @@ def make_bsm1_benchmark(
     mean_flow = jnp.array(config.mean_flow)
     internal_recycle_ratio = jnp.array(config.internal_recycle_ratio)
     return_sludge_ratio = jnp.array(config.return_sludge_ratio)
+    is_realistic = config.sensor_fidelity == "realistic"
+
+    # Sensor params (only used in realistic mode, but always constructed)
+    do_params = DOSensorParams(
+        noise_std=config.do_noise_std,
+        lag_coefficient=config.do_lag,
+        drift_rate=config.do_drift_rate,
+    )
+    analyzer_params = ResidualAnalyzerParams(
+        noise_std=config.analyzer_noise_std,
+        lag_coefficient=config.analyzer_lag,
+        sample_period=config.analyzer_sample_period,
+    )
+
+    # Max aeration power for normalisation
+    v_aerobic = config.v3 + config.v4 + config.v5
+    kla_max_total = config.kla_34_max * (config.v3 + config.v4) + config.kla_5_max * config.v5
+    power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
     influent = ASM1State(
         s_i=jnp.array(config.inf_s_i),
@@ -389,6 +459,8 @@ def make_bsm1_benchmark(
         kla_34_state = dose_pump_reset(k2)
         kla_5_state = dose_pump_reset(k3)
 
+        sensors = _create_default_sensors(config.mean_flow, config.r3_s_o, config.r5_s_o)
+
         plant_state = BSM1PlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src,
@@ -400,17 +472,31 @@ def make_bsm1_benchmark(
             kla_34_actuator=kla_34_state,
             kla_5_actuator=kla_5_state,
             disturbance_schedule=create_empty(config.max_disturbance_events),
+            sensors=sensors,
         )
 
         effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio)
-        obs = jnp.array([
-            effluent.s_nh / 35.0,
-            effluent.s_no / 20.0,
-            r3.s_o / 8.0,
-            r5.s_o / 8.0,
-            r2.s_no / 20.0,
-            mean_flow / mean_flow,
-        ])
+        if is_realistic:
+            obs = jnp.array([
+                effluent.s_nh / 35.0,
+                effluent.s_no / 20.0,
+                r3.s_o / 8.0,
+                r5.s_o / 8.0,
+                r2.s_no / 20.0,
+                mean_flow / mean_flow,
+                influent.s_nh / 35.0,
+                0.0,  # aeration power (no action yet)
+                0.0,  # dq/dt
+            ])
+        else:
+            obs = jnp.array([
+                effluent.s_nh / 35.0,
+                effluent.s_no / 20.0,
+                r3.s_o / 8.0,
+                r5.s_o / 8.0,
+                r2.s_no / 20.0,
+                mean_flow / mean_flow,
+            ])
         return plant_state, obs
 
     def step(
@@ -418,7 +504,8 @@ def make_bsm1_benchmark(
         action: jax.Array,
         rng_key: jax.Array,
     ) -> tuple[BSM1PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, _k2 = jax.random.split(rng_key)
+        k1, k_sensors = jax.random.split(rng_key)
+        k_do3, k_do5, k_nh4e, k_no3e, k_no3r2, k_nh4i = jax.random.split(k_sensors, 6)
 
         # 1. Influent flow (composition fixed at BSM1 dry-weather values)
         new_source, _transport, q_in, _demand = source_step(
@@ -456,21 +543,58 @@ def make_bsm1_benchmark(
         # 9. Effluent quality from clarifier
         effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
 
-        # 10. Observation
-        obs = jnp.array([
-            effluent.s_nh / 35.0,
-            effluent.s_no / 20.0,
-            new_r3.s_o / 8.0,
-            new_r5.s_o / 8.0,
-            new_r2.s_no / 20.0,
-            q_in / mean_flow,
-        ])
+        # 10. Sensors and observation
+        if is_realistic:
+            new_do3, do3_reading = do_step(state.sensors.do_r3, new_r3.s_o, do_params, k_do3)
+            new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)
+            new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
+            new_no3e, no3e_reading = ra_step(state.sensors.no3_eff, effluent.s_no, analyzer_params, k_no3e)
+            new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
+            new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
 
-        # 11. Reward: penalise effluent ammonia and nitrate
-        reward = -(
-            config.reward_w_nh * effluent.s_nh ** 2
-            + config.reward_w_no * effluent.s_no ** 2
-        )
+            # Derived signals
+            aeration_power = (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
+            dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
+
+            new_sensors = BSM1SensorState(
+                do_r3=new_do3, do_r5=new_do5,
+                nh4_eff=new_nh4e, no3_eff=new_no3e, no3_r2=new_no3r2,
+                nh4_inf=new_nh4i, last_q_in=q_in,
+            )
+
+            obs = jnp.array([
+                nh4e_reading / 35.0,
+                no3e_reading / 20.0,
+                do3_reading / 8.0,
+                do5_reading / 8.0,
+                no3r2_reading / 20.0,
+                q_in / mean_flow,
+                nh4i_reading / 35.0,
+                aeration_power,
+                dq_dt,
+            ])
+
+            # Reward from sensor readings (matches what an online agent would see)
+            reward = -(
+                config.reward_w_nh * nh4e_reading ** 2
+                + config.reward_w_no * no3e_reading ** 2
+            )
+        else:
+            new_sensors = state.sensors
+
+            obs = jnp.array([
+                effluent.s_nh / 35.0,
+                effluent.s_no / 20.0,
+                new_r3.s_o / 8.0,
+                new_r5.s_o / 8.0,
+                new_r2.s_no / 20.0,
+                q_in / mean_flow,
+            ])
+
+            reward = -(
+                config.reward_w_nh * effluent.s_nh ** 2
+                + config.reward_w_no * effluent.s_no ** 2
+            )
 
         new_state = BSM1PlantState(
             step_count=state.step_count + 1,
@@ -480,6 +604,7 @@ def make_bsm1_benchmark(
             kla_34_actuator=new_kla_34_state,
             kla_5_actuator=new_kla_5_state,
             disturbance_schedule=state.disturbance_schedule,
+            sensors=new_sensors,
         )
 
         info: dict[str, jax.Array] = {
