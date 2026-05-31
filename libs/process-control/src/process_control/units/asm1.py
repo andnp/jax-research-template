@@ -17,39 +17,103 @@ class ASM1Params:
       Copp, J.B. (2002). The COST Simulation Benchmark. Office for Official
         Publications of the European Communities, Luxembourg.
     """
+
     volume: float  # reactor volume (m³)
 
     # --- Heterotrophic kinetics ---
-    mu_h: float = 0.16667   # max growth rate (h⁻¹; BSM1 at 15°C: 4.0 /day)
-    k_s: float = 20.0       # half-saturation, biodegradable substrate (g COD/m³)
-    k_o_h: float = 0.2      # half-saturation, O₂ for aerobic growth (g O₂/m³)
-    k_no: float = 0.5       # half-saturation, NO₃ for anoxic growth (g N/m³)
-    eta_g: float = 0.8      # anoxic growth correction factor
-    b_h: float = 0.01250    # decay rate (h⁻¹; 0.3 /day)
-    y_h: float = 0.67       # yield (g COD biomass / g COD substrate)
-    f_p: float = 0.08       # fraction of decay producing inert particulate X_P
+    mu_h: float | jax.Array = 0.16667  # max growth rate (h⁻¹; BSM1 at 15°C: 4.0 /day)
+    k_s: float = 20.0  # half-saturation, biodegradable substrate (g COD/m³)
+    k_o_h: float = 0.2  # half-saturation, O₂ for aerobic growth (g O₂/m³)
+    k_no: float = 0.5  # half-saturation, NO₃ for anoxic growth (g N/m³)
+    eta_g: float = 0.8  # anoxic growth correction factor
+    b_h: float | jax.Array = 0.01250  # decay rate (h⁻¹; 0.3 /day)
+    y_h: float = 0.67  # yield (g COD biomass / g COD substrate)
+    f_p: float = 0.08  # fraction of decay producing inert particulate X_P
 
     # --- Autotrophic kinetics (nitrification) ---
-    mu_a: float = 0.02083   # max nitrifier growth rate (h⁻¹; 0.5 /day)
-    k_nh: float = 1.0       # half-saturation, NH₄ (g N/m³)
-    k_o_a: float = 0.4      # half-saturation, O₂ for nitrification (g O₂/m³)
-    b_a: float = 0.00625    # nitrifier decay rate (h⁻¹; 0.15 /day)
-    y_a: float = 0.24       # yield (g COD / g N oxidised)
+    mu_a: float | jax.Array = 0.02083  # max nitrifier growth rate (h⁻¹; 0.5 /day)
+    k_nh: float = 1.0  # half-saturation, NH₄ (g N/m³)
+    k_o_a: float = 0.4  # half-saturation, O₂ for nitrification (g O₂/m³)
+    b_a: float | jax.Array = 0.00625  # nitrifier decay rate (h⁻¹; 0.15 /day)
+    y_a: float = 0.24  # yield (g COD / g N oxidised)
 
     # --- Hydrolysis ---
-    k_h: float = 0.12500    # max hydrolysis rate (h⁻¹; 3.0 /day)
-    k_x: float = 0.1        # half-saturation, X_S/X_BH ratio
-    eta_h: float = 0.4      # anoxic correction factor for hydrolysis
+    k_h: float | jax.Array = 0.12500  # max hydrolysis rate (h⁻¹; 3.0 /day)
+    k_x: float = 0.1  # half-saturation, X_S/X_BH ratio
+    eta_h: float = 0.4  # anoxic correction factor for hydrolysis
 
     # --- Ammonification ---
-    k_a: float = 0.003333   # rate constant (m³ gCOD⁻¹ h⁻¹; 0.08 /day)
+    k_a: float | jax.Array = 0.003333  # rate constant (m³ gCOD⁻¹ h⁻¹; 0.08 /day)
 
     # --- Stoichiometric constants ---
-    i_xb: float = 0.086     # N content of biomass (g N / g COD)
-    i_xp: float = 0.06      # N content of X_P (g N / g COD)
+    i_xb: float = 0.086  # N content of biomass (g N / g COD)
+    i_xp: float = 0.06  # N content of X_P (g N / g COD)
 
     # --- O₂ saturation ---
-    s_o_sat: float = 8.0    # at 15°C (g O₂/m³)
+    s_o_sat: float | jax.Array = 8.0  # at 15°C (g O₂/m³)
+
+    # --- Reference temperature for Arrhenius correction ---
+    t_ref: float = 15.0  # °C (BSM1 default calibration temperature)
+
+
+@dataclass(frozen=True)
+class ArrheniusCoeffs:
+    """Temperature coefficients for ASM1 rate constants.
+
+    Standard values from Henze et al. (2000) and BSM1-LT specification.
+    Each coefficient θ adjusts a rate via: rate(T) = rate(T_ref) × exp(θ × (T − T_ref))
+    """
+
+    theta_mu_h: float = 0.069  # heterotrophic growth
+    theta_mu_a: float = 0.098  # autotrophic growth (most temperature-sensitive)
+    theta_b_h: float = 0.069  # heterotrophic decay
+    theta_b_a: float = 0.098  # autotrophic decay
+    theta_k_h: float = 0.040  # hydrolysis
+    theta_k_a: float = 0.040  # ammonification
+
+
+def apply_arrhenius(
+    params: ASM1Params,
+    temperature: jax.Array,
+    coeffs: ArrheniusCoeffs | None = None,
+):
+    """Return ASM1Params with rate constants corrected to the given temperature.
+
+    Also adjusts O₂ saturation using the ASCE empirical formula (simplified).
+    """
+    if coeffs is None:
+        coeffs = ArrheniusCoeffs()
+    dt = temperature - params.t_ref
+
+    def _corr(base: float | jax.Array, theta: float):
+        return base * jnp.exp(theta * dt)
+
+    s_o_sat_t = 14.62 - 0.3898 * temperature + 0.006969 * temperature**2 - 5.897e-5 * temperature**3
+
+    return ASM1Params(
+        volume=params.volume,
+        mu_h=_corr(params.mu_h, coeffs.theta_mu_h),
+        k_s=params.k_s,
+        k_o_h=params.k_o_h,
+        k_no=params.k_no,
+        eta_g=params.eta_g,
+        b_h=_corr(params.b_h, coeffs.theta_b_h),
+        y_h=params.y_h,
+        f_p=params.f_p,
+        mu_a=_corr(params.mu_a, coeffs.theta_mu_a),
+        k_nh=params.k_nh,
+        k_o_a=params.k_o_a,
+        b_a=_corr(params.b_a, coeffs.theta_b_a),
+        y_a=params.y_a,
+        k_h=_corr(params.k_h, coeffs.theta_k_h),
+        k_x=params.k_x,
+        eta_h=params.eta_h,
+        k_a=_corr(params.k_a, coeffs.theta_k_a),
+        i_xb=params.i_xb,
+        i_xp=params.i_xp,
+        s_o_sat=s_o_sat_t,
+        t_ref=params.t_ref,
+    )
 
 
 @jax_dataclass
