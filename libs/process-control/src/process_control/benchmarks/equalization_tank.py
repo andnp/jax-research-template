@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
@@ -68,7 +69,7 @@ class EqualizationPlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
     tank_state: TankState
-    outlet_pump_state: DosePumpState
+    outlet_pump_state: RampLimitedActuatorState
     level_sensor_state: LevelSensorState
     pi_state: PIControllerState
     last_outlet_flow: jax.Array
@@ -86,9 +87,9 @@ def make_equalization_tank_benchmark(
         min_level=config.tank_min_level,
         cross_section_area=config.tank_area,
     )
-    pump_params = DosePumpParams(
-        max_dose=config.pump_max_flow,
-        min_dose=config.pump_min_flow,
+    pump_params = RampLimitedActuatorParams(
+        max_output=config.pump_max_flow,
+        min_output=config.pump_min_flow,
         max_ramp_rate=config.pump_max_ramp_rate,
     )
     pi_params = PIControllerParams(
@@ -124,7 +125,7 @@ def make_equalization_tank_benchmark(
 
         src_state = source_reset(k1)
         tank_state = tank_reset(tank_params)
-        pump_state = dose_pump_reset(k2)
+        pump_state = actuator_reset(k2)
         level_initial = tank_state.level
         ls_state = level_sensor_reset(config.tank_max_level * 0.5, k3)
         pi_state = pi_reset(k4)
@@ -171,7 +172,7 @@ def make_equalization_tank_benchmark(
         inlet_flow = transport.hydraulics.flow
 
         # 2. Outlet pump realizes the desired outlet flow set point
-        new_pump_state, realized_outlet = dose_pump_step(
+        new_pump_state, realized_outlet = actuator_step(
             state.outlet_pump_state,
             action,
             pump_params,

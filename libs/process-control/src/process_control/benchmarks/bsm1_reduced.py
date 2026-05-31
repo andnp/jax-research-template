@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -123,8 +123,8 @@ class BSM1ReducedPlantState:
     source_state: DiurnalSourceState
     anoxic_state: BiologicalReactorState
     aerobic_state: BiologicalReactorState
-    kla_actuator: DosePumpState
-    recycle_actuator: DosePumpState
+    kla_actuator: RampLimitedActuatorState
+    recycle_actuator: RampLimitedActuatorState
     disturbance_schedule: DisturbanceSchedule
     sensors: BSM1ReducedSensorState
 
@@ -188,14 +188,14 @@ def make_bsm1_reduced_benchmark(
     anoxic_params = BiologicalReactorParams(volume=config.anoxic_volume)
     aerobic_params = BiologicalReactorParams(volume=config.aerobic_volume)
 
-    kla_pump_params = DosePumpParams(
-        max_dose=config.kla_max,
-        min_dose=config.kla_min,
+    kla_pump_params = RampLimitedActuatorParams(
+        max_output=config.kla_max,
+        min_output=config.kla_min,
         max_ramp_rate=config.kla_ramp_rate,
     )
-    recycle_pump_params = DosePumpParams(
-        max_dose=config.recycle_max,
-        min_dose=config.recycle_min,
+    recycle_pump_params = RampLimitedActuatorParams(
+        max_output=config.recycle_max,
+        min_output=config.recycle_min,
         max_ramp_rate=config.recycle_ramp_rate,
     )
     source_params = DiurnalSourceParams(
@@ -250,8 +250,8 @@ def make_bsm1_reduced_benchmark(
             config.aerobic_init_s_no, config.aerobic_init_s_nh,
             config.aerobic_init_x_bh, config.aerobic_init_x_ba, k3,
         )
-        kla_state = dose_pump_reset(k4)
-        recycle_state = dose_pump_reset(k5)
+        kla_state = actuator_reset(k4)
+        recycle_state = actuator_reset(k5)
 
         sensors = BSM1ReducedSensorState(
             do_aerobic=DOSensorState.create(config.aerobic_init_s_o),
@@ -295,8 +295,8 @@ def make_bsm1_reduced_benchmark(
         # 2. Actuators: kla and recycle ratio
         kla_action = action[0]
         recycle_action = action[1]
-        new_kla_state, kla = dose_pump_step(state.kla_actuator, kla_action, kla_pump_params, dt)
-        new_recycle_state, recycle_ratio = dose_pump_step(state.recycle_actuator, recycle_action, recycle_pump_params, dt)
+        new_kla_state, kla = actuator_step(state.kla_actuator, kla_action, kla_pump_params, dt)
+        new_recycle_state, recycle_ratio = actuator_step(state.recycle_actuator, recycle_action, recycle_pump_params, dt)
 
         # 3. Stream flows
         Q_rs = Q_in * return_sludge_ratio

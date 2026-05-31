@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
@@ -95,7 +95,7 @@ class TwoStageChlorinePlantState:
     basin2_state: ContactBasinState
     flow_sensor_state: FlowSensorState
     residual_sensor_state: ResidualAnalyzerState
-    dose_pump_state: DosePumpState
+    actuator_state: RampLimitedActuatorState
     pi_state: PIControllerState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
@@ -110,7 +110,7 @@ jax.tree_util.register_dataclass(
         "basin2_state",
         "flow_sensor_state",
         "residual_sensor_state",
-        "dose_pump_state",
+        "actuator_state",
         "pi_state",
         "last_dose",
         "disturbance_schedule",
@@ -135,9 +135,9 @@ def make_chlorine_two_stage_benchmark(
         n_segments=config.basin2_segments,
         tau=config.basin2_tau,
     )
-    pump_params = DosePumpParams(
-        max_dose=config.pump_max_dose,
-        min_dose=config.pump_min_dose,
+    pump_params = RampLimitedActuatorParams(
+        max_output=config.pump_max_dose,
+        min_output=config.pump_min_dose,
         max_ramp_rate=config.pump_max_ramp_rate,
     )
     pi_params = PIControllerParams(
@@ -187,7 +187,7 @@ def make_chlorine_two_stage_benchmark(
         b2_state = basin_reset(basin2_params, k3)
         fs_state = flow_sensor_reset(k4)
         rs_state = residual_reset(k5)
-        dp_state = dose_pump_reset(k6)
+        dp_state = actuator_reset(k6)
         pi_state = pi_reset(k7)
         last_dose = jnp.array(0.0)
 
@@ -198,7 +198,7 @@ def make_chlorine_two_stage_benchmark(
             basin2_state=b2_state,
             flow_sensor_state=fs_state,
             residual_sensor_state=rs_state,
-            dose_pump_state=dp_state,
+            actuator_state=dp_state,
             pi_state=pi_state,
             last_dose=last_dose,
             disturbance_schedule=create_empty(config.max_disturbance_events),
@@ -227,8 +227,8 @@ def make_chlorine_two_stage_benchmark(
         transport = apply_active(state.disturbance_schedule, transport, state.step_count)
 
         # 2. Dose pump realizes the agent's requested dose
-        new_pump_state, realized_dose = dose_pump_step(
-            state.dose_pump_state, action, pump_params, dt,
+        new_pump_state, realized_dose = actuator_step(
+            state.actuator_state, action, pump_params, dt,
         )
 
         # 3. Mixer injects dose into stream
@@ -296,7 +296,7 @@ def make_chlorine_two_stage_benchmark(
             basin2_state=new_basin2_state,
             flow_sensor_state=new_flow_state,
             residual_sensor_state=new_residual_state,
-            dose_pump_state=new_pump_state,
+            actuator_state=new_pump_state,
             pi_state=new_pi_state,
             last_dose=realized_dose,
             disturbance_schedule=state.disturbance_schedule,

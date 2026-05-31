@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.chemistry.ph_model import PhModelParams, compute_ph
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
@@ -71,27 +72,11 @@ class PhPlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
     cstr_state: CSTRState
-    dose_pump_state: DosePumpState
+    actuator_state: RampLimitedActuatorState
     ph_sensor_state: PhSensorState
     pi_state: PIControllerState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
-
-
-jax.tree_util.register_dataclass(
-    PhPlantState,
-    data_fields=[
-        "step_count",
-        "source_state",
-        "cstr_state",
-        "dose_pump_state",
-        "ph_sensor_state",
-        "pi_state",
-        "last_dose",
-        "disturbance_schedule",
-    ],
-    meta_fields=[],
-)
 
 
 def make_ph_neutralization_benchmark(
@@ -101,9 +86,9 @@ def make_ph_neutralization_benchmark(
     Callable[[PhPlantState, jax.Array, jax.Array], tuple[PhPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
     cstr_params = CSTRParams(volume=config.cstr_volume)
-    pump_params = DosePumpParams(
-        max_dose=config.pump_max_dose,
-        min_dose=config.pump_min_dose,
+    pump_params = RampLimitedActuatorParams(
+        max_output=config.pump_max_dose,
+        min_output=config.pump_min_dose,
         max_ramp_rate=config.pump_max_ramp_rate,
     )
     pi_params = PIControllerParams(
@@ -139,7 +124,7 @@ def make_ph_neutralization_benchmark(
 
         src_state = source_reset(k1)
         cstr_state = cstr_reset(k2)
-        dp_state = dose_pump_reset(k3)
+        dp_state = actuator_reset(k3)
         ph_state = ph_sensor_reset(k4)
         pi_state = pi_reset(k4)
         last_dose = jnp.array(0.0)
@@ -148,7 +133,7 @@ def make_ph_neutralization_benchmark(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src_state,
             cstr_state=cstr_state,
-            dose_pump_state=dp_state,
+            actuator_state=dp_state,
             ph_sensor_state=ph_state,
             pi_state=pi_state,
             last_dose=last_dose,
@@ -175,12 +160,18 @@ def make_ph_neutralization_benchmark(
 
         # 1. Source: acid inlet (flow in L/min, demand used as acid concentration)
         new_source_state, transport, flow, acid_concentration = source_step(
-            state.source_state, state.step_count, source_params, k1,
+            state.source_state,
+            state.step_count,
+            source_params,
+            k1,
         )
 
         # 2. Dose pump realizes the agent's requested base dose (mol/min)
-        new_pump_state, realized_dose = dose_pump_step(
-            state.dose_pump_state, action, pump_params, dt,
+        new_pump_state, realized_dose = actuator_step(
+            state.actuator_state,
+            action,
+            pump_params,
+            dt,
         )
 
         # 3. CSTR: acid inlet drives base_excess negative; dose drives it positive
@@ -232,7 +223,7 @@ def make_ph_neutralization_benchmark(
             step_count=state.step_count + 1,
             source_state=new_source_state,
             cstr_state=new_cstr_state,
-            dose_pump_state=new_pump_state,
+            actuator_state=new_pump_state,
             ph_sensor_state=new_ph_state,
             pi_state=new_pi_state,
             last_dose=realized_dose,

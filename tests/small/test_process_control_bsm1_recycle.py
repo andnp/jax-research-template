@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-
 from process_control.benchmarks.bsm1_recycle import (
     BSM1RecycleConfig,
     make_bsm1_recycle_benchmark,

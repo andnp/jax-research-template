@@ -18,15 +18,17 @@ Observation (4D) — all from sensor readings:
   sensed_und_tss / 10000         (concentration analyzer)
   q_feed / q_mean
 """
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -94,7 +96,7 @@ class SludgeBlanketPlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
     settler_state: TakacsSettlerState
-    underflow_actuator: DosePumpState
+    underflow_actuator: RampLimitedActuatorState
     disturbance_schedule: DisturbanceSchedule
     sensors: SludgeBlanketSensorState
 
@@ -107,9 +109,9 @@ def make_sludge_blanket_benchmark(
 ]:
     settler_params = config.settler
 
-    pump_params = DosePumpParams(
-        max_dose=config.q_u_max,
-        min_dose=config.q_u_min,
+    pump_params = RampLimitedActuatorParams(
+        max_output=config.q_u_max,
+        min_output=config.q_u_min,
         max_ramp_rate=config.q_u_ramp_rate,
     )
 
@@ -144,7 +146,7 @@ def make_sludge_blanket_benchmark(
 
         src = source_reset(k1)
         settler = settler_reset(config.feed_tss, settler_params, k2)
-        pump = dose_pump_reset(k3)
+        pump = actuator_reset(k3)
 
         sensors = SludgeBlanketSensorState(
             blanket_height=ResidualAnalyzerState.create(),
@@ -192,7 +194,7 @@ def make_sludge_blanket_benchmark(
         )
 
         # 2. Underflow actuator (action is normalised Q_u)
-        new_pump, q_u = dose_pump_step(state.underflow_actuator, action[0], pump_params, dt)
+        new_pump, q_u = actuator_step(state.underflow_actuator, action[0], pump_params, dt)
 
         # 3. Settler step
         new_settler = settler_step(

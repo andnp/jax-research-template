@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -227,8 +227,8 @@ class BSM1PlantState:
     reactor3: ASM1State
     reactor4: ASM1State
     reactor5: ASM1State
-    kla_34_actuator: DosePumpState
-    kla_5_actuator: DosePumpState
+    kla_34_actuator: RampLimitedActuatorState
+    kla_5_actuator: RampLimitedActuatorState
     disturbance_schedule: DisturbanceSchedule
     sensors: BSM1SensorState
 
@@ -309,12 +309,12 @@ def make_bsm1_benchmark(
     p4 = ASM1Params(volume=config.v4)
     p5 = ASM1Params(volume=config.v5)
 
-    kla_34_pump = DosePumpParams(
-        max_dose=config.kla_34_max, min_dose=config.kla_34_min,
+    kla_34_pump = RampLimitedActuatorParams(
+        max_output=config.kla_34_max, min_output=config.kla_34_min,
         max_ramp_rate=config.kla_34_ramp_rate,
     )
-    kla_5_pump = DosePumpParams(
-        max_dose=config.kla_5_max, min_dose=config.kla_5_min,
+    kla_5_pump = RampLimitedActuatorParams(
+        max_output=config.kla_5_max, min_output=config.kla_5_min,
         max_ramp_rate=config.kla_5_ramp_rate,
     )
 
@@ -451,8 +451,8 @@ def make_bsm1_benchmark(
             config.r5_s_alk,
             k1,
         )
-        kla_34_state = dose_pump_reset(k2)
-        kla_5_state = dose_pump_reset(k3)
+        kla_34_state = actuator_reset(k2)
+        kla_5_state = actuator_reset(k3)
 
         sensors = _create_default_sensors(config.mean_flow, config.r3_s_o, config.r5_s_o)
 
@@ -498,8 +498,8 @@ def make_bsm1_benchmark(
         )
 
         # 2. Actuators
-        new_kla_34_state, kla_34 = dose_pump_step(state.kla_34_actuator, action[0], kla_34_pump, dt)
-        new_kla_5_state, kla_5 = dose_pump_step(state.kla_5_actuator, action[1], kla_5_pump, dt)
+        new_kla_34_state, kla_34 = actuator_step(state.kla_34_actuator, action[0], kla_34_pump, dt)
+        new_kla_5_state, kla_5 = actuator_step(state.kla_5_actuator, action[1], kla_5_pump, dt)
 
         # 3. Derived flows
         q_a = q_in * internal_recycle_ratio   # internal recycle (R5 → R1)

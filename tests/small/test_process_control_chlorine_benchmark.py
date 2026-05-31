@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
-from process_control.actuators.dose_pump import DosePumpParams
-from process_control.actuators.dose_pump import reset as dose_pump_reset
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams
+from process_control.actuators.ramp_limited import reset as actuator_reset
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import step as pi_step
@@ -100,34 +100,34 @@ class TestContactBasinAdvection:
         assert max_outlet > 0.1
 
 
-class TestDosePumpSaturation:
+class TestActuatorSaturation:
     def test_dose_clamped_to_max(self) -> None:
-        params = DosePumpParams(max_dose=5.0, min_dose=0.0, max_ramp_rate=100.0)
+        params = RampLimitedActuatorParams(max_output=5.0, min_output=0.0, max_ramp_rate=100.0)
         key = jax.random.PRNGKey(0)
-        state = dose_pump_reset(key)
+        state = actuator_reset(key)
         dt = jnp.array(1.0)
 
-        _, realized = dose_pump_step(state, jnp.array(10.0), params, dt)
+        _, realized = actuator_step(state, jnp.array(10.0), params, dt)
 
         assert jnp.allclose(realized, jnp.array(5.0))
 
     def test_dose_clamped_to_min(self) -> None:
-        params = DosePumpParams(max_dose=5.0, min_dose=0.5, max_ramp_rate=100.0)
+        params = RampLimitedActuatorParams(max_output=5.0, min_output=0.5, max_ramp_rate=100.0)
         key = jax.random.PRNGKey(0)
-        state = dose_pump_reset(key)
+        state = actuator_reset(key)
         dt = jnp.array(1.0)
 
-        _, realized = dose_pump_step(state, jnp.array(-1.0), params, dt)
+        _, realized = actuator_step(state, jnp.array(-1.0), params, dt)
 
         assert jnp.allclose(realized, jnp.array(0.5))
 
     def test_ramp_rate_limiting(self) -> None:
-        params = DosePumpParams(max_dose=5.0, min_dose=0.0, max_ramp_rate=1.0)
+        params = RampLimitedActuatorParams(max_output=5.0, min_output=0.0, max_ramp_rate=1.0)
         key = jax.random.PRNGKey(0)
-        state = dose_pump_reset(key)
+        state = actuator_reset(key)
         dt = jnp.array(1.0)
 
-        _new_state, realized = dose_pump_step(state, jnp.array(5.0), params, dt)
+        _new_state, realized = actuator_step(state, jnp.array(5.0), params, dt)
 
         assert jnp.allclose(realized, jnp.array(1.0))
 

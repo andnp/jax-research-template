@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.dose_pump import DosePumpParams, DosePumpState
-from process_control.actuators.dose_pump import step as dose_pump_step
+from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
+from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1PlantState, BSM1SensorState, _clarify_asm1, _create_default_sensors
 from process_control.disturbances.schedule import create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams
@@ -77,13 +77,14 @@ def make_bsm1_recycle_benchmark(
     p4 = ASM1Params(volume=bsm1.v4)
     p5 = ASM1Params(volume=bsm1.v5)
 
-    # Recycle ratio actuators (use DosePump for ramp-rate limiting)
-    q_a_pump = DosePumpParams(
-        max_dose=config.q_a_ratio_max, min_dose=config.q_a_ratio_min,
+    # Recycle ratio actuators (ramp-rate limited)
+    q_a_pump = RampLimitedActuatorParams(
+        max_output=config.q_a_ratio_max, min_output=config.q_a_ratio_min,
         max_ramp_rate=config.q_a_ramp_rate,
     )
-    q_rs_pump = DosePumpParams(
-        max_dose=config.q_rs_ratio_max, min_dose=config.q_rs_ratio_min,
+    q_rs_pump = RampLimitedActuatorParams(
+        max_output=config.q_rs_ratio_max,
+        min_output=config.q_rs_ratio_min,
         max_ramp_rate=config.q_rs_ramp_rate,
     )
 
@@ -223,8 +224,8 @@ def make_bsm1_recycle_benchmark(
         )
 
         # Initialise actuators at BSM1 default ratios
-        q_a_state = DosePumpState(current_output=init_q_a_ratio)
-        q_rs_state = DosePumpState(current_output=init_q_rs_ratio)
+        q_a_state = RampLimitedActuatorState(current_output=init_q_a_ratio)
+        q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         plant_state = BSM1PlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
@@ -267,8 +268,8 @@ def make_bsm1_recycle_benchmark(
         )
 
         # 2. Recycle ratio actuators (ramp-rate limited)
-        new_q_a_state, q_a_ratio = dose_pump_step(state.kla_34_actuator, action[0], q_a_pump, dt)
-        new_q_rs_state, q_rs_ratio = dose_pump_step(state.kla_5_actuator, action[1], q_rs_pump, dt)
+        new_q_a_state, q_a_ratio = actuator_step(state.kla_34_actuator, action[0], q_a_pump, dt)
+        new_q_rs_state, q_rs_ratio = actuator_step(state.kla_5_actuator, action[1], q_rs_pump, dt)
 
         # 3. Derived flows
         q_a = q_in * q_a_ratio
