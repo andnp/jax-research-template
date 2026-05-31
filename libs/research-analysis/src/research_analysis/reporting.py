@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import polars as pl
 import scipy.stats as stats
 from experiment_definition.db import DatabaseManager
 from research_plot import plot_distributions, plot_ecdf, plot_sensitivity
@@ -22,6 +23,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from research_analysis.experiment import load_experiment_metrics
 from research_analysis.hypothesis import mann_whitney_u_test, welch_ttest
 
 
@@ -40,8 +42,8 @@ class StatisticalTestDetails:
 @dataclass(frozen=True)
 class ABComparisonReport:
     experiment_name: str
-    arm_a: str
-    arm_b: str
+    condition_a: str
+    condition_b: str
     metric_name: str
     mean_a: float
     mean_b: float
@@ -107,17 +109,17 @@ def _load_run_metric(db_path: Path, run_id: int, metric_name: str) -> np.ndarray
 # ── Entry Points ─────────────────────────────────────────────────────────────
 
 
+
 def compare_pairwise(
     db_path: Path | str,
     experiment_slug: str,
-    arm_a: str,
-    arm_b: str,
+    condition_a: str,
+    condition_b: str,
     metric_name: str,
-    parameter_name: str = "arm_name",
     confidence_level: float = 0.95,
     verbose: bool = True,
 ) -> ABComparisonReport:
-    """Compare exactly two experimental arms, selecting the correct test automatically."""
+    """Compare exactly two experimental conditions, selecting the correct test automatically."""
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -125,56 +127,33 @@ def compare_pairwise(
         if exp_row is None:
             raise ValueError(f"Unknown experiment {experiment_slug!r}")
 
-        runs = database.list_runs(exp_row.id)
+    # Load final metric value per (condition_name, seed) via shared bridge.
+    all_metrics = load_experiment_metrics(
+        experiments_db=db_path,
+        slug=experiment_slug,
+        metrics=[metric_name],
+    )
+    final_per_run = (
+        all_metrics
+        .group_by(["condition_name", "seed"])
+        .agg(pl.col("value").last())
+    )
 
-    # Filter runs into Group A and Group B based on hyperparameter value
-    runs_a = []
-    runs_b = []
-    with DatabaseManager(db_path) as database:
-        for run in runs:
-            latest_exec = database.get_latest_completed_execution_for_run(run.id)
-            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
-            if latest_exec is None or latest_art is None:
-                continue
+    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort("seed")
+    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort("seed")
 
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                continue
-            hypers = json.loads(hyper_config.json_blob)
-
-            val = str(hypers.get(parameter_name, ""))
-            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
-            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
-            if metric_curve is None:
-                continue
-
-            final_val = float(metric_curve[-1])
-            record = {"run_id": run.id, "seed": run.seed, "value": final_val, "root_path": latest_art.root_path}
-
-            if val == arm_a:
-                runs_a.append(record)
-            elif val == arm_b:
-                runs_b.append(record)
-
-    if not runs_a or not runs_b:
+    if rows_a.is_empty() or rows_b.is_empty():
         raise ValueError(
-            f"No completed runs found for {parameter_name}={arm_a!r} and {parameter_name}={arm_b!r}"
+            f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
         )
 
     # Detect if seeds match exactly (paired repeated measures design)
-    seeds_a = sorted([r["seed"] for r in runs_a])
-    seeds_b = sorted([r["seed"] for r in runs_b])
+    seeds_a = rows_a["seed"].to_list()
+    seeds_b = rows_b["seed"].to_list()
     is_paired = seeds_a == seeds_b
 
-    # Align values by seed
-    if is_paired:
-        runs_a = sorted(runs_a, key=lambda r: r["seed"])
-        runs_b = sorted(runs_b, key=lambda r: r["seed"])
-        vals_a = np.array([r["value"] for r in runs_a])
-        vals_b = np.array([r["value"] for r in runs_b])
-    else:
-        vals_a = np.array([r["value"] for r in runs_a])
-        vals_b = np.array([r["value"] for r in runs_b])
+    vals_a = rows_a["value"].to_numpy()
+    vals_b = rows_b["value"].to_numpy()
 
     # 1. Normality Tests (Shapiro-Wilk)
     shapiro_a = stats.shapiro(vals_a) if len(vals_a) >= 3 else (1.0, 1.0)
@@ -299,12 +278,12 @@ def compare_pairwise(
     # 4. Distribution Plot
     analysis_dir = Path("results/analysis") / experiment_slug
     plot_path = analysis_dir / "ab_comparison.png"
-    plot_distributions(vals_a, vals_b, arm_a, arm_b, plot_path)
+    plot_distributions(vals_a, vals_b, condition_a, condition_b, plot_path)
 
     report = ABComparisonReport(
         experiment_name=exp_row.name,
-        arm_a=arm_a,
-        arm_b=arm_b,
+        condition_a=condition_a,
+        condition_b=condition_b,
         metric_name=metric_name,
         mean_a=float(np.mean(vals_a)),
         mean_b=float(np.mean(vals_b)),
@@ -329,8 +308,8 @@ def compare_pairwise(
         table.add_column("N", justify="right")
         table.add_column("Mean", justify="right")
         table.add_column("Std Dev", justify="right")
-        table.add_row(arm_a, str(len(vals_a)), f"{report.mean_a:.2f}", f"{np.std(vals_a, ddof=1):.2f}")
-        table.add_row(arm_b, str(len(vals_b)), f"{report.mean_b:.2f}", f"{np.std(vals_b, ddof=1):.2f}")
+        table.add_row(condition_a, str(len(vals_a)), f"{report.mean_a:.2f}", f"{np.std(vals_a, ddof=1):.2f}")
+        table.add_row(condition_b, str(len(vals_b)), f"{report.mean_b:.2f}", f"{np.std(vals_b, ddof=1):.2f}")
         console.print(table)
 
         just_panel = Panel(
