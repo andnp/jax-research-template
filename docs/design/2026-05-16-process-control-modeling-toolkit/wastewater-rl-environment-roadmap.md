@@ -183,17 +183,38 @@ Each environment should support at least two observation profiles:
 | Sludge blanket control | ✅ Done | `benchmarks/sludge_blanket.py` | 1D action [Q_u], 4D obs |
 | Chemical P dosing | ✅ Done | `benchmarks/chem_p_dosing.py` | FeCl₃ precipitation, 1D action |
 | BSM1-LT (seasonal) | ✅ Done | `benchmarks/bsm1_lt.py` | Arrhenius kinetics, 10D obs |
-| Anaerobic digester | Planned | — | ADM1-inspired |
-| Membrane fouling | Planned | — | New unit model |
+| Primary clarifier | ✅ Done | `benchmarks/primary_clarifier.py` | Gravity settling, 1D action [Q_w] |
+| Dewatering control | ✅ Done | `benchmarks/dewatering.py` | Belt press, 2D action [polymer, speed] |
+| BSM1 + Takács settler | ✅ Done | `benchmarks/bsm1_takacs.py` | Realistic sludge dynamics, 3D action [kla_34, kla_5, Q_w] |
+| Reject water management | ✅ Done | `benchmarks/reject_water.py` | Timing-dependent NH₄ return, 2D action |
+| Membrane fouling control | ✅ Done | `benchmarks/membrane_fouling.py` | TMP, backwash, air scour, 3D action |
+| Anaerobic digester | ✅ Done | `benchmarks/anaerobic_digester.py` | Reduced-order ADM1, 2D action [Q_feed, T] |
+| Drinking water train | ✅ Done | `benchmarks/drinking_water_train.py` | Coag→membrane→Cl₂ cascade, 3D action |
+| Bio-P (ASM2d) | ✅ Done | `benchmarks/bio_p.py` | PAO kinetics, 2D action [Q_recycle, carbon] |
+| Combined N+P | ✅ Done | `benchmarks/combined_np.py` | ASM2d + FeCl₃, 4D action — hardest variant |
+
+### New unit models (this batch)
+
+| Unit model | Module | Notes |
+|-----------|--------|-------|
+| Primary clarifier | `units/primary_clarifier.py` | Monod SLR-dependent removal, sludge inventory |
+| Dewatering (belt press) | `units/dewatering.py` | Polymer dose-response, belt speed trade-off |
+| Membrane filtration | `units/membrane.py` | Resistance-in-series, reversible + irreversible fouling |
+| Coagulation chemistry | `chemistry/coagulation.py` | Peaked dose-response with re-stabilisation |
+| Anaerobic digester (ADM1) | `units/anaerobic_digester.py` | 8-state reduced model, gas transfer, pH |
+| ASM2d (Bio-P extension) | `units/asm2d.py` | 17-state, PAO kinetics (PHA/PP storage/release) |
 
 ---
 
 ## Recommended Build Order
 
-1. **BSM1 nitrate recycle** — minimal new code, just re-wire existing BSM1 benchmark
-2. **Takács settler** → **sludge blanket control** — high-value new unit model, enables realistic BSM1
-3. **Chemical P dosing** — simple standalone environment, 1D action
-4. **Anaerobic digester** — complex model but clean control interface
-5. ~~**BSM1-LT dynamics**~~ ✅ Done — Arrhenius temperature correction + seasonal benchmark
-6. **ASM2d** → **bio-P environments** — major new biological model
-7. **MBR** — membrane dynamics, niche but interesting
+~~All planned items are now implemented.~~
+
+Completed build order:
+1. ~~**BSM1 nitrate recycle**~~ ✅
+2. ~~**Takács settler** → **sludge blanket control**~~ ✅
+3. ~~**Chemical P dosing**~~ ✅
+4. ~~**Anaerobic digester**~~ ✅
+5. ~~**BSM1-LT dynamics**~~ ✅
+6. ~~**ASM2d** → **bio-P environments**~~ ✅
+7. ~~**MBR / membrane fouling**~~ ✅
