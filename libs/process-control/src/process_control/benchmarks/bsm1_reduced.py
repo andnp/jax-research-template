@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control.actuators.blower import BlowerParams, BlowerState
+from process_control.actuators.blower import reset as blower_reset
+from process_control.actuators.blower import step as blower_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import reset as actuator_reset
 from process_control.actuators.ramp_limited import step as actuator_step
@@ -45,10 +48,11 @@ class BSM1ReducedBenchmarkConfig:
     anoxic_volume: float = 1000.0
     aerobic_volume: float = 1333.0
 
-    # Aeration actuator
-    kla_min: float = 0.0
+    # Blower params
     kla_max: float = 10.0
-    kla_ramp_rate: float = 5.0  # h⁻¹ per hour (i.e., per dt step when multiplied by dt)
+    kla_ramp_up: float = 5.0
+    kla_ramp_down: float = 8.0
+    kla_startup_delay: float = 0.05
 
     # Internal recycle actuator (ratio = Q_int / Q_in)
     recycle_min: float = 0.5
@@ -123,7 +127,7 @@ class BSM1ReducedPlantState:
     source_state: DiurnalSourceState
     anoxic_state: BiologicalReactorState
     aerobic_state: BiologicalReactorState
-    kla_actuator: RampLimitedActuatorState
+    kla_blower: BlowerState
     recycle_actuator: RampLimitedActuatorState
     disturbance_schedule: DisturbanceSchedule
     sensors: BSM1ReducedSensorState
@@ -136,7 +140,7 @@ jax.tree_util.register_dataclass(
         "source_state",
         "anoxic_state",
         "aerobic_state",
-        "kla_actuator",
+        "kla_blower",
         "recycle_actuator",
         "disturbance_schedule",
         "sensors",
@@ -188,10 +192,11 @@ def make_bsm1_reduced_benchmark(
     anoxic_params = BiologicalReactorParams(volume=config.anoxic_volume)
     aerobic_params = BiologicalReactorParams(volume=config.aerobic_volume)
 
-    kla_pump_params = RampLimitedActuatorParams(
-        max_output=config.kla_max,
-        min_output=config.kla_min,
-        max_ramp_rate=config.kla_ramp_rate,
+    blower_params = BlowerParams(
+        max_kla=config.kla_max,
+        max_ramp_up=config.kla_ramp_up,
+        max_ramp_down=config.kla_ramp_down,
+        startup_delay=config.kla_startup_delay,
     )
     recycle_pump_params = RampLimitedActuatorParams(
         max_output=config.recycle_max,
@@ -250,7 +255,7 @@ def make_bsm1_reduced_benchmark(
             config.aerobic_init_s_no, config.aerobic_init_s_nh,
             config.aerobic_init_x_bh, config.aerobic_init_x_ba, k3,
         )
-        kla_state = actuator_reset(k4)
+        kla_state = blower_reset(0.0, k4)
         recycle_state = actuator_reset(k5)
 
         sensors = BSM1ReducedSensorState(
@@ -264,7 +269,7 @@ def make_bsm1_reduced_benchmark(
             source_state=src_state,
             anoxic_state=anoxic_state,
             aerobic_state=aerobic_state,
-            kla_actuator=kla_state,
+            kla_blower=kla_state,
             recycle_actuator=recycle_state,
             disturbance_schedule=create_empty(config.max_disturbance_events),
             sensors=sensors,
@@ -295,7 +300,7 @@ def make_bsm1_reduced_benchmark(
         # 2. Actuators: kla and recycle ratio
         kla_action = action[0]
         recycle_action = action[1]
-        new_kla_state, kla = actuator_step(state.kla_actuator, kla_action, kla_pump_params, dt)
+        new_kla_state, kla = blower_step(state.kla_blower, kla_action, blower_params, dt)
         new_recycle_state, recycle_ratio = actuator_step(state.recycle_actuator, recycle_action, recycle_pump_params, dt)
 
         # 3. Stream flows
@@ -354,7 +359,7 @@ def make_bsm1_reduced_benchmark(
             source_state=new_source_state,
             anoxic_state=new_anoxic_state,
             aerobic_state=new_aerobic_state,
-            kla_actuator=new_kla_state,
+            kla_blower=new_kla_state,
             recycle_actuator=new_recycle_state,
             disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,

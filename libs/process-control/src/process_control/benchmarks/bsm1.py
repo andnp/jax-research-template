@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
-from process_control.actuators.ramp_limited import reset as actuator_reset
-from process_control.actuators.ramp_limited import step as actuator_step
+from process_control.actuators.blower import BlowerParams, BlowerState
+from process_control.actuators.blower import reset as blower_reset
+from process_control.actuators.blower import step as blower_step
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -20,8 +20,6 @@ from process_control.sensors.residual_analyzer import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State, compute_tss, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
-
-
 @dataclass(frozen=True)
 class BSM1BenchmarkConfig:
     """Full BSM1-layout wastewater treatment benchmark using complete ASM1 kinetics.
@@ -54,12 +52,14 @@ class BSM1BenchmarkConfig:
     v5: float = 1333.0   # aerobic 3
 
     # Aeration actuators for zones 3-4 and zone 5
-    kla_34_min: float = 0.0
     kla_34_max: float = 10.0
-    kla_34_ramp_rate: float = 5.0
-    kla_5_min: float = 0.0
+    kla_34_ramp_up: float = 5.0
+    kla_34_ramp_down: float = 8.0
+    kla_34_startup_delay: float = 0.05
     kla_5_max: float = 10.0
-    kla_5_ramp_rate: float = 5.0
+    kla_5_ramp_up: float = 5.0
+    kla_5_ramp_down: float = 8.0
+    kla_5_startup_delay: float = 0.05
 
     # Fixed flow fractions (ratios of Q_in)
     internal_recycle_ratio: float = 3.0  # Q_a = ratio × Q_in
@@ -180,8 +180,6 @@ class BSM1BenchmarkConfig:
     analyzer_noise_std: float = 0.3  # g/m³
     analyzer_lag: float = 0.8        # lag coefficient
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
-
-
 @dataclass(frozen=True)
 class BSM1SensorState:
     """Sensor states for realistic instrumentation mode."""
@@ -192,8 +190,6 @@ class BSM1SensorState:
     no3_r2: ResidualAnalyzerState
     nh4_inf: ResidualAnalyzerState
     last_q_in: jax.Array
-
-
 jax.tree_util.register_dataclass(
     BSM1SensorState,
     data_fields=[
@@ -203,8 +199,6 @@ jax.tree_util.register_dataclass(
     ],
     meta_fields=[],
 )
-
-
 def _create_default_sensors(mean_flow: float, r3_do: float, r5_do: float) -> BSM1SensorState:
     """Create initial sensor states (used in both pure and realistic modes)."""
     return BSM1SensorState(
@@ -216,8 +210,6 @@ def _create_default_sensors(mean_flow: float, r3_do: float, r5_do: float) -> BSM
         nh4_inf=ResidualAnalyzerState.create(),
         last_q_in=jnp.array(mean_flow),
     )
-
-
 @jax_dataclass
 class BSM1PlantState:
     step_count: jax.Array
@@ -227,12 +219,10 @@ class BSM1PlantState:
     reactor3: ASM1State
     reactor4: ASM1State
     reactor5: ASM1State
-    kla_34_actuator: RampLimitedActuatorState
-    kla_5_actuator: RampLimitedActuatorState
+    kla_34_blower: BlowerState
+    kla_5_blower: BlowerState
     disturbance_schedule: DisturbanceSchedule
     sensors: BSM1SensorState
-
-
 jax.tree_util.register_dataclass(
     BSM1PlantState,
     data_fields=[
@@ -243,15 +233,13 @@ jax.tree_util.register_dataclass(
         "reactor3",
         "reactor4",
         "reactor5",
-        "kla_34_actuator",
-        "kla_5_actuator",
+        "kla_34_blower",
+        "kla_5_blower",
         "disturbance_schedule",
         "sensors",
     ],
     meta_fields=[],
 )
-
-
 def _clarify_asm1(
     r5: ASM1State,
     q_aerobic: jax.Array,
@@ -295,8 +283,6 @@ def _clarify_asm1(
         s_alk=r5.s_alk,
     )
     return effluent, return_sludge
-
-
 def make_bsm1_benchmark(
     config: BSM1BenchmarkConfig,
 ) -> tuple[
@@ -309,13 +295,17 @@ def make_bsm1_benchmark(
     p4 = ASM1Params(volume=config.v4)
     p5 = ASM1Params(volume=config.v5)
 
-    kla_34_pump = RampLimitedActuatorParams(
-        max_output=config.kla_34_max, min_output=config.kla_34_min,
-        max_ramp_rate=config.kla_34_ramp_rate,
+    blower_34_params = BlowerParams(
+        max_kla=config.kla_34_max,
+        max_ramp_up=config.kla_34_ramp_up,
+        max_ramp_down=config.kla_34_ramp_down,
+        startup_delay=config.kla_34_startup_delay,
     )
-    kla_5_pump = RampLimitedActuatorParams(
-        max_output=config.kla_5_max, min_output=config.kla_5_min,
-        max_ramp_rate=config.kla_5_ramp_rate,
+    blower_5_params = BlowerParams(
+        max_kla=config.kla_5_max,
+        max_ramp_up=config.kla_5_ramp_up,
+        max_ramp_down=config.kla_5_ramp_down,
+        startup_delay=config.kla_5_startup_delay,
     )
 
     source_params = DiurnalSourceParams(
@@ -451,8 +441,8 @@ def make_bsm1_benchmark(
             config.r5_s_alk,
             k1,
         )
-        kla_34_state = actuator_reset(k2)
-        kla_5_state = actuator_reset(k3)
+        kla_34_state = blower_reset(0.0, k2)
+        kla_5_state = blower_reset(0.0, k3)
 
         sensors = _create_default_sensors(config.mean_flow, config.r3_s_o, config.r5_s_o)
 
@@ -464,8 +454,8 @@ def make_bsm1_benchmark(
             reactor3=r3,
             reactor4=r4,
             reactor5=r5,
-            kla_34_actuator=kla_34_state,
-            kla_5_actuator=kla_5_state,
+            kla_34_blower=kla_34_state,
+            kla_5_blower=kla_5_state,
             disturbance_schedule=create_empty(config.max_disturbance_events),
             sensors=sensors,
         )
@@ -498,8 +488,8 @@ def make_bsm1_benchmark(
         )
 
         # 2. Actuators
-        new_kla_34_state, kla_34 = actuator_step(state.kla_34_actuator, action[0], kla_34_pump, dt)
-        new_kla_5_state, kla_5 = actuator_step(state.kla_5_actuator, action[1], kla_5_pump, dt)
+        new_kla_34_state, kla_34 = blower_step(state.kla_34_blower, action[0], blower_34_params, dt)
+        new_kla_5_state, kla_5 = blower_step(state.kla_5_blower, action[1], blower_5_params, dt)
 
         # 3. Derived flows
         q_a = q_in * internal_recycle_ratio   # internal recycle (R5 → R1)
@@ -567,8 +557,8 @@ def make_bsm1_benchmark(
             source_state=new_source,
             reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
             reactor4=new_r4, reactor5=new_r5,
-            kla_34_actuator=new_kla_34_state,
-            kla_5_actuator=new_kla_5_state,
+            kla_34_blower=new_kla_34_state,
+            kla_5_blower=new_kla_5_state,
             disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )

@@ -6,9 +6,9 @@ import jax.numpy as jnp
 
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1PlantState, BSM1SensorState, _clarify_asm1, _create_default_sensors
-from process_control.disturbances.schedule import create_empty
-from process_control.scenarios.diurnal_source import DiurnalSourceParams
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1SensorState, _clarify_asm1, _create_default_sensors
+from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
+from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.sensors.do_sensor import DOSensorParams
 from process_control.sensors.do_sensor import step as do_step
@@ -63,11 +63,45 @@ class BSM1RecycleConfig:
     bsm1: BSM1BenchmarkConfig = BSM1BenchmarkConfig()
 
 
+@dataclass(frozen=True)
+class BSM1RecyclePlantState:
+    step_count: jax.Array
+    source_state: DiurnalSourceState
+    reactor1: ASM1State
+    reactor2: ASM1State
+    reactor3: ASM1State
+    reactor4: ASM1State
+    reactor5: ASM1State
+    q_a_actuator: RampLimitedActuatorState
+    q_rs_actuator: RampLimitedActuatorState
+    disturbance_schedule: DisturbanceSchedule
+    sensors: BSM1SensorState
+
+
+jax.tree_util.register_dataclass(
+    BSM1RecyclePlantState,
+    data_fields=[
+        "step_count",
+        "source_state",
+        "reactor1",
+        "reactor2",
+        "reactor3",
+        "reactor4",
+        "reactor5",
+        "q_a_actuator",
+        "q_rs_actuator",
+        "disturbance_schedule",
+        "sensors",
+    ],
+    meta_fields=[],
+)
+
+
 def make_bsm1_recycle_benchmark(
     config: BSM1RecycleConfig,
 ) -> tuple[
-    Callable[[jax.Array], tuple[BSM1PlantState, jax.Array]],
-    Callable[[BSM1PlantState, jax.Array, jax.Array], tuple[BSM1PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
+    Callable[[jax.Array], tuple[BSM1RecyclePlantState, jax.Array]],
+    Callable[[BSM1RecyclePlantState, jax.Array, jax.Array], tuple[BSM1RecyclePlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
     bsm1 = config.bsm1
 
@@ -138,7 +172,7 @@ def make_bsm1_recycle_benchmark(
     init_q_a_ratio = jnp.array(bsm1.internal_recycle_ratio)
     init_q_rs_ratio = jnp.array(bsm1.return_sludge_ratio)
 
-    def reset(rng_key: jax.Array) -> tuple[BSM1PlantState, jax.Array]:
+    def reset(rng_key: jax.Array) -> tuple[BSM1RecyclePlantState, jax.Array]:
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
         src = source_reset(k1)
@@ -227,7 +261,7 @@ def make_bsm1_recycle_benchmark(
         q_a_state = RampLimitedActuatorState(current_output=init_q_a_ratio)
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
-        plant_state = BSM1PlantState(
+        plant_state = BSM1RecyclePlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src,
             reactor1=r1,
@@ -235,8 +269,8 @@ def make_bsm1_recycle_benchmark(
             reactor3=r3,
             reactor4=r4,
             reactor5=r5,
-            kla_34_actuator=q_a_state,   # repurposed: stores Q_a ratio
-            kla_5_actuator=q_rs_state,    # repurposed: stores Q_rs ratio
+            q_a_actuator=q_a_state,   # repurposed: stores Q_a ratio
+            q_rs_actuator=q_rs_state,    # repurposed: stores Q_rs ratio
             disturbance_schedule=create_empty(bsm1.max_disturbance_events),
             sensors=_create_default_sensors(bsm1.mean_flow, bsm1.r3_s_o, bsm1.r5_s_o),
         )
@@ -255,10 +289,10 @@ def make_bsm1_recycle_benchmark(
         return plant_state, obs
 
     def step(
-        state: BSM1PlantState,
+        state: BSM1RecyclePlantState,
         action: jax.Array,
         rng_key: jax.Array,
-    ) -> tuple[BSM1PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+    ) -> tuple[BSM1RecyclePlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
         k1, k_sensors = jax.random.split(rng_key)
         k_do5, k_nh4e, k_no3e, k_no3r2 = jax.random.split(k_sensors, 4)
 
@@ -268,8 +302,8 @@ def make_bsm1_recycle_benchmark(
         )
 
         # 2. Recycle ratio actuators (ramp-rate limited)
-        new_q_a_state, q_a_ratio = actuator_step(state.kla_34_actuator, action[0], q_a_pump, dt)
-        new_q_rs_state, q_rs_ratio = actuator_step(state.kla_5_actuator, action[1], q_rs_pump, dt)
+        new_q_a_state, q_a_ratio = actuator_step(state.q_a_actuator, action[0], q_a_pump, dt)
+        new_q_rs_state, q_rs_ratio = actuator_step(state.q_rs_actuator, action[1], q_rs_pump, dt)
 
         # 3. Derived flows
         q_a = q_in * q_a_ratio
@@ -329,13 +363,13 @@ def make_bsm1_recycle_benchmark(
             + config.reward_w_energy * (q_a_ratio + q_rs_ratio)
         )
 
-        new_state = BSM1PlantState(
+        new_state = BSM1RecyclePlantState(
             step_count=state.step_count + 1,
             source_state=new_source,
             reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
             reactor4=new_r4, reactor5=new_r5,
-            kla_34_actuator=new_q_a_state,
-            kla_5_actuator=new_q_rs_state,
+            q_a_actuator=new_q_a_state,
+            q_rs_actuator=new_q_rs_state,
             disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
