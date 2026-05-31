@@ -178,7 +178,8 @@ Each environment should support at least two observation profiles:
 | BSM1 full (13-var ASM1) | ✅ Done | `benchmarks/bsm1.py` | 5 reactors, perfect settler |
 | BSM1 nitrate recycle | ✅ Done | `benchmarks/bsm1_recycle.py` | 2D action [Q_a, Q_rs] ratios |
 | BSM1 combined | Planned | — | kla + Q_a + Q_rs |
-| Takács clarifier | Planned | — | New unit model needed |
+| Takács clarifier | ✅ Done | `units/takacs_settler.py` | 10-layer 1D settler model |
+| Sludge blanket control | ✅ Done | `benchmarks/sludge_blanket.py` | 1D action [Q_u], 4D obs |
 | Chemical P dosing | Planned | — | New chemistry model |
 | Anaerobic digester | Planned | — | ADM1-inspired |
 | Membrane fouling | Planned | — | New unit model |
