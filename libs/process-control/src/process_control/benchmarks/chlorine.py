@@ -4,12 +4,13 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.actuators.ramp_limited import RampLimitedActuatorParams
-from process_control.actuators.ramp_limited import reset as actuator_reset
-from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.controllers.pi_controller import PIControllerParams
-from process_control.controllers.pi_controller import reset as pi_reset
-from process_control.controllers.pi_controller import step as pi_step
+from process_control._jax_dataclass import jax_dataclass
+from process_control.actuators.dosing_system import (
+    DIRECT,
+    DosingSystemParams,
+)
+from process_control.actuators.dosing_system import reset as dosing_reset
+from process_control.actuators.dosing_system import step as dosing_step
 from process_control.disturbances.schedule import apply_active, create_empty
 from process_control.plant_state import PlantState
 from process_control.scenarios.diurnal_source import DiurnalSourceParams
@@ -18,9 +19,6 @@ from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.flow_sensor import FlowSensorParams
 from process_control.sensors.flow_sensor import reset as flow_sensor_reset
 from process_control.sensors.flow_sensor import step as flow_sensor_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams
-from process_control.sensors.residual_analyzer import reset as residual_reset
-from process_control.sensors.residual_analyzer import step as residual_step
 from process_control.signal_bus import SignalBus
 from process_control.units.contact_basin import ContactBasinParams
 from process_control.units.contact_basin import reset as basin_reset
@@ -33,6 +31,12 @@ from process_control.units.mixer import step as mixer_step
 class ChlorineBenchmarkConfig:
     target_residual: float = 1.5
     dt: float = 0.25
+
+    # ── Control mode ──────────────────────────────────────────────
+    # DIRECT (0): RL action is raw dose command (original behavior)
+    # SUPERVISORY (1): RL action is residual setpoint → PI → dose
+    # FEEDFORWARD (2): PI runs at target, RL action is delta correction
+    control_mode: int = DIRECT
 
     basin_volume: float = 400.0
     basin_segments: int = 10
@@ -55,7 +59,7 @@ class ChlorineBenchmarkConfig:
 
     residual_noise_std: float = 0.02
     residual_lag_coefficient: float = 0.3
-    residual_sample_period: int = 1
+    residual_drift_rate: float = 0.001
 
     mean_flow: float = 75.0
     diurnal_amplitude: float = 20.0
@@ -70,34 +74,21 @@ class ChlorineBenchmarkConfig:
     max_disturbance_events: int = 16
 
 
-def _make_params(config: ChlorineBenchmarkConfig) -> tuple[ContactBasinParams, RampLimitedActuatorParams, PIControllerParams, FlowSensorParams, ResidualAnalyzerParams, DiurnalSourceParams]:
+def make_chlorine_benchmark(
+    config: ChlorineBenchmarkConfig,
+) -> tuple[
+    Callable[[jax.Array], tuple[PlantState, jax.Array]],
+    Callable[[PlantState, jax.Array, jax.Array], tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
+]:
     basin_params = ContactBasinParams(
         total_volume=config.basin_volume,
         n_segments=config.basin_segments,
         tau=config.basin_tau,
     )
-    pump_params = RampLimitedActuatorParams(
-        max_output=config.pump_max_dose,
-        min_output=config.pump_min_dose,
-        max_ramp_rate=config.pump_max_ramp_rate,
-    )
-    pi_params = PIControllerParams(
-        kp=config.pi_kp,
-        ki=config.pi_ki,
-        ff=config.pi_ff,
-        output_min=config.pi_output_min,
-        output_max=config.pi_output_max,
-        max_integral=config.pi_max_integral,
-    )
     flow_sensor_params = FlowSensorParams(
         noise_std=config.flow_noise_std,
         bias=config.flow_bias,
         dropout_probability=config.flow_dropout_probability,
-    )
-    residual_params = ResidualAnalyzerParams(
-        noise_std=config.residual_noise_std,
-        lag_coefficient=config.residual_lag_coefficient,
-        sample_period=config.residual_sample_period,
     )
     source_params = DiurnalSourceParams(
         mean_flow=config.mean_flow,
@@ -110,16 +101,23 @@ def _make_params(config: ChlorineBenchmarkConfig) -> tuple[ContactBasinParams, R
         drift_scale=config.drift_scale,
         steps_per_day=config.steps_per_day,
     )
-    return basin_params, pump_params, pi_params, flow_sensor_params, residual_params, source_params
 
+    # Dosing loop bundles residual sensor + PI controller + dose pump
+    dosing_params = DosingSystemParams(
+        control_mode=config.control_mode,
+        base_setpoint=config.target_residual,
+        sensor_noise_std=config.residual_noise_std,
+        sensor_lag=config.residual_lag_coefficient,
+        sensor_drift_rate=config.residual_drift_rate,
+        kp=config.pi_kp,
+        ki=config.pi_ki,
+        ff=config.pi_ff,
+        output_min=config.pump_min_dose,
+        output_max=config.pump_max_dose,
+        max_integral=config.pi_max_integral,
+        max_ramp_rate=config.pump_max_ramp_rate,
+    )
 
-def make_chlorine_benchmark(
-    config: ChlorineBenchmarkConfig,
-) -> tuple[
-    Callable[[jax.Array], tuple[PlantState, jax.Array]],
-    Callable[[PlantState, jax.Array, jax.Array], tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
-]:
-    basin_params, pump_params, pi_params, flow_sensor_params, residual_params, source_params = _make_params(config)
     dt = jnp.array(config.dt)
     target_residual = jnp.array(config.target_residual)
 
@@ -131,14 +129,12 @@ def make_chlorine_benchmark(
         return jnp.array([last_dose, signal_bus.outlet_residual, target_residual, signal_bus.flow])
 
     def reset(rng_key: jax.Array) -> tuple[PlantState, jax.Array]:
-        k1, k2, k3, k4, k5, k6 = jax.random.split(rng_key, 6)
+        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
 
         src_state = source_reset(k1)
         bas_state = basin_reset(basin_params, k2)
         fs_state = flow_sensor_reset(k3)
-        rs_state = residual_reset(k4)
-        dp_state = actuator_reset(k5)
-        pi_state = pi_reset(k6)
+        ds_state = dosing_reset(0.0, config.pi_ff, k4)
         last_dose = jnp.array(0.0)
 
         plant_state = PlantState(
@@ -146,9 +142,7 @@ def make_chlorine_benchmark(
             source_state=src_state,
             basin_state=bas_state,
             flow_sensor_state=fs_state,
-            residual_sensor_state=rs_state,
-            actuator_state=dp_state,
-            pi_state=pi_state,
+            dosing_loop=ds_state,
             last_dose=last_dose,
             disturbance_schedule=create_empty(config.max_disturbance_events),
         )
@@ -158,7 +152,7 @@ def make_chlorine_benchmark(
         return plant_state, obs
 
     def step(state: PlantState, action: jax.Array, rng_key: jax.Array) -> tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, _k2, k3, k4, k5, k6 = jax.random.split(rng_key, 6)
+        k1, k2, k3, k4, k5 = jax.random.split(rng_key, 5)
 
         # 1. Source generates flow + demand
         new_source_state, transport, flow, demand = source_step(
@@ -171,9 +165,16 @@ def make_chlorine_benchmark(
         # 1.5 Apply active disturbances
         transport = apply_active(state.disturbance_schedule, transport, state.step_count)
 
-        # 2. Dose pump realizes the agent's requested dose
-        new_pump_state, realized_dose = actuator_step(
-            state.actuator_state, action, pump_params, dt,
+        # 2. Dosing loop: reads previous outlet residual from sensor state,
+        #    computes dose based on control mode
+        current_residual = state.basin_state.segments[-1, 0]
+        new_dosing, sensed_residual, realized_dose, pi_dose = dosing_step(
+            state.dosing_loop,
+            action,
+            current_residual,
+            dosing_params,
+            dt,
+            k2,
         )
 
         # 3. Mixer injects dose into stream
@@ -188,27 +189,19 @@ def make_chlorine_benchmark(
             k4,
         )
 
-        # 5. Sensors sample
+        # 5. Flow sensor
         new_flow_state, sensed_flow = flow_sensor_step(
             state.flow_sensor_state,
             flow,
             flow_sensor_params,
             k5,
         )
-        new_residual_state, sensed_residual = residual_step(
-            state.residual_sensor_state, outlet_residual, residual_params, k6,
-        )
 
-        # 6. PI controller (for info/comparison — not driving action)
-        new_pi_state, pi_dose = pi_step(
-            state.pi_state, sensed_residual, target_residual, pi_params, dt,
-        )
-
-        # 7. Build observation
+        # 6. Build observation
         signal_bus = SignalBus(flow=sensed_flow, outlet_residual=sensed_residual)
         obs = _build_observation(signal_bus, realized_dose, target_residual)
 
-        # 8. Reward (from sensor reading — matches what an online agent would see)
+        # 7. Reward (from sensor reading — matches what an online agent would see)
         reward = -((sensed_residual - target_residual) ** 2)
 
         new_state = PlantState(
@@ -216,9 +209,7 @@ def make_chlorine_benchmark(
             source_state=new_source_state,
             basin_state=new_basin_state,
             flow_sensor_state=new_flow_state,
-            residual_sensor_state=new_residual_state,
-            actuator_state=new_pump_state,
-            pi_state=new_pi_state,
+            dosing_loop=new_dosing,
             last_dose=realized_dose,
             disturbance_schedule=state.disturbance_schedule,
         )

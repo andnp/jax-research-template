@@ -2,12 +2,10 @@ from dataclasses import dataclass
 
 import jax
 
-from process_control.actuators.ramp_limited import RampLimitedActuatorState
-from process_control.controllers.pi_controller import PIControllerState
+from process_control.actuators.dosing_system import DosingSystemState
 from process_control.disturbances.schedule import DisturbanceSchedule
 from process_control.scenarios.diurnal_source import DiurnalSourceState
 from process_control.sensors.flow_sensor import FlowSensorState
-from process_control.sensors.residual_analyzer import ResidualAnalyzerState
 from process_control.units.contact_basin import ContactBasinState
 
 
@@ -17,9 +15,7 @@ class PlantState:
     source_state: DiurnalSourceState
     basin_state: ContactBasinState
     flow_sensor_state: FlowSensorState
-    residual_sensor_state: ResidualAnalyzerState
-    actuator_state: RampLimitedActuatorState
-    pi_state: PIControllerState
+    dosing_loop: DosingSystemState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
 
@@ -31,9 +27,7 @@ jax.tree_util.register_dataclass(
         "source_state",
         "basin_state",
         "flow_sensor_state",
-        "residual_sensor_state",
-        "actuator_state",
-        "pi_state",
+        "dosing_loop",
         "last_dose",
         "disturbance_schedule",
     ],
