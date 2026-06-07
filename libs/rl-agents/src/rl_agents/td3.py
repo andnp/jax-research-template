@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable, NamedTuple, TypedDict, cast
+from typing import Callable, NamedTuple, TypedDict
 
 import flax.linen as nn
 import jax
@@ -42,8 +42,18 @@ class Critic(nn.Module):
         x = nn.Dense(1)(x)
         return jnp.squeeze(x, axis=-1)
 
+    def apply(
+        self,
+        variables: object,
+        x: jax.Array,
+        a: jax.Array,
+        *,
+        rngs: object | None = None,
+    ) -> jax.Array:
+        return super().apply(variables, x, a, rngs=rngs)  # type: ignore[return-value]
 
-class Actor(nn.Module):
+
+class Actor(TypedApply[jax.Array], nn.Module):
     action_dim: int
 
     @nn.compact
@@ -54,14 +64,6 @@ class Actor(nn.Module):
         x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
         return jnp.tanh(x)
-
-
-def _critic_apply(module: Critic, variables: VariableDict, x: jax.Array, a: jax.Array) -> jax.Array:
-    return cast(jax.Array, module.apply(variables, x, a))
-
-
-def _actor_apply(module: Actor, variables: VariableDict, x: jax.Array) -> jax.Array:
-    return cast(jax.Array, module.apply(variables, x))
 
 
 def _soft_update(tau: float, target: VariableDict, online: VariableDict) -> VariableDict:
@@ -84,19 +86,19 @@ def _critic_loss(
     config: "TD3Config",
 ) -> jax.Array:
     rng, _rng_noise = jax.random.split(rng)
-    next_actions = _actor_apply(actor, actor_target_params, next_obs)
+    next_actions = actor.apply(actor_target_params, next_obs)
     noise = jax.random.normal(_rng_noise, next_actions.shape) * config.POLICY_NOISE
     noise = jnp.clip(noise, -config.NOISE_CLIP, config.NOISE_CLIP)
     next_actions = jnp.clip(next_actions + noise, -1.0, 1.0)
 
     next_q = jax.vmap(
-        lambda p, o, a: _critic_apply(critic, p, o, a),
+        critic.apply,
         in_axes=(0, None, None),
     )(critic_target_params, next_obs, next_actions)
     target_q = rewards + config.GAMMA * (1.0 - dones) * jnp.min(next_q, axis=0)
 
     def _single(p: VariableDict) -> jax.Array:
-        q = _critic_apply(critic, p, obs, actions)
+        q = critic.apply(p, obs, actions)
         return jnp.mean(jnp.square(q - jax.lax.stop_gradient(target_q)))
 
     return jnp.mean(jax.vmap(_single)(critic_params))
@@ -110,9 +112,9 @@ def _actor_loss(
     actor: Actor,
     critic: Critic,
 ) -> jax.Array:
-    new_actions = _actor_apply(actor, actor_params, obs)
+    new_actions = actor.apply(actor_params, obs)
     q_values = jax.vmap(
-        lambda p, o, a: _critic_apply(critic, p, o, a),
+        lambda p, o, a: critic.apply(p, o, a),
         in_axes=(0, None, None),
     )(critic_params, obs, new_actions)
     return -jnp.mean(q_values[0])
@@ -153,9 +155,7 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
         actor_state = TrainState.create(apply_fn=actor.apply, params=actor_params, tx=optax.adam(config.LR))
 
         rng, _rng_critic = jax.random.split(rng)
-        critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
-            jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,))
-        )
+        critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,)))
         critic_state = TrainState.create(apply_fn=critic.apply, params=critic_params, tx=optax.adam(config.LR))
         critic_target_params = critic_params
         actor_target_params = actor_params
@@ -173,13 +173,20 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
             buffer_state: ReplayBufferState,
             rng: jax.Array,
             t: jax.Array,
-        ) -> tuple[TrainState, TrainState, VariableDict, VariableDict]:
+        ) -> tuple[TrainState, TrainState, VariableDict, VariableDict, jax.Array, jax.Array]:
             rng, _rng, _rng_cl = jax.random.split(rng, 3)
             obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
-            critic_grads = jax.grad(_bound_critic_loss)(
-                critic_state.params, actor_target_params, critic_target_params,
-                obs, actions, rewards, next_obs, dones, _rng_cl,
+            critic_loss, critic_grads = jax.value_and_grad(_bound_critic_loss)(
+                critic_state.params,
+                actor_target_params,
+                critic_target_params,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                dones,
+                _rng_cl,
             )
             critic_state = critic_state.apply_gradients(grads=critic_grads)
 
@@ -189,13 +196,14 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 critic_target_params: VariableDict,
                 actor_target_params: VariableDict,
                 obs: jax.Array,
-            ) -> tuple[TrainState, VariableDict, VariableDict]:
-                actor_grads = jax.grad(_bound_actor_loss)(actor_state.params, critic_state.params, obs)
+            ) -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
+                actor_loss, actor_grads = jax.value_and_grad(_bound_actor_loss)(actor_state.params, critic_state.params, obs)
                 actor_state = actor_state.apply_gradients(grads=actor_grads)
                 return (
                     actor_state,
                     _soft_update(config.TAU, critic_target_params, critic_state.params),
                     _soft_update(config.TAU, actor_target_params, actor_state.params),
+                    actor_loss,
                 )
 
             def _skip_actor(
@@ -204,15 +212,20 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 critic_target_params: VariableDict,
                 actor_target_params: VariableDict,
                 obs: jax.Array,
-            ) -> tuple[TrainState, VariableDict, VariableDict]:
-                return actor_state, critic_target_params, actor_target_params
+            ) -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
+                return actor_state, critic_target_params, actor_target_params, jnp.array(0.0)
 
-            actor_state, critic_target_params, actor_target_params = jax.lax.cond(
+            actor_state, critic_target_params, actor_target_params, actor_loss = jax.lax.cond(
                 t % config.POLICY_DELAY == 0,
-                _update_actor, _skip_actor,
-                actor_state, critic_state, critic_target_params, actor_target_params, obs,
+                _update_actor,
+                _skip_actor,
+                actor_state,
+                critic_state,
+                critic_target_params,
+                actor_target_params,
+                obs,
             )
-            return actor_state, critic_state, critic_target_params, actor_target_params
+            return actor_state, critic_state, critic_target_params, actor_target_params, critic_loss, actor_loss
 
         def _skip_train(
             actor_state: TrainState,
@@ -222,8 +235,8 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
             buffer_state: ReplayBufferState,
             rng: jax.Array,
             t: jax.Array,
-        ) -> tuple[TrainState, TrainState, VariableDict, VariableDict]:
-            return actor_state, critic_state, critic_target_params, actor_target_params
+        ) -> tuple[TrainState, TrainState, VariableDict, VariableDict, jax.Array, jax.Array]:
+            return actor_state, critic_state, critic_target_params, actor_target_params, jnp.array(0.0), jnp.array(0.0)
 
         def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
             actor_state, critic_state, critic_target_params, actor_target_params, buffer_state, env_state, last_obs, rng = runner_state
@@ -235,7 +248,7 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 return jax.random.uniform(_rng_action, (action_dim,), minval=-1, maxval=1)
 
             def _policy_action() -> jax.Array:
-                action = _actor_apply(actor, actor_state.params, last_obs)
+                action = actor.apply(actor_state.params, last_obs)
                 noise = jax.random.normal(_rng_noise, action.shape) * config.EXPLORATION_NOISE
                 return jnp.clip(action + noise, -1.0, 1.0)
 
@@ -248,28 +261,52 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
             # ADD TO BUFFER
             buffer_state = buffer.add(
                 buffer_state,
-                last_obs[None, ...], action[None, ...], reward[None, ...], obsv[None, ...], done[None, ...],
+                last_obs[None, ...],
+                action[None, ...],
+                reward[None, ...],
+                obsv[None, ...],
+                done[None, ...],
             )
 
             # TRAIN
             can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
-            actor_state, critic_state, critic_target_params, actor_target_params = jax.lax.cond(
+            actor_state, critic_state, critic_target_params, actor_target_params, critic_loss, actor_loss = jax.lax.cond(
                 can_train,
-                _do_train, _skip_train,
-                actor_state, critic_state, critic_target_params, actor_target_params, buffer_state, rng, t,
+                _do_train,
+                _skip_train,
+                actor_state,
+                critic_state,
+                critic_target_params,
+                actor_target_params,
+                buffer_state,
+                rng,
+                t,
             )
 
             runner_state = RunnerState(
-                actor_state=actor_state, critic_state=critic_state,
-                critic_target_params=critic_target_params, actor_target_params=actor_target_params,
-                buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+                actor_state=actor_state,
+                critic_state=critic_state,
+                critic_target_params=critic_target_params,
+                actor_target_params=actor_target_params,
+                buffer_state=buffer_state,
+                env_state=env_state,
+                last_obs=obsv,
+                rng=rng,
             )
+            info = dict(info)
+            info["critic_loss"] = critic_loss
+            info["actor_loss"] = actor_loss
             return runner_state, info
 
         runner_state = RunnerState(
-            actor_state=actor_state, critic_state=critic_state,
-            critic_target_params=critic_target_params, actor_target_params=actor_target_params,
-            buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
+            actor_state=actor_state,
+            critic_state=critic_state,
+            critic_target_params=critic_target_params,
+            actor_target_params=actor_target_params,
+            buffer_state=buffer_state,
+            env_state=env_state,
+            last_obs=obsv,
+            rng=rng,
         )
         runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
         return {"runner_state": runner_state, "metrics": metrics}
