@@ -189,7 +189,7 @@ def get_benchmark_entry(name: str):
     raise ValueError(f"Unknown benchmark '{name}'. Available: {available}")
 
 
-def make_adapter(name: str, **config_overrides):
+def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
     """Create a ProcessControlAdapter by benchmark name.
 
     Args:

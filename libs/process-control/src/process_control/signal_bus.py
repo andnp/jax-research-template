@@ -15,10 +15,3 @@ class SignalBus:
             flow=jnp.array(flow),
             outlet_residual=jnp.array(outlet_residual),
         )
-
-
-jax.tree_util.register_dataclass(
-    SignalBus,
-    data_fields=["flow", "outlet_residual"],
-    meta_fields=[],
-)

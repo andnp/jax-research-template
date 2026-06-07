@@ -55,13 +55,18 @@ def step(
     diurnal_signal = jnp.sin(2.0 * jnp.pi * t) + jnp.cos(4.0 * jnp.pi * t)
 
     flow_channel = ChannelParams(
-        mean=params.mean_flow, amplitude=params.diurnal_amplitude / 2.0,
-        min_value=params.min_flow, max_value=params.max_flow,
+        mean=params.mean_flow,
+        amplitude=params.diurnal_amplitude / 2.0,
+        min_value=params.min_flow,
+        max_value=params.max_flow,
         drift_scale=params.drift_scale,
         drift_clip=params.diurnal_amplitude / 2.0,
     )
     new_flow_drift, flow = channel_step(
-        state.flow_drift, diurnal_signal, flow_channel, k1,
+        state.flow_drift,
+        diurnal_signal,
+        flow_channel,
+        k1,
     )
 
     # Demand composition (drift-only, no sinusoidal pattern)

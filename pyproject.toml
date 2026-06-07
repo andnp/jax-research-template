@@ -35,7 +35,7 @@ dependencies = [
     "research-runner",
     "research-store",
     "rl-agents",
-    "rl-components",
+    "rl-components[playground]",
     "process-control",
 ]
 
@@ -108,6 +108,8 @@ search-path = [
     "libs/rl-agents/src",
     "libs/rl-components/src",
     "libs/process-control/src",
+    "libs/experiment-definition/src",
+    "cli/src",
 ]
 
 [tool.pyrefly.errors]

@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "jax~=0.9",
     "flax~=0.12",
+    "gymnax~=0.0",
     "jax-nn",
     "rl-components",
 ]
