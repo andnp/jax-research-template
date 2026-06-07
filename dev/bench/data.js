@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780862493968,
+  "lastUpdate": 1780864993148,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -2705,6 +2705,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00001508919085128586",
             "extra": "mean: 46.84359999487242 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "daabe7234af3587f6f512777c60b2abf401de698",
+          "message": "feat(#27): add CI workflow template and TD3 algorithm choice (#72)\n\nCloses #27\nCloses #61\n\n## Summary\nAdds a CI workflow to the copier project template so every new student\nproject gets automated checks immediately.\n\n### Changes:\n- **`templates/{{project_name}}/.github/workflows/ci.yml.jinja`** (new):\n3 parallel jobs — lint (ruff), typecheck (pyrefly), test (pytest). Uses\n`{{ python_version }}` from copier config.\n- **`templates/copier.yml`**: Added `td3` to algorithm choices (now that\nTD3 is implemented). Removed `3.12` from python_version choices since\ncore requires `>=3.13,<3.14`.\n- **`templates/{{project_name}}/train.py.jinja`**: Added TD3 training\ntemplate block.\n- **`docs/getting_started.md`**: Updated Python prerequisite from \"3.12\nor 3.13\" to \"3.13\".",
+          "timestamp": "2026-06-07T14:37:52-06:00",
+          "tree_id": "b0f7c558a611963ef4ecc4d6dbb94276b43102ab",
+          "url": "https://github.com/andnp/jax-research-template/commit/daabe7234af3587f6f512777c60b2abf401de698"
+        },
+        "date": 1780864992705,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 5.403006198069383,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01460931704517436",
+            "extra": "mean: 185.08214933333278 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9946430791542955,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015423399195600797",
+            "extra": "mean: 1.0053857720000015 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.03913402150892104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06354311568698838",
+            "extra": "mean: 25.553213328000005 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5882091748622384,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013587491235567377",
+            "extra": "mean: 1.7000754880000044 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 18838.706761404428,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013593796709713618",
+            "extra": "mean: 53.0821999973341 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 42.81059611915888,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004912378259553816",
+            "extra": "mean: 23.35870299999101 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.646712716021355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0034586848624304813",
+            "extra": "mean: 377.82717933332793 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4550.032153278535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000028981703861822714",
+            "extra": "mean: 219.77866668028886 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 44.46422937968521,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004575776283212456",
+            "extra": "mean: 22.489988333338335 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 454.8386876672401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006238070501696487",
+            "extra": "mean: 2.1985816666756364 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 39.18971194815175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006510153354999826",
+            "extra": "mean: 25.51690100001262 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 39366.35909956811,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012974113314020317",
+            "extra": "mean: 25.40239999007099 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 40685.468773124696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011812424566853926",
+            "extra": "mean: 24.578800002927892 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 27266.084262708868,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001546963828487223",
+            "extra": "mean: 36.67560000053527 usec\nrounds: 5"
           }
         ]
       }
