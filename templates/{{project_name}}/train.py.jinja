@@ -122,6 +122,29 @@ def main():
     result = train_fn(rng)
     returns = result["metrics"]["returned_episode_returns"]
     print(f"Final mean return: {returns[-1]:.2f}")
+{% elif algorithm == "td3" %}
+import gymnax
+import gymnax.wrappers
+import jax
+
+from rl_agents.td3 import TD3Config, make_train
+
+
+def main():
+    config = TD3Config(
+        ENV_NAME="{{ env_name }}",
+        TOTAL_TIMESTEPS=100_000,
+        SEED=42,
+    )
+    env, env_params = gymnax.make(config.ENV_NAME)
+    env = gymnax.wrappers.LogWrapper(env)
+    train_fn = make_train(config, env=env, env_params=env_params)
+    train_fn = jax.jit(train_fn)
+
+    rng = jax.random.PRNGKey(config.SEED)
+    result = train_fn(rng)
+    returns = result["metrics"]["returned_episode_returns"]
+    print(f"Final mean return: {returns[-1]:.2f}")
 {% endif %}
 
 
