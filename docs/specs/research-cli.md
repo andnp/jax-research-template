@@ -12,7 +12,7 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
 ## 2. Core Commands
 
 ### 2.1 Workspace Management
-- `research workspace init`: 
+- `research workspace init`:
     - Initializes a new "Shell" monorepo.
     - Adds the `research-core` as a submodule.
     - Sets up the root `pyproject.toml` with `uv` workspace members for `core/cli`, `core/libs/*`, and `projects/*`.

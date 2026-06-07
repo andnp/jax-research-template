@@ -248,6 +248,3 @@ def configure(
     global collector  # noqa: PLW0603
     collector = Collector(whitelist, backend, vmap_axis_name)
     return collector
-
-
-

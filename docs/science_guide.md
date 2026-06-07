@@ -1,6 +1,6 @@
 # Empirical Design & Analysis Guide
 
-This document codifies the "Patterson Standard" for Reinforcement Learning experimentation. It serves as the definitive reference for implementing the `research-analysis` and `research-plot` libraries and for designing experiments within the monorepo.
+This document codifies the standard for Reinforcement Learning experimentation. It serves as the definitive reference for implementing the `research-analysis` and `research-plot` libraries and for designing experiments within the monorepo.
 
 ---
 
@@ -85,7 +85,7 @@ We do not assume performance is Gaussian. All Confidence Intervals (CIs) must be
 When comparing $K$ algorithms across $T$ tasks, and especially if some results are missing, use the Skillings-Mack test. It is a non-parametric alternative to Friedman’s test that handles missing data correctly.
 
 ### Non-Parametric Tolerance Intervals
-To show performance coverage, use Tolerance Intervals. 
+To show performance coverage, use Tolerance Intervals.
 - *Statement:* "With 95% confidence, this interval covers 90% of the population performance."
 - *Implementation:* Use the binomial distribution PPF to find the rank-order indices in sorted data that satisfy the coverage requirement.
 
@@ -95,7 +95,7 @@ To show performance coverage, use Tolerance Intervals.
 
 - **Data Lineage:** Every figure must be traceable to specific `ExecutionIDs`.
 - **Intelligent Subsampling:** If plotting more than 30 lines (e.g., all seeds), prune to show only the top 5, bottom 5, and median 5 to maintain visual clarity while showing the full spread.
-- **Minimalist Aesthetics:** 
+- **Minimalist Aesthetics:**
     - No top/right spines.
     - No legend frames.
     - Color consistency across all figures in a single project (Agent X is always Blue).
