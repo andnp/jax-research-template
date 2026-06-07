@@ -243,35 +243,15 @@ def _derivatives(
     D = inlet_flow / params.volume
 
     # ── Process rates ──────────────────────────────────────────────────────────
-    r1 = (
-        params.mu_h
-        * (state.s_s / (params.k_s + state.s_s))
-        * (state.s_o / (params.k_o_h + state.s_o))
-        * state.x_bh
-    )
-    r2 = (
-        params.mu_h
-        * params.eta_g
-        * (state.s_s / (params.k_s + state.s_s))
-        * (params.k_o_h / (params.k_o_h + state.s_o))
-        * (state.s_no / (params.k_no + state.s_no))
-        * state.x_bh
-    )
-    r3 = (
-        params.mu_a
-        * (state.s_nh / (params.k_nh + state.s_nh))
-        * (state.s_o / (params.k_o_a + state.s_o))
-        * state.x_ba
-    )
+    r1 = params.mu_h * (state.s_s / (params.k_s + state.s_s)) * (state.s_o / (params.k_o_h + state.s_o)) * state.x_bh
+    r2 = params.mu_h * params.eta_g * (state.s_s / (params.k_s + state.s_s)) * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no)) * state.x_bh
+    r3 = params.mu_a * (state.s_nh / (params.k_nh + state.s_nh)) * (state.s_o / (params.k_o_a + state.s_o)) * state.x_ba
     r4 = params.b_h * state.x_bh
     r5 = params.b_a * state.x_ba
     r6 = params.k_a * state.s_nd * state.x_bh
 
-    x_s_ratio = (state.x_s / jnp.maximum(state.x_bh, 1e-6))
-    hydrolysis_switching = (
-        state.s_o / (params.k_o_h + state.s_o)
-        + params.eta_h * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no))
-    )
+    x_s_ratio = state.x_s / jnp.maximum(state.x_bh, 1e-6)
+    hydrolysis_switching = state.s_o / (params.k_o_h + state.s_o) + params.eta_h * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no))
     r7 = params.k_h * (x_s_ratio / (params.k_x + x_s_ratio)) * hydrolysis_switching * state.x_bh
     r8 = (state.x_nd / jnp.maximum(state.x_s, 1e-6)) * r7
 
@@ -284,29 +264,11 @@ def _derivatives(
         x_bh=D * (inlet.x_bh - state.x_bh) + r1 + r2 - r4,
         x_ba=D * (inlet.x_ba - state.x_ba) + r3 - r5,
         x_p=D * (inlet.x_p - state.x_p) + params.f_p * (r4 + r5),
-        s_o=(
-            D * (inlet.s_o - state.s_o)
-            + kla * (params.s_o_sat - state.s_o)
-            - (1.0 - params.y_h) / params.y_h * r1
-            - (4.57 - params.y_a) / params.y_a * r3
-        ),
-        s_no=(
-            D * (inlet.s_no - state.s_no)
-            - (1.0 - params.y_h) / (2.86 * params.y_h) * r2
-            + r3 / params.y_a
-        ),
-        s_nh=(
-            D * (inlet.s_nh - state.s_nh)
-            - params.i_xb * (r1 + r2)
-            - (params.i_xb + 1.0 / params.y_a) * r3
-            + r6
-        ),
+        s_o=(D * (inlet.s_o - state.s_o) + kla * (params.s_o_sat - state.s_o) - (1.0 - params.y_h) / params.y_h * r1 - (4.57 - params.y_a) / params.y_a * r3),
+        s_no=(D * (inlet.s_no - state.s_no) - (1.0 - params.y_h) / (2.86 * params.y_h) * r2 + r3 / params.y_a),
+        s_nh=(D * (inlet.s_nh - state.s_nh) - params.i_xb * (r1 + r2) - (params.i_xb + 1.0 / params.y_a) * r3 + r6),
         s_nd=D * (inlet.s_nd - state.s_nd) - r6 + r8,
-        x_nd=(
-            D * (inlet.x_nd - state.x_nd)
-            + (params.i_xb - params.f_p * params.i_xp) * (r4 + r5)
-            - r8
-        ),
+        x_nd=(D * (inlet.x_nd - state.x_nd) + (params.i_xb - params.f_p * params.i_xp) * (r4 + r5) - r8),
         s_alk=(
             D * (inlet.s_alk - state.s_alk)
             - params.i_xb / 14.0 * r1
