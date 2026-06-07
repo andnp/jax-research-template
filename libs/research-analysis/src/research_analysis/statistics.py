@@ -15,14 +15,7 @@ from numpy.typing import NDArray
 
 @dataclass(frozen=True)
 class ToleranceInterval:
-    """Result of a non-parametric tolerance interval estimation.
-
-    Attributes:
-        ci_low: Lower bound of the tolerance interval.
-        ci_high: Upper bound of the tolerance interval.
-        confidence: Confidence level (e.g. 0.95).
-        coverage: Coverage level (e.g. 0.90).
-    """
+    """Non-parametric tolerance interval for learning curves or scalar outcomes."""
 
     ci_low: NDArray[np.float64] | np.float64
     ci_high: NDArray[np.float64] | np.float64
@@ -31,16 +24,7 @@ class ToleranceInterval:
 
 
 def tolerance_interval_confidence(num_samples: int, *, coverage: float, rank_span: int) -> float:
-    """Calculate the achieved confidence for a given sample size, coverage, and rank span.
-
-    Args:
-        num_samples: Number of samples (seeds).
-        coverage: Desired population coverage fraction in (0, 1).
-        rank_span: The difference between the upper and lower order statistic ranks (j - i).
-
-    Returns:
-        The achieved confidence level.
-    """
+    """Calculate the achieved confidence for a given sample size, coverage, and rank span."""
     return sum(
         math.comb(num_samples, failures)
         * (coverage**failures)
@@ -55,14 +39,6 @@ def tolerance_interval_order_indices(
     """Determine the rank-order indices for a non-parametric tolerance interval.
 
     Finds the smallest rank span j - i that achieves the target confidence.
-
-    Args:
-        num_samples: Number of samples (seeds).
-        confidence: Desired confidence level in (0, 1). Default 0.95.
-        coverage: Desired population coverage in (0, 1). Default 0.90.
-
-    Returns:
-        A tuple of (lower_index, upper_index) for indexing a sorted 0-indexed array.
 
     Raises:
         ValueError: If num_samples is too small, confidence/coverage are invalid,
@@ -96,22 +72,7 @@ def pointwise_tolerance_interval(
     confidence: float = 0.95,
     coverage: float = 0.90,
 ) -> ToleranceInterval:
-    """Compute non-parametric tolerance intervals for learning curves or scalar outcomes.
-
-    Given data of shape (n_seeds, n_steps) or (n_seeds,), computes a pointwise
-    tolerance interval by sorting the seeds and using order statistics.
-
-    Args:
-        data: Array of shape (n_seeds, n_steps) or (n_seeds,) containing metrics.
-        confidence: Desired confidence level in (0, 1). Default 0.95.
-        coverage: Desired population coverage fraction in (0, 1). Default 0.90.
-
-    Returns:
-        A ToleranceInterval containing the lower and upper bounds.
-
-    Raises:
-        ValueError: If data has fewer than 2 seeds or invalid confidence/coverage.
-    """
+    """Compute non-parametric tolerance intervals for learning curves or scalar outcomes."""
     array = np.asarray(data, dtype=np.float64)
     squeeze = array.ndim == 1
     if squeeze:
@@ -143,20 +104,7 @@ def pointwise_tolerance_interval(
 
 
 def select_median_run_index(data: NDArray[np.floating]) -> int:
-    """Select the index of the seed that is closest to the median performance.
-
-    For 2-D learning curves, compares the mean performance of each seed over time.
-    Ties are broken by selecting the lower index.
-
-    Args:
-        data: Array of shape (n_seeds, n_steps) or (n_seeds,) containing metrics.
-
-    Returns:
-        The integer index of the representative median run.
-
-    Raises:
-        ValueError: If the input data is empty or has invalid shape.
-    """
+    """Select the index of the seed closest to median performance, breaking ties by lower index."""
     array = np.asarray(data, dtype=np.float64)
     if array.ndim == 1:
         mean_scores = array
