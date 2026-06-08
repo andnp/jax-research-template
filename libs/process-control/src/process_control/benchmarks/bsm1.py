@@ -22,6 +22,7 @@ from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
 
+
 @dataclass(frozen=True)
 class BSM1BenchmarkConfig:
     """Full BSM1-layout wastewater treatment benchmark using complete ASM1 kinetics.
@@ -208,6 +209,7 @@ class BSM1ObsSensors:
     no3_r2: ResidualAnalyzerState
     nh4_inf: ResidualAnalyzerState
     last_q_in: jax.Array
+@jax_dataclass
 class BSM1PlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
