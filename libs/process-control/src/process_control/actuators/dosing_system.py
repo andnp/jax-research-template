@@ -32,29 +32,29 @@ FEEDFORWARD: int = 2
 @dataclass(frozen=True)
 class DosingSystemParams:
     # ── Control mode ──────────────────────────────────────────────
-    control_mode: int = 1         # DIRECT=0, SUPERVISORY=1, FEEDFORWARD=2
-    base_setpoint: float = 0.0    # fixed setpoint used in FEEDFORWARD mode
+    control_mode: int = 1  # DIRECT=0, SUPERVISORY=1, FEEDFORWARD=2
+    base_setpoint: float = 0.0  # fixed setpoint used in FEEDFORWARD mode
 
     # ── Sensor (continuous probe: noise + lag + drift) ────────────
     sensor_noise_std: float = 0.05
-    sensor_lag: float = 0.9       # first-order smoothing (higher = more lag)
+    sensor_lag: float = 0.9  # first-order smoothing (higher = more lag)
     sensor_drift_rate: float = 0.001  # random-walk drift per step
 
     # ── PI controller ─────────────────────────────────────────────
     kp: float = 2.0
     ki: float = 0.5
-    ff: float = 50.0              # feed-forward bias (resting pump speed)
-    output_min: float = 0.0       # min pump command (% or dose units)
-    output_max: float = 125.0     # max pump command
-    max_integral: float = 200.0   # anti-windup clamp
+    ff: float = 50.0  # feed-forward bias (resting pump speed)
+    output_min: float = 0.0  # min pump command (% or dose units)
+    output_max: float = 125.0  # max pump command
+    max_integral: float = 200.0  # anti-windup clamp
 
     # ── Pump actuator ─────────────────────────────────────────────
-    max_ramp_up: float = 50.0     # max output increase per hour
-    max_ramp_down: float = 50.0   # max output decrease per hour (coast-down)
-    startup_delay: float = 0.0    # hours of VFD init when going from off to on
+    max_ramp_up: float = 50.0  # max output increase per hour
+    max_ramp_down: float = 50.0  # max output decrease per hour (coast-down)
+    startup_delay: float = 0.0  # hours of VFD init when going from off to on
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class DosingSystemState:
     sensor_value: jax.Array
     sensor_drift: jax.Array
@@ -71,13 +71,6 @@ class DosingSystemState:
             pump_output=jnp.array(initial_pump),
             startup_remaining=jnp.array(0.0),
         )
-
-
-jax.tree_util.register_dataclass(
-    DosingSystemState,
-    data_fields=["sensor_value", "sensor_drift", "pi_integral", "pump_output", "startup_remaining"],
-    meta_fields=[],
-)
 
 
 def reset(initial_pv: float, initial_pump: float, rng_key: jax.Array) -> DosingSystemState:

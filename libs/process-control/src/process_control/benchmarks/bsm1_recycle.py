@@ -340,13 +340,20 @@ def make_bsm1_recycle_benchmark(
 
         # 1. Influent flow
         new_source, _transport, q_in, _demand = source_step(
-            state.source_state, state.step_count, source_params, k1,
+            state.source_state,
+            state.step_count,
+            source_params,
+            k1,
         )
 
         # 2. Q_a DosingSystem: reads previous-step NO3_R2, computes Q_a ratio
         new_q_a_loop, no3r2_reading, q_a_ratio, pi_q_a = dosing_step(
-            state.q_a_loop, action[0], state.reactor2.s_no,
-            q_a_dosing, dt, k_qa,
+            state.q_a_loop,
+            action[0],
+            state.reactor2.s_no,
+            q_a_dosing,
+            dt,
+            k_qa,
         )
 
         # 3. Q_rs actuator (bare ramp-limited)
@@ -386,32 +393,34 @@ def make_bsm1_recycle_benchmark(
 
         new_sensors = BSM1RecycleObsSensors(
             do_r5=new_do5,
-            nh4_eff=new_nh4e, no3_eff=new_no3e,
+            nh4_eff=new_nh4e,
+            no3_eff=new_no3e,
             last_q_in=q_in,
         )
 
         # 12. Observation (NO3_R2 comes from Q_a DosingSystem's sensor)
-        obs = jnp.array([
-            nh4e_reading / 35.0,
-            no3e_reading / 20.0,
-            no3r2_reading / 20.0,
-            do5_reading / 8.0,
-            q_in / mean_flow,
-            q_a_ratio / q_a_ratio_max,
-        ])
+        obs = jnp.array(
+            [
+                nh4e_reading / 35.0,
+                no3e_reading / 20.0,
+                no3r2_reading / 20.0,
+                do5_reading / 8.0,
+                q_in / mean_flow,
+                q_a_ratio / q_a_ratio_max,
+            ]
+        )
 
         # 13. Reward: effluent quality (from sensors) + pumping energy penalty
-        reward = -(
-            config.reward_w_nh * nh4e_reading ** 2
-            + config.reward_w_no * no3e_reading ** 2
-            + config.reward_w_energy * (q_a_ratio + q_rs_ratio)
-        )
+        reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2 + config.reward_w_energy * (q_a_ratio + q_rs_ratio))
 
         new_state = BSM1RecyclePlantState(
             step_count=state.step_count + 1,
             source_state=new_source,
-            reactor1=new_r1, reactor2=new_r2, reactor3=new_r3,
-            reactor4=new_r4, reactor5=new_r5,
+            reactor1=new_r1,
+            reactor2=new_r2,
+            reactor3=new_r3,
+            reactor4=new_r4,
+            reactor5=new_r5,
             q_a_loop=new_q_a_loop,
             q_rs_actuator=new_q_rs_state,
             disturbance_schedule=state.disturbance_schedule,

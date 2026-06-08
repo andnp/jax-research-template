@@ -27,7 +27,7 @@ from process_control.units.mixer import MixerState
 from process_control.units.mixer import step as mixer_step
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class PlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
@@ -36,21 +36,6 @@ class PlantState:
     dosing_loop: DosingSystemState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
-
-
-jax.tree_util.register_dataclass(
-    PlantState,
-    data_fields=[
-        "step_count",
-        "source_state",
-        "basin_state",
-        "flow_sensor_state",
-        "dosing_loop",
-        "last_dose",
-        "disturbance_schedule",
-    ],
-    meta_fields=[],
-)
 
 
 @dataclass(frozen=True)
