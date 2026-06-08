@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780868851422,
+  "lastUpdate": 1780884191579,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -2949,6 +2949,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000021809257168190464",
             "extra": "mean: 39.289199992254 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a03c9b29ddc7ffae2b0861edd18723e44b8afe2",
+          "message": "feat(#21): MuJoCo Playground bridge and verification tests (#76)\n\nReplaces deprecated Brax environments with MuJoCo Playground\n(dm_control_suite).\n\n## Changes\n\n- **`rl_components/mujoco_playground_bridge.py`** (new):\n`MujocoPlaygroundAdapter` wraps `MjxEnv` into the canonical\n`EnvProtocol` interface using Protocol stubs (same pattern as\n`brax.py`). Chain: `dm_control_suite.load()` → `MujocoPlaygroundAdapter`\n→ `make_gymnax_compat_env()` → any `make_train` function.\n- **`libs/rl-components/pyproject.toml`**: adds `playground>=0.2.0` as\noptional dep `[playground]`\n- **`tests/medium/test_rl_agents_td3_playground.py`** (new): verifies\nbridge spec/reset/step shapes and TD3 gradient flow on `CheetahRun` +\n`HopperHop` (7 tests, all passing)\n- **`.github/workflows/ci.yml`**: adds `test-medium-playground` job that\ninstalls playground and runs the playground-specific tests; excludes\nthem from the standard `test-medium` job\n\n## Background\n\nBrax environments were deprecated in Brax 0.13.0. MuJoCo Playground is\nthe recommended replacement with dm_control_suite providing\n`CheetahRun`, `HopperHop`, `WalkerWalk`, `HumanoidRun`, and\n`SwimmerSwimmer6`.\n\nCloses #21",
+          "timestamp": "2026-06-07T19:54:21-06:00",
+          "tree_id": "0dbbf09aba9c56205ca964396b17ace85e2f2015",
+          "url": "https://github.com/andnp/jax-research-template/commit/2a03c9b29ddc7ffae2b0861edd18723e44b8afe2"
+        },
+        "date": 1780884191332,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.111632823856959,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022959990133948983",
+            "extra": "mean: 163.62239499998546 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9847683198828971,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002768441085691518",
+            "extra": "mean: 1.0154672726666452 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.03875342949295385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0806749772704484",
+            "extra": "mean: 25.804167865500006 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.583190230629711,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02313977177198582",
+            "extra": "mean: 1.7147063641999467 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 19256.69171062114,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001374065193553722",
+            "extra": "mean: 51.929999972344376 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 43.8194670559406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0008324038350677034",
+            "extra": "mean: 22.82090739997784 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.6132552349115103,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0022987135407190854",
+            "extra": "mean: 382.66449699998856 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4900.783634634824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003426750338747442",
+            "extra": "mean: 204.04900002783202 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 43.453636512489204,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010631343239099862",
+            "extra": "mean: 23.013033666643423 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 364.419977017257,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007841686953823197",
+            "extra": "mean: 2.7440866666665897 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 39.32979924495531,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00031160106410166966",
+            "extra": "mean: 25.4260133333446 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 39515.69557345259,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013264808107704871",
+            "extra": "mean: 25.306400038971333 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 40784.69747018211,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001429741749012266",
+            "extra": "mean: 24.519000066902663 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 25985.90525403982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019858481971782348",
+            "extra": "mean: 38.48239998660574 usec\nrounds: 5"
           }
         ]
       }
