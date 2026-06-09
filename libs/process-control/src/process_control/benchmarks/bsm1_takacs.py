@@ -238,21 +238,7 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         sample_period=config.tss_sample_period,
     )
 
-    influent = ASM1State.create(
-        c.inf_s_i,
-        c.inf_s_s,
-        c.inf_x_i,
-        c.inf_x_s,
-        c.inf_x_bh,
-        c.inf_x_ba,
-        c.inf_x_p,
-        c.inf_s_o,
-        c.inf_s_no,
-        c.inf_s_nh,
-        c.inf_s_nd,
-        c.inf_x_nd,
-        c.inf_s_alk,
-    )
+    influent = asm1_reset(c.initial_states.influent, jax.random.PRNGKey(0))
     dt = jnp.array(c.dt)
     mean_flow = jnp.array(c.mean_flow)
     return_sludge_ratio = jnp.array(c.return_sludge_ratio)
@@ -267,86 +253,11 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
 
         src = source_reset(k1)
 
-        r1 = asm1_reset(
-            c.r1_s_i,
-            c.r1_s_s,
-            c.r1_x_i,
-            c.r1_x_s,
-            c.r1_x_bh,
-            c.r1_x_ba,
-            c.r1_x_p,
-            c.r1_s_o,
-            c.r1_s_no,
-            c.r1_s_nh,
-            c.r1_s_nd,
-            c.r1_x_nd,
-            c.r1_s_alk,
-            k1,
-        )
-        r2 = asm1_reset(
-            c.r2_s_i,
-            c.r2_s_s,
-            c.r2_x_i,
-            c.r2_x_s,
-            c.r2_x_bh,
-            c.r2_x_ba,
-            c.r2_x_p,
-            c.r2_s_o,
-            c.r2_s_no,
-            c.r2_s_nh,
-            c.r2_s_nd,
-            c.r2_x_nd,
-            c.r2_s_alk,
-            k1,
-        )
-        r3 = asm1_reset(
-            c.r3_s_i,
-            c.r3_s_s,
-            c.r3_x_i,
-            c.r3_x_s,
-            c.r3_x_bh,
-            c.r3_x_ba,
-            c.r3_x_p,
-            c.r3_s_o,
-            c.r3_s_no,
-            c.r3_s_nh,
-            c.r3_s_nd,
-            c.r3_x_nd,
-            c.r3_s_alk,
-            k1,
-        )
-        r4 = asm1_reset(
-            c.r4_s_i,
-            c.r4_s_s,
-            c.r4_x_i,
-            c.r4_x_s,
-            c.r4_x_bh,
-            c.r4_x_ba,
-            c.r4_x_p,
-            c.r4_s_o,
-            c.r4_s_no,
-            c.r4_s_nh,
-            c.r4_s_nd,
-            c.r4_x_nd,
-            c.r4_s_alk,
-            k1,
-        )
-        r5 = asm1_reset(
-            c.r5_s_i,
-            c.r5_s_s,
-            c.r5_x_i,
-            c.r5_x_s,
-            c.r5_x_bh,
-            c.r5_x_ba,
-            c.r5_x_p,
-            c.r5_s_o,
-            c.r5_s_no,
-            c.r5_s_nh,
-            c.r5_s_nd,
-            c.r5_x_nd,
-            c.r5_s_alk,
-            k1,
-        )
+        r1 = asm1_reset(c.initial_states.r1, jax.random.PRNGKey(0))
+        r2 = asm1_reset(c.initial_states.r2, jax.random.PRNGKey(0))
+        r3 = asm1_reset(c.initial_states.r3, jax.random.PRNGKey(0))
+        r4 = asm1_reset(c.initial_states.r4, jax.random.PRNGKey(0))
+        r5 = asm1_reset(c.initial_states.r5, jax.random.PRNGKey(0))
 
         # Initialize settler with typical MLSS
         feed_tss_init = float(_compute_tss(r5))

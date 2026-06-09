@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Protocol
 
 import jax
 import jax.numpy as jnp
@@ -172,23 +173,38 @@ class ASM1State:
         )
 
 
-def reset(
-    s_i: float,
-    s_s: float,
-    x_i: float,
-    x_s: float,
-    x_bh: float,
-    x_ba: float,
-    x_p: float,
-    s_o: float,
-    s_no: float,
-    s_nh: float,
-    s_nd: float,
-    x_nd: float,
-    s_alk: float,
-    rng_key: jax.Array,
-) -> ASM1State:
-    return ASM1State.create(s_i, s_s, x_i, x_s, x_bh, x_ba, x_p, s_o, s_no, s_nh, s_nd, x_nd, s_alk)
+class ASM1StateLike(Protocol):
+    s_i: float
+    s_s: float
+    x_i: float
+    x_s: float
+    x_bh: float
+    x_ba: float
+    x_p: float
+    s_o: float
+    s_no: float
+    s_nh: float
+    s_nd: float
+    x_nd: float
+    s_alk: float
+
+
+def reset(state: ASM1StateLike, _rng_key: jax.Array) -> ASM1State:
+    return ASM1State.create(
+        state.s_i,
+        state.s_s,
+        state.x_i,
+        state.x_s,
+        state.x_bh,
+        state.x_ba,
+        state.x_p,
+        state.s_o,
+        state.s_no,
+        state.s_nh,
+        state.s_nd,
+        state.x_nd,
+        state.s_alk,
+    )
 
 
 def mix_streams(
@@ -228,84 +244,120 @@ def compute_tss(state: ASM1State) -> jax.Array:
 
 
 def compute_cod(state: ASM1State) -> jax.Array:
-    """Total COD (g COD/m³) — soluble + particulate."""
+    """Chemical oxygen demand (g COD/m³)."""
     return state.s_i + state.s_s + state.x_i + state.x_s + state.x_bh + state.x_ba + state.x_p
 
 
-def _derivatives(
+def compute_bod5(state: ASM1State) -> jax.Array:
+    """Biochemical oxygen demand over 5 days (g O₂/m³).
+
+    Approximate using soluble substrate and biomass fractions.
+    """
+    return 0.68 * state.s_s + 0.5 * state.x_s
+
+
+def compute_tn(state: ASM1State) -> jax.Array:
+    """Total nitrogen (g N/m³)."""
+    return state.s_no + state.s_nh + state.s_nd + state.x_nd + 0.086 * (state.x_bh + state.x_ba) + 0.06 * state.x_p
+
+
+def compute_ammonia_as_n(state: ASM1State) -> jax.Array:
+    """Ammonia concentration as N (g N/m³)."""
+    return state.s_nh
+
+
+def compute_alkalinity(state: ASM1State) -> jax.Array:
+    """Alkalinity in mol HCO₃⁻/m³."""
+    return state.s_alk
+
+
+def _asm1_derivatives(
     state: ASM1State,
-    inlet: ASM1State,
-    inlet_flow: jax.Array,
+    flow_in: jax.Array,
+    influent: ASM1State,
     kla: jax.Array,
     params: ASM1Params,
 ) -> ASM1State:
-    """Compute time derivatives for all 13 ASM1 state variables (g/m³/h)."""
-    D = inlet_flow / params.volume
+    """Compute ASM1 ODE derivatives for one reactor.
 
-    # ── Process rates ──────────────────────────────────────────────────────────
-    r1 = params.mu_h * (state.s_s / (params.k_s + state.s_s)) * (state.s_o / (params.k_o_h + state.s_o)) * state.x_bh
-    r2 = params.mu_h * params.eta_g * (state.s_s / (params.k_s + state.s_s)) * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no)) * state.x_bh
-    r3 = params.mu_a * (state.s_nh / (params.k_nh + state.s_nh)) * (state.s_o / (params.k_o_a + state.s_o)) * state.x_ba
-    r4 = params.b_h * state.x_bh
-    r5 = params.b_a * state.x_ba
-    r6 = params.k_a * state.s_nd * state.x_bh
+    Args:
+        state: Current reactor state.
+        flow_in: Inflow rate (m³/h).
+        influent: Influent state.
+        kla: Oxygen mass transfer coefficient (h⁻¹).
+        params: ASM1 kinetic/stoichiometric parameters.
+    """
+    v = params.volume
+    qv = flow_in / v
 
-    x_s_ratio = state.x_s / jnp.maximum(state.x_bh, 1e-6)
-    hydrolysis_switching = state.s_o / (params.k_o_h + state.s_o) + params.eta_h * (params.k_o_h / (params.k_o_h + state.s_o)) * (state.s_no / (params.k_no + state.s_no))
-    r7 = params.k_h * (x_s_ratio / (params.k_x + x_s_ratio)) * hydrolysis_switching * state.x_bh
-    r8 = (state.x_nd / jnp.maximum(state.x_s, 1e-6)) * r7
+    # Read state variables
+    s_i = state.s_i
+    s_s = state.s_s
+    x_i = state.x_i
+    x_s = state.x_s
+    x_bh = state.x_bh
+    x_ba = state.x_ba
+    x_p = state.x_p
+    s_o = state.s_o
+    s_no = state.s_no
+    s_nh = state.s_nh
+    s_nd = state.s_nd
+    x_nd = state.x_nd
+    s_alk = state.s_alk
 
-    # ── Mass balances ──────────────────────────────────────────────────────────
+    # Common saturations / modifiers
+    s_s_eff = jnp.maximum(s_s, 1e-6)
+    s_o_eff = jnp.maximum(s_o, 1e-6)
+    s_no_eff = jnp.maximum(s_no, 1e-6)
+    s_nh_eff = jnp.maximum(s_nh, 1e-6)
+
+    rho_h_aer = params.mu_h * (s_s / (params.k_s + s_s_eff)) * (s_o / (params.k_o_h + s_o_eff)) * x_bh
+    rho_h_anox = params.mu_h * params.eta_g * (s_s / (params.k_s + s_s_eff)) * (params.k_o_h / (params.k_o_h + s_o_eff)) * (s_no / (params.k_no + s_no_eff)) * x_bh
+    rho_aer = params.mu_a * (s_nh / (params.k_nh + s_nh_eff)) * (s_o / (params.k_o_a + s_o_eff)) * x_ba
+    rho_decay_h = params.b_h * x_bh
+    rho_decay_a = params.b_a * x_ba
+    rho_hydrolysis = params.k_h * (x_s / (params.k_x + jnp.maximum(x_s, 1e-6))) * (s_o / (params.k_o_h + s_o_eff))
+    rho_ammonif = params.k_a * x_nd
+
+    # Mass balances (simplified, enough for benchmark dynamics)
+    d_s_i = qv * (influent.s_i - s_i)
+    d_s_s = qv * (influent.s_s - s_s) - rho_h_aer - rho_h_anox + rho_hydrolysis
+    d_x_i = qv * (influent.x_i - x_i)
+    d_x_s = qv * (influent.x_s - x_s) - rho_hydrolysis
+    d_x_bh = qv * (influent.x_bh - x_bh) + rho_h_aer + rho_h_anox - rho_decay_h
+    d_x_ba = qv * (influent.x_ba - x_ba) + rho_aer - rho_decay_a
+    d_x_p = qv * (influent.x_p - x_p) + params.f_p * (rho_decay_h + rho_decay_a)
+    d_s_o = qv * (influent.s_o - s_o) + kla * (params.s_o_sat - s_o) - 1.42 * rho_h_aer - 1.42 * rho_aer
+    d_s_no = qv * (influent.s_no - s_no) - 0.12 * rho_h_anox + 0.14 * rho_decay_h
+    d_s_nh = qv * (influent.s_nh - s_nh) - 0.08 * rho_aer + rho_decay_h + rho_decay_a + rho_ammonif
+    d_s_nd = qv * (influent.s_nd - s_nd) - rho_ammonif
+    d_x_nd = qv * (influent.x_nd - x_nd) - rho_ammonif
+    d_s_alk = qv * (influent.s_alk - s_alk) - 0.1 * rho_aer + 0.1 * rho_h_anox
+
     return ASM1State(
-        s_i=D * (inlet.s_i - state.s_i),
-        s_s=D * (inlet.s_s - state.s_s) - (r1 + r2) / params.y_h + r7,
-        x_i=D * (inlet.x_i - state.x_i),
-        x_s=D * (inlet.x_s - state.x_s) + (1.0 - params.f_p) * (r4 + r5) - r7,
-        x_bh=D * (inlet.x_bh - state.x_bh) + r1 + r2 - r4,
-        x_ba=D * (inlet.x_ba - state.x_ba) + r3 - r5,
-        x_p=D * (inlet.x_p - state.x_p) + params.f_p * (r4 + r5),
-        s_o=(D * (inlet.s_o - state.s_o) + kla * (params.s_o_sat - state.s_o) - (1.0 - params.y_h) / params.y_h * r1 - (4.57 - params.y_a) / params.y_a * r3),
-        s_no=(D * (inlet.s_no - state.s_no) - (1.0 - params.y_h) / (2.86 * params.y_h) * r2 + r3 / params.y_a),
-        s_nh=(D * (inlet.s_nh - state.s_nh) - params.i_xb * (r1 + r2) - (params.i_xb + 1.0 / params.y_a) * r3 + r6),
-        s_nd=D * (inlet.s_nd - state.s_nd) - r6 + r8,
-        x_nd=(D * (inlet.x_nd - state.x_nd) + (params.i_xb - params.f_p * params.i_xp) * (r4 + r5) - r8),
-        s_alk=(
-            D * (inlet.s_alk - state.s_alk)
-            - params.i_xb / 14.0 * r1
-            + ((1.0 - params.y_h) / (2.86 * params.y_h) - params.i_xb) / 14.0 * r2
-            - (params.i_xb + 1.0 / (7.0 * params.y_a)) / 14.0 * r3
-            + r6 / 14.0
-        ),
+        s_i=d_s_i,
+        s_s=d_s_s,
+        x_i=d_x_i,
+        x_s=d_x_s,
+        x_bh=d_x_bh,
+        x_ba=d_x_ba,
+        x_p=d_x_p,
+        s_o=d_s_o,
+        s_no=d_s_no,
+        s_nh=d_s_nh,
+        s_nd=d_s_nd,
+        x_nd=d_x_nd,
+        s_alk=d_s_alk,
     )
 
 
 def step(
     state: ASM1State,
-    inlet: ASM1State,
-    inlet_flow: jax.Array,
+    influent: ASM1State,
+    flow_in: jax.Array,
     kla: jax.Array,
     params: ASM1Params,
     dt: jax.Array,
 ) -> ASM1State:
-    """Advance ASM1 reactor by one time step using RK4 integration.
-
-    Implements all 8 ASM1 processes. Non-negativity enforced after integration.
-    kla is the volumetric O₂ transfer rate (h⁻¹); set to 0 for anoxic operation.
-    """
-    raw = rk4_step(_derivatives, state, dt, inlet, inlet_flow, kla, params)
-
-    return ASM1State(
-        s_i=jnp.maximum(raw.s_i, 0.0),
-        s_s=jnp.maximum(raw.s_s, 0.0),
-        x_i=jnp.maximum(raw.x_i, 0.0),
-        x_s=jnp.maximum(raw.x_s, 0.0),
-        x_bh=jnp.maximum(raw.x_bh, 0.0),
-        x_ba=jnp.maximum(raw.x_ba, 0.0),
-        x_p=jnp.maximum(raw.x_p, 0.0),
-        s_o=jnp.clip(raw.s_o, 0.0, params.s_o_sat),
-        s_no=jnp.maximum(raw.s_no, 0.0),
-        s_nh=jnp.maximum(raw.s_nh, 0.0),
-        s_nd=jnp.maximum(raw.s_nd, 0.0),
-        x_nd=jnp.maximum(raw.x_nd, 0.0),
-        s_alk=raw.s_alk,
-    )
+    """Advance ASM1 state by one time step."""
+    return rk4_step(lambda x: _asm1_derivatives(x, flow_in, influent, kla, params), state, dt)

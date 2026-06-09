@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jax
 import jax.numpy as jnp
@@ -21,6 +23,127 @@ from process_control.sensors.residual_analyzer import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
+
+
+@dataclass(frozen=True)
+class ASM1InitialStateConfig:
+    s_i: float = 30.0
+    s_s: float = 2.0
+    x_i: float = 1000.0
+    x_s: float = 60.0
+    x_bh: float = 2500.0
+    x_ba: float = 150.0
+    x_p: float = 450.0
+    s_o: float = 0.0
+    s_no: float = 8.0
+    s_nh: float = 5.0
+    s_nd: float = 1.0
+    x_nd: float = 4.0
+    s_alk: float = 5.0
+
+
+@dataclass(frozen=True)
+class BSM1InitialStatesConfig:
+    influent: ASM1InitialStateConfig = field(default_factory=lambda: ASM1InitialStateConfig(
+        s_i=30.0,
+        s_s=69.5,
+        x_i=51.2,
+        x_s=202.32,
+        x_bh=28.17,
+        x_ba=0.0,
+        x_p=0.0,
+        s_o=0.0,
+        s_no=0.0,
+        s_nh=31.56,
+        s_nd=6.95,
+        x_nd=10.59,
+        s_alk=7.0,
+    ))
+    r1: ASM1InitialStateConfig = field(
+        default_factory=lambda: ASM1InitialStateConfig(
+            s_i=30.0,
+            s_s=2.81,
+            x_i=1100.0,
+            x_s=82.1,
+            x_bh=2552.0,
+            x_ba=148.0,
+            x_p=449.0,
+            s_o=0.0,
+            s_no=8.7,
+            s_nh=7.92,
+            s_nd=1.22,
+            x_nd=5.29,
+            s_alk=5.08,
+        )
+    )
+    r2: ASM1InitialStateConfig = field(
+        default_factory=lambda: ASM1InitialStateConfig(
+            s_i=30.0,
+            s_s=1.46,
+            x_i=1100.0,
+            x_s=52.1,
+            x_bh=2553.0,
+            x_ba=148.6,
+            x_p=450.0,
+            s_o=0.0,
+            s_no=6.8,
+            s_nh=7.26,
+            s_nd=0.883,
+            x_nd=3.53,
+            s_alk=5.43,
+        )
+    )
+    r3: ASM1InitialStateConfig = field(
+        default_factory=lambda: ASM1InitialStateConfig(
+            s_i=30.0,
+            s_s=1.15,
+            x_i=1100.0,
+            x_s=41.2,
+            x_bh=2557.0,
+            x_ba=148.9,
+            x_p=451.0,
+            s_o=1.72,
+            s_no=9.88,
+            s_nh=4.25,
+            s_nd=0.734,
+            x_nd=2.97,
+            s_alk=4.82,
+        )
+    )
+    r4: ASM1InitialStateConfig = field(
+        default_factory=lambda: ASM1InitialStateConfig(
+            s_i=30.0,
+            s_s=0.995,
+            x_i=1100.0,
+            x_s=37.1,
+            x_bh=2559.0,
+            x_ba=149.0,
+            x_p=452.0,
+            s_o=2.43,
+            s_no=10.3,
+            s_nh=2.57,
+            s_nd=0.655,
+            x_nd=2.80,
+            s_alk=4.65,
+        )
+    )
+    r5: ASM1InitialStateConfig = field(
+        default_factory=lambda: ASM1InitialStateConfig(
+            s_i=30.0,
+            s_s=0.889,
+            x_i=1100.0,
+            x_s=35.4,
+            x_bh=2559.0,
+            x_ba=149.1,
+            x_p=452.0,
+            s_o=2.97,
+            s_no=10.4,
+            s_nh=1.73,
+            s_nd=0.612,
+            x_nd=2.77,
+            s_alk=4.58,
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -49,6 +172,7 @@ class BSM1BenchmarkConfig:
       dq/dt:           flow rate of change
     """
 
+    initial_states: BSM1InitialStatesConfig = field(default_factory=BSM1InitialStatesConfig)
     dt: float = 0.02  # hours (~1.2 min)
 
     # ── Control mode ──────────────────────────────────────────────
@@ -84,21 +208,6 @@ class BSM1BenchmarkConfig:
     internal_recycle_ratio: float = 3.0  # Q_a = ratio × Q_in
     return_sludge_ratio: float = 1.0  # Q_r = ratio × Q_in
 
-    # Influent composition — BSM1 dry-weather values (g/m³ or mol/m³)
-    inf_s_i: float = 30.0
-    inf_s_s: float = 69.5
-    inf_x_i: float = 51.2
-    inf_x_s: float = 202.32
-    inf_x_bh: float = 28.17
-    inf_x_ba: float = 0.0
-    inf_x_p: float = 0.0
-    inf_s_o: float = 0.0
-    inf_s_no: float = 0.0
-    inf_s_nh: float = 31.56
-    inf_s_nd: float = 6.95
-    inf_x_nd: float = 10.59
-    inf_s_alk: float = 7.0
-
     # Influent flow variation
     mean_flow: float = 769.0
     diurnal_amplitude: float = 150.0
@@ -107,82 +216,6 @@ class BSM1BenchmarkConfig:
     demand_noise_std: float = 1.0
     drift_scale: float = 0.05
     steps_per_day: int = 1200
-
-    # Reactor initial states — approximate BSM1 dry-weather steady state
-    # Reactor 1 (anoxic)
-    r1_s_i: float = 30.0
-    r1_s_s: float = 2.81
-    r1_x_i: float = 1100.0
-    r1_x_s: float = 82.1
-    r1_x_bh: float = 2552.0
-    r1_x_ba: float = 148.0
-    r1_x_p: float = 449.0
-    r1_s_o: float = 0.0
-    r1_s_no: float = 8.7
-    r1_s_nh: float = 7.92
-    r1_s_nd: float = 1.22
-    r1_x_nd: float = 5.29
-    r1_s_alk: float = 5.08
-
-    # Reactor 2 (anoxic)
-    r2_s_i: float = 30.0
-    r2_s_s: float = 1.46
-    r2_x_i: float = 1100.0
-    r2_x_s: float = 52.1
-    r2_x_bh: float = 2553.0
-    r2_x_ba: float = 148.6
-    r2_x_p: float = 450.0
-    r2_s_o: float = 0.0
-    r2_s_no: float = 6.8
-    r2_s_nh: float = 7.26
-    r2_s_nd: float = 0.883
-    r2_x_nd: float = 3.53
-    r2_s_alk: float = 5.43
-
-    # Reactor 3 (aerobic)
-    r3_s_i: float = 30.0
-    r3_s_s: float = 1.15
-    r3_x_i: float = 1100.0
-    r3_x_s: float = 41.2
-    r3_x_bh: float = 2557.0
-    r3_x_ba: float = 148.9
-    r3_x_p: float = 451.0
-    r3_s_o: float = 1.72
-    r3_s_no: float = 9.88
-    r3_s_nh: float = 4.25
-    r3_s_nd: float = 0.734
-    r3_x_nd: float = 2.97
-    r3_s_alk: float = 4.82
-
-    # Reactor 4 (aerobic)
-    r4_s_i: float = 30.0
-    r4_s_s: float = 0.995
-    r4_x_i: float = 1100.0
-    r4_x_s: float = 37.1
-    r4_x_bh: float = 2559.0
-    r4_x_ba: float = 149.0
-    r4_x_p: float = 452.0
-    r4_s_o: float = 2.43
-    r4_s_no: float = 10.3
-    r4_s_nh: float = 2.57
-    r4_s_nd: float = 0.655
-    r4_x_nd: float = 2.80
-    r4_s_alk: float = 4.65
-
-    # Reactor 5 (aerobic)
-    r5_s_i: float = 30.0
-    r5_s_s: float = 0.889
-    r5_x_i: float = 1100.0
-    r5_x_s: float = 35.4
-    r5_x_bh: float = 2559.0
-    r5_x_ba: float = 149.1
-    r5_x_p: float = 452.0
-    r5_s_o: float = 2.97
-    r5_s_no: float = 10.4
-    r5_s_nh: float = 1.73
-    r5_s_nd: float = 0.612
-    r5_x_nd: float = 2.77
-    r5_s_alk: float = 4.58
 
     # Reward weights
     reward_w_nh: float = 1.0
@@ -199,6 +232,7 @@ class BSM1BenchmarkConfig:
     analyzer_noise_std: float = 0.3  # g/m³
     analyzer_lag: float = 0.8  # lag coefficient
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
+
 
 @jax_dataclass
 class BSM1ObsSensors:
@@ -342,109 +376,20 @@ def make_bsm1_benchmark(
     kla_max_total = config.kla_34_max * (config.v3 + config.v4) + config.kla_5_max * config.v5
     power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
-    influent = ASM1State(
-        s_i=jnp.array(config.inf_s_i),
-        s_s=jnp.array(config.inf_s_s),
-        x_i=jnp.array(config.inf_x_i),
-        x_s=jnp.array(config.inf_x_s),
-        x_bh=jnp.array(config.inf_x_bh),
-        x_ba=jnp.array(config.inf_x_ba),
-        x_p=jnp.array(config.inf_x_p),
-        s_o=jnp.array(config.inf_s_o),
-        s_no=jnp.array(config.inf_s_no),
-        s_nh=jnp.array(config.inf_s_nh),
-        s_nd=jnp.array(config.inf_s_nd),
-        x_nd=jnp.array(config.inf_x_nd),
-        s_alk=jnp.array(config.inf_s_alk),
-    )
+    influent = asm1_reset(config.initial_states.influent, jax.random.PRNGKey(0))
 
     def reset(rng_key: jax.Array) -> tuple[BSM1PlantState, jax.Array]:
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
         src = source_reset(k1)
-        r1 = asm1_reset(
-            config.r1_s_i,
-            config.r1_s_s,
-            config.r1_x_i,
-            config.r1_x_s,
-            config.r1_x_bh,
-            config.r1_x_ba,
-            config.r1_x_p,
-            config.r1_s_o,
-            config.r1_s_no,
-            config.r1_s_nh,
-            config.r1_s_nd,
-            config.r1_x_nd,
-            config.r1_s_alk,
-            k1,
-        )
-        r2 = asm1_reset(
-            config.r2_s_i,
-            config.r2_s_s,
-            config.r2_x_i,
-            config.r2_x_s,
-            config.r2_x_bh,
-            config.r2_x_ba,
-            config.r2_x_p,
-            config.r2_s_o,
-            config.r2_s_no,
-            config.r2_s_nh,
-            config.r2_s_nd,
-            config.r2_x_nd,
-            config.r2_s_alk,
-            k1,
-        )
-        r3 = asm1_reset(
-            config.r3_s_i,
-            config.r3_s_s,
-            config.r3_x_i,
-            config.r3_x_s,
-            config.r3_x_bh,
-            config.r3_x_ba,
-            config.r3_x_p,
-            config.r3_s_o,
-            config.r3_s_no,
-            config.r3_s_nh,
-            config.r3_s_nd,
-            config.r3_x_nd,
-            config.r3_s_alk,
-            k1,
-        )
-        r4 = asm1_reset(
-            config.r4_s_i,
-            config.r4_s_s,
-            config.r4_x_i,
-            config.r4_x_s,
-            config.r4_x_bh,
-            config.r4_x_ba,
-            config.r4_x_p,
-            config.r4_s_o,
-            config.r4_s_no,
-            config.r4_s_nh,
-            config.r4_s_nd,
-            config.r4_x_nd,
-            config.r4_s_alk,
-            k1,
-        )
-        r5 = asm1_reset(
-            config.r5_s_i,
-            config.r5_s_s,
-            config.r5_x_i,
-            config.r5_x_s,
-            config.r5_x_bh,
-            config.r5_x_ba,
-            config.r5_x_p,
-            config.r5_s_o,
-            config.r5_s_no,
-            config.r5_s_nh,
-            config.r5_s_nd,
-            config.r5_x_nd,
-            config.r5_s_alk,
-            k1,
-        )
+        r1 = asm1_reset(config.initial_states.r1, jax.random.PRNGKey(0))
+        r2 = asm1_reset(config.initial_states.r2, jax.random.PRNGKey(0))
+        r3 = asm1_reset(config.initial_states.r3, jax.random.PRNGKey(0))
+        r4 = asm1_reset(config.initial_states.r4, jax.random.PRNGKey(0))
+        r5 = asm1_reset(config.initial_states.r5, jax.random.PRNGKey(0))
 
-        kla_34_state = dosing_reset(config.r3_s_o, 0.0, k2)
-        kla_5_state = dosing_reset(config.r5_s_o, 0.0, k3)
+        kla_34_state = dosing_reset(config.initial_states.r3.s_o, 0.0, k2)
+        kla_5_state = dosing_reset(config.initial_states.r5.s_o, 0.0, k3)
 
         sensors = BSM1ObsSensors(
             nh4_eff=ResidualAnalyzerState.create(),

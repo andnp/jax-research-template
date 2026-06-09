@@ -187,21 +187,7 @@ def make_bsm1_recycle_benchmark(
         sample_period=bsm1.analyzer_sample_period,
     )
 
-    influent = ASM1State(
-        s_i=jnp.array(bsm1.inf_s_i),
-        s_s=jnp.array(bsm1.inf_s_s),
-        x_i=jnp.array(bsm1.inf_x_i),
-        x_s=jnp.array(bsm1.inf_x_s),
-        x_bh=jnp.array(bsm1.inf_x_bh),
-        x_ba=jnp.array(bsm1.inf_x_ba),
-        x_p=jnp.array(bsm1.inf_x_p),
-        s_o=jnp.array(bsm1.inf_s_o),
-        s_no=jnp.array(bsm1.inf_s_no),
-        s_nh=jnp.array(bsm1.inf_s_nh),
-        s_nd=jnp.array(bsm1.inf_s_nd),
-        x_nd=jnp.array(bsm1.inf_x_nd),
-        s_alk=jnp.array(bsm1.inf_s_alk),
-    )
+    influent = asm1_reset(bsm1.initial_states.influent, jax.random.PRNGKey(0))
 
     # Initial recycle ratios (BSM1 defaults)
     init_q_a_ratio = jnp.array(bsm1.internal_recycle_ratio)
@@ -211,93 +197,18 @@ def make_bsm1_recycle_benchmark(
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
         src = source_reset(k1)
-        r1 = asm1_reset(
-            bsm1.r1_s_i,
-            bsm1.r1_s_s,
-            bsm1.r1_x_i,
-            bsm1.r1_x_s,
-            bsm1.r1_x_bh,
-            bsm1.r1_x_ba,
-            bsm1.r1_x_p,
-            bsm1.r1_s_o,
-            bsm1.r1_s_no,
-            bsm1.r1_s_nh,
-            bsm1.r1_s_nd,
-            bsm1.r1_x_nd,
-            bsm1.r1_s_alk,
-            k1,
-        )
-        r2 = asm1_reset(
-            bsm1.r2_s_i,
-            bsm1.r2_s_s,
-            bsm1.r2_x_i,
-            bsm1.r2_x_s,
-            bsm1.r2_x_bh,
-            bsm1.r2_x_ba,
-            bsm1.r2_x_p,
-            bsm1.r2_s_o,
-            bsm1.r2_s_no,
-            bsm1.r2_s_nh,
-            bsm1.r2_s_nd,
-            bsm1.r2_x_nd,
-            bsm1.r2_s_alk,
-            k1,
-        )
-        r3 = asm1_reset(
-            bsm1.r3_s_i,
-            bsm1.r3_s_s,
-            bsm1.r3_x_i,
-            bsm1.r3_x_s,
-            bsm1.r3_x_bh,
-            bsm1.r3_x_ba,
-            bsm1.r3_x_p,
-            bsm1.r3_s_o,
-            bsm1.r3_s_no,
-            bsm1.r3_s_nh,
-            bsm1.r3_s_nd,
-            bsm1.r3_x_nd,
-            bsm1.r3_s_alk,
-            k1,
-        )
-        r4 = asm1_reset(
-            bsm1.r4_s_i,
-            bsm1.r4_s_s,
-            bsm1.r4_x_i,
-            bsm1.r4_x_s,
-            bsm1.r4_x_bh,
-            bsm1.r4_x_ba,
-            bsm1.r4_x_p,
-            bsm1.r4_s_o,
-            bsm1.r4_s_no,
-            bsm1.r4_s_nh,
-            bsm1.r4_s_nd,
-            bsm1.r4_x_nd,
-            bsm1.r4_s_alk,
-            k1,
-        )
-        r5 = asm1_reset(
-            bsm1.r5_s_i,
-            bsm1.r5_s_s,
-            bsm1.r5_x_i,
-            bsm1.r5_x_s,
-            bsm1.r5_x_bh,
-            bsm1.r5_x_ba,
-            bsm1.r5_x_p,
-            bsm1.r5_s_o,
-            bsm1.r5_s_no,
-            bsm1.r5_s_nh,
-            bsm1.r5_s_nd,
-            bsm1.r5_x_nd,
-            bsm1.r5_s_alk,
-            k1,
-        )
+        r1 = asm1_reset(bsm1.initial_states.r1, jax.random.PRNGKey(0))
+        r2 = asm1_reset(bsm1.initial_states.r2, jax.random.PRNGKey(0))
+        r3 = asm1_reset(bsm1.initial_states.r3, jax.random.PRNGKey(0))
+        r4 = asm1_reset(bsm1.initial_states.r4, jax.random.PRNGKey(0))
+        r5 = asm1_reset(bsm1.initial_states.r5, jax.random.PRNGKey(0))
 
         # Q_a DosingSystem initialised at BSM1 default ratio, sensor at R2 NO3
-        q_a_state = dosing_reset(bsm1.r2_s_no, float(bsm1.internal_recycle_ratio), k2)
+        q_a_state = dosing_reset(bsm1.initial_states.r2.s_no, float(bsm1.internal_recycle_ratio), k2)
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1RecycleObsSensors(
-            do_r5=DOSensorState.create(bsm1.r5_s_o),
+            do_r5=DOSensorState.create(bsm1.initial_states.r5.s_o),
             nh4_eff=ResidualAnalyzerState.create(),
             no3_eff=ResidualAnalyzerState.create(),
             last_q_in=jnp.array(bsm1.mean_flow),

@@ -167,21 +167,7 @@ def make_bsm1_lt_benchmark(
     kla_max_total = c.kla_34_max * (c.v3 + c.v4) + c.kla_5_max * c.v5
     power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
-    influent = ASM1State(
-        s_i=jnp.array(c.inf_s_i),
-        s_s=jnp.array(c.inf_s_s),
-        x_i=jnp.array(c.inf_x_i),
-        x_s=jnp.array(c.inf_x_s),
-        x_bh=jnp.array(c.inf_x_bh),
-        x_ba=jnp.array(c.inf_x_ba),
-        x_p=jnp.array(c.inf_x_p),
-        s_o=jnp.array(c.inf_s_o),
-        s_no=jnp.array(c.inf_s_no),
-        s_nh=jnp.array(c.inf_s_nh),
-        s_nd=jnp.array(c.inf_s_nd),
-        x_nd=jnp.array(c.inf_x_nd),
-        s_alk=jnp.array(c.inf_s_alk),
-    )
+    influent = asm1_reset(c.initial_states.influent, jax.random.PRNGKey(0))
 
     def _compute_temperature(step_count: jax.Array):
         """Seasonal temperature: sinusoidal with minimum in winter (day ~0)."""
@@ -193,89 +179,14 @@ def make_bsm1_lt_benchmark(
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
         src = source_reset(k1)
-        r1 = asm1_reset(
-            c.r1_s_i,
-            c.r1_s_s,
-            c.r1_x_i,
-            c.r1_x_s,
-            c.r1_x_bh,
-            c.r1_x_ba,
-            c.r1_x_p,
-            c.r1_s_o,
-            c.r1_s_no,
-            c.r1_s_nh,
-            c.r1_s_nd,
-            c.r1_x_nd,
-            c.r1_s_alk,
-            k1,
-        )
-        r2 = asm1_reset(
-            c.r2_s_i,
-            c.r2_s_s,
-            c.r2_x_i,
-            c.r2_x_s,
-            c.r2_x_bh,
-            c.r2_x_ba,
-            c.r2_x_p,
-            c.r2_s_o,
-            c.r2_s_no,
-            c.r2_s_nh,
-            c.r2_s_nd,
-            c.r2_x_nd,
-            c.r2_s_alk,
-            k1,
-        )
-        r3 = asm1_reset(
-            c.r3_s_i,
-            c.r3_s_s,
-            c.r3_x_i,
-            c.r3_x_s,
-            c.r3_x_bh,
-            c.r3_x_ba,
-            c.r3_x_p,
-            c.r3_s_o,
-            c.r3_s_no,
-            c.r3_s_nh,
-            c.r3_s_nd,
-            c.r3_x_nd,
-            c.r3_s_alk,
-            k1,
-        )
-        r4 = asm1_reset(
-            c.r4_s_i,
-            c.r4_s_s,
-            c.r4_x_i,
-            c.r4_x_s,
-            c.r4_x_bh,
-            c.r4_x_ba,
-            c.r4_x_p,
-            c.r4_s_o,
-            c.r4_s_no,
-            c.r4_s_nh,
-            c.r4_s_nd,
-            c.r4_x_nd,
-            c.r4_s_alk,
-            k1,
-        )
-        r5 = asm1_reset(
-            c.r5_s_i,
-            c.r5_s_s,
-            c.r5_x_i,
-            c.r5_x_s,
-            c.r5_x_bh,
-            c.r5_x_ba,
-            c.r5_x_p,
-            c.r5_s_o,
-            c.r5_s_no,
-            c.r5_s_nh,
-            c.r5_s_nd,
-            c.r5_x_nd,
-            c.r5_s_alk,
-            k1,
-        )
+        r1 = asm1_reset(c.initial_states.r1, jax.random.PRNGKey(0))
+        r2 = asm1_reset(c.initial_states.r2, jax.random.PRNGKey(0))
+        r3 = asm1_reset(c.initial_states.r3, jax.random.PRNGKey(0))
+        r4 = asm1_reset(c.initial_states.r4, jax.random.PRNGKey(0))
+        r5 = asm1_reset(c.initial_states.r5, jax.random.PRNGKey(0))
 
-        kla_34_state = dosing_reset(c.r3_s_o, 0.0, k2)
-        kla_5_state = dosing_reset(c.r5_s_o, 0.0, k3)
+        kla_34_state = dosing_reset(c.initial_states.r3.s_o, 0.0, k2)
+        kla_5_state = dosing_reset(c.initial_states.r5.s_o, 0.0, k3)
 
         sensors = BSM1ObsSensors(
             nh4_eff=ResidualAnalyzerState.create(),
