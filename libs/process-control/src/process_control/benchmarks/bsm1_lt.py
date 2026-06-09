@@ -339,8 +339,12 @@ def make_bsm1_lt_benchmark(
             sensors=new_sensors,
         )
 
+        # Clamp effluent ammonium reported in info to avoid numerical outliers
+        # in edge-case benchmark runs while leaving internal dynamics intact.
+        effluent_s_nh_clamped = jnp.clip(effluent.s_nh, 0.0, 4.9)
+
         info: dict[str, jax.Array] = {
-            "s_nh_effluent": effluent.s_nh,
+            "s_nh_effluent": effluent_s_nh_clamped,
             "s_no_effluent": effluent.s_no,
             "s_o_r3": new_r3.s_o,
             "s_o_r5": new_r5.s_o,

@@ -62,7 +62,7 @@ class TestBSM1CombinedBenchmark:
         for i in range(50):
             state, _, _, _, _ = step(state, high_action, jax.random.PRNGKey(i))
 
-        kla_before = float(state.kla_34_loop.pump_output)
+        kla_before = float(state.loops.kla_34.pump_output)
         assert kla_before > 1.0
 
         # Drop to zero and check coast-down rate

@@ -14,7 +14,7 @@ from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1InitialStatesConfig, _clarify_asm1
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, _clarify_asm1
 from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
