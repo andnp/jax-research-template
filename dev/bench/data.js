@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780884191579,
+  "lastUpdate": 1781753937673,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -3071,6 +3071,128 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000019858481971782348",
             "extra": "mean: 38.48239998660574 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6672d3e990df7182e7ad2a51b67b1ca6ad901a1",
+          "message": "feat(#77): add GymnaxEnvAdapter with correct truncation/termination signals (#78)\n\n## Summary\n\n- Adds `GymnaxEnvAdapter` in\n`libs/rl-components/src/rl_components/gymnax_adapter.py` that wraps any\nnative gymnax `Environment` into `EnvProtocol` with correct separated\n`terminated`/`truncated` signals\n- Adds `make_gymnax_env(env_name, max_steps=None)` factory\n- 13 new small tests covering all signal/auto-reset/spec/factory cases\n\n## Problem\n\nGymnax's `is_terminal()` conflates true env termination with time-limit\ntruncation into a single `done` signal (old OpenAI gym convention). This\nbiases return estimates because the value bootstrap at truncation should\nnot zero out the way a true terminal would.\n\n## Approach\n\nSet gymnax's `max_steps_in_episode = T + 1` so its own time-limit check\ncan never fire at step T. Call `step_env()`/`reset_env()` directly\n(bypassing gymnax's JIT-wrapped `step()` and its built-in auto-reset).\nCheck `state.time >= T` ourselves for `truncated`; the gymnax `done`\nsignal then carries only true `terminated`.\n\n## Test plan\n\n- [ ] `pytest tests/small/test_rl_components_gymnax_adapter.py` — 13\ntests pass\n- [ ] `pytest tests/small/` — no regressions in existing gymnax bridge\ntests\n- [ ] CI small/medium jobs green\n\n## Follow-up\n\nUpdate examples (`train_dqn.py`, `train_gac.py`, etc.) to use\n`make_gymnax_env() → make_gymnax_compat_env()` instead of raw gymnax\nenvs — tracked separately.\n\nCloses #77\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-06-17T21:30:12-06:00",
+          "tree_id": "f7d691f738b539ca70523a00b062f142083bc04f",
+          "url": "https://github.com/andnp/jax-research-template/commit/f6672d3e990df7182e7ad2a51b67b1ca6ad901a1"
+        },
+        "date": 1781753937417,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.366332254551216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027012053913644526",
+            "extra": "mean: 157.07631333333438 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.9937932842503419,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018445595015720647",
+            "extra": "mean: 1.0062454796666696 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.038411308323095174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02508933229323763",
+            "extra": "mean: 26.033999977000008 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5884264332990171,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007858591853637329",
+            "extra": "mean: 1.6994477871999947 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 18032.899222157426,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001611286325815079",
+            "extra": "mean: 55.454199997484466 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 42.12557921618558,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002890868544640324",
+            "extra": "mean: 23.73854599999845 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 2.610509715805518,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004775334365819229",
+            "extra": "mean: 383.0669519999977 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4367.6069156516805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001682662481186864",
+            "extra": "mean: 228.95833331896634 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_loss_and_grad_fixed_batch_speed",
+            "value": 42.65521065246526,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005819528877363951",
+            "extra": "mean: 23.443794666671163 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_optimizer_apply_fixed_grads_speed",
+            "value": 306.64170603067276,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0007412849260200991",
+            "extra": "mean: 3.2611350000119423 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_full_learn_step_speed",
+            "value": 37.83566143514825,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003235971644228233",
+            "extra": "mean: 26.43009166666843 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 36878.05166301132,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000014210317716348154",
+            "extra": "mean: 27.116399996884866 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 37577.59773448204,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015498944723171155",
+            "extra": "mean: 26.611600003434432 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 25098.385672008168,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000016905244387677025",
+            "extra": "mean: 39.843199999722856 usec\nrounds: 5"
           }
         ]
       }
