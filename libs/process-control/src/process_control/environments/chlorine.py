@@ -41,6 +41,7 @@ from process_control.environment_specs import (
     ActionSpec,
     ControlTaskSpec,
     EnvironmentSpec,
+    InstrumentedSignalSpec,
     ModelSpec,
     ScenarioSpec,
     SignalSpec,
@@ -100,6 +101,11 @@ def default_chlorine_scenario(config: ChlorineBenchmarkConfig | None = None) -> 
         signals=(
             SignalSpec("influent.flow", "m3/h"),
             SignalSpec("influent.demand", "mg/L"),
+            SignalSpec(_RESIDUAL_MEASURED, "mg/L"),
+            SignalSpec(_RESIDUAL_TRUE, "mg/L"),
+            SignalSpec(_FLOW_MEASURED, "m3/h"),
+            SignalSpec(_FLOW_TRUE, "m3/h"),
+            SignalSpec(_DEMAND_TRUE, "mg/L"),
         ),
         initial_conditions=(
             InitialCondition(
@@ -274,6 +280,21 @@ class ChlorineEnvironment:
     def runtime(self) -> RuntimeMetadata:
         """Return timing, horizon, and schema metadata."""
         return self._runtime
+
+    @property
+    def action_schema(self) -> tuple[ActionSpec, ...]:
+        """Return bounded action definitions, including units and limits."""
+        return self.spec.model.actions
+
+    @property
+    def observation_schema(self) -> tuple[InstrumentedSignalSpec, ...]:
+        """Return active observed signal definitions in controller order."""
+        return self.spec.instrumentation.observed_signals
+
+    @property
+    def instrumentation_profile(self) -> InstrumentationProfile:
+        """Return the active profile used for observations and reward."""
+        return self.instrumentation
 
     @property
     def observation_names(self) -> tuple[str, ...]:
