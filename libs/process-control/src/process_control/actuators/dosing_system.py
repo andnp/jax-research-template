@@ -22,6 +22,8 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
+from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
+from process_control.controllers.pi_controller import step_with_diagnostics as pi_step
 
 # ── Control integration modes ────────────────────────────────────────
 DIRECT: int = 0
@@ -117,14 +119,22 @@ def step(
         action,
         jnp.array(params.base_setpoint),
     )
-    error = pi_setpoint - sensed_pv
-    new_integral = jnp.clip(
-        state.pi_integral + error * dt,
-        -params.max_integral,
-        params.max_integral,
+    pi_state, pi_result = pi_step(
+        PIControllerState(integral=state.pi_integral),
+        sensed_pv,
+        pi_setpoint,
+        PIControllerParams(
+            kp=params.kp,
+            ki=params.ki,
+            ff=params.ff,
+            output_min=params.output_min,
+            output_max=params.output_max,
+            max_integral=params.max_integral,
+        ),
+        dt,
     )
-    pi_output = params.kp * error + params.ki * new_integral + params.ff
-    pi_output = jnp.clip(pi_output, params.output_min, params.output_max)
+    new_integral = pi_state.integral
+    pi_output = pi_result.saturated
 
     # ── 3. Mode-dependent pump command ────────────────────────────
     # DIRECT:      pump = action (raw command)
