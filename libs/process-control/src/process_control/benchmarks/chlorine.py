@@ -1,5 +1,7 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from numbers import Integral, Real
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +14,17 @@ from process_control.actuators.dosing_system import (
 )
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
-from process_control.disturbances.schedule import DisturbanceSchedule, apply_active, create_empty
+from process_control.disturbances.schedule import (
+    DisturbanceSchedule,
+    add_event,
+    apply_active,
+    create_empty,
+)
+from process_control.disturbances.types import (
+    DISTURBANCE_DEMAND_SLUG,
+    DISTURBANCE_NONE,
+    DISTURBANCE_RAIN_STORM,
+)
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -25,6 +37,43 @@ from process_control.units.contact_basin import reset as basin_reset
 from process_control.units.contact_basin import step as basin_step
 from process_control.units.mixer import MixerState
 from process_control.units.mixer import step as mixer_step
+
+DisturbanceEvent = tuple[int, int, float, int]
+
+
+def _validate_disturbance_events(config: "ChlorineBenchmarkConfig") -> int:
+    """Validate static event data before it enters a JAX episode state."""
+    max_events = config.max_disturbance_events
+    if isinstance(max_events, bool) or not isinstance(max_events, Integral):
+        raise ValueError("max_disturbance_events must be an integer")
+    max_events = int(max_events)
+    if max_events <= 0:
+        raise ValueError("max_disturbance_events must be positive")
+
+    events = config.disturbance_events
+    if not isinstance(events, tuple):
+        raise ValueError("disturbance_events must be a tuple of event tuples")
+    if len(events) > max_events:
+        raise ValueError("disturbance_events exceeds max_disturbance_events")
+
+    supported_types = {DISTURBANCE_NONE, DISTURBANCE_DEMAND_SLUG, DISTURBANCE_RAIN_STORM}
+    for index, event in enumerate(events):
+        if not isinstance(event, tuple) or len(event) != 4:
+            raise ValueError(f"disturbance event {index} must be (start_step, end_step, magnitude, type_id)")
+        start_step, end_step, magnitude, type_id = event
+        if isinstance(start_step, bool) or not isinstance(start_step, Integral):
+            raise ValueError(f"disturbance event {index} start_step must be an integer")
+        if isinstance(end_step, bool) or not isinstance(end_step, Integral):
+            raise ValueError(f"disturbance event {index} end_step must be an integer")
+        if start_step < 0:
+            raise ValueError(f"disturbance event {index} start_step must be non-negative")
+        if end_step <= start_step:
+            raise ValueError(f"disturbance event {index} end_step must be after start_step")
+        if isinstance(magnitude, bool) or not isinstance(magnitude, Real) or not math.isfinite(float(magnitude)):
+            raise ValueError(f"disturbance event {index} magnitude must be a finite real number")
+        if isinstance(type_id, bool) or not isinstance(type_id, Integral) or int(type_id) not in supported_types:
+            raise ValueError(f"disturbance event {index} type_id is unsupported")
+    return max_events
 
 
 @jax_dataclass
@@ -84,6 +133,9 @@ class ChlorineBenchmarkConfig:
     steps_per_day: int = 96
 
     max_disturbance_events: int = 16
+    # (start_step, end_step, magnitude, type_id); windows are half-open and
+    # magnitudes use the native units of the selected disturbance type.
+    disturbance_events: tuple[DisturbanceEvent, ...] = ()
 
 
 def make_chlorine_benchmark(
@@ -92,6 +144,8 @@ def make_chlorine_benchmark(
     Callable[[jax.Array], tuple[PlantState, jax.Array]],
     Callable[[PlantState, jax.Array, jax.Array], tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
+    max_disturbance_events = _validate_disturbance_events(config)
+
     basin_params = ContactBasinParams(
         total_volume=config.basin_volume,
         n_segments=config.basin_segments,
@@ -151,6 +205,16 @@ def make_chlorine_benchmark(
         ds_state = dosing_reset(0.0, config.pi_ff, k4)
         last_dose = jnp.array(0.0)
 
+        disturbance_schedule = create_empty(max_disturbance_events)
+        for start_step, end_step, magnitude, type_id in config.disturbance_events:
+            disturbance_schedule = add_event(
+                disturbance_schedule,
+                start_step=start_step,
+                end_step=end_step,
+                magnitude=magnitude,
+                type_id=type_id,
+            )
+
         plant_state = PlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src_state,
@@ -158,7 +222,7 @@ def make_chlorine_benchmark(
             flow_sensor_state=fs_state,
             dosing_loop=ds_state,
             last_dose=last_dose,
-            disturbance_schedule=create_empty(config.max_disturbance_events),
+            disturbance_schedule=disturbance_schedule,
         )
 
         signal_bus = SignalBus(flow=jnp.array(0.0), outlet_residual=jnp.array(0.0))
@@ -176,8 +240,11 @@ def make_chlorine_benchmark(
             k1,
         )
 
-        # 1.5 Apply active disturbances
+        # 1.5 Apply active disturbances at the influent boundary. All
+        # downstream units and measured influent signals must use this result.
         transport = apply_active(state.disturbance_schedule, transport, state.step_count)
+        flow = transport.hydraulics.flow
+        demand = transport.composition.demand
 
         # 2. Dosing loop: reads previous outlet residual from sensor state,
         #    computes dose based on control mode

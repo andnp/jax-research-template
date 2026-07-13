@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import pytest
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
 from process_control.disturbances.schedule import add_event, apply_active, create_empty
 from process_control.disturbances.types import (
@@ -109,3 +110,80 @@ class TestDisturbanceSchedule:
 
         assert obs.shape == (4,)
         assert new_state.step_count == 1
+
+    def test_chlorine_config_loads_disturbance_events_on_reset(self) -> None:
+        config = ChlorineBenchmarkConfig(
+            disturbance_events=((0, 10, 1.0, DISTURBANCE_DEMAND_SLUG),)
+        )
+        reset_fn, _step_fn = make_chlorine_benchmark(config)
+
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+
+        assert int(state.disturbance_schedule.count) == 1
+        assert int(state.disturbance_schedule.start_steps[0]) == 0
+
+    def test_chlorine_rain_event_reaches_influent_and_residual(self) -> None:
+        common = dict(
+            basin_volume=100.0,
+            basin_segments=1,
+            basin_tau=1.0,
+            dt=0.25,
+            diurnal_amplitude=0.0,
+            mean_flow=75.0,
+            min_flow=75.0,
+            max_flow=75.0,
+            demand_noise_std=0.0,
+            drift_scale=0.0,
+            flow_noise_std=0.0,
+            residual_noise_std=0.0,
+            residual_lag_coefficient=0.0,
+            residual_drift_rate=0.0,
+            pump_max_ramp_rate=100.0,
+        )
+        nominal_config = ChlorineBenchmarkConfig(**common)
+        storm_config = ChlorineBenchmarkConfig(
+            **common,
+            disturbance_events=((0, 1, 1.0, DISTURBANCE_RAIN_STORM),),
+        )
+        nominal_reset, nominal_step = make_chlorine_benchmark(nominal_config)
+        storm_reset, storm_step = make_chlorine_benchmark(storm_config)
+        storm_step = jax.jit(storm_step)
+
+        reset_key, step_key = jax.random.split(jax.random.PRNGKey(7))
+        nominal_state, _ = nominal_reset(reset_key)
+        storm_state, _ = storm_reset(reset_key)
+
+        nominal_state, nominal_obs, _, _, nominal_info = nominal_step(
+            nominal_state, jnp.array(2.0), step_key
+        )
+        storm_state, storm_obs, _, _, storm_info = storm_step(
+            storm_state, jnp.array(2.0), step_key
+        )
+
+        assert storm_info["flow"] > nominal_info["flow"]
+        assert storm_info["demand"] > nominal_info["demand"]
+        assert storm_obs[3] > nominal_obs[3]
+
+        next_key = jax.random.fold_in(step_key, 1)
+        _, nominal_obs, _, _, _ = nominal_step(nominal_state, jnp.array(2.0), next_key)
+        _, storm_obs, _, _, _ = storm_step(storm_state, jnp.array(2.0), next_key)
+        assert storm_obs[1] > nominal_obs[1]
+
+    def test_chlorine_rejects_invalid_disturbance_events(self) -> None:
+        with pytest.raises(ValueError, match="type_id"):
+            make_chlorine_benchmark(
+                ChlorineBenchmarkConfig(
+                    disturbance_events=((0, 1, 1.0, 99),),
+                )
+            )
+
+        with pytest.raises(ValueError, match="max_disturbance_events"):
+            make_chlorine_benchmark(
+                ChlorineBenchmarkConfig(
+                    max_disturbance_events=1,
+                    disturbance_events=(
+                        (0, 1, 1.0, DISTURBANCE_DEMAND_SLUG),
+                        (1, 2, 1.0, DISTURBANCE_DEMAND_SLUG),
+                    ),
+                )
+            )
