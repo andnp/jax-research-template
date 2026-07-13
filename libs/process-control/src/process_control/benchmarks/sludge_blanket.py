@@ -29,7 +29,6 @@ from process_control._jax_dataclass import jax_dataclass
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import reset as actuator_reset
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -75,8 +74,6 @@ class SludgeBlanketConfig:
     # Effluent TSS limit for reward scaling
     eff_tss_limit: float = 30.0  # g/m³ (regulatory limit)
 
-    max_disturbance_events: int = 16
-
     # Sensor parameters (set all to zero / sample_period=1 for ideal sensors)
     # TSS analyzers (blanket height, effluent TSS, underflow TSS)
     analyzer_noise_std: float = 5.0  # g/m³ TSS noise
@@ -97,7 +94,6 @@ class SludgeBlanketPlantState:
     source_state: DiurnalSourceState
     settler_state: TakacsSettlerState
     underflow_actuator: RampLimitedActuatorState
-    disturbance_schedule: DisturbanceSchedule
     sensors: SludgeBlanketSensorState
 
 
@@ -159,7 +155,6 @@ def make_sludge_blanket_benchmark(
             source_state=src,
             settler_state=settler,
             underflow_actuator=pump,
-            disturbance_schedule=create_empty(config.max_disturbance_events),
             sensors=sensors,
         )
 
@@ -247,7 +242,6 @@ def make_sludge_blanket_benchmark(
             source_state=new_source,
             settler_state=new_settler,
             underflow_actuator=new_pump,
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 

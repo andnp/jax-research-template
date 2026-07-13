@@ -1,3 +1,5 @@
+from dataclasses import fields
+
 import jax
 import jax.numpy as jnp
 from process_control.benchmarks.sludge_blanket import (
@@ -146,6 +148,17 @@ class TestTakacsSettler:
 
 
 class TestSludgeBlanketBenchmark:
+    def test_does_not_expose_unsupported_transport_disturbances(self) -> None:
+        """Solids scenarios must not advertise water-transport disturbances."""
+        config_fields = {field.name for field in fields(SludgeBlanketConfig)}
+        assert "max_disturbance_events" not in config_fields
+
+        reset_fn, _ = make_sludge_blanket_benchmark(SludgeBlanketConfig())
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+
+        state_fields = {field.name for field in fields(state)}
+        assert "disturbance_schedule" not in state_fields
+
     def test_reset_returns_state_and_obs(self) -> None:
         config = SludgeBlanketConfig()
         reset_fn, _ = make_sludge_blanket_benchmark(config)
