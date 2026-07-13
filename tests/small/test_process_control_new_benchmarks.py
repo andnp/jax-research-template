@@ -109,7 +109,11 @@ class TestEqualizationTankBenchmark:
         assert reward.shape == ()
         assert new_state.step_count == 1
         assert "true_level" in info
+        assert "requested_outlet" in info
         assert "realized_outlet" in info
+        assert "overflow_flow" in info
+        assert "unmet_outlet_flow" in info
+        assert "tank_constraint_status" in info
         assert "inlet_flow" in info
 
     def test_level_stays_within_bounds(self) -> None:
@@ -209,11 +213,14 @@ class TestChlorineTwoStageBenchmark:
         )
 
         single_config = ChlorineBenchmarkConfig(
-            basin_volume=400.0, basin_segments=10,
+            basin_volume=400.0,
+            basin_segments=10,
         )
         two_stage_config = ChlorineTwoStageBenchmarkConfig(
-            basin1_volume=200.0, basin2_volume=200.0,
-            basin1_segments=10, basin2_segments=10,
+            basin1_volume=200.0,
+            basin2_volume=200.0,
+            basin1_segments=10,
+            basin2_segments=10,
         )
 
         reset1, step1 = make_chlorine_benchmark(single_config)

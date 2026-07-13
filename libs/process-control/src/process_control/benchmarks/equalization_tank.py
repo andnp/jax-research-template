@@ -20,7 +20,7 @@ from process_control.sensors.level_sensor import reset as level_sensor_reset
 from process_control.sensors.level_sensor import step as level_sensor_step
 from process_control.units.tank import TankParams, TankState
 from process_control.units.tank import reset as tank_reset
-from process_control.units.tank import step as tank_step
+from process_control.units.tank import step_with_result as tank_step
 
 
 @dataclass(frozen=True)
@@ -172,7 +172,7 @@ def make_equalization_tank_benchmark(
         inlet_flow = transport.hydraulics.flow
 
         # 2. Outlet pump realizes the desired outlet flow set point
-        new_pump_state, realized_outlet = actuator_step(
+        new_pump_state, requested_outlet = actuator_step(
             state.outlet_pump_state,
             action,
             pump_params,
@@ -180,13 +180,16 @@ def make_equalization_tank_benchmark(
         )
 
         # 3. Tank level update
-        new_tank_state = tank_step(
+        tank_result = tank_step(
             state.tank_state,
             inlet_flow,
-            realized_outlet,
+            requested_outlet,
             tank_params,
             dt,
         )
+        new_tank_state = tank_result.state
+        realized_outlet = tank_result.realized_outlet_flow
+        new_pump_state = RampLimitedActuatorState(current_output=realized_outlet)
         true_level = new_tank_state.level
 
         # 4. Level sensor
@@ -233,7 +236,11 @@ def make_equalization_tank_benchmark(
         info: dict[str, jax.Array] = {
             "true_level": true_level,
             "measured_level": measured_level,
+            "requested_outlet": requested_outlet,
             "realized_outlet": realized_outlet,
+            "overflow_flow": tank_result.overflow_flow,
+            "unmet_outlet_flow": tank_result.unmet_outlet_flow,
+            "tank_constraint_status": tank_result.constraint_status,
             "pi_outlet": pi_outlet,
             "inlet_flow": inlet_flow,
         }
