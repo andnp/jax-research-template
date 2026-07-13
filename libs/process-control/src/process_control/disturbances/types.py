@@ -34,7 +34,8 @@ def rain_storm(transport: Transport, magnitude: jax.Array) -> Transport:
     flow = transport.hydraulics.flow
     added_flow = magnitude * 10.0
     new_flow = flow + added_flow
-    dilution_factor = flow / (flow + added_flow)
+    safe_new_flow = jax.numpy.where(new_flow == 0.0, 1.0, new_flow)
+    dilution_factor = jax.numpy.where(new_flow == 0.0, 1.0, flow / safe_new_flow)
     new_hydraulics = Hydraulics(flow=new_flow)
     ammonia = transport.composition.ammonia * dilution_factor + magnitude * 0.2
     turbidity = transport.composition.turbidity + magnitude * 15.0

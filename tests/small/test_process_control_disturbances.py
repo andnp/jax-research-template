@@ -41,6 +41,34 @@ class TestDisturbanceTypes:
         assert jnp.allclose(result.composition.chlorine_residual, jnp.array(expected_residual))
         assert float(result.composition.chlorine_residual) < float(transport.composition.chlorine_residual)
 
+    def test_zero_magnitude_at_zero_flow_is_finite_no_op(self) -> None:
+        transport = Transport.create(
+            flow=0.0,
+            chlorine_residual=2.0,
+            demand=0.5,
+            ammonia=0.4,
+            turbidity=1.0,
+            organics=0.8,
+        )
+
+        result = rain_storm(transport, jnp.array(0.0))
+
+        assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(result))
+        assert jnp.allclose(result.hydraulics.flow, transport.hydraulics.flow)
+        assert jnp.allclose(result.composition.chlorine_residual, transport.composition.chlorine_residual)
+        assert jnp.allclose(result.composition.ammonia, transport.composition.ammonia)
+        assert jnp.allclose(result.composition.turbidity, transport.composition.turbidity)
+        assert jnp.allclose(result.composition.organics, transport.composition.organics)
+
+    def test_storm_at_zero_and_near_zero_flow_is_finite_under_jit(self) -> None:
+        jit_rain_storm = jax.jit(rain_storm)
+
+        for flow, magnitude in ((0.0, 1.0), (1e-12, 0.0), (1e-12, 1e-12)):
+            transport = Transport.create(flow=flow, chlorine_residual=2.0, demand=0.5)
+            result = jit_rain_storm(transport, jnp.array(magnitude))
+
+            assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(result))
+
     def test_apply_disturbance_type_dispatches_correctly(self) -> None:
         transport = Transport.create(flow=60.0, chlorine_residual=1.5, demand=0.3)
         mag = jnp.array(1.0)
