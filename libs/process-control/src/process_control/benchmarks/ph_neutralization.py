@@ -12,7 +12,6 @@ from process_control.chemistry.ph_model import PhModelParams, compute_ph
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -64,8 +63,6 @@ class PhNeutralizationBenchmarkConfig:
     drift_scale: float = 0.1
     steps_per_day: int = 96
 
-    max_disturbance_events: int = 16
-
 
 @jax_dataclass
 class PhPlantState:
@@ -76,7 +73,6 @@ class PhPlantState:
     ph_sensor_state: PhSensorState
     pi_state: PIControllerState
     last_dose: jax.Array
-    disturbance_schedule: DisturbanceSchedule
 
 
 def make_ph_neutralization_benchmark(
@@ -137,7 +133,6 @@ def make_ph_neutralization_benchmark(
             ph_sensor_state=ph_state,
             pi_state=pi_state,
             last_dose=last_dose,
-            disturbance_schedule=create_empty(config.max_disturbance_events),
         )
 
         measured_ph = jnp.array(7.0)
@@ -159,7 +154,7 @@ def make_ph_neutralization_benchmark(
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
 
         # 1. Source: acid inlet (flow in L/min, demand used as acid concentration)
-        new_source_state, transport, flow, acid_concentration = source_step(
+        new_source_state, _transport, flow, acid_concentration = source_step(
             state.source_state,
             state.step_count,
             source_params,
@@ -227,7 +222,6 @@ def make_ph_neutralization_benchmark(
             ph_sensor_state=new_ph_state,
             pi_state=new_pi_state,
             last_dose=realized_dose,
-            disturbance_schedule=state.disturbance_schedule,
         )
 
         info: dict[str, jax.Array] = {
