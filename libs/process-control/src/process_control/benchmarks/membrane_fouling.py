@@ -149,12 +149,16 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
 
         # 7. Reward: throughput benefit minus costs
         tmp_violation = jnp.maximum(sensed_tmp - tmp_target, 0.0)
-        is_bw = do_backwash > 0.5
+        starts_bw = (
+            (do_backwash > 0.5)
+            & ~state.membrane_state.is_backwashing
+            & ~state.membrane_state.backwash_trigger_latched
+        )
         reward = (
             config.reward_w_throughput * (q_permeate / (flux_max * area))
             - config.reward_w_tmp * (tmp_violation / max_tmp) ** 2
             - config.reward_w_scour * air_scour
-            - config.reward_w_bw * is_bw
+            - config.reward_w_bw * starts_bw
         )
 
         new_state = MembraneFoulingBenchState(

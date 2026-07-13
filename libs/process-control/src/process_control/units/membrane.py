@@ -50,6 +50,9 @@ class MembraneState:
     r_reversible: jax.Array  # reversible fouling resistance (1/m)
     r_irreversible: jax.Array  # irreversible fouling resistance (1/m)
     hours_since_bw: jax.Array  # hours since last backwash
+    is_backwashing: jax.Array  # whether a backwash continues into the next step
+    backwash_remaining: jax.Array  # remaining backwash time (h)
+    backwash_trigger_latched: jax.Array  # prevents a held-high command from retriggering
     hours_since_cip: jax.Array  # hours since last CIP
     permeate_volume: jax.Array  # cumulative permeate (m³)
 
@@ -59,6 +62,9 @@ def reset(params: MembraneParams, rng_key: jax.Array):
         r_reversible=jnp.array(0.0),
         r_irreversible=jnp.array(0.0),
         hours_since_bw=jnp.array(0.0),
+        is_backwashing=jnp.array(False),
+        backwash_remaining=jnp.array(0.0),
+        backwash_trigger_latched=jnp.array(False),
         hours_since_cip=jnp.array(0.0),
         permeate_volume=jnp.array(0.0),
     )
@@ -89,28 +95,44 @@ def step(
         feed_tss: feed TSS (g/m³)
         flux: permeate flux setpoint (m/h) — converted internally to m/s
         air_scour: normalised air scour intensity (0-1)
-        do_backwash: boolean trigger (1.0 = backwash this step)
+        do_backwash: rising-edge trigger (1.0 starts one backwash)
         dt: timestep (h)
 
     Returns:
         (new_state, tmp, permeate_tss, q_permeate)
     """
-    # Air scour reduces fouling rate
+    requested = do_backwash > 0.5
+    rising_edge = requested & ~state.backwash_trigger_latched
+    start_backwash = rising_edge & ~state.is_backwashing
+    duration = jnp.asarray(params.bw_duration)
+    remaining_at_start = jnp.where(start_backwash, duration, state.backwash_remaining)
+    backwash_active = state.is_backwashing | start_backwash
+
+    # A backwash may occupy only part of a timestep. Held-high and repeated
+    # triggers are ignored until the command first returns low.
+    wash_time = jnp.where(backwash_active, jnp.minimum(dt, remaining_at_start), 0.0)
+    instant_backwash = start_backwash & (duration <= 0.0)
+    operating_time = dt - wash_time
+    new_bw_remaining = jnp.maximum(remaining_at_start - wash_time, 0.0)
+    new_is_backwashing = backwash_active & (new_bw_remaining > 0.0)
+
+    # Air scour reduces fouling rate while the membrane is producing permeate.
     scour_effect = 1.0 - params.air_scour_factor * jnp.clip(air_scour, 0.0, 1.0)
 
     # Fouling accumulation
-    d_r_rev = params.k_rev_fouling * feed_tss * scour_effect * dt
-    d_r_irr = params.k_irr_fouling * feed_tss * scour_effect * dt
+    d_r_rev = params.k_rev_fouling * feed_tss * scour_effect * operating_time
+    d_r_irr = params.k_irr_fouling * feed_tss * scour_effect * operating_time
 
-    new_r_rev = state.r_reversible + d_r_rev
+    new_r_rev = state.r_reversible
     new_r_irr = state.r_irreversible + d_r_irr
 
-    # Backwash: remove reversible fouling
-    new_r_rev = jnp.where(
-        do_backwash > 0.5,
-        new_r_rev * (1.0 - params.bw_recovery),
-        new_r_rev,
-    )
+    # Apply cleaning continuously so total recovery does not depend on dt.
+    recovery_fraction = jnp.clip(params.bw_recovery, 0.0, 1.0)
+    safe_duration = jnp.maximum(duration, jnp.finfo(wash_time.dtype).tiny)
+    wash_fraction = jnp.where(duration > 0.0, wash_time / safe_duration, 0.0)
+    recovery_multiplier = (1.0 - recovery_fraction) ** wash_fraction
+    recovery_multiplier = jnp.where(instant_backwash, 1.0 - recovery_fraction, recovery_multiplier)
+    new_r_rev = new_r_rev * recovery_multiplier + d_r_rev
 
     # Automatic CIP at interval
     do_cip = (state.hours_since_cip + dt) >= params.cip_interval
@@ -120,8 +142,11 @@ def step(
         new_r_irr,
     )
 
-    # Permeate production (during backwash, flux is reversed → no permeate)
-    effective_flux = jnp.where(do_backwash > 0.5, 0.0, flux)
+    # Report the timestep-average gross permeate flow. Backwash water use is not
+    # subtracted; the membrane simply produces no permeate during wash time.
+    safe_dt = jnp.maximum(dt, jnp.finfo(operating_time.dtype).tiny)
+    operating_fraction = jnp.where(dt > 0.0, operating_time / safe_dt, 0.0)
+    effective_flux = flux * operating_fraction
     q_permeate = effective_flux * params.area  # m³/h
 
     # TMP at current conditions
@@ -135,7 +160,14 @@ def step(
     new_state = MembraneState(
         r_reversible=new_r_rev,
         r_irreversible=new_r_irr,
-        hours_since_bw=jnp.where(do_backwash > 0.5, jnp.array(0.0), state.hours_since_bw + dt),
+        hours_since_bw=jnp.where(
+            backwash_active | instant_backwash,
+            operating_time,
+            state.hours_since_bw + dt,
+        ),
+        is_backwashing=new_is_backwashing,
+        backwash_remaining=new_bw_remaining,
+        backwash_trigger_latched=requested,
         hours_since_cip=jnp.where(do_cip, jnp.array(0.0), state.hours_since_cip + dt),
         permeate_volume=state.permeate_volume + q_permeate * dt,
     )
