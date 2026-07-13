@@ -14,7 +14,6 @@ from process_control.actuators.dosing_system import (
 )
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -221,8 +220,6 @@ class BSM1BenchmarkConfig:
     reward_w_nh: float = 1.0
     reward_w_no: float = 0.3
 
-    max_disturbance_events: int = 16
-
     # DO sensor parameters (within DosingSystem loops)
     do_noise_std: float = 0.05  # g O₂/m³
     do_lag: float = 0.9  # first-order lag coefficient
@@ -254,7 +251,6 @@ class BSM1PlantState:
     reactor5: ASM1State
     kla_34_loop: DosingSystemState
     kla_5_loop: DosingSystemState
-    disturbance_schedule: DisturbanceSchedule
     sensors: BSM1ObsSensors
 
 def _clarify_asm1(
@@ -409,7 +405,6 @@ def make_bsm1_benchmark(
             reactor5=r5,
             kla_34_loop=kla_34_state,
             kla_5_loop=kla_5_state,
-            disturbance_schedule=create_empty(config.max_disturbance_events),
             sensors=sensors,
         )
 
@@ -533,7 +528,6 @@ def make_bsm1_benchmark(
             reactor5=new_r5,
             kla_34_loop=new_kla34_loop,
             kla_5_loop=new_kla5_loop,
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 

@@ -35,7 +35,6 @@ from process_control.actuators.ramp_limited import RampLimitedActuatorParams, Ra
 from process_control.actuators.ramp_limited import reset as pump_reset
 from process_control.actuators.ramp_limited import step as pump_step
 from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -136,7 +135,6 @@ class BSM1TakacsPlantState:
     kla_34_loop: DosingSystemState
     kla_5_loop: DosingSystemState
     waste_pump: RampLimitedActuatorState
-    disturbance_schedule: DisturbanceSchedule
     sensors: BSM1TakacsSensors
 
 
@@ -290,7 +288,6 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
             kla_34_loop=kla34_loop,
             kla_5_loop=kla5_loop,
             waste_pump=waste,
-            disturbance_schedule=create_empty(c.max_disturbance_events),
             sensors=sensors,
         )
         obs = jnp.zeros(12)
@@ -424,7 +421,6 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
             kla_34_loop=new_kla34_loop,
             kla_5_loop=new_kla5_loop,
             waste_pump=new_waste,
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 

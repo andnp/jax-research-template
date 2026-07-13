@@ -15,7 +15,6 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, _clarify_asm1
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
     DiurnalSourceState,
@@ -115,7 +114,6 @@ class BSM1RecyclePlantState:
     reactor5: ASM1State
     q_a_loop: DosingSystemState
     q_rs_actuator: RampLimitedActuatorState
-    disturbance_schedule: DisturbanceSchedule
     sensors: BSM1RecycleObsSensors
 
 
@@ -224,7 +222,6 @@ def make_bsm1_recycle_benchmark(
             reactor5=r5,
             q_a_loop=q_a_state,
             q_rs_actuator=q_rs_state,
-            disturbance_schedule=create_empty(bsm1.max_disturbance_events),
             sensors=sensors,
         )
 
@@ -334,7 +331,6 @@ def make_bsm1_recycle_benchmark(
             reactor5=new_r5,
             q_a_loop=new_q_a_loop,
             q_rs_actuator=new_q_rs_state,
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 

@@ -30,7 +30,6 @@ from process_control.benchmarks.bsm1 import (
     BSM1ObsSensors,
     _clarify_asm1,
 )
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -54,7 +53,6 @@ class BSM1LTPlantState:
     reactor5: ASM1State
     kla_34_loop: DosingSystemState
     kla_5_loop: DosingSystemState
-    disturbance_schedule: DisturbanceSchedule
     sensors: BSM1ObsSensors
 
 
@@ -206,7 +204,6 @@ def make_bsm1_lt_benchmark(
             reactor5=r5,
             kla_34_loop=kla_34_state,
             kla_5_loop=kla_5_state,
-            disturbance_schedule=create_empty(c.max_disturbance_events),
             sensors=sensors,
         )
 
@@ -335,7 +332,6 @@ def make_bsm1_lt_benchmark(
             reactor5=new_r5,
             kla_34_loop=new_kla34_loop,
             kla_5_loop=new_kla5_loop,
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 

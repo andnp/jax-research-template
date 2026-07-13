@@ -15,7 +15,6 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, _clarify_asm1
-from process_control.disturbances.schedule import DisturbanceSchedule, create_empty
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
     DiurnalSourceState,
@@ -129,7 +128,6 @@ class BSM1CombinedPlantState:
     source_state: DiurnalSourceState
     reactors: BSM1CombinedReactorBankState
     loops: BSM1CombinedLoopState
-    disturbance_schedule: DisturbanceSchedule
     sensors: BSM1CombinedObsSensors
 
 def _make_dosing_params(
@@ -309,7 +307,6 @@ def make_bsm1_combined_benchmark(
             source_state=src,
             reactors=BSM1CombinedReactorBankState(r1=r1, r2=r2, r3=r3, r4=r4, r5=r5),
             loops=BSM1CombinedLoopState(kla_34=kla_34_state, kla_5=kla_5_state, q_a=q_a_state, q_rs=q_rs_state),
-            disturbance_schedule=create_empty(bsm1.max_disturbance_events),
             sensors=sensors,
         )
 
@@ -469,7 +466,6 @@ def make_bsm1_combined_benchmark(
             source_state=new_source,
             reactors=BSM1CombinedReactorBankState(r1=new_r1, r2=new_r2, r3=new_r3, r4=new_r4, r5=new_r5),
             loops=BSM1CombinedLoopState(kla_34=new_kla34_loop, kla_5=new_kla5_loop, q_a=new_q_a_loop, q_rs=new_q_rs_state),
-            disturbance_schedule=state.disturbance_schedule,
             sensors=new_sensors,
         )
 
