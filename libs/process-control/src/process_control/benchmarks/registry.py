@@ -15,6 +15,8 @@ class BenchmarkEntry:
     action_dim: int
     description: str
     scalar_action: bool = False
+    action_low: float | None = None
+    action_high: float | None = None
 
 
 BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
@@ -27,6 +29,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         1,
         "Chlorine residual control",
         scalar_action=True,
+        action_low=0.0,
+        action_high=5.0,
     ),
     BenchmarkEntry(
         "chlorine_two_stage",

@@ -133,4 +133,6 @@ def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
         action_dim=entry.action_dim,
         env_id=f"process_control:{entry.name}",
         scalar_action=entry.scalar_action,
+        action_low=entry.action_low,
+        action_high=entry.action_high,
     )
