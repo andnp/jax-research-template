@@ -31,6 +31,8 @@ class ContinuousActionSpace(Protocol):
     @property
     def shape(self) -> tuple[int, ...]: ...
 
+
+class BoundedContinuousActionSpace(ContinuousActionSpace, Protocol):
     @property
     def action_low(self) -> jax.Array | None: ...
 
