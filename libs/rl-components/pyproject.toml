@@ -14,6 +14,7 @@ dependencies = [
     "gymnasium[atari]>=1.0",
     "opencv-python-headless>=4.0",
     "jax~=0.9",
+    "process-control",
 ]
 
 [project.optional-dependencies]
