@@ -22,7 +22,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from process_control.benchmarks.registry import get_benchmark_entry
+from process_control.benchmarks.registry import get_action_bounds, get_benchmark_entry
 
 
 @dataclass(frozen=True)
@@ -125,6 +125,7 @@ def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
 
     config = config_cls(**config_overrides) if config_overrides else config_cls()
     reset_fn, step_fn = make_fn(config)
+    action_low, action_high = get_action_bounds(entry, config)
 
     return ProcessControlAdapter(
         reset_fn=reset_fn,
@@ -133,6 +134,6 @@ def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
         action_dim=entry.action_dim,
         env_id=f"process_control:{entry.name}",
         scalar_action=entry.scalar_action,
-        action_low=entry.action_low,
-        action_high=entry.action_high,
+        action_low=action_low,
+        action_high=action_high,
     )

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
+
+from process_control.actuators.dosing_system import DIRECT
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,10 @@ class BenchmarkEntry:
     scalar_action: bool = False
     action_low: float | None = None
     action_high: float | None = None
+    action_low_config: str | None = None
+    action_high_config: str | None = None
+    action_control_mode_config: str | None = None
+    action_control_mode: int | None = None
 
 
 BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
@@ -31,6 +38,10 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         scalar_action=True,
         action_low=0.0,
         action_high=5.0,
+        action_low_config="pump_min_dose",
+        action_high_config="pump_max_dose",
+        action_control_mode_config="control_mode",
+        action_control_mode=DIRECT,
     ),
     BenchmarkEntry(
         "chlorine_two_stage",
@@ -215,3 +226,20 @@ def get_benchmark_entry(name: str) -> BenchmarkEntry:
             return entry
     available = [entry.name for entry in BENCHMARK_REGISTRY]
     raise ValueError(f"Unknown benchmark '{name}'. Available: {available}")
+
+
+def get_action_bounds(
+    entry: BenchmarkEntry,
+    config: object,
+) -> tuple[float | None, float | None]:
+    if entry.action_control_mode is not None:
+        mode_config = entry.action_control_mode_config
+        if mode_config is not None and cast(int, getattr(config, mode_config)) != entry.action_control_mode:
+            return None, None
+    low = entry.action_low
+    if entry.action_low_config is not None:
+        low = cast(float, getattr(config, entry.action_low_config))
+    high = entry.action_high
+    if entry.action_high_config is not None:
+        high = cast(float, getattr(config, entry.action_high_config))
+    return low, high
