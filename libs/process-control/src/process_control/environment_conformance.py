@@ -1,7 +1,6 @@
 """Reusable conformance checks for process-control environments."""
 
 from collections.abc import Callable
-from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -26,8 +25,8 @@ def _trees_equal(left: object, right: object) -> bool:
     )
 
 
-def _check_timing(
-    result: ResetResult[Any, Any] | StepResult[Any, Any],
+def _check_timing[PlantStateT, ObservationT](
+    result: ResetResult[PlantStateT, ObservationT] | StepResult[PlantStateT, ObservationT],
     *,
     step_index: int,
     control_interval: float,
@@ -39,8 +38,8 @@ def _check_timing(
     )
 
 
-def _check_named_outputs(
-    result: StepResult[Any, Any],
+def _check_named_outputs[PlantStateT, ObservationT](
+    result: StepResult[PlantStateT, ObservationT],
     *,
     observed_names: set[str],
     reward_names: set[str],
