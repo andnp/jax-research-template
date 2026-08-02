@@ -134,6 +134,8 @@ def certify_reset_step(
     reset: Callable[[jax.Array], Sequence[object]],
     step: Callable[[object, object, jax.Array], Sequence[object]],
     action_for_step: Callable[[int], object],
+    action_low: jax.Array | float | None = None,
+    action_high: jax.Array | float | None = None,
     seed: int = 0,
     steps: int = 3,
 ) -> CertificationReport:
@@ -168,6 +170,19 @@ def certify_reset_step(
         )
         if not all(_tree_is_finite(action) for action in actions):
             return "action generator produced a non-finite action"
+        if (action_low is None) != (action_high is None):
+            raise ValueError("action_low and action_high must be provided together")
+        if action_low is not None and action_high is not None:
+            lower = jnp.asarray(action_low)
+            upper = jnp.asarray(action_high)
+            if not bool(jnp.all(lower <= upper)):
+                raise ValueError("action_low must not exceed action_high")
+            for action in actions:
+                values = jnp.asarray(action)
+                if not bool(jnp.all(values >= lower)):
+                    return "action generator produced an action below action_low"
+                if not bool(jnp.all(values <= upper)):
+                    return "action generator produced an action above action_high"
         return None if all(_tree_is_finite(output) for output in outputs) else "bounded action produced a non-finite output"
 
     diagnostics = (
