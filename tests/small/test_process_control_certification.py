@@ -35,6 +35,34 @@ def test_certify_reset_step_checks_finite_deterministic_outputs() -> None:
     assert report.failed == ()
 
 
+def test_certify_reset_step_checks_declared_action_bounds() -> None:
+    report = certify_reset_step(
+        module="synthetic",
+        reset=_reset,
+        step=_step,
+        action_for_step=lambda _step_index: jnp.asarray(1.0),
+        action_low=0.0,
+        action_high=1.0,
+    )
+
+    assert report.passed
+
+
+def test_certify_reset_step_reports_action_outside_declared_bounds() -> None:
+    report = certify_reset_step(
+        module="synthetic",
+        reset=_reset,
+        step=_step,
+        action_for_step=lambda _step_index: jnp.asarray(2.0),
+        action_low=0.0,
+        action_high=1.0,
+    )
+
+    assert not report.passed
+    assert report.failed[0].name == "bounded_action_no_nan"
+    assert "above action_high" in report.failed[0].message
+
+
 def test_certify_reset_step_reports_nonfinite_outputs() -> None:
     def nonfinite_step(
         state: object,
