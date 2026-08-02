@@ -28,6 +28,8 @@ class FakeActionSpace:
 @dataclass(frozen=True)
 class FakeContinuousActionSpace:
     shape: tuple[int, ...]
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 class FakeDiscreteEnv:

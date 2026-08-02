@@ -34,6 +34,8 @@ class _ObsSpace:
 @dataclass(frozen=True)
 class _ActionSpace:
     shape: tuple[int, ...]
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 class ProcessControlAdapter:
@@ -57,7 +59,11 @@ class ProcessControlAdapter:
         env_id: str = "process_control",
         max_steps: int = 10000,
         scalar_action: bool = False,
+        action_low: jax.Array | float | None = None,
+        action_high: jax.Array | float | None = None,
     ):
+        if (action_low is None) != (action_high is None):
+            raise ValueError("action_low and action_high must be provided together")
         self._reset_fn = reset_fn
         self._step_fn = step_fn
         self._obs_dim = obs_dim
@@ -66,7 +72,16 @@ class ProcessControlAdapter:
         self._max_steps = max_steps
         self._scalar_action = scalar_action
         self._obs_space = _ObsSpace(shape=(obs_dim,))
-        self._action_space = _ActionSpace(shape=(action_dim,))
+        if action_low is None:
+            normalized_low = normalized_high = None
+        else:
+            normalized_low = jnp.broadcast_to(jnp.asarray(action_low, dtype=jnp.float32), (action_dim,))
+            normalized_high = jnp.broadcast_to(jnp.asarray(action_high, dtype=jnp.float32), (action_dim,))
+        self._action_space = _ActionSpace(
+            shape=(action_dim,),
+            action_low=normalized_low,
+            action_high=normalized_high,
+        )
 
     def observation_space(self, params: object | None = None):
         return self._obs_space

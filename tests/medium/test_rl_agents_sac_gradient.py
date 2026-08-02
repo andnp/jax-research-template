@@ -25,6 +25,8 @@ class FakeObservationSpace:
 @dataclass(frozen=True)
 class FakeActionSpace:
     shape: tuple[int, ...]
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 class FakeContinuousEnv:
