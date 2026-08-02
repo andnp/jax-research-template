@@ -25,6 +25,86 @@ The same latent plant may support:
 - a diagnostic operator view
 - an ablation view with sensor failures enabled
 
+## Complete environment specification
+
+A gym environment should be composed from four independently versioned parts:
+
+```text
+Environment = (model, scenario, instrumentation profile, control task)
+```
+
+### Model
+
+The model defines the physical process:
+
+- physical state and equations
+- parameters and units
+- integration timestep and method
+- physical inputs, outputs, and equipment limits
+- valid operating envelope
+
+The model should not define RL observations or rewards.
+
+### Scenario
+
+The scenario defines what happens during a run:
+
+- initial operating condition
+- influent and external-input variation
+- disturbance types, frequency, timing, duration, and severity
+- process-parameter variation and drift
+- equipment degradation and faults
+- operating-mode and maintenance events
+- forecasts or advance warnings available during the run
+
+A scenario may be deterministic or sampled from a seeded distribution. A scenario pack is a versioned collection or generator of related scenarios, such as nominal, seasonal, fault, or stress conditions.
+
+### Instrumentation profile
+
+The instrumentation profile defines what the controller can know:
+
+- installed sensors and calculated signals
+- sampling rates, delays, and sensor lag
+- noise, bias, drift, range, and dropout behavior
+- measured disturbances and forecasts
+- soft-sensor outputs
+- signals that remain latent
+
+Useful profiles may include `ideal`, `standard`, `rich`, and `degraded`. Headline benchmark results should use a realistic profile rather than ideal latent-state access.
+
+### Control task
+
+The control task defines what the controller can do and what it is trying to accomplish:
+
+- direct-actuator, setpoint, or bounded-trim action interface
+- action ranges, rate limits, and control interval
+- setpoints and constraints
+- training reward
+- evaluation metrics
+- horizon and reset behavior
+- safety supervisor and fallback policy
+
+The same model, scenario, and instrumentation profile may support several control tasks without duplicating the plant.
+
+Baselines and evaluation protocols sit outside the environment specification:
+
+```text
+EnvironmentSpec + ControllerSpec + EvaluationProtocol = Experiment
+```
+
+## Reward observability is mandatory
+
+**Training reward must always be computed only from signals available through the selected instrumentation profile.** It must not use latent plant state, hidden disturbances, perfect concentrations, true equipment health, or any other signal unavailable to the controller.
+
+This rule applies even when latent truth would produce a cleaner or less noisy reward. If a real process would provide a delayed analyzer result, periodic lab measurement, calculated cost, or estimated health signal, the learning reward must reflect that availability and timing.
+
+Latent variables may still be used for independent evaluation metrics, diagnostics, and simulator validation. The environment must keep these concepts separate:
+
+- **learning reward:** observable feedback available to the agent during operation
+- **evaluation metrics:** post-run measurements that may use latent simulator truth
+
+Environment certification should verify that every input to the reward function is declared by the active instrumentation profile.
+
 ## Observation-builder contract
 
 An observation builder should define:

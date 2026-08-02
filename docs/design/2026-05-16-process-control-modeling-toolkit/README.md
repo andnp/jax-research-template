@@ -2,6 +2,7 @@
 
 These appendix pages support the main design doc. They are drill-down references for the shared architecture, not standalone design docs with separate scope or approval state.
 
+- [Top-level process-control toolkit roadmap](ROADMAP.md)
 - [Main architecture proposal](../2026-05-16-process-control-modeling-toolkit.md)
 - [Streams, state, and ports](process-state-streams-and-ports.md)
 - [Unit operations](unit-operations.md)
@@ -18,6 +19,9 @@ These appendix pages support the main design doc. They are drill-down references
 - [Proposed implementation order](proposed-implementation-order.md)
 - [Realism and operations extensions](realism-and-operations-extensions.md)
 - [Validation, schema governance, assembly, and module certification](validation-schema-assembly-and-module-certification.md)
+- [Controls and online-RL improvement roadmap](controls-and-online-rl-improvement-roadmap.md)
+- [Control baselines and fair comparisons for online RL](control-baselines-and-fair-comparisons.md)
+- [Control-baseline implementation tasks](control-baseline-implementation-tasks.md)
 - [Wastewater RL environment roadmap](wastewater-rl-environment-roadmap.md)
 
 Each appendix page follows the same pattern:
