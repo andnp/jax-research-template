@@ -1797,6 +1797,7 @@ version = "0.1.0"
 source = { editable = "libs/rl-agents" }
 dependencies = [
     { name = "flax" },
+    { name = "gymnax" },
     { name = "jax" },
     { name = "jax-nn" },
     { name = "rl-components" },
@@ -1805,6 +1806,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = "~=0.12" },
+    { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "rl-components", editable = "libs/rl-components" },
@@ -1821,6 +1823,7 @@ dependencies = [
     { name = "distrax" },
     { name = "flax" },
     { name = "gymnasium", extra = ["atari"] },
+    { name = "gymnax" },
     { name = "jax" },
     { name = "jax-nn" },
     { name = "opencv-python-headless" },
@@ -1839,6 +1842,7 @@ requires-dist = [
     { name = "distrax", specifier = ">=0.1.8" },
     { name = "flax", specifier = "~=0.12" },
     { name = "gymnasium", extras = ["atari"], specifier = ">=1.0" },
+    { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "opencv-python-headless", specifier = ">=4.0" },
