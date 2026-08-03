@@ -59,6 +59,7 @@ class ChlorineBenchmarkConfig:
 
     pi_kp: float = 0.1
     pi_ki: float = 0.1
+    pi_kd: float = 0.0
     pi_ff: float = 3.0
     pi_output_min: float = 1.5
     pi_output_max: float = 3.5
@@ -122,6 +123,7 @@ def make_chlorine_benchmark(
         sensor_drift_rate=config.residual_drift_rate,
         kp=config.pi_kp,
         ki=config.pi_ki,
+        kd=config.pi_kd,
         ff=config.pi_ff,
         output_min=config.pump_min_dose,
         output_max=config.pump_max_dose,
