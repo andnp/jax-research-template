@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import pytest
 from process_control.actuators.dosing_system import (
     DIRECT,
     FEEDFORWARD,
@@ -112,6 +113,43 @@ class TestDosingSystem:
         assert sensed.shape == ()
         assert pump.shape == ()
         assert pi_out.shape == ()
+
+    def test_pid_derivative_term_is_used_when_configured(self) -> None:
+        params = DosingSystemParams(
+            sensor_noise_std=0.0,
+            sensor_lag=0.0,
+            sensor_drift_rate=0.0,
+            kp=0.0,
+            ki=0.0,
+            kd=2.0,
+            ff=5.0,
+            output_min=0.0,
+            output_max=10.0,
+            max_ramp_up=1e6,
+            max_ramp_down=1e6,
+        )
+        state = reset(4.0, 5.0, jax.random.PRNGKey(0))
+        dt = jnp.array(1.0)
+
+        state, _, first, _ = step(
+            state,
+            jnp.array(5.0),
+            jnp.array(4.0),
+            params,
+            dt,
+            jax.random.PRNGKey(1),
+        )
+        _, _, second, _ = step(
+            state,
+            jnp.array(5.0),
+            jnp.array(5.0),
+            params,
+            dt,
+            jax.random.PRNGKey(2),
+        )
+
+        assert float(first) == pytest.approx(5.0)
+        assert float(second) == pytest.approx(3.0)
 
 
 class TestDirectMode:
