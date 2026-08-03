@@ -22,8 +22,20 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
-from process_control.controllers.pi_controller import step_with_diagnostics as pi_step
+from process_control.controllers.pi_controller import (
+    PIControllerParams,
+    PIControllerState,
+)
+from process_control.controllers.pi_controller import (
+    step_with_diagnostics as pi_step,
+)
+from process_control.controllers.pid_controller import (
+    PIDControllerParams,
+    PIDControllerState,
+)
+from process_control.controllers.pid_controller import (
+    step_with_diagnostics as pid_step_with_diagnostics,
+)
 
 # ── Control integration modes ────────────────────────────────────────
 DIRECT: int = 0
@@ -45,6 +57,7 @@ class DosingSystemParams:
     # ── PI controller ─────────────────────────────────────────────
     kp: float = 2.0
     ki: float = 0.5
+    kd: float = 0.0
     ff: float = 50.0  # feed-forward bias (resting pump speed)
     output_min: float = 0.0  # min pump command (% or dose units)
     output_max: float = 125.0  # max pump command
@@ -61,6 +74,8 @@ class DosingSystemState:
     sensor_value: jax.Array
     sensor_drift: jax.Array
     pi_integral: jax.Array
+    pi_previous_measurement: jax.Array
+    pi_initialized: jax.Array
     pump_output: jax.Array
     startup_remaining: jax.Array
 
@@ -70,6 +85,8 @@ class DosingSystemState:
             sensor_value=jnp.array(initial_pv),
             sensor_drift=jnp.array(0.0),
             pi_integral=jnp.array(0.0),
+            pi_previous_measurement=jnp.array(0.0),
+            pi_initialized=jnp.array(False),
             pump_output=jnp.array(initial_pump),
             startup_remaining=jnp.array(0.0),
         )
@@ -119,21 +136,43 @@ def step(
         action,
         jnp.array(params.base_setpoint),
     )
-    pi_state, pi_result = pi_step(
-        PIControllerState(integral=state.pi_integral),
-        sensed_pv,
-        pi_setpoint,
-        PIControllerParams(
-            kp=params.kp,
-            ki=params.ki,
-            ff=params.ff,
-            output_min=params.output_min,
-            output_max=params.output_max,
-            max_integral=params.max_integral,
-        ),
-        dt,
-    )
-    new_integral = pi_state.integral
+    if params.kd == 0.0:
+        pi_state, pi_result = pi_step(
+            PIControllerState(integral=state.pi_integral),
+            sensed_pv,
+            pi_setpoint,
+            PIControllerParams(
+                kp=params.kp,
+                ki=params.ki,
+                ff=params.ff,
+                output_min=params.output_min,
+                output_max=params.output_max,
+                max_integral=params.max_integral,
+            ),
+            dt,
+        )
+        new_integral = pi_state.integral
+    else:
+        pid_state, pi_result = pid_step_with_diagnostics(
+            PIDControllerState(
+                integral=state.pi_integral,
+                previous_measurement=state.pi_previous_measurement,
+                initialized=state.pi_initialized,
+            ),
+            sensed_pv,
+            pi_setpoint,
+            PIDControllerParams(
+                kp=params.kp,
+                ki=params.ki,
+                kd=params.kd,
+                ff=params.ff,
+                output_min=params.output_min,
+                output_max=params.output_max,
+                max_integral=params.max_integral,
+            ),
+            dt,
+        )
+        new_integral = pid_state.integral
     pi_output = pi_result.saturated
 
     # ── 3. Mode-dependent pump command ────────────────────────────
@@ -178,6 +217,8 @@ def step(
         sensor_value=sensed_pv,
         sensor_drift=new_drift,
         pi_integral=new_integral,
+        pi_previous_measurement=sensed_pv,
+        pi_initialized=jnp.array(True),
         pump_output=new_pump,
         startup_remaining=new_startup,
     )
