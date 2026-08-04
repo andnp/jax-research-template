@@ -91,6 +91,10 @@ class PlantState:
 class ChlorineBenchmarkConfig:
     target_residual: float = 1.5
     dt: float = 0.25
+    reward_profile: str = "tracking"
+    quality_floor: float = 1.0
+    dose_cost_weight: float = 0.0
+    dose_movement_weight: float = 0.0
 
     # ── Control mode ──────────────────────────────────────────────
     # DIRECT (0): RL action is raw dose command (original behavior)
@@ -145,6 +149,17 @@ def make_chlorine_benchmark(
     Callable[[PlantState, jax.Array, jax.Array], tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
     max_disturbance_events = _validate_disturbance_events(config)
+    if config.reward_profile not in {"tracking", "supervisory-floor"}:
+        raise ValueError("reward_profile must be tracking or supervisory-floor")
+    if config.quality_floor < 0.0:
+        raise ValueError("quality_floor must be non-negative")
+    if config.dose_cost_weight < 0.0:
+        raise ValueError("dose_cost_weight must be non-negative")
+    if config.dose_movement_weight < 0.0:
+        raise ValueError("dose_movement_weight must be non-negative")
+    dose_range = config.pump_max_dose - config.pump_min_dose
+    if dose_range <= 0.0:
+        raise ValueError("pump_max_dose must exceed pump_min_dose")
 
     basin_params = ContactBasinParams(
         total_volume=config.basin_volume,
@@ -283,7 +298,23 @@ def make_chlorine_benchmark(
         obs = _build_observation(signal_bus, realized_dose, target_residual)
 
         # 7. Reward (from sensor reading — matches what an online agent would see)
-        reward = -((sensed_residual - target_residual) ** 2)
+        tracking_error_cost = (sensed_residual - target_residual) ** 2
+        quality_cost = jnp.maximum(
+            jnp.array(config.quality_floor) - sensed_residual,
+            0.0,
+        ) ** 2
+        normalized_dose = (
+            realized_dose - config.pump_min_dose
+        ) / dose_range
+        dose_cost = config.dose_cost_weight * normalized_dose**2
+        normalized_dose_delta = (realized_dose - state.last_dose) / dose_range
+        dose_movement_cost = (
+            config.dose_movement_weight * normalized_dose_delta**2
+        )
+        if config.reward_profile == "tracking":
+            reward = -tracking_error_cost
+        else:
+            reward = -(quality_cost + dose_cost + dose_movement_cost)
 
         new_state = PlantState(
             step_count=state.step_count + 1,
@@ -301,6 +332,10 @@ def make_chlorine_benchmark(
             "flow": flow,
             "demand": demand,
             "realized_dose": realized_dose,
+            "tracking_error_cost": tracking_error_cost,
+            "quality_cost": quality_cost,
+            "dose_cost": dose_cost,
+            "dose_movement_cost": dose_movement_cost,
         }
 
         done = jnp.array(False)
