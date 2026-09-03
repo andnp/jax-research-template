@@ -17,7 +17,11 @@ publish a loss metric must additionally report a nonzero loss in the learning ru
 all-zero loss in the warmup-only run, so a zero-filled placeholder metric fails.
 
 The toy environment terminates every ``EPISODE_LENGTH`` steps and auto-resets, so each run
-crosses several episode boundaries with a nonzero ``done``.
+crosses several episode boundaries with a nonzero ``done``. The stored discounts must then
+carry an exact ``0.0``, which fails any agent that ignores ``done`` when writing to its
+buffer. That the zero *target* also collapses to the bare reward is gated separately, through
+each agent's real loss, in ``test_rl_agents_terminal_bootstrap.py`` and
+``test_rl_agents_qrc_gradient.py``.
 
 Excluded agents: ``dqn_atari`` needs the ALE construction path and its own runtime config,
 and ``rainbow`` samples from its own prioritised buffer rather than
@@ -26,7 +30,7 @@ and ``rainbow`` samples from its own prioritised buffer rather than
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import NamedTuple, cast
 
 import jax
@@ -34,6 +38,7 @@ import jax.numpy as jnp
 import pytest
 from flax.training.train_state import TrainState
 from rl_agents import double_dqn, dqn, dueling_dqn, greedy_ac, qrc, sac, td3
+from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.gymnax_bridge import make_gymnax_compat_env
@@ -154,18 +159,32 @@ def _continuous_env() -> GymEnv[ContinuousActionSpace]:
 class Run(NamedTuple):
     """One agent's finished training run, reduced to what the gate inspects."""
 
-    params: list[jax.Array]
+    params: dict[str, list[jax.Array]]
+    """Parameter leaves per ``TrainState``, keyed by its ``RunnerState`` field name.
+
+    Grouping matters: a flat list would let an agent that updates only its critic and
+    never its actor satisfy an "at least one leaf moved" assertion.
+    """
+
+    discounts: jax.Array
+    """The discount stored for every transition the run actually wrote to the buffer."""
+
     metrics: dict[str, jax.Array]
 
 
-def _finish(runner_state: tuple[object, ...], metrics: dict[str, jax.Array]) -> Run:
-    params = [
-        leaf
-        for field in runner_state
+def _finish(runner_state: Mapping[str, object], metrics: dict[str, jax.Array]) -> Run:
+    params = {
+        name: jax.tree_util.tree_leaves(field.params)
+        for name, field in runner_state.items()
         if isinstance(field, TrainState)
-        for leaf in jax.tree_util.tree_leaves(field.params)
-    ]
-    return Run(params=params, metrics=metrics)
+    }
+    buffer_state = runner_state["buffer_state"]
+    assert isinstance(buffer_state, ReplayBufferState)
+    return Run(
+        params=params,
+        discounts=buffer_state.discount[: int(buffer_state.count)],
+        metrics=metrics,
+    )
 
 
 def _run_dqn(learning_starts: int) -> Run:
@@ -176,7 +195,7 @@ def _run_dqn(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_double_dqn(learning_starts: int) -> Run:
@@ -187,7 +206,7 @@ def _run_double_dqn(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(double_dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_dueling_dqn(learning_starts: int) -> Run:
@@ -198,7 +217,7 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(dueling_dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_qrc(learning_starts: int) -> Run:
@@ -209,7 +228,7 @@ def _run_qrc(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(qrc.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_sac(learning_starts: int) -> Run:
@@ -220,7 +239,7 @@ def _run_sac(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(sac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_td3(learning_starts: int) -> Run:
@@ -232,7 +251,7 @@ def _run_td3(learning_starts: int) -> Run:
         POLICY_DELAY=1,
     )
     out = jax.jit(td3.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 def _run_greedy_ac(learning_starts: int) -> Run:
@@ -245,7 +264,7 @@ def _run_greedy_ac(learning_starts: int) -> Run:
         NUM_RAND_ACTIONS=2,
     )
     out = jax.jit(greedy_ac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(tuple(out["runner_state"]), out["metrics"])
+    return _finish(out["runner_state"]._asdict(), out["metrics"])
 
 
 AGENT_RUNS: dict[str, Callable[[int], Run]] = {
@@ -259,9 +278,14 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
 }
 
 LOSS_METRIC_AGENTS = ("sac", "td3", "greedy_ac")
-"""Agents that publish their losses. The DQN family and ``qrc`` discard theirs entirely:
-their ``_update_step`` returns the raw environment ``info``, so the learn path can only be
-observed through the parameters."""
+"""Agents that publish their losses.
+
+``dqn``, ``double_dqn``, ``dueling_dqn`` and ``qrc`` compute a real loss and then discard it
+-- ``dqn._update_step`` binds ``loss`` and returns the raw environment ``info`` -- so four of
+the seven agents cannot be gated on it and are observable only through their parameters.
+That is a defect in the agents, not in this gate: follow-up is to surface the loss each one
+already computes as part of that agent's port commit, at which point this allowlist becomes
+the full agent set and can be deleted."""
 
 
 @pytest.fixture(scope="module")
@@ -283,11 +307,15 @@ def test_learn_path_moves_parameters(
     learned = learning_runs[agent]
     untrained = warmup_only_runs[agent]
 
-    unchanged = [
-        bool(jnp.array_equal(before, after))
-        for before, after in zip(untrained.params, learned.params, strict=True)
-    ]
-    assert not all(unchanged), f"{agent} left every parameter untouched: the learn path never fired"
+    assert learned.params.keys() == untrained.params.keys()
+    for name, after in learned.params.items():
+        unchanged = [
+            bool(jnp.array_equal(before, leaf))
+            for before, leaf in zip(untrained.params[name], after, strict=True)
+        ]
+        assert not all(unchanged), (
+            f"{agent}.{name} left every parameter untouched: its update never fired"
+        )
 
 
 @pytest.mark.parametrize("agent", LOSS_METRIC_AGENTS)
@@ -306,6 +334,23 @@ def test_learn_path_reports_nonzero_loss(
         assert jnp.all(warmup_only_runs[agent].metrics[key] == 0.0), (
             f"{agent} reported a nonzero {key} without ever taking a gradient step"
         )
+
+
+@pytest.mark.parametrize("agent", list(AGENT_RUNS))
+def test_terminal_transitions_store_a_zero_discount(agent: str, learning_runs: dict[str, Run]) -> None:
+    """The agent must fuse ``done`` into the discount it stores, not just observe it.
+
+    Whether a terminal transition reaches any particular minibatch is seed luck, so this
+    asserts on what the agent wrote instead: an agent that ignores termination stores the
+    bare ``GAMMA`` everywhere and never produces the exact ``0.0`` demanded here.
+    """
+    discounts = learning_runs[agent].discounts
+
+    assert discounts.size == TOTAL_TIMESTEPS
+    assert jnp.any(discounts == 0.0), (
+        f"{agent} stored no zero discount: termination never reached the stored transitions"
+    )
+    assert jnp.any(discounts > 0.0), f"{agent} stored a zero discount for every transition"
 
 
 @pytest.mark.parametrize("agent", list(AGENT_RUNS))
