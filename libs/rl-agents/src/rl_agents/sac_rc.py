@@ -28,6 +28,8 @@ import jax.numpy as jnp
 from flax.typing import VariableDict
 from rl_components.structs import chex_struct
 
+from rl_agents.sac import Actor
+
 
 @chex_struct(frozen=True, kw_only=True)
 class SACRCConfig:
@@ -73,3 +75,75 @@ class SACRCCritic(nn.Module):
 
 def _critic_apply(module: SACRCCritic, variables: VariableDict, x: jax.Array, a: jax.Array) -> tuple[jax.Array, jax.Array]:
     return cast(tuple[jax.Array, jax.Array], module.apply(variables, x, a))
+
+
+def sac_rc_loss(
+    q: jax.Array,
+    h: jax.Array,
+    reward: jax.Array,
+    discount: jax.Array,
+    next_q_min: jax.Array,
+    next_log_prob: jax.Array,
+    alpha: jax.Array,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Per-transition, per-ensemble-member SAC-RC loss.
+
+    ``bootstrap`` is the soft value ``min_j Q_j(s', a') - alpha * log pi(a'|s')``
+    computed from the ONLINE critic (no target network). ``target`` stop-
+    gradients that bootstrap for the semi-gradient TD term, but the
+    correction term ``gamma * sg(h) * bootstrap`` reuses the un-stopped
+    ``bootstrap`` so its gradient reaches the online parameters that produced
+    it: differentiating it w.r.t. those parameters gives
+    ``gamma * delta_hat * grad(bootstrap)``, the term that distinguishes
+    gradient TD from semi-gradient TD and removes the divergence-inducing
+    off-policy bootstrapping bias that a target network is normally used to
+    paper over.
+    """
+    target = jax.lax.stop_gradient(reward + discount * (next_q_min - alpha * next_log_prob))
+    delta = target - q
+    delta_hat = h
+
+    v_loss = 0.5 * delta**2 + discount * jax.lax.stop_gradient(delta_hat) * (next_q_min - alpha * next_log_prob)
+    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - delta_hat) ** 2
+
+    return v_loss, h_loss, delta
+
+
+def sac_rc_loss_batch(
+    critic_params: VariableDict,
+    critic: SACRCCritic,
+    actor_params: VariableDict,
+    actor: Actor,
+    alpha: jax.Array,
+    obs: jax.Array,
+    actions: jax.Array,
+    rewards: jax.Array,
+    next_obs: jax.Array,
+    discounts: jax.Array,
+    rng: jax.Array,
+    beta: float,
+) -> jax.Array:
+    """Mean SAC-RC critic loss over a minibatch, plus L2 regularisation on the h-heads.
+
+    ``next_q_min`` is shared across ensemble members (the min is over the
+    ensemble), each member's own ``q``/``h`` are read from its own params via
+    ``vmap``, matching the twin-critic structure of ``sac.py``.
+    """
+    next_actions, next_log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
+        actor_params, next_obs, jax.random.split(rng, obs.shape[0])
+    )
+
+    next_q_values = jax.vmap(
+        lambda params, o, a: _critic_apply(critic, params, o, a)[0], in_axes=(0, None, None)
+    )(critic_params, next_obs, next_actions)
+    next_q_min = jnp.min(next_q_values, axis=0)
+
+    def _single_critic_loss(params: VariableDict) -> jax.Array:
+        q, h = _critic_apply(critic, params, obs, actions)
+        v_loss, h_loss, _ = jax.vmap(sac_rc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
+            q, h, rewards, discounts, next_q_min, next_log_probs, alpha
+        )
+        h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
+        return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
+
+    return jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
