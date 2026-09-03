@@ -8,6 +8,7 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.networks import ActorCritic, ContinuousActorCritic
+from rl_components.structs import chex_struct
 from rl_components.types import PPOConfig
 
 
@@ -72,7 +73,7 @@ def _init_observation_norm_state(obs: jax.Array) -> _ObservationNormState:
     return _update_observation_norm_state(_empty_observation_norm_state(obs), obs)
 
 
-def _normalize_observation(state: _ObservationNormState, obs: jax.Array, *, eps: float, clip: float) -> jax.Array:
+def _normalize_observation(state: _ObservationNormState, obs: jax.Array, *, eps: jax.Array | float, clip: jax.Array | float) -> jax.Array:
     obs_array = jnp.asarray(obs, dtype=jnp.float32)
     variance = jnp.where(
         state.observation_count > 0.0,
@@ -94,8 +95,8 @@ def _maybe_normalize_observation(
     obs: jax.Array,
     state: _ObservationNormState,
     *,
-    eps: float,
-    clip: float,
+    eps: jax.Array | float,
+    clip: jax.Array | float,
     enabled: bool,
 ) -> jax.Array:
     if not enabled:
@@ -108,14 +109,65 @@ class PPOTrainOutput(TypedDict):
     metrics: dict[str, jax.Array]
 
 
-def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], PPOTrainOutput]:
+@chex_struct(frozen=True)
+class PPOHypers:
+    """The hyperparameters ``train`` reads as traced values.
+
+    These ride ``train``'s argument list rather than ``config`` so a sweep can
+    ``jax.vmap`` one compiled kernel across a batch of arms. Everything here is
+    read only in arithmetic, never to size an array or take a Python branch --
+    those stay on ``config``.
+    """
+
+    LR: jax.Array
+    GAMMA: jax.Array
+    GAE_LAMBDA: jax.Array
+    CLIP_EPS: jax.Array
+    ENT_COEF: jax.Array
+    VF_COEF: jax.Array
+    MAX_GRAD_NORM: jax.Array
+    REWARD_SCALE: jax.Array
+    OBS_NORM_EPS: jax.Array
+    OBS_NORM_CLIP: jax.Array
+
+
+def ppo_hypers(config: PPOConfig) -> PPOHypers:
+    return PPOHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        GAMMA=jnp.asarray(config.GAMMA, jnp.float32),
+        GAE_LAMBDA=jnp.asarray(config.GAE_LAMBDA, jnp.float32),
+        CLIP_EPS=jnp.asarray(config.CLIP_EPS, jnp.float32),
+        ENT_COEF=jnp.asarray(config.ENT_COEF, jnp.float32),
+        VF_COEF=jnp.asarray(config.VF_COEF, jnp.float32),
+        MAX_GRAD_NORM=jnp.asarray(config.MAX_GRAD_NORM, jnp.float32),
+        REWARD_SCALE=jnp.asarray(config.REWARD_SCALE, jnp.float32),
+        OBS_NORM_EPS=jnp.asarray(config.OBS_NORM_EPS, jnp.float32),
+        OBS_NORM_CLIP=jnp.asarray(config.OBS_NORM_CLIP, jnp.float32),
+    )
+
+
+def _ppo_tx(learning_rate: jax.Array, max_grad_norm: jax.Array) -> optax.GradientTransformation:
+    return optax.chain(
+        optax.clip_by_global_norm(max_grad_norm),
+        optax.adam(learning_rate, eps=1e-5),
+    )
+
+
+def make_train(
+    config: PPOConfig,
+    env: GymEnv[DiscreteActionSpace | ContinuousActionSpace],
+    env_params: object | None = None,
+) -> Callable[[jax.Array, PPOHypers | None], PPOTrainOutput]:
     if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
         raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
 
     normalize_observations = config.NORMALIZE_OBSERVATIONS
-    reward_scale = jnp.asarray(config.REWARD_SCALE, dtype=jnp.float32)
 
-    def train(rng: jax.Array) -> PPOTrainOutput:
+    def train(rng: jax.Array, hypers: PPOHypers | None = None) -> PPOTrainOutput:
+        if hypers is None:
+            hypers = ppo_hypers(config)
+        reward_scale = jnp.asarray(hypers.REWARD_SCALE, dtype=jnp.float32)
+
         # INIT NETWORK
         action_space = env.action_space(env_params)
         continuous_actions = not _is_discrete_action_space(action_space)
@@ -129,10 +181,7 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
         init_x = jnp.zeros(env.observation_space(env_params).shape)
         network_params = network.init(_rng, init_x)
 
-        tx = optax.chain(
-            optax.clip_by_global_norm(config.MAX_GRAD_NORM),
-            optax.adam(config.LR, eps=1e-5),
-        )
+        tx = optax.inject_hyperparams(_ppo_tx)(learning_rate=hypers.LR, max_grad_norm=hypers.MAX_GRAD_NORM)
         train_state = TrainState.create(
             apply_fn=network.apply,
             params=network_params,
@@ -154,8 +203,8 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
                 normalized_obs = _maybe_normalize_observation(
                     last_obs,
                     obs_norm_state,
-                    eps=config.OBS_NORM_EPS,
-                    clip=config.OBS_NORM_CLIP,
+                    eps=hypers.OBS_NORM_EPS,
+                    clip=hypers.OBS_NORM_CLIP,
                     enabled=normalize_observations,
                 )
 
@@ -181,8 +230,8 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
             normalized_last_obs = _maybe_normalize_observation(
                 last_obs,
                 obs_norm_state,
-                eps=config.OBS_NORM_EPS,
-                clip=config.OBS_NORM_CLIP,
+                eps=hypers.OBS_NORM_EPS,
+                clip=hypers.OBS_NORM_CLIP,
                 enabled=normalize_observations,
             )
             _, last_val = network.apply(train_state.params, normalized_last_obs)
@@ -196,8 +245,8 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
                         transition.reward,
                     )
                     not_done = 1.0 - done
-                    delta = reward + config.GAMMA * next_value * not_done - value
-                    gae = delta + config.GAMMA * config.GAE_LAMBDA * not_done * gae
+                    delta = reward + hypers.GAMMA * next_value * not_done - value
+                    gae = delta + hypers.GAMMA * hypers.GAE_LAMBDA * not_done * gae
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -232,7 +281,7 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
                         log_prob = _sum_action_event_terms(policy.log_prob(traj_batch.action), is_continuous=continuous_actions)
 
                         # CALCULATE VALUE LOSS
-                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-config.CLIP_EPS, config.CLIP_EPS)
+                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-hypers.CLIP_EPS, hypers.CLIP_EPS)
                         value_losses = jnp.square(value - targets)
                         value_losses_clipped = jnp.square(value_pred_clipped - targets)
                         value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
@@ -244,8 +293,8 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
                         loss_pc2 = (
                             jnp.clip(
                                 ratio,
-                                1.0 - config.CLIP_EPS,
-                                1.0 + config.CLIP_EPS,
+                                1.0 - hypers.CLIP_EPS,
+                                1.0 + hypers.CLIP_EPS,
                             )
                             * gae
                         )
@@ -254,12 +303,18 @@ def make_train(config: PPOConfig, env: GymEnv[DiscreteActionSpace | ContinuousAc
                         # CALCULATE ENTROPY LOSS
                         entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=continuous_actions).mean()
 
-                        loss = policy_loss + config.VF_COEF * value_loss - config.ENT_COEF * entropy_loss
+                        loss = policy_loss + hypers.VF_COEF * value_loss - hypers.ENT_COEF * entropy_loss
                         return loss, (value_loss, policy_loss, entropy_loss)
 
                     grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
                     loss, grads = grad_fn(train_state.params, traj_batch, advantages, targets)
 
+                    opt_state = train_state.opt_state
+                    train_state = train_state.replace(
+                        opt_state=opt_state._replace(
+                            hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR, "max_grad_norm": hypers.MAX_GRAD_NORM}
+                        ),
+                    )
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, loss
 

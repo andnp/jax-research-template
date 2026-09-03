@@ -59,14 +59,15 @@ def _find_code(code: types.CodeType, name: str) -> types.CodeType:
 
 
 def _bind_calculate_gae(config: PPOConfig) -> Callable[[ppo.Transition, jax.Array], tuple[jax.Array, jax.Array]]:
-    """Rebind `ppo.make_train`'s nested `_calculate_gae` against `config`.
+    """Rebind `ppo.make_train`'s nested `_calculate_gae` against `config`'s hypers.
 
-    The real function closes over `config` alone and reads `jax`/`jnp` from the `ppo` module
-    globals, so rebuilding it from its code object runs the production recurrence unchanged.
+    The real function closes over `hypers` alone (GAMMA and GAE_LAMBDA are swept, traced
+    values) and reads `jax`/`jnp` from the `ppo` module globals, so rebuilding it from its
+    code object runs the production recurrence unchanged.
     """
     code = _find_code(ppo.make_train.__code__, "_calculate_gae")
-    assert code.co_freevars == ("config",)
-    closure = (types.CellType(config),)
+    assert code.co_freevars == ("hypers",)
+    closure = (types.CellType(ppo.ppo_hypers(config)),)
     return cast(
         Callable[[ppo.Transition, jax.Array], tuple[jax.Array, jax.Array]],
         types.FunctionType(code, vars(ppo), "_calculate_gae", None, closure),
