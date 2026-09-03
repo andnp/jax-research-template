@@ -6,12 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
-from experiment_definition.component import Component, ComponentType
+from experiment_definition import Component, ComponentType, Experiment
 from experiment_definition.db import DatabaseManager, PlannedExecution
-from experiment_definition.experiment import Experiment
+from research_runner import ExecutionContext, ExecutionResult, execute_batch, run_experiment
 from research_runner.git import capture_git_metadata
-from research_runner.runner import _derive_metrics_db_path, execute_batch, run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -202,39 +200,7 @@ class TestExecuteBatch:
             assert execution.status == "FAILED"
 
 
-# ── _derive_metrics_db_path ──────────────────────────────────────────────────
 
-
-class TestDeriveMetricsDbPath:
-    def test_with_executions_ancestor(self) -> None:
-        """
-        When execution_root contains an 'executions' ancestor directory,
-        metrics.sqlite is placed next to it.
-        """
-        root = Path("/tmp/results/executions/123")
-        result = _derive_metrics_db_path(root)
-        assert result == Path("/tmp/results/metrics.sqlite")
-
-    def test_without_executions_ancestor_raises(self) -> None:
-        """
-        When execution_root has no 'executions' ancestor, raises ValueError
-        to force explicit metrics_db_path.
-        """
-        root = Path("/tmp/some/other/path")
-        with pytest.raises(ValueError, match="Pass metrics_db_path explicitly"):
-            _derive_metrics_db_path(root)
-
-    def test_executions_is_root_itself(self) -> None:
-        """
-        When the execution_root directory is itself named 'executions',
-        metrics.sqlite is placed in its parent.
-        """
-        root = Path("/tmp/results/executions")
-        result = _derive_metrics_db_path(root)
-        assert result == Path("/tmp/results/metrics.sqlite")
-
-
-# ── capture_git_metadata ─────────────────────────────────────────────────────
 
 
 class TestCaptureGitMetadata:
@@ -245,3 +211,132 @@ class TestCaptureGitMetadata:
         commit, diff = capture_git_metadata()
         assert isinstance(commit, (str, type(None)))
         assert isinstance(diff, (str, type(None)))
+
+
+# ── mid-sweep crash recovery ─────────────────────────────────────────────────
+
+
+class TestMidSweepCrashRecovery:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "experiments.sqlite"
+
+    @pytest.fixture()
+    def executions_root(self, tmp_path: Path) -> Path:
+        return tmp_path / "results" / "executions"
+
+    def _make_two_batch_experiment(self) -> Experiment:
+        algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
+        env = Component(name="TestEnv", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment("CrashSweep", description="test experiment")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(algo):
+            exp.add_parameter("arch", ["cnn", "mlp"], is_static=True)
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        return exp
+
+    def test_resumes_after_first_batch_crashes(self, db_path: Path, executions_root: Path) -> None:
+        """
+        A sweep with 2 batches whose train_fn raises on its very first call
+        must, after a retry, still reach every batch: the un-executed batch
+        must never be stranded as an unplannable PENDING execution.
+        """
+        exp = self._make_two_batch_experiment()
+        calls: list[str] = []
+
+        def flaky_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+            calls.append(str(ctx.static_config["arch"]))
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return ExecutionResult(metadata={"trained": True})
+
+        with pytest.raises(RuntimeError, match="boom"):
+            run_experiment(
+                db_path,
+                exp,
+                flaky_train_fn,
+                executions_root=executions_root,
+                capture_git=False,
+            )
+
+        roots = run_experiment(
+            db_path,
+            exp,
+            flaky_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+
+        assert set(calls) == {"cnn", "mlp"}
+        assert len(roots) == 2
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("CrashSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) == []
+
+
+class TestDynamicArmCoverage:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "experiments.sqlite"
+
+    @pytest.fixture()
+    def executions_root(self, tmp_path: Path) -> Path:
+        return tmp_path / "results" / "executions"
+
+    def _make_static_plus_dynamic_experiment(self) -> Experiment:
+        algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
+        exp = Experiment("ArmSweep", description="test experiment")
+        exp.add_parameter("seed", [0, 1])
+        with exp.for_component(algo):
+            exp.add_parameter("arch", ["mlp"], is_static=True)
+            exp.add_parameter("lr", [1e-3, 3e-4])
+        return exp
+
+    def test_every_swept_arm_reaches_train_fn(self, db_path: Path, executions_root: Path) -> None:
+        """
+        A batch keyed on the static config may still hold several dynamic arms.
+        Every declared (lr, seed) pair must be handed to train_fn, and no run
+        may be recorded as satisfied without having been trained.
+        """
+        exp = self._make_static_plus_dynamic_experiment()
+        seen: set[tuple[float, int]] = set()
+        stacked_lrs: set[float] = set()
+        axis_keys: list[list[str]] = []
+
+        def recording_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+            assert ctx.static_config["arch"] == "mlp"
+            axes = ctx.axes()
+            axis_keys.append(sorted(axes))
+            for stacked in axes.get("lr", []):
+                assert isinstance(stacked, float)
+                stacked_lrs.add(stacked)
+            for point in ctx.points:
+                lr = point.hyperparameters["lr"]
+                seed = point.hyperparameters["seed"]
+                assert isinstance(lr, float)
+                assert isinstance(seed, int)
+                seen.add((lr, seed))
+            return ExecutionResult(metadata={"trained": True})
+
+        run_experiment(
+            db_path,
+            exp,
+            recording_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+
+        assert seen == {(1e-3, 0), (1e-3, 1), (3e-4, 0), (3e-4, 1)}
+
+        assert stacked_lrs == {1e-3, 3e-4}
+        assert all("arch" not in keys for keys in axis_keys)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("ArmSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) == []

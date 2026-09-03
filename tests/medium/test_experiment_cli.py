@@ -56,15 +56,14 @@ def test_experiment_status_shows_run_counts(tmp_path: Path) -> None:
     assert "2 pending" in result.output
 
 
-def _write_spec_file(tmp_path: Path, db_path: Path, executions_root: Path) -> Path:
+def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
     spec_file = tmp_path / "test_spec.py"
     spec_file.write_text(
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from research_runner.types import ExperimentSpec, ExecutionContext, ExecutionResult
-            from experiment_definition.experiment import Experiment
-            from experiment_definition.component import Component, ComponentType
+            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult
+            from experiment_definition import Experiment, Component, ComponentType
 
             def my_spec() -> ExperimentSpec:
                 experiment = Experiment("test-experiment", description="Test")
@@ -80,8 +79,7 @@ def _write_spec_file(tmp_path: Path, db_path: Path, executions_root: Path) -> Pa
                 return ExperimentSpec(
                     experiment=experiment,
                     train_fn=train,
-                    db_path=Path("{db_path}"),
-                    executions_root=Path("{executions_root}"),
+                    results_root=Path("{results_root}"),
                     capture_git=False,
                 )
 
@@ -93,10 +91,9 @@ def _write_spec_file(tmp_path: Path, db_path: Path, executions_root: Path) -> Pa
 
 
 def test_experiment_plan_with_spec(tmp_path: Path) -> None:
-    db_path = tmp_path / "plan.sqlite"
-    executions_root = tmp_path / "executions"
+    results_root = tmp_path / "plan"
 
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    spec_file = _write_spec_file(tmp_path, results_root)
 
     result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
     assert result.exit_code == 0, result.output
@@ -105,10 +102,9 @@ def test_experiment_plan_with_spec(tmp_path: Path) -> None:
 
 
 def test_experiment_run_with_spec(tmp_path: Path) -> None:
-    db_path = tmp_path / "run.sqlite"
-    executions_root = tmp_path / "executions"
+    results_root = tmp_path / "run"
 
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    spec_file = _write_spec_file(tmp_path, results_root)
 
     result = runner.invoke(app, ["experiment", "run", str(spec_file)])
     assert result.exit_code == 0, result.output
@@ -117,10 +113,9 @@ def test_experiment_run_with_spec(tmp_path: Path) -> None:
 
 
 def test_experiment_run_with_spec_filter(tmp_path: Path) -> None:
-    db_path = tmp_path / "run_filtered.sqlite"
-    executions_root = tmp_path / "executions"
+    results_root = tmp_path / "run_filtered"
 
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    spec_file = _write_spec_file(tmp_path, results_root)
 
     result = runner.invoke(app, ["experiment", "run", str(spec_file), "--spec", "my_spec"])
     assert result.exit_code == 0, result.output
@@ -128,10 +123,9 @@ def test_experiment_run_with_spec_filter(tmp_path: Path) -> None:
 
 
 def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path) -> None:
-    db_path = tmp_path / "disc.sqlite"
-    executions_root = tmp_path / "executions"
+    results_root = tmp_path / "disc"
 
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    spec_file = _write_spec_file(tmp_path, results_root)
     module = __import__("importlib").util
     loader_spec = module.spec_from_file_location("test_disc", spec_file)
     loaded = module.module_from_spec(loader_spec)
@@ -241,9 +235,9 @@ def test_invalidate_nonexistent_warns(tmp_path: Path) -> None:
 
 
 def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
-    db_path = tmp_path / "eb.sqlite"
-    executions_root = tmp_path / "executions"
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    results_root = tmp_path / "eb"
+    db_path = results_root / "experiments.sqlite"
+    spec_file = _write_spec_file(tmp_path, results_root)
 
     # Sync experiment and plan execution batches
     plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
@@ -254,7 +248,7 @@ def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
         exp_row = database.get_experiment("test-experiment")
         assert exp_row is not None
         planned = database.plan_experiment_execution_batches(
-            exp_row.id, executions_root,
+            exp_row.id, results_root / "executions",
         )
         execution_id = planned[0].execution_id
 
@@ -269,9 +263,9 @@ def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
 
 
 def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
-    db_path = tmp_path / "eb_fail.sqlite"
-    executions_root = tmp_path / "executions"
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    results_root = tmp_path / "eb_fail"
+    db_path = results_root / "experiments.sqlite"
+    spec_file = _write_spec_file(tmp_path, results_root)
 
     # Sync experiment so the DB exists
     plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
@@ -293,9 +287,8 @@ def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
 
 
 def test_submit_dry_run(tmp_path: Path) -> None:
-    db_path = tmp_path / "submit.sqlite"
-    executions_root = tmp_path / "executions"
-    spec_file = _write_spec_file(tmp_path, db_path, executions_root)
+    results_root = tmp_path / "submit"
+    spec_file = _write_spec_file(tmp_path, results_root)
     script_path = tmp_path / "slurm_submit.sh"
 
     result = runner.invoke(app, [

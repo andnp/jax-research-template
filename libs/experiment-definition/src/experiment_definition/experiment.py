@@ -19,7 +19,7 @@ Usage::
             exp.add_parameter("gae_lambda", [0.9, 0.95])
 
     exp.add_ablation("no_gae", {"use_gae": False})
-    exp.add_metric("reward", type="float", frequency="per_episode")
+    exp.add_metric("reward", kind="float", frequency="per_episode")
     exp.sync("experiments.sqlite")
 """
 
@@ -59,7 +59,7 @@ class Experiment:
 
         exp = Experiment("My Sweep", description="Testing LR schedules")
         exp.add_parameter("lr", [1e-3, 3e-4])
-        exp.add_metric("reward", type="float", frequency="per_episode")
+        exp.add_metric("reward", kind="float", frequency="per_episode")
         exp.sync("experiments.sqlite")
     """
 
@@ -166,11 +166,16 @@ class Experiment:
 
     # ── Metrics ───────────────────────────────────────────────────────────────
 
+    @property
+    def metrics(self) -> tuple[MetricSpec, ...]:
+        """Declared metric specs, in declaration order."""
+        return tuple(self._state.metrics)
+
     def add_metric(
         self,
         name: str,
         *,
-        type: str,  # noqa: A002
+        kind: str = "float",
         frequency: str,
     ) -> "Experiment":
         """Whitelist a metric for collection by the instrumentation layer.
@@ -180,7 +185,8 @@ class Experiment:
 
         Args:
             name: Identifier used by the collector (e.g. ``"reward"``).
-            type: Scalar data type — one of ``"float"``, ``"int"``, ``"bool"``.
+            kind: Scalar data type — one of ``"float"``, ``"int"``, ``"bool"``.
+                Defaults to ``"float"``.
             frequency: Collection cadence — one of ``"per_episode"``,
                 ``"per_update"``, ``"eval_only"``.
 
@@ -190,7 +196,7 @@ class Experiment:
         self._state.metrics.append(
             MetricSpec(
                 name=name,
-                type=MetricType(type),
+                type=MetricType(kind),
                 frequency=MetricFrequency(frequency),
             )
         )

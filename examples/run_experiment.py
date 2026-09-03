@@ -14,9 +14,7 @@ import gymnax
 import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
-from experiment_definition.bridge import metric_whitelist
-from experiment_definition.component import Component, ComponentType
-from experiment_definition.experiment import Experiment
+from experiment_definition import Component, ComponentType, Experiment, metric_whitelist
 from research_instrument.collector import configure
 from research_instrument.sqlite_backend import SQLiteBackend
 from research_store.store import Store
@@ -46,8 +44,8 @@ def main() -> None:
         exp.add_parameter("env_name", ["CartPole-v1"])
 
     exp.add_parameter("seed", list(range(3)))
-    exp.add_metric("returned_episode_returns", type="float", frequency="per_episode")
-    exp.add_metric("loss", type="float", frequency="per_update")
+    exp.add_metric("returned_episode_returns", kind="float", frequency="per_episode")
+    exp.add_metric("loss", kind="float", frequency="per_update")
 
     # Persist definition to SQLite
     db_path = Path("experiment.sqlite")
