@@ -80,12 +80,15 @@ exp.sync("experiments.sqlite")
 `research-runner` turns the definition into executions. An `ExperimentSpec`
 names one results root; the database, metrics database and execution roots are
 derived from it, and the root must be absolute so it cannot silently follow the
-caller's working directory.
+caller's working directory. The CLI finds a spec file's factories through
+registration, not inspection: decorate each zero-argument factory with `@spec`
+from `research_runner`, and `research experiment` discovers exactly the
+decorated factories in that module.
 
 ```python
 from pathlib import Path
 
-from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec
+from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec, spec
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -104,6 +107,7 @@ def train(ctx: ExecutionContext) -> ExecutionResult:
     return ExecutionResult(metadata={})
 
 
+@spec
 def policy_gradient_ablations() -> ExperimentSpec:
     return ExperimentSpec(
         experiment=exp,
