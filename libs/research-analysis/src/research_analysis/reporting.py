@@ -499,6 +499,77 @@ def analyze_hypers(
     )
 
 
+@dataclass(frozen=True)
+class _HyperparameterStatistics:
+    winning_value: Any
+    raw_mean: float
+    corrected_mean: float
+    maximization_bias: float
+    sensitivity_slice: dict[Any, float]
+    sensitivity_best: dict[Any, float]
+    sorted_values: list[Any]
+    sorted_slice: list[float]
+    sorted_best: list[float]
+    correction_ci: tuple[float, float]
+
+
+def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_hyperparameter: str) -> _HyperparameterStatistics:
+    runs_by_val: dict[Any, list[dict[str, Any]]] = {}
+    for record in records:
+        runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
+
+    raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
+    winning_val = max(raw_means, key=lambda k: raw_means[k])
+    raw_winner_mean = raw_means[winning_val]
+
+    rng = np.random.default_rng(12345)
+    bootstrap_winner_means = []
+    unique_vals = list(runs_by_val.keys())
+    for _ in range(1000):
+        resampled_means = {}
+        for val in unique_vals:
+            records = runs_by_val[val]
+            n = len(records)
+            resampled_idx = rng.choice(n, size=n, replace=True)
+            resampled_means[val] = np.mean([records[i]["value"] for i in resampled_idx])
+        resampled_winner = max(resampled_means, key=lambda k: resampled_means[k])
+        bootstrap_winner_means.append(raw_means[resampled_winner])
+
+    corrected_mean = float(np.mean(bootstrap_winner_means))
+    ci_low, ci_high = np.percentile(bootstrap_winner_means, [2.5, 97.5])
+    maximization_bias = float(raw_winner_mean - corrected_mean)
+
+    best_config = runs_by_val[winning_val][0]["hypers"]
+    nuisance_keys = [k for k in best_config.keys() if k != target_hyperparameter and k != "seed"]
+    slice_perf = {}
+    best_perf = {}
+    for val, records in runs_by_val.items():
+        best_perf[val] = float(np.mean([r["value"] for r in records]))
+        slice_records = [
+            r for r in records
+            if all(r["hypers"].get(k) == best_config.get(k) for k in nuisance_keys)
+        ]
+        slice_perf[val] = (
+            float(np.mean([r["value"] for r in slice_records]))
+            if slice_records
+            else best_perf[val]
+        )
+
+    sorted_keys = sorted(unique_vals)
+    return _HyperparameterStatistics(
+        winning_value=winning_val,
+        raw_mean=raw_winner_mean,
+        corrected_mean=corrected_mean,
+        maximization_bias=maximization_bias,
+        sensitivity_slice=slice_perf,
+        sensitivity_best=best_perf,
+        sorted_values=sorted_keys,
+        sorted_slice=[slice_perf[k] for k in sorted_keys],
+        sorted_best=[best_perf[k] for k in sorted_keys],
+        correction_ci=(float(ci_low), float(ci_high)),
+    )
+
+
 def _analyze_hypers_group(
     records: list[dict[str, Any]],
     *,
@@ -509,63 +580,20 @@ def _analyze_hypers_group(
     plot_suffix: str,
 ) -> HyperparameterSensitivityReport:
     """Run the maximization-bias-corrected sensitivity analysis over one set of run records."""
-    runs_by_val: dict[Any, list[dict[str, Any]]] = {}
-    for record in records:
-        runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
-
-    # Identify the raw averages per value
-    raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
-    winning_val = max(raw_means, key=lambda k: raw_means[k])
-    raw_winner_mean = raw_means[winning_val]
-
-    # 2. Bootstrapped Two-Stage Tuning
-    # Resample runs with replacement within each configuration to estimate the winner bias
-    rng = np.random.default_rng(12345)
-    bootstrap_winner_means = []
-    unique_vals = list(runs_by_val.keys())
-
-    for _ in range(1000):
-        resampled_means = {}
-        for val in unique_vals:
-            records = runs_by_val[val]
-            n = len(records)
-            resampled_idx = rng.choice(n, size=n, replace=True)
-            resampled_means[val] = np.mean([records[i]["value"] for i in resampled_idx])
-
-        # Pick winner based on resampled data
-        resampled_winner = max(resampled_means, key=lambda k: resampled_means[k])
-        # Record the TRUE sample mean of that winning configuration from original data
-        bootstrap_winner_means.append(raw_means[resampled_winner])
-
-    corrected_mean = float(np.mean(bootstrap_winner_means))
-    ci_low, ci_high = np.percentile(bootstrap_winner_means, [2.5, 97.5])
-    maximization_bias = float(raw_winner_mean - corrected_mean)
-
-    # 3. Sensitivity Slice vs Best
-    # Best: best achievable at each value of target hyperparameter
-    # Slice: fixed remaining hyperparameters to optimal winner values
-    best_config = runs_by_val[winning_val][0]["hypers"]
-    nuisance_keys = [k for k in best_config.keys() if k != target_hyperparameter and k != "seed"]
-
-    slice_perf = {}
-    best_perf = {}
-    for val, records in runs_by_val.items():
-        # Best: mean of all runs with this value
-        best_perf[val] = float(np.mean([r["value"] for r in records]))
-
-        # Slice: mean of runs matching nuisance keys in winning config
-        slice_records = [
-            r for r in records
-            if all(r["hypers"].get(k) == best_config.get(k) for k in nuisance_keys)
-        ]
-        if slice_records:
-            slice_perf[val] = float(np.mean([r["value"] for r in slice_records]))
-        else:
-            slice_perf[val] = best_perf[val]
-
-    sorted_keys = sorted(unique_vals)
-    slice_perf_sorted = [slice_perf[k] for k in sorted_keys]
-    best_perf_sorted = [best_perf[k] for k in sorted_keys]
+    statistics = _compute_hyperparameter_statistics(
+        records,
+        target_hyperparameter=target_hyperparameter,
+    )
+    winning_val = statistics.winning_value
+    raw_winner_mean = statistics.raw_mean
+    corrected_mean = statistics.corrected_mean
+    maximization_bias = statistics.maximization_bias
+    slice_perf = statistics.sensitivity_slice
+    best_perf = statistics.sensitivity_best
+    sorted_keys = statistics.sorted_values
+    slice_perf_sorted = statistics.sorted_slice
+    best_perf_sorted = statistics.sorted_best
+    ci_low, ci_high = statistics.correction_ci
 
     analysis_dir = Path("results/analysis") / experiment_slug
     plot_path = analysis_dir / f"hyper_sensitivity{plot_suffix}.png"
