@@ -54,7 +54,7 @@ from flax.training.train_state import TrainState
 from rl_agents import double_dqn, dqn, dueling_dqn, greedy_ac, qrc, sac, sac_rc, td3
 from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
-from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
+from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 from rl_components.loop import run
 
@@ -217,15 +217,6 @@ class ToyContinuousEpisodeEnv(ToyContinuousEnv):
         )
 
 
-def _discrete_env() -> GymEnv[DiscreteActionSpace]:
-    # The bridge reports a union action space because EnvSpec decides at runtime;
-    # the toy environment is always discrete.
-    return cast(
-        GymEnv[DiscreteActionSpace],
-        make_gymnax_compat_env(cast(EnvProtocol[jax.Array, jax.Array, jax.Array, None], ToyDiscreteEnv())),
-    )
-
-
 def _continuous_env() -> GymEnv[ContinuousActionSpace]:
     return cast(
         GymEnv[ContinuousActionSpace],
@@ -356,12 +347,16 @@ def _run_qrc(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(qrc.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
+    agent = qrc.QRCAgent(config)
+    env = ToyDiscreteEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
     return _finish(
-        out["runner_state"]._asdict(),
-        out["metrics"],
-        terminated=out["metrics"]["terminated"],
-        transitions=TOTAL_TIMESTEPS,
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
     )
 
 
@@ -455,20 +450,19 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3", "sac_rc")
+LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "qrc", "sac", "td3", "sac_rc")
 """Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
 
 Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
 ``ToyDiscreteEnv``'s auto-reset and the Gymnax compatibility bridge all go together."""
 
-LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "sac_rc", "td3", "greedy_ac")
-"""Agents that publish their losses.
+LOSS_METRIC_AGENTS = tuple(AGENT_RUNS)
+"""Agents that publish their losses, which is now all of them.
 
-``qrc`` computes a real loss and then discards it -- its ``_update_step`` binds ``loss`` and
-returns the raw environment ``info`` -- so one of the seven agents cannot be gated on it and
-is observable only through its parameters. That is a defect in the agent, not in this gate:
-each port surfaces the loss its agent already computes, at which point this allowlist
-becomes the full agent set and can be deleted."""
+``qrc`` used to be the exception: it computed a real loss and then discarded it, returning
+the raw environment ``info``, so it was observable only through its parameters. Its port
+publishes the loss it already computed, so the allowlist is no longer a subset and this
+name exists only to say so. It goes when the last ``make_train`` driver does."""
 
 
 @pytest.fixture(scope="module")
