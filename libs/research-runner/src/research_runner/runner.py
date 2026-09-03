@@ -22,6 +22,7 @@ def run_experiment(
     max_runs_per_batch: int | None = None,
     capture_git: bool = True,
     on_batch_complete: Callable[[Path], None] | None = None,
+    reclaim_stale_after_seconds: float | None = None,
 ):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     experiment.sync(db_path)
@@ -41,6 +42,8 @@ def run_experiment(
     while True:
         with DatabaseManager(db_path) as database:
             database.initialize()
+            if reclaim_stale_after_seconds is not None:
+                database.reclaim_stale_executions(experiment_id, reclaim_stale_after_seconds)
             planned = database.plan_next_execution_batch(
                 experiment_id,
                 executions_root,

@@ -346,3 +346,99 @@ class TestDynamicArmCoverage:
             experiment_row = database.get_experiment("ArmSweep")
             assert experiment_row is not None
             assert database.list_unsatisfied_runs(experiment_row.id) == []
+
+
+# ── stale (orphaned) execution reclaim ───────────────────────────────────────
+
+
+class TestStaleExecutionReclaim:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "experiments.sqlite"
+
+    @pytest.fixture()
+    def executions_root(self, tmp_path: Path) -> Path:
+        return tmp_path / "results" / "executions"
+
+    def _make_single_run_experiment(self) -> Experiment:
+        algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
+        env = Component(name="TestEnv", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment("StaleSweep", description="test experiment")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(algo):
+            exp.add_parameter("lr", [1e-3])
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        return exp
+
+    def _orphan_running_execution(self, db_path: Path, executions_root: Path) -> None:
+        """
+        Plan one batch and leave it RUNNING with an ancient start_time,
+        simulating a process that was SIGKILLed / OOM-killed / lost its
+        working directory before it could reach execute_batch's except
+        handler and mark the execution FAILED.
+        """
+        exp = self._make_single_run_experiment()
+        exp.sync(db_path)
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("StaleSweep")
+            assert experiment_row is not None
+            planned = database.plan_next_execution_batch(experiment_row.id, executions_root)
+            assert planned is not None
+            database.update_execution_status(
+                planned.execution_id, "RUNNING", start_time="2000-01-01T00:00:00+00:00",
+            )
+
+    def test_hard_killed_execution_stalls_sweep_without_reclaim(
+        self, db_path: Path, executions_root: Path,
+    ) -> None:
+        """
+        Without reclaim_stale_after_seconds, a run held by a stuck RUNNING
+        execution is neither satisfied nor replannable: the sweep silently
+        stalls short of completion instead of resuming.
+        """
+        self._orphan_running_execution(db_path, executions_root)
+        exp = self._make_single_run_experiment()
+
+        roots = run_experiment(
+            db_path,
+            exp,
+            _trivial_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+
+        assert roots == []
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("StaleSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) != []
+
+    def test_reclaim_stale_after_seconds_resumes_orphaned_run(
+        self, db_path: Path, executions_root: Path,
+    ) -> None:
+        """
+        Passing reclaim_stale_after_seconds reclaims the orphaned RUNNING
+        execution (its start_time is far older than the threshold) so the
+        run it was holding actually gets replanned and completed.
+        """
+        self._orphan_running_execution(db_path, executions_root)
+        exp = self._make_single_run_experiment()
+
+        roots = run_experiment(
+            db_path,
+            exp,
+            _trivial_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+            reclaim_stale_after_seconds=60,
+        )
+
+        assert len(roots) == 1
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("StaleSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) == []

@@ -11,7 +11,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -904,6 +904,54 @@ class DatabaseManager:
         except Exception:
             self.conn.rollback()
             raise
+
+    def reclaim_stale_executions(
+        self,
+        experiment_id: int,
+        stale_after_seconds: float,
+    ) -> list[int]:
+        """Fail RUNNING executions of ``experiment_id`` orphaned by a dead process.
+
+        A run is claimed by any linked PENDING/RUNNING/COMPLETED execution
+        (see ``list_unsatisfied_run_batches``), and is only satisfied by a
+        COMPLETED one. A process that dies without unwinding — SIGKILL, OOM,
+        or its working directory disappearing out from under it — never
+        reaches the ``except`` handler in ``execute_batch`` that would mark
+        the execution FAILED, so it stays RUNNING forever and permanently
+        blocks its runs from being replanned or satisfied.
+
+        Liveness signal: ``start_time`` staleness, not a recorded PID. A PID
+        can only be probed on the same host as the recorder (useless for a
+        resume from a different machine, and reused PIDs can lie), and
+        recording one would require a new column on the ``Executions`` table.
+        ``start_time`` already exists, is already written by
+        ``execute_batch``, and needs no schema change. The tradeoff is that
+        a threshold cannot distinguish "dead" from "slow but alive", so this
+        method is opt-in: callers must pass a ``stale_after_seconds`` known
+        to safely exceed the longest real batch's runtime, and a currently
+        RUNNING execution younger than the threshold is never touched.
+
+        Returns:
+            The ids of executions transitioned to FAILED.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)).isoformat()
+        with self.conn:
+            rows = self.conn.execute(
+                "SELECT DISTINCT e.id FROM Executions e "
+                "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+                "INNER JOIN Runs r ON r.id = er.run_id "
+                "WHERE r.experiment_id = ? AND e.status = 'RUNNING' "
+                "AND e.start_time IS NOT NULL AND e.start_time < ?",
+                (experiment_id, cutoff),
+            ).fetchall()
+        reclaimed: list[int] = []
+        for row in rows:
+            execution_id = int(row[0])
+            self.update_execution_status(
+                execution_id, "FAILED", end_time=datetime.now(timezone.utc).isoformat()
+            )
+            reclaimed.append(execution_id)
+        return reclaimed
 
     def plan_execution(
         self,
