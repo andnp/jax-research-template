@@ -787,6 +787,62 @@ def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
     assert _require(db.get_execution(e3)).status == "COMPLETED"
 
 
+def test_find_executions_by_hyperparams_matches_full_batch(populated_db: Populated) -> None:
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    matching_hyper_id = db.add_hyperparam_config({"lr": 1e-3, "algorithm": "gi_qrc"})
+    other_hyper_id = db.add_hyperparam_config({"lr": 1e-3, "algorithm": "baseline"})
+
+    matching_run = db.add_run(exp_id, algo_ver_id, env_ver_id, matching_hyper_id, seed=0)
+    other_run = db.add_run(exp_id, algo_ver_id, env_ver_id, other_hyper_id, seed=0)
+
+    matching_execution = db.add_execution(hostname="n1")
+    db.link_execution_run(matching_execution, matching_run)
+    db.update_execution_status(matching_execution, "COMPLETED")
+
+    other_execution = db.add_execution(hostname="n2")
+    db.link_execution_run(other_execution, other_run)
+    db.update_execution_status(other_execution, "COMPLETED")
+
+    matched = db.find_executions_by_hyperparams(exp_id, {"algorithm": "gi_qrc"})
+
+    assert [row.id for row in matched] == [matching_execution]
+
+
+def test_find_executions_by_hyperparams_skips_partial_batch(populated_db: Populated) -> None:
+    """
+    An execution batch is skipped, not invalidated, when only some of its
+    covered runs match -- silently invalidating unselected runs is the
+    failure this lookup exists to prevent.
+    """
+    db, exp_id, algo_ver_id, env_ver_id, _hyper_id = populated_db
+    matching_hyper_id = db.add_hyperparam_config({"algorithm": "gi_qrc"})
+    other_hyper_id = db.add_hyperparam_config({"algorithm": "baseline"})
+
+    matching_run = db.add_run(exp_id, algo_ver_id, env_ver_id, matching_hyper_id, seed=0)
+    other_run = db.add_run(exp_id, algo_ver_id, env_ver_id, other_hyper_id, seed=1)
+
+    mixed_execution = db.add_execution(hostname="n1")
+    db.link_execution_run(mixed_execution, matching_run)
+    db.link_execution_run(mixed_execution, other_run)
+    db.update_execution_status(mixed_execution, "COMPLETED")
+
+    matched = db.find_executions_by_hyperparams(exp_id, {"algorithm": "gi_qrc"})
+
+    assert matched == []
+
+
+def test_find_executions_by_hyperparams_compares_json_value_str(populated_db: Populated) -> None:
+    db, exp_id, algo_ver_id, env_ver_id, _hyper_id = populated_db
+    hyper_id = db.add_hyperparam_config({"learning_rate": 0.001})
+    run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
+    execution_id = db.add_execution(hostname="n1")
+    db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "COMPLETED")
+
+    assert [row.id for row in db.find_executions_by_hyperparams(exp_id, {"learning_rate": "0.001"})] == [execution_id]
+    assert db.find_executions_by_hyperparams(exp_id, {"learning_rate": "1e-3"}) == []
+
+
 def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
     e_pending = db.add_execution(hostname="n1", git_commit="ccc333")
     e_running = db.add_execution(hostname="n2", git_commit="ccc333")
