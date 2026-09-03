@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from experiment_definition.db import DatabaseManager, ExperimentRow, PlannedExecution, RunRow
+from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
 from experiment_definition.experiment import Experiment
 
 from .git import capture_git_metadata
@@ -145,15 +145,12 @@ def _utc_now():
 def _resolve_experiment(database: DatabaseManager, runs: list[RunRow]):
     if not runs:
         raise ValueError("Execution has no linked logical runs.")
-    row = database.conn.execute(
-        "SELECT id, name, description, created_at FROM Experiments WHERE id = ?",
-        (runs[0].experiment_id,),
-    ).fetchone()
-    if row is None:
+    experiment_row = database.get_experiment_by_id(runs[0].experiment_id)
+    if experiment_row is None:
         raise RuntimeError(
             f"Experiment id {runs[0].experiment_id!r} is missing from the registry.",
         )
-    return ExperimentRow(*row)
+    return experiment_row
 
 
 def _resolve_hyperparameters(database: DatabaseManager, runs: list[RunRow]):
