@@ -109,6 +109,40 @@ def _load_run_metric(db_path: Path, run_id: int, metric_name: str) -> np.ndarray
 # ── Entry Points ─────────────────────────────────────────────────────────────
 
 
+def _load_pairwise_data(
+    db_path: Path,
+    experiment_slug: str,
+    condition_a: str,
+    condition_b: str,
+    metric_name: str,
+) -> tuple[str, np.ndarray, np.ndarray, bool]:
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment(experiment_slug)
+        if exp_row is None:
+            raise ValueError(f"Unknown experiment {experiment_slug!r}")
+
+    all_metrics = load_experiment_metrics(
+        experiments_db=db_path,
+        slug=experiment_slug,
+        metrics=[metric_name],
+    )
+    final_per_run = (
+        all_metrics
+        .group_by(["condition_name", "seed"])
+        .agg(pl.col("value").last())
+    )
+    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort("seed")
+    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort("seed")
+    if rows_a.is_empty() or rows_b.is_empty():
+        raise ValueError(
+            f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
+        )
+
+    seeds_a = rows_a["seed"].to_list()
+    seeds_b = rows_b["seed"].to_list()
+    return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), seeds_a == seeds_b
+
 
 def compare_pairwise(
     db_path: Path | str,
@@ -124,39 +158,13 @@ def compare_pairwise(
         raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
     alpha = 1.0 - confidence_level
     db_path = Path(db_path)
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-
-    # Load final metric value per (condition_name, seed) via shared bridge.
-    all_metrics = load_experiment_metrics(
-        experiments_db=db_path,
-        slug=experiment_slug,
-        metrics=[metric_name],
+    experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
+        db_path,
+        experiment_slug,
+        condition_a,
+        condition_b,
+        metric_name,
     )
-    final_per_run = (
-        all_metrics
-        .group_by(["condition_name", "seed"])
-        .agg(pl.col("value").last())
-    )
-
-    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort("seed")
-    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort("seed")
-
-    if rows_a.is_empty() or rows_b.is_empty():
-        raise ValueError(
-            f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
-        )
-
-    # Detect if seeds match exactly (paired repeated measures design)
-    seeds_a = rows_a["seed"].to_list()
-    seeds_b = rows_b["seed"].to_list()
-    is_paired = seeds_a == seeds_b
-
-    vals_a = rows_a["value"].to_numpy()
-    vals_b = rows_b["value"].to_numpy()
 
     # 1. Normality Tests (Shapiro-Wilk)
     shapiro_a = stats.shapiro(vals_a) if len(vals_a) >= 3 else (1.0, 1.0)
@@ -284,7 +292,7 @@ def compare_pairwise(
     plot_distributions(vals_a, vals_b, condition_a, condition_b, plot_path)
 
     report = ABComparisonReport(
-        experiment_name=exp_row.name,
+        experiment_name=experiment_name,
         condition_a=condition_a,
         condition_b=condition_b,
         metric_name=metric_name,
