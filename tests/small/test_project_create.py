@@ -21,7 +21,6 @@ def _write_workspace_config(workspace_root: Path) -> None:
     ("algorithm", "env_name"),
     [
         ("ppo", "CartPole-v1"),
-        ("double_dqn", "CartPole-v1"),
         ("dueling_dqn", "CartPole-v1"),
         ("sac", "MountainCarContinuous-v0"),
     ],
@@ -53,6 +52,7 @@ def test_unported_project_template_train_uses_explicit_env_api(algorithm: str, e
     ("algorithm", "agent", "env_name"),
     [
         ("dqn", "DQNAgent", "CartPole-v1"),
+        ("double_dqn", "DoubleDQNAgent", "CartPole-v1"),
     ],
 )
 def test_ported_project_template_train_drives_the_shared_loop(algorithm: str, agent: str, env_name: str) -> None:
@@ -214,7 +214,7 @@ def test_project_template_pyproject_declares_truthful_runtime_dependencies(algor
         assert '"matplotlib>=3.9"' not in rendered
 
     # The ported starters import rl_components directly, for the loop and the Gymnax adapter.
-    if algorithm in ("ppo", "dqn"):
+    if algorithm in ("ppo", "dqn", "double_dqn"):
         assert '"rl-components"' in rendered
         assert "rl-components = { workspace = true }" in rendered
     else:
