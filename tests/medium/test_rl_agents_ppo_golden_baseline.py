@@ -49,6 +49,7 @@ import gymnax
 import gymnax.wrappers
 import jax
 import jax.numpy as jnp
+from flax.typing import VariableDict
 from rl_agents.ppo import make_train
 from rl_components.types import PPOConfig
 
@@ -86,8 +87,21 @@ _RETURN_SE_BAND = 6.0
 # which is the only difference this check tolerates. Measured headroom: perturbing LR by up to
 # 1e-4 relative leaves all five returns bitwise identical, and 1e-3 breaches.
 _RETURN_RTOL = 0.10
-_VALUE_HEAD_MEAN_ATOL = 5e-3
 _VALUE_HEAD_STD_RTOL = 0.02
+
+# The actor head is `Dense_2`, the final layer of the policy path, and it is the only place a
+# broken `log_prob` reduction or entropy term shows up outside the chaotic return curve.
+# Measured on this configuration: the LR perturbation above that leaves the returns bitwise
+# identical (1e-4 relative) moves the head's standard deviation by 1.2e-4 relative, while
+# dropping the entropy bonus entirely (ENT_COEF 0.01 -> 0.0) moves it by 4.5e-3. The band sits
+# 17x above the drift and 2.3x below the defect. `value_head_mean` used to be asserted here and
+# was deleted rather than re-banded: a review found it never came within a factor of 6 of its
+# band under any injected defect. The actor head's mean is instead a near-exact invariant --
+# the softmax gradient sums to zero across the two action columns, so it stays at its
+# initialised value to within 5e-10 under every perturbation probed, including a 30% change in
+# the head's own standard deviation.
+_ACTOR_HEAD_MEAN_ATOL = 1e-7
+_ACTOR_HEAD_STD_RTOL = 2e-3
 
 type _GoldenSection = dict[str, float | dict[str, float]]
 
@@ -127,12 +141,19 @@ def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
     return out["metrics"]["returned_episode_returns"], out["runner_state"].obs_norm_state.observation_count
 
 
-def _run_single_seed() -> tuple[dict[str, float], float, float, float]:
+def _flat_head_moments(params: VariableDict, layer: str) -> tuple[float, float]:
+    """Reduce one dense layer's kernel and bias to the mean and standard deviation."""
+    head = cast(dict[str, jax.Array], params[layer])
+    flat = jnp.concatenate([jnp.ravel(head["kernel"]), jnp.ravel(head["bias"])])
+    return float(flat.mean()), float(flat.std())
+
+
+def _run_single_seed() -> tuple[dict[str, float], float, float, tuple[float, float]]:
     """Run the pinned configuration on the single golden seed and reduce it to its metrics.
 
     Returns:
-        The per-checkpoint rollout-mean smoothed returns, the final observation count, and
-        the value head's flattened mean and standard deviation.
+        The per-checkpoint rollout-mean smoothed returns, the final observation count, the
+        value head's standard deviation, and the actor head's mean and standard deviation.
     """
     env, env_params = gymnax.make(_CONFIG.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
@@ -140,13 +161,12 @@ def _run_single_seed() -> tuple[dict[str, float], float, float, float]:
     out = train_fn(jax.random.PRNGKey(_CONFIG.SEED))
 
     returns = out["metrics"]["returned_episode_returns"]
-    value_head = out["runner_state"].train_state.params["params"]["Dense_5"]
-    flat_value_head = jnp.concatenate([jnp.ravel(value_head["kernel"]), jnp.ravel(value_head["bias"])])
+    params = cast(VariableDict, out["runner_state"].train_state.params["params"])
     return (
         {str(i): float(returns[i]) for i in _CHECKPOINTS},
         float(out["runner_state"].obs_norm_state.observation_count),
-        float(flat_value_head.mean()),
-        float(flat_value_head.std()),
+        _flat_head_moments(params, "Dense_5")[1],
+        _flat_head_moments(params, "Dense_2"),
     )
 
 
@@ -181,7 +201,8 @@ def test_ppo_single_seed_trajectory_is_unchanged() -> None:
     """
     golden = _read_golden_section("pre_port_determinism")
     golden_returns = _read_golden_curve(golden, "rollout_mean_smoothed_return")
-    actual_returns, observation_count, value_head_mean, value_head_std = _run_single_seed()
+    actual_returns, observation_count, value_head_std, actor_head = _run_single_seed()
+    actor_head_mean, actor_head_std = actor_head
 
     assert set(actual_returns) == set(golden_returns)
     for update, expected in golden_returns.items():
@@ -190,6 +211,8 @@ def test_ppo_single_seed_trajectory_is_unchanged() -> None:
         )
 
     golden_value_head_std = _read_golden_scalar(golden, "value_head_std")
+    golden_actor_head_std = _read_golden_scalar(golden, "actor_head_std")
     assert observation_count == _read_golden_scalar(golden, "observation_count")
-    assert abs(value_head_mean - _read_golden_scalar(golden, "value_head_mean")) <= _VALUE_HEAD_MEAN_ATOL
     assert abs(value_head_std - golden_value_head_std) <= _VALUE_HEAD_STD_RTOL * golden_value_head_std
+    assert abs(actor_head_mean - _read_golden_scalar(golden, "actor_head_mean")) <= _ACTOR_HEAD_MEAN_ATOL
+    assert abs(actor_head_std - golden_actor_head_std) <= _ACTOR_HEAD_STD_RTOL * golden_actor_head_std

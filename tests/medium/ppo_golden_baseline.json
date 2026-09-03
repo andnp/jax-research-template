@@ -38,7 +38,8 @@
       "31": 39.15625
     },
     "observation_count": 1025.0,
-    "value_head_mean": 0.04161638393998146,
-    "value_head_std": 0.17897933721542358
+    "value_head_std": 0.17897933721542358,
+    "actor_head_mean": -1.091745070880279e-05,
+    "actor_head_std": 0.017033670097589493
   }
 }
