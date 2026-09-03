@@ -35,19 +35,22 @@ def run_experiment(
             raise RuntimeError(
                 f"Experiment {experiment.name!r} was not synced into {db_path}.",
             )
-        planned_batches = database.plan_experiment_execution_batches(
-            experiment_row.id,
-            executions_root,
-            max_runs_per_batch=max_runs_per_batch,
-            git_commit=git_commit,
-            git_diff_blob=git_diff,
-        )
-
-    if not planned_batches:
-        return []
+        experiment_id = experiment_row.id
 
     execution_roots: list[Path] = []
-    for planned in planned_batches:
+    while True:
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            planned = database.plan_next_execution_batch(
+                experiment_id,
+                executions_root,
+                max_runs_per_batch=max_runs_per_batch,
+                git_commit=git_commit,
+                git_diff_blob=git_diff,
+            )
+        if planned is None:
+            break
+
         root = execute_batch(
             db_path,
             planned,
