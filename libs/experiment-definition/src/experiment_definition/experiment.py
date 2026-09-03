@@ -175,7 +175,7 @@ class Experiment:
         self,
         name: str,
         *,
-        kind: str,
+        kind: str = "float",
         frequency: str,
     ) -> "Experiment":
         """Whitelist a metric for collection by the instrumentation layer.
@@ -186,6 +186,7 @@ class Experiment:
         Args:
             name: Identifier used by the collector (e.g. ``"reward"``).
             kind: Scalar data type — one of ``"float"``, ``"int"``, ``"bool"``.
+                Defaults to ``"float"``.
             frequency: Collection cadence — one of ``"per_episode"``,
                 ``"per_update"``, ``"eval_only"``.
 
