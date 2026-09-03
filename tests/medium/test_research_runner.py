@@ -6,12 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
-from experiment_definition.component import Component, ComponentType
+from experiment_definition import Component, ComponentType, Experiment
 from experiment_definition.db import DatabaseManager, PlannedExecution
-from experiment_definition.experiment import Experiment
+from research_runner import ExecutionContext, ExecutionResult, execute_batch, run_experiment
 from research_runner.git import capture_git_metadata
-from research_runner.runner import _derive_metrics_db_path, execute_batch, run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult
+from research_runner.runner import _derive_metrics_db_path
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

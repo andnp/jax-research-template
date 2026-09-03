@@ -5,10 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from experiment_definition import Component, ComponentType, Experiment, MetricFrequency, MetricType
 from experiment_definition.ablation import AblationSpec
-from experiment_definition.component import Component, ComponentType
-from experiment_definition.experiment import Experiment
-from experiment_definition.metric import MetricFrequency, MetricSpec, MetricType
+from experiment_definition.metric import MetricSpec
 from experiment_definition.parameter import ParameterSpec
 
 # ── Component ─────────────────────────────────────────────────────────────────

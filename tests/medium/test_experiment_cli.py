@@ -62,9 +62,8 @@ def _write_spec_file(tmp_path: Path, db_path: Path, executions_root: Path) -> Pa
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from research_runner.types import ExperimentSpec, ExecutionContext, ExecutionResult
-            from experiment_definition.experiment import Experiment
-            from experiment_definition.component import Component, ComponentType
+            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult
+            from experiment_definition import Experiment, Component, ComponentType
 
             def my_spec() -> ExperimentSpec:
                 experiment = Experiment("test-experiment", description="Test")
