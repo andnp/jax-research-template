@@ -75,10 +75,10 @@ class DQNAtariRuntimeConfig:
 
 
 def build_dqn_zoo_atari_rmsprop(config: DQNAtariConfig) -> optax.GradientTransformation:
-    return optax.rmsprop(
-        learning_rate=config.LEARNING_RATE,
-        decay=config.RMSPROP_DECAY,
-        eps=config.OPTIMIZER_EPSILON,
+    return optax.inject_hyperparams(optax.rmsprop, static_args="centered")(
+        learning_rate=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        decay=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
         centered=config.RMSPROP_CENTERED,
     )
 
@@ -185,6 +185,36 @@ def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtari
 
 
 @chex_struct(frozen=True)
+class DQNAtariHypers:
+    """The hyperparameters ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. Everything here is
+    read only in arithmetic, never to size an array or take a Python branch --
+    those stay on the config. ``LEARNING_RATE``, ``OPTIMIZER_EPSILON`` and
+    ``RMSPROP_DECAY`` are also pushed into the optimizer state each learn step,
+    because the optimizer transformation itself is a static field and cannot
+    hold a traced value.
+    """
+
+    LEARNING_RATE: jax.Array
+    OPTIMIZER_EPSILON: jax.Array
+    RMSPROP_DECAY: jax.Array
+    EXPLORATION_EPSILON_BEGIN: jax.Array
+    EXPLORATION_EPSILON_END: jax.Array
+
+
+def dqn_atari_hypers(config: DQNAtariConfig) -> DQNAtariHypers:
+    return DQNAtariHypers(
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        OPTIMIZER_EPSILON=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
+        RMSPROP_DECAY=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        EXPLORATION_EPSILON_BEGIN=jnp.asarray(config.EXPLORATION_EPSILON_BEGIN, jnp.float32),
+        EXPLORATION_EPSILON_END=jnp.asarray(config.EXPLORATION_EPSILON_END, jnp.float32),
+    )
+
+
+@chex_struct(frozen=True)
 class DQNAtariAgentState:
     """Everything the Atari DQN agent carries between loop iterations.
 
@@ -201,6 +231,7 @@ class DQNAtariAgentState:
         num_actions: Size of the discrete action space, as an int32 leaf so that random
             exploration can sample against a traced bound.
         key: PRNG key for sampling minibatches and exploring.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     train_state: TrainState
@@ -210,6 +241,7 @@ class DQNAtariAgentState:
     last_action: jax.Array
     num_actions: jax.Array
     key: chex.PRNGKey
+    hypers: DQNAtariHypers
 
 
 class DQNAtariAgent:
@@ -278,6 +310,7 @@ class DQNAtariAgent:
             last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
             num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
             key=carry_key,
+            hypers=dqn_atari_hypers(self.config),
         )
 
     def step(
@@ -319,10 +352,11 @@ class DQNAtariAgent:
             lambda: state.buffer_state,
         )
 
+        hypers = state.hypers
         can_train = (buffer_state.count >= self.min_replay_capacity) & (step_index % self.learn_period_env_steps == 0)
         train_state, loss = jax.lax.cond(
             can_train,
-            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key),
+            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key, hypers),
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
@@ -332,7 +366,7 @@ class DQNAtariAgent:
             lambda: state.target_params,
         )
 
-        epsilon = self._exploration_epsilon(step_index)
+        epsilon = self._exploration_epsilon(step_index, hypers)
         q_values = jnp.asarray(train_state.apply_fn(train_state.params, timestep.observation))
         action = epsilon_greedy_action(q_values, epsilon, key=action_key).astype(state.last_action.dtype)
 
@@ -345,24 +379,24 @@ class DQNAtariAgent:
                 last_action=action,
                 num_actions=state.num_actions,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={"loss": loss, "epsilon": epsilon},
         )
 
-    def _exploration_epsilon(self, step_index: jax.Array) -> jax.Array:
+    def _exploration_epsilon(self, step_index: jax.Array, hypers: DQNAtariHypers) -> jax.Array:
         """Hold epsilon at its start value through the replay warmup, then decay linearly."""
-        config = self.config
         warmup_complete = step_index > self.min_replay_capacity
         elapsed_decay_steps = jnp.minimum(
             jnp.maximum(step_index - self.min_replay_capacity, 0),
             self.exploration_decay_env_steps,
         )
         progress = elapsed_decay_steps / self.exploration_decay_env_steps
-        decayed = config.EXPLORATION_EPSILON_BEGIN + (
-            config.EXPLORATION_EPSILON_END - config.EXPLORATION_EPSILON_BEGIN
+        decayed = hypers.EXPLORATION_EPSILON_BEGIN + (
+            hypers.EXPLORATION_EPSILON_END - hypers.EXPLORATION_EPSILON_BEGIN
         ) * progress
-        return jnp.where(warmup_complete, decayed, config.EXPLORATION_EPSILON_BEGIN).astype(jnp.float32)
+        return jnp.where(warmup_complete, decayed, hypers.EXPLORATION_EPSILON_BEGIN).astype(jnp.float32)
 
     def _learn(
         self,
@@ -371,8 +405,25 @@ class DQNAtariAgent:
         buffer_state: ReplayBufferState,
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
+        hypers: DQNAtariHypers,
     ) -> tuple[TrainState, jax.Array]:
-        """Take one gradient step on a replay minibatch."""
+        """Take one gradient step on a replay minibatch.
+
+        The rate, decay and epsilon are pushed into the optimizer state each step
+        because the transformation itself is a static field and cannot hold a
+        traced value.
+        """
+        opt_state = train_state.opt_state
+        train_state = train_state.replace(
+            opt_state=opt_state._replace(
+                hyperparams={
+                    **opt_state.hyperparams,
+                    "learning_rate": hypers.LEARNING_RATE,
+                    "decay": hypers.RMSPROP_DECAY,
+                    "eps": hypers.OPTIMIZER_EPSILON,
+                }
+            ),
+        )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
         def _loss_fn(params: VariableDict) -> jax.Array:
