@@ -216,6 +216,73 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.sensitivity_plot_path.exists()
 
 
+def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_setup: dict[str, Any]) -> None:
+    """group_by must analyze each hyperparameter-key combination separately, not pool them."""
+    setup = temp_experiment_setup
+    db_path = setup["db_path"]
+
+    lrs = ["1e-3", "3e-4", "1e-4"]
+    seeds = [0, 1, 2]
+    tasks = ["alpha", "beta"]
+
+    with DatabaseManager(db_path) as db:
+        for task in tasks:
+            for lr in lrs:
+                for seed in seeds:
+                    hyper_id = db.add_hyperparam_config({"learning_rate": lr, "task": task, "seed": seed})
+
+                    run_id = db.add_run(
+                        experiment_id=setup["exp_id"],
+                        algo_version_id=setup["algo_ver_id"],
+                        env_version_id=setup["env_ver_id"],
+                        hyper_id=hyper_id,
+                        seed=seed,
+                    )
+
+                    exec_id = db.add_execution()
+                    db.update_execution_status(exec_id, "COMPLETED")
+                    db.link_execution_run(exec_id, run_id)
+                    db.record_execution_artifacts(exec_id, str(setup["tmp_path"]))
+
+                    # task "alpha" scores hundreds of points positive; task "beta" scores strongly
+                    # negative. Pooling the two tasks together (the bug) drowns beta's true winner
+                    # in alpha's much larger positive values.
+                    if task == "alpha":
+                        val = {"1e-3": 200.0, "3e-4": 500.0, "1e-4": 300.0}[lr] + seed
+                    else:
+                        val = {"1e-3": -200.0, "3e-4": -180.0, "1e-4": -100.0}[lr] + seed
+                    populate_metrics_db(setup["metrics_db_path"], run_id, "returned_episode_returns", [val])
+
+    report = analyze_hypers(
+        db_path=setup["db_path"],
+        experiment_slug="test-exp",
+        target_hyperparameter="learning_rate",
+        metric_name="returned_episode_returns",
+        group_by=["task"],
+        verbose=False,
+    )
+
+    assert isinstance(report, dict)
+    assert set(report.keys()) == {("alpha",), ("beta",)}
+
+    alpha_report = report[("alpha",)]
+    beta_report = report[("beta",)]
+    assert isinstance(alpha_report, HyperparameterSensitivityReport)
+    assert isinstance(beta_report, HyperparameterSensitivityReport)
+
+    assert alpha_report.winning_value == "3e-4"
+    assert alpha_report.raw_mean == pytest.approx(501.0)
+
+    assert beta_report.winning_value == "1e-4"
+    assert beta_report.raw_mean == pytest.approx(-99.0)
+
+    assert alpha_report.sensitivity_plot_path is not None
+    assert beta_report.sensitivity_plot_path is not None
+    assert alpha_report.sensitivity_plot_path != beta_report.sensitivity_plot_path
+    assert alpha_report.sensitivity_plot_path.exists()
+    assert beta_report.sensitivity_plot_path.exists()
+
+
 def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
     setup = temp_experiment_setup
     db_path = setup["db_path"]
@@ -301,3 +368,10 @@ def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setu
 
     with pytest.raises(ValueError, match="Insufficient complete bakeoff data"):
         compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
+
+
+def test_compare_bakeoff_rejects_fewer_than_three_algorithms() -> None:
+    """Fail with an actionable message instead of an opaque scipy error below the Friedman minimum."""
+    with pytest.raises(ValueError, match="compare_pairwise") as exc_info:
+        compare_bakeoff("unused.sqlite", "test-exp", ["ppo", "sac"], ["CartPole"], "metric", verbose=False)
+    assert exc_info.type is ValueError

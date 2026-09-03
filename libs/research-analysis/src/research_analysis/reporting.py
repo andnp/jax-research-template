@@ -365,8 +365,14 @@ def analyze_hypers(
     metric_name: str,
     group_by: list[str] | None = None,
     verbose: bool = True,
-) -> HyperparameterSensitivityReport:
-    """Analyze hyperparameter sweep, correcting for maximization bias via two-stage bootstrapping."""
+) -> HyperparameterSensitivityReport | dict[tuple[Any, ...], HyperparameterSensitivityReport]:
+    """Analyze hyperparameter sweep, correcting for maximization bias via two-stage bootstrapping.
+
+    When ``group_by`` names one or more hyperparameter keys, the analysis is performed
+    separately for each distinct combination of those keys' values (read from each run's
+    stored hyperparameter JSON), and a mapping from the group key tuple to its own
+    ``HyperparameterSensitivityReport`` is returned instead of a single pooled report.
+    """
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -375,8 +381,8 @@ def analyze_hypers(
             raise ValueError(f"Unknown experiment {experiment_slug!r}")
         runs = database.list_runs(exp_row.id)
 
-    # 1. Group runs by hyperparameter value
-    runs_by_val: dict[Any, list[dict[str, Any]]] = {}
+    # 1. Collect per-run records: target hyperparameter value, final metric, and full hypers
+    records: list[dict[str, Any]] = []
     with DatabaseManager(db_path) as database:
         for run in runs:
             latest_exec = database.get_latest_completed_execution_for_run(run.id)
@@ -399,10 +405,52 @@ def analyze_hypers(
                 continue
 
             final_val = float(metric_curve[-1])
-            runs_by_val.setdefault(val, []).append({"run_id": run.id, "value": final_val, "hypers": hypers})
+            records.append({"run_id": run.id, "value": final_val, "hypers": hypers})
 
-    if not runs_by_val:
+    if not records:
         raise ValueError(f"No completed runs found containing hyperparameter {target_hyperparameter!r}")
+
+    if group_by:
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+        for record in records:
+            group_key = tuple(record["hypers"].get(key) for key in group_by)
+            groups.setdefault(group_key, []).append(record)
+
+        return {
+            group_key: _analyze_hypers_group(
+                group_records,
+                target_hyperparameter=target_hyperparameter,
+                experiment_slug=experiment_slug,
+                verbose=verbose,
+                group_label=", ".join(f"{key}={value}" for key, value in zip(group_by, group_key, strict=True)),
+                plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_by, group_key, strict=True)),
+            )
+            for group_key, group_records in groups.items()
+        }
+
+    return _analyze_hypers_group(
+        records,
+        target_hyperparameter=target_hyperparameter,
+        experiment_slug=experiment_slug,
+        verbose=verbose,
+        group_label=None,
+        plot_suffix="",
+    )
+
+
+def _analyze_hypers_group(
+    records: list[dict[str, Any]],
+    *,
+    target_hyperparameter: str,
+    experiment_slug: str,
+    verbose: bool,
+    group_label: str | None,
+    plot_suffix: str,
+) -> HyperparameterSensitivityReport:
+    """Run the maximization-bias-corrected sensitivity analysis over one set of run records."""
+    runs_by_val: dict[Any, list[dict[str, Any]]] = {}
+    for record in records:
+        runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
 
     # Identify the raw averages per value
     raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
@@ -459,7 +507,7 @@ def analyze_hypers(
     best_perf_sorted = [best_perf[k] for k in sorted_keys]
 
     analysis_dir = Path("results/analysis") / experiment_slug
-    plot_path = analysis_dir / "hyper_sensitivity.png"
+    plot_path = analysis_dir / f"hyper_sensitivity{plot_suffix}.png"
     plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
 
     report = HyperparameterSensitivityReport(
@@ -476,10 +524,11 @@ def analyze_hypers(
     if verbose:
         console = Console()
         console.print()
+        subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
         console.print(
             Panel(
                 Text(f"📊 HYPERPARAMETER ANALYSIS: {target_hyperparameter}", style="bold cyan"),
-                subtitle=f"Experiment: {experiment_slug}",
+                subtitle=subtitle,
             )
         )
 
@@ -528,6 +577,11 @@ def compare_bakeoff(
     verbose: bool = True,
 ) -> BenchmarkBakeoffReport:
     """Compare algorithms with ECDF normalization and a listwise-deleted Friedman test."""
+    if len(algorithms) < 3:
+        raise ValueError(
+            f"compare_bakeoff requires at least 3 algorithms for the omnibus Friedman test, got "
+            f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
+        )
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()

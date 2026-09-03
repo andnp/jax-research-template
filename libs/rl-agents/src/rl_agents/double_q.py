@@ -1,8 +1,23 @@
-"""DQN as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
+"""The double-Q update, shared by the two agents that differ only in their network.
 
-The agent owns its networks, its replay buffer and its epsilon schedule. It owns no
+``double_dqn`` and ``dueling_dqn`` were identical below their network choice: the same
+target, the same replay insertion, the same epsilon schedule, the same target-network
+sync, down to two diverging comment lines. So ``dueling_dqn`` never implemented a dueling
+variant of vanilla DQN -- it implemented *this* target with a dueling network. The update
+therefore lives here once, and each agent module contributes only its public config, its
+network and a three-line constructor.
+
+The target is van Hasselt et al. (2016)::
+
+    double-Q:      target = r + discount * Q_target(s', argmax_a' Q_online(s', a'))
+    vanilla DQN:   target = r + discount * max_a' Q_target(s', a')
+
+The online network picks the bootstrap action and the target network values it, which
+splits the two roles the single ``max`` conflates and removes its overestimation bias.
+
+The agent owns its network, its replay buffer and its epsilon schedule. It owns no
 environment, no ``lax.scan`` and no discount: :func:`rl_components.loop.run` supplies the
-horizon and ``gamma``, which is why ``DQNConfig`` has no ``GAMMA`` field. Two sources of
+horizon and ``gamma``, which is why neither config has a ``GAMMA`` field. Two sources of
 truth for the discount is how the bootstrap defect this port exists to fix recurs.
 
 Three things ``step`` needs are spec-derived, and ``step`` never sees the spec -- it
@@ -21,7 +36,8 @@ from the state instead:
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Callable
+from typing import Protocol
 
 import chex
 import jax
@@ -35,35 +51,75 @@ from rl_components.env_protocol import EnvSpec
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
-from rl_agents.q_networks import make_q_network
+type QApplyFn = Callable[..., jax.Array]
+"""A Flax module's ``apply``, as reached through ``TrainState.apply_fn``."""
 
 
-@chex_struct(frozen=True, kw_only=True)
-class DQNConfig:
-    LR: float = 3e-4
-    BUFFER_SIZE: int = 100_000
-    BATCH_SIZE: int = 64
-    TOTAL_TIMESTEPS: int = 200_000
-    LEARNING_STARTS: int = 1_000
-    TRAIN_FREQUENCY: int = 1
-    TARGET_NETWORK_FREQUENCY: int = 1_000
-    TAU: float = 1.0  # Soft update
-    EPSILON_START: float = 1.0
-    EPSILON_END: float = 0.05
-    EPSILON_FRACTION: float = 0.5
-    ENV_NAME: str = "MountainCar-v0"
-    SEED: int = 42
-    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
+class QNetworkModule(Protocol):
+    """The two methods the shared implementation needs from a Q-network module."""
+
+    def init(self, rngs: chex.PRNGKey, x: jax.Array) -> VariableDict: ...
+
+    def apply(self, variables: object, x: jax.Array, *, rngs: object | None = None) -> jax.Array: ...
+
+
+type QNetworkFactory = Callable[[int, tuple[int, ...]], QNetworkModule]
+"""Builds the Q-network from the discrete action count and the observation shape.
+
+Each agent module supplies one, and it is the only thing that distinguishes ``double_dqn``
+from ``dueling_dqn``.
+"""
+
+
+class DoubleQConfig(Protocol):
+    """The hyperparameters the shared update reads.
+
+    Both public configs satisfy this structurally while keeping their own field
+    declarations, so each agent's defaults stay readable in one place.
+    """
+
+    @property
+    def LR(self) -> float: ...
+
+    @property
+    def BUFFER_SIZE(self) -> int: ...
+
+    @property
+    def BATCH_SIZE(self) -> int: ...
+
+    @property
+    def TOTAL_TIMESTEPS(self) -> int: ...
+
+    @property
+    def LEARNING_STARTS(self) -> int: ...
+
+    @property
+    def TRAIN_FREQUENCY(self) -> int: ...
+
+    @property
+    def TARGET_NETWORK_FREQUENCY(self) -> int: ...
+
+    @property
+    def TAU(self) -> float: ...
+
+    @property
+    def EPSILON_START(self) -> float: ...
+
+    @property
+    def EPSILON_END(self) -> float: ...
+
+    @property
+    def EPSILON_FRACTION(self) -> float: ...
 
 
 @chex_struct(frozen=True)
-class DQNAgentState:
-    """Everything DQN carries between loop iterations.
+class DoubleQAgentState:
+    """Everything a double-Q agent carries between loop iterations.
 
     Attributes:
         train_state: Online parameters, optimizer state, and the static ``apply_fn``
             through which ``step`` reaches the Q-network.
-        target_params: Parameters of the target network the bootstrap is taken from.
+        target_params: Parameters of the target network the bootstrap value is read from.
         buffer_state: Replay contents. Its array shapes and dtypes are also the only
             record of the buffer's geometry.
         last_obs: Observation the pending transition started from. Zero-primed at
@@ -95,25 +151,76 @@ def _buffer_from_state(buffer_state: ReplayBufferState) -> ReplayBuffer:
     )
 
 
-class DQNAgent:
-    """Deep Q-learning with a target network and epsilon-greedy exploration."""
+def double_q_loss(
+    params: VariableDict,
+    target_params: VariableDict,
+    obs: jax.Array,
+    actions: jax.Array,
+    rewards: jax.Array,
+    next_obs: jax.Array,
+    discounts: jax.Array,
+    *,
+    apply_fn: QApplyFn,
+) -> jax.Array:
+    """Mean squared error against the double-Q target, over one replay minibatch.
 
-    def __init__(self, config: DQNConfig) -> None:
-        """Bind the configuration. The object is static under ``jit``.
+    Reachable from outside any agent so the termination semantics can be gated on the
+    real loss rather than on a copy of it. ``discounts`` carries the bootstrap
+    coefficient the loop computed, so a terminal row's ``0.0`` removes the bootstrap term
+    outright and the loss becomes independent of ``next_obs`` on that row.
+
+    Args:
+        params: Online parameters. Differentiate with respect to this argument only.
+        target_params: Target-network parameters, which value the selected action.
+        obs: Observations the stored transitions started from.
+        actions: Actions taken from ``obs``, as integer indices.
+        rewards: Rewards the stored transitions earned.
+        next_obs: True observations the stored transitions reached.
+        discounts: Bootstrap coefficients, ``0.0`` wherever the transition terminated.
+        apply_fn: The Q-network's ``apply``, static because it is a Python callable.
+
+    Returns:
+        The scalar loss.
+    """
+    q_values = apply_fn(params, obs)
+    q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
+
+    next_actions = jnp.argmax(apply_fn(params, next_obs), axis=-1)
+    next_q_target = apply_fn(target_params, next_obs)
+    next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
+
+    target = rewards + discounts * next_q_value
+    return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
+
+
+class DoubleQAgent:
+    """Double Q-learning with a target network and epsilon-greedy exploration.
+
+    Not a public agent on its own: the ``network_factory`` handed to ``__init__`` decides
+    which variant this is. :class:`rl_agents.double_dqn.DoubleDQNAgent` and
+    :class:`rl_agents.dueling_dqn.DuelingDQNAgent` are the two bindings, and they differ
+    in nothing else.
+    """
+
+    def __init__(self, config: DoubleQConfig, network_factory: QNetworkFactory) -> None:
+        """Bind the configuration and the network. The object is static under ``jit``.
 
         Args:
             config: Hyperparameters. Read at trace time only, so every field may be a
                 Python scalar.
+            network_factory: Builds the Q-network once ``init`` knows the action count
+                and the observation shape.
         """
         self.config = config
+        self.network_factory = network_factory
 
-    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> DQNAgentState:
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> DoubleQAgentState:
         """Build parameters, optimizer, replay buffer and the zero-primed pending slots.
 
         Args:
             key: PRNG key for parameter initialization.
-            spec: The environment description. Must be discrete: DQN maximizes over the
-                action space.
+            spec: The environment description, and the only place the observation shape
+                comes from. Must be discrete: the target argmaxes over the action space.
 
         Returns:
             The initial agent state.
@@ -122,12 +229,12 @@ class DQNAgent:
             ValueError: If ``spec`` describes a continuous action space.
         """
         if spec.num_actions is None:
-            raise ValueError(f"DQN requires a discrete action space, got spec {spec.id!r} with none")
+            raise ValueError(f"double Q-learning requires a discrete action space, got spec {spec.id!r} with none")
 
         observation_shape = tuple(spec.observation_shape)
         observation_dtype = jnp.dtype(spec.observation_dtype)
         action_dtype = jnp.dtype(spec.action_dtype)
-        network = make_q_network(self.config, spec.num_actions, observation_shape=observation_shape)
+        network = self.network_factory(spec.num_actions, observation_shape)
 
         params_key, carry_key = jax.random.split(key)
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
@@ -139,7 +246,7 @@ class DQNAgent:
             obs_dtype=observation_dtype,
         )
 
-        return DQNAgentState(
+        return DoubleQAgentState(
             train_state=TrainState.create(
                 apply_fn=network.apply,
                 params=params,
@@ -155,10 +262,10 @@ class DQNAgent:
 
     def step(
         self,
-        state: DQNAgentState,
+        state: DoubleQAgentState,
         timestep: Timestep[jax.Array],
         step_index: jax.Array,
-    ) -> AgentStep[DQNAgentState, jax.Array]:
+    ) -> AgentStep[DoubleQAgentState, jax.Array]:
         """Close the pending transition, learn from replay, sync the target, then act.
 
         The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
@@ -222,7 +329,7 @@ class DQNAgent:
         action = jnp.where(chose_random, random_action, jnp.argmax(q_values)).astype(state.last_action.dtype)
 
         return AgentStep(
-            state=DQNAgentState(
+            state=DoubleQAgentState(
                 train_state=train_state,
                 target_params=target_params,
                 buffer_state=buffer_state,
@@ -250,12 +357,16 @@ class DQNAgent:
         """Take one gradient step on a replay minibatch."""
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
-        def _loss_fn(params: VariableDict) -> jax.Array:
-            q_values = jnp.asarray(train_state.apply_fn(params, obs))
-            q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q_max = jnp.max(jnp.asarray(train_state.apply_fn(target_params, next_obs)), axis=-1)
-            target = rewards + discounts * next_q_max
-            return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
-
-        loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
+        loss, grads = jax.value_and_grad(
+            lambda params: double_q_loss(
+                params,
+                target_params,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                discounts,
+                apply_fn=train_state.apply_fn,
+            )
+        )(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)

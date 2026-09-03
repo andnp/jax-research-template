@@ -9,6 +9,8 @@ dependencies = [
 	"rl-agents",
 {% if algorithm == "ppo" %}
 	"matplotlib>=3.9",
+{% endif %}
+{% if algorithm in ["ppo", "dqn", "double_dqn", "dueling_dqn"] %}
 	"rl-components",
 {% endif %}
 ]
@@ -22,6 +24,6 @@ package = false
 
 [tool.uv.sources]
 rl-agents = { workspace = true }
-{% if algorithm == "ppo" %}
+{% if algorithm in ["ppo", "dqn", "double_dqn", "dueling_dqn"] %}
 rl-components = { workspace = true }
 {% endif %}

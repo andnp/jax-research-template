@@ -4,20 +4,23 @@ import gymnax
 import gymnax.wrappers
 import jax
 import pytest
-from rl_agents.dqn import DQNConfig
-from rl_agents.dqn import make_train as make_dqn
+from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.ppo import make_train as make_ppo
 from rl_agents.sac import SACConfig
 from rl_agents.sac import make_train as make_sac
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
 from rl_components.types import PPOConfig
+
+GAMMA = 0.99
 
 _ppo_config = PPOConfig(TOTAL_TIMESTEPS=10_000, ENV_NAME="CartPole-v1")
 _dqn_config = DQNConfig(TOTAL_TIMESTEPS=10_000, ENV_NAME="CartPole-v1")
 _sac_config = SACConfig(TOTAL_TIMESTEPS=10_000, ENV_NAME="MountainCarContinuous-v0")
 _ppo_env, _ppo_env_params = gymnax.make(_ppo_config.ENV_NAME)
 _ppo_env = gymnax.wrappers.LogWrapper(_ppo_env)
-_dqn_env, _dqn_env_params = gymnax.make(_dqn_config.ENV_NAME)
-_dqn_env = gymnax.wrappers.LogWrapper(_dqn_env)
+_dqn_raw_env, _dqn_env_params = gymnax.make(_dqn_config.ENV_NAME)
+_dqn_env = make_gymnax_env(_dqn_raw_env)
 _sac_env, _sac_env_params = gymnax.make(_sac_config.ENV_NAME)
 _sac_env = gymnax.wrappers.LogWrapper(_sac_env)
 
@@ -33,7 +36,17 @@ def test_ppo_speed(benchmark: Any) -> None:
 @pytest.mark.benchmark(group="dqn")
 def test_dqn_speed(benchmark: Any) -> None:
     rng = jax.random.PRNGKey(_dqn_config.SEED)
-    train_jit = jax.jit(make_dqn(_dqn_config, env=_dqn_env, env_params=_dqn_env_params))
+    agent = DQNAgent(_dqn_config)
+    train_jit = jax.jit(
+        lambda key: run(
+            agent,
+            _dqn_env,
+            key,
+            steps=_dqn_config.TOTAL_TIMESTEPS,
+            gamma=GAMMA,
+            env_params=_dqn_env_params,
+        )
+    )
     jax.block_until_ready(train_jit(rng))
     benchmark.pedantic(lambda: jax.block_until_ready(train_jit(rng)), rounds=3)
 

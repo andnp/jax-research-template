@@ -1,28 +1,29 @@
-"""Dueling DQN agent (Wang et al., 2016).
+"""Dueling DQN (Wang et al., 2016) as an ``AgentProtocol`` implementation.
 
-Uses a dueling architecture that separates state-value and advantage
-streams, combined with the DuelingHead from jax-nn.
+This agent's update is the double-Q target of :mod:`rl_agents.double_q`, unchanged. Its
+predecessor shared its whole ``_update_step`` with ``double_dqn`` line for line, so it is
+not a dueling variant of vanilla DQN and never was; the only contribution here is the
+network, whose separate value and advantage streams recombine as::
 
     Q(s, a) = V(s) + A(s, a) - mean_a'(A(s, a'))
 
-This decomposition helps the agent learn which states are valuable
-without having to learn the effect of each action at every state.
+That decomposition lets the agent learn which states are valuable without learning the
+effect of every action in every state.
 """
 
-from typing import Callable, Literal, NamedTuple, TypedDict
+from __future__ import annotations
+
+from typing import Literal
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import optax
-from flax.training.train_state import TrainState
-from flax.typing import VariableDict
 from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from jax_nn.typed_module import TypedApply
-from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
+
+from rl_agents.double_q import DoubleQAgent
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -34,8 +35,7 @@ class DuelingDQNConfig:
     LEARNING_STARTS: int = 1_000
     TRAIN_FREQUENCY: int = 1
     TARGET_NETWORK_FREQUENCY: int = 1_000
-    GAMMA: float = 0.99
-    TAU: float = 1.0
+    TAU: float = 1.0  # Soft update
     EPSILON_START: float = 1.0
     EPSILON_END: float = 0.05
     EPSILON_FRACTION: float = 0.5
@@ -64,6 +64,13 @@ class DuelingQNetwork(TypedApply[jax.Array], nn.Module):
 
 
 def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> DuelingQNetwork:
+    """Select the dueling network for ``config``'s preset.
+
+    Takes no observation shape, unlike :func:`rl_agents.q_networks.make_q_network`, which
+    needs one only to infer the Nature CNN's frame layout. The one preset supported here
+    is a flat MLP, and the agent's ``init`` derives the shape it needs from the
+    environment spec.
+    """
     if config.NETWORK_PRESET == "mlp":
         return DuelingQNetwork(action_dim)
     if config.NETWORK_PRESET == "nature_cnn":
@@ -75,127 +82,14 @@ def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> Duelin
     )
 
 
-class RunnerState(NamedTuple):
-    train_state: TrainState
-    target_params: VariableDict
-    buffer_state: ReplayBufferState
-    env_state: object
-    last_obs: jax.Array
-    rng: jax.Array
+class DuelingDQNAgent(DoubleQAgent):
+    """The double-Q update over a dueling Q-network."""
 
+    def __init__(self, config: DuelingDQNConfig) -> None:
+        """Bind the configuration and the dueling Q-network.
 
-class DuelingDQNTrainOutput(TypedDict):
-    runner_state: RunnerState
-    metrics: dict[str, jax.Array]
-
-
-def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DuelingDQNTrainOutput]:
-    def train(rng: jax.Array) -> DuelingDQNTrainOutput:
-        network = _make_dueling_q_network(config, env.action_space(env_params).n)
-        rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).shape, dtype=env.observation_space(env_params).dtype)
-        params = network.init(_rng, init_x)
-        target_params = params
-
-        tx = optax.adam(config.LR)
-        train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
-
-        buffer = ReplayBuffer(
-            config.BUFFER_SIZE,
-            env.observation_space(env_params).shape,
-            (),
-            jnp.int32,
-        )
-        buffer_state = buffer.init()
-
-        rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
-
-        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
-            train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
-
-            epsilon = jnp.maximum(
-                config.EPSILON_END,
-                config.EPSILON_START
-                - (config.EPSILON_START - config.EPSILON_END)
-                * (t / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
-            )
-
-            rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values = network.apply(train_state.params, last_obs)
-            greedy_action = jnp.argmax(q_values)
-            random_action = jax.random.randint(_rng_action, (), 0, env.action_space(env_params).n)
-            chose_random = jax.random.uniform(_rng_action, ()) < epsilon
-            action = jnp.where(chose_random, random_action, greedy_action)
-
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
-            discount = config.GAMMA * (1.0 - done)
-
-            buffer_state = buffer.add(
-                buffer_state,
-                last_obs[None, ...],
-                action[None, ...],
-                reward[None, ...],
-                obsv[None, ...],
-                discount[None, ...],
-            )
-
-            def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
-                rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
-
-                def _loss_fn(
-                    params: VariableDict,
-                    target_params: VariableDict,
-                    obs: jax.Array,
-                    actions: jax.Array,
-                    rewards: jax.Array,
-                    next_obs: jax.Array,
-                    discounts: jax.Array,
-                ) -> jax.Array:
-                    q_values = network.apply(params, obs)
-                    q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-
-                    # Double DQN target with dueling architecture
-                    next_q_online = network.apply(params, next_obs)
-                    next_actions = jnp.argmax(next_q_online, axis=-1)
-                    next_q_target = network.apply(target_params, next_obs)
-                    next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
-
-                    target = rewards + discounts * next_q_value
-                    loss = jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
-                    return loss
-
-                grad_fn = jax.value_and_grad(_loss_fn)
-                loss, grads = grad_fn(train_state.params, target_params, obs, actions, rewards, next_obs, discounts)
-                train_state = train_state.apply_gradients(grads=grads)
-                return train_state, loss
-
-            can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
-            train_state, loss = jax.lax.cond(
-                can_train,
-                lambda: _do_train(train_state, target_params, buffer_state, rng),
-                lambda: (train_state, 0.0),
-            )
-
-            should_update_target = t % config.TARGET_NETWORK_FREQUENCY == 0
-            target_params = jax.lax.cond(
-                should_update_target,
-                lambda: jax.tree_util.tree_map(
-                    lambda tp, p: config.TAU * p + (1.0 - config.TAU) * tp,
-                    target_params,
-                    train_state.params,
-                ),
-                lambda: target_params,
-            )
-
-            runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
-            return runner_state, info
-
-        runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
-        runner_state, metrics = jax.lax.scan(
-            _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
-        )
-        return {"runner_state": runner_state, "metrics": metrics}
-
-    return train
+        Args:
+            config: Hyperparameters. Read at trace time only, so every field may be a
+                Python scalar.
+        """
+        super().__init__(config, lambda action_dim, _observation_shape: _make_dueling_q_network(config, action_dim))

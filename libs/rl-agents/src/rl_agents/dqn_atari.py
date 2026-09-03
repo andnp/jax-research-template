@@ -1,14 +1,51 @@
-from typing import Callable, NamedTuple, TypedDict
+"""DQN Zoo's Atari DQN as an :class:`~rl_components.agent_protocol.AgentProtocol`.
 
+The agent owns its Nature CNN, its replay buffer, its centered-RMSProp optimizer and its
+exploration schedule. It owns no environment, no ``lax.scan`` and no discount:
+:func:`rl_components.loop.run` supplies the horizon and ``gamma``.
+
+``ADDITIONAL_DISCOUNT`` is deleted rather than renamed. ``Timestep.discount`` already
+carries ``{0, gamma}``, so a second 0.99 factor beside ``gamma = 0.99`` would discount at
+0.9801 -- the same two-sources-of-truth defect the port exists to remove.
+
+Every frame-counted DQN Zoo period is resolved to env steps once, at construction, because
+those conversions are Python-integer arithmetic that must not be restaged per iteration.
+The schedules then key off ``step_index``, the count of transitions CLOSED, which is what
+the old private loop's ``env_step`` counted: one insertion per iteration means
+``buffer_state.count == step_index`` at the gate.
+
+Three things ``step`` needs are spec-derived, and ``step`` never sees the spec -- it
+receives only a :class:`~rl_components.timestep.Timestep` -- while the agent object itself
+is static under ``jit`` and so cannot be mutated by ``init``. Each is therefore reachable
+from the state instead:
+
+- the network, through ``state.train_state.apply_fn``, which Flax marks
+  ``pytree_node=False`` and which therefore survives the scan carry as a static field;
+- the action count, as an int32 leaf, so a traced bound can bound random exploration;
+- the replay buffer, rebuilt inside ``step`` from the shapes and dtypes of its own state.
+  ``ReplayBuffer`` holds no data, only that geometry, so reconstructing it is free and
+  needs nothing the state does not already carry.
+
+The can-train predicate gates on ``buffer_state.count`` rather than on the DQN family's
+``step_index > LEARNING_STARTS``. The two disagree about whether a wrapped buffer still
+counts as warm, and reconciling them here would destroy the port's equivalence signal, so
+this agent keeps the predicate it already had.
+"""
+
+from __future__ import annotations
+
+import chex
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.heads import epsilon_greedy_action
+from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.gym_env import DiscreteActionSpace, GymEnv
+from rl_components.env_protocol import EnvSpec
 from rl_components.structs import chex_struct
+from rl_components.timestep import Timestep
 
 from rl_agents.q_networks import NatureQNetwork, infer_nature_observation_layout
 
@@ -28,7 +65,6 @@ class DQNAtariConfig:
     EXPLORATION_EPSILON_BEGIN: float = 1.0
     EXPLORATION_EPSILON_END: float = 0.1
     EXPLORATION_EPSILON_DECAY_FRAME_FRACTION: float = 0.02
-    ADDITIONAL_DISCOUNT: float = 0.99
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -148,185 +184,214 @@ def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtari
     return env_step % dqn_zoo_atari_learn_period_env_steps(config) == 0
 
 
-class RunnerState(NamedTuple):
+@chex_struct(frozen=True)
+class DQNAtariAgentState:
+    """Everything the Atari DQN agent carries between loop iterations.
+
+    Attributes:
+        train_state: Online parameters, optimizer state, and the static ``apply_fn``
+            through which ``step`` reaches the Nature Q-network.
+        target_params: Parameters of the target network the bootstrap is taken from.
+        buffer_state: Replay contents. Its array shapes and dtypes are also the only
+            record of the buffer's geometry.
+        last_obs: Observation the pending transition started from. Zero-primed at
+            ``init``; never read before the first insertion, which is guarded on
+            ``step_index > 0``.
+        last_action: Action that opened the pending transition, zero-primed likewise.
+        num_actions: Size of the discrete action space, as an int32 leaf so that random
+            exploration can sample against a traced bound.
+        key: PRNG key for sampling minibatches and exploring.
+    """
+
     train_state: TrainState
     target_params: VariableDict
     buffer_state: ReplayBufferState
-    env_state: object
     last_obs: jax.Array
-    rng: jax.Array
+    last_action: jax.Array
+    num_actions: jax.Array
+    key: chex.PRNGKey
 
 
-def initialize_train_state(
-    config: DQNAtariConfig,
-    env: GymEnv[DiscreteActionSpace],
-    rng: jax.Array,
-    env_params: object | None = None,
-) -> tuple[NatureQNetwork, ReplayBuffer, RunnerState]:
-    observation_space = env.observation_space(env_params)
-    action_space = env.action_space(env_params)
-    observation_shape = tuple(observation_space.shape)
-    network = NatureQNetwork(
-        action_dim=action_space.n,
-        observation_layout=infer_nature_observation_layout(observation_shape),
+def _buffer_from_state(buffer_state: ReplayBufferState) -> ReplayBuffer:
+    """Rebuild the replay buffer from the geometry recorded in its own state."""
+    return ReplayBuffer(
+        capacity=buffer_state.obs.shape[0],
+        obs_shape=buffer_state.obs.shape[1:],
+        action_shape=buffer_state.actions.shape[1:],
+        action_dtype=buffer_state.actions.dtype,
+        obs_dtype=buffer_state.obs.dtype,
     )
 
-    rng, init_rng = jax.random.split(rng)
-    init_x = jnp.zeros(observation_shape, dtype=observation_space.dtype)
-    params = network.init(init_rng, init_x)
-    train_state = TrainState.create(
-        apply_fn=network.apply,
-        params=params,
-        tx=build_dqn_zoo_atari_rmsprop(config),
-    )
-    target_params = params
 
-    buffer = ReplayBuffer(
-        config.REPLAY_CAPACITY,
-        observation_shape,
-        (),
-        jnp.int32,
-        observation_space.dtype,
-    )
-    buffer_state = buffer.init()
+class DQNAtariAgent:
+    """DQN Zoo's Atari DQN: a Nature CNN, centered RMSProp, and a hard target copy."""
 
-    rng, reset_rng = jax.random.split(rng)
-    last_obs, env_state = env.reset(reset_rng, env_params)
-    runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=last_obs, rng=rng)
-    return network, buffer, runner_state
+    def __init__(self, config: DQNAtariConfig, runtime_config: DQNAtariRuntimeConfig) -> None:
+        """Bind the configurations and resolve every frame-counted schedule to env steps.
 
+        Args:
+            config: Learner hyperparameters. Read at trace time only, so every field may
+                be a Python scalar.
+            runtime_config: The declared run budget, which the exploration decay span is
+                a fraction of.
+        """
+        self.config = config
+        self.runtime_config = runtime_config
+        self.min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
+        self.learn_period_env_steps = dqn_zoo_atari_learn_period_env_steps(config)
+        self.target_update_period_env_steps = dqn_zoo_atari_target_update_period_env_steps(config)
+        self.exploration_decay_env_steps = dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config)
 
-def make_train_step(
-    config: DQNAtariConfig,
-    runtime_config: DQNAtariRuntimeConfig,
-    env: GymEnv[DiscreteActionSpace],
-    network: NatureQNetwork,
-    buffer: ReplayBuffer,
-    env_params: object | None = None,
-) -> Callable[[RunnerState, jax.Array], tuple[RunnerState, dict[str, jax.Array]]]:
-    min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
-    learn_period_env_steps = dqn_zoo_atari_learn_period_env_steps(config)
-    target_update_period_env_steps = dqn_zoo_atari_target_update_period_env_steps(config)
-    exploration_decay_env_steps = dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config)
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> DQNAtariAgentState:
+        """Build parameters, optimizer, replay buffer and the zero-primed pending slots.
 
-    def _exploration_epsilon(env_step: jax.Array) -> jax.Array:
-        warmup_complete = env_step > min_replay_capacity
-        elapsed_decay_steps = jnp.minimum(jnp.maximum(env_step - min_replay_capacity, 0), exploration_decay_env_steps)
-        progress = elapsed_decay_steps / exploration_decay_env_steps
-        decayed = config.EXPLORATION_EPSILON_BEGIN + (
-            config.EXPLORATION_EPSILON_END - config.EXPLORATION_EPSILON_BEGIN
-        ) * progress
-        return jnp.where(warmup_complete, decayed, config.EXPLORATION_EPSILON_BEGIN)
+        Args:
+            key: PRNG key for parameter initialization.
+            spec: The environment description. Must be discrete, and must carry image
+                observations the Nature CNN can consume.
 
-    def _loss(
-        params: VariableDict,
-        target_params: VariableDict,
-        obs: jax.Array,
-        actions: jax.Array,
-        rewards: jax.Array,
-        next_obs: jax.Array,
-        discounts: jax.Array,
-    ) -> jax.Array:
-        q_values = network.apply(params, obs)
-        q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
+        Returns:
+            The initial agent state.
 
-        next_q_values = network.apply(target_params, next_obs)
-        next_q_max = jnp.max(next_q_values, axis=-1)
-        targets = rewards + discounts * next_q_max
-        td_error = q_action - jax.lax.stop_gradient(targets)
-        return jnp.mean(jnp.square(td_error))
+        Raises:
+            ValueError: If ``spec`` describes a continuous action space.
+        """
+        if spec.num_actions is None:
+            raise ValueError(f"DQN Atari requires a discrete action space, got spec {spec.id!r} with none")
 
-    def train_step(runner_state: RunnerState, step_index: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
-        train_state, target_params, buffer_state, env_state, last_obs, rng = runner_state
-
-        env_step = step_index + 1
-        epsilon = _exploration_epsilon(env_step)
-
-        rng, action_rng, step_rng, sample_rng = jax.random.split(rng, 4)
-        q_values = network.apply(train_state.params, last_obs)
-        action = epsilon_greedy_action(q_values, epsilon, key=action_rng)
-
-        obs, env_state, reward, done, info = env.step(step_rng, env_state, action, env_params)
-        discount = config.ADDITIONAL_DISCOUNT * (1.0 - done)
-        buffer_state = buffer.add(
-            buffer_state,
-            last_obs[None, ...],
-            action[None, ...],
-            reward[None, ...],
-            obs[None, ...],
-            discount[None, ...],
+        observation_shape = tuple(spec.observation_shape)
+        observation_dtype = jnp.dtype(spec.observation_dtype)
+        action_dtype = jnp.dtype(spec.action_dtype)
+        network = NatureQNetwork(
+            action_dim=spec.num_actions,
+            observation_layout=infer_nature_observation_layout(observation_shape),
         )
 
-        can_learn = (buffer_state.count >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
+        params_key, carry_key = jax.random.split(key)
+        params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
+        buffer = ReplayBuffer(
+            capacity=self.config.REPLAY_CAPACITY,
+            obs_shape=observation_shape,
+            action_shape=tuple(spec.action_shape),
+            action_dtype=action_dtype,
+            obs_dtype=observation_dtype,
+        )
 
-        def _do_learn(args: tuple[TrainState, VariableDict, ReplayBufferState]) -> tuple[TrainState, jax.Array]:
-            train_state, target_params, buffer_state = args
-            indices = jax.random.randint(
-                sample_rng,
-                (config.BATCH_SIZE,),
-                0,
-                buffer_state.count,
-            )
-            obs_batch = buffer_state.obs[indices]
-            actions = buffer_state.actions[indices]
-            rewards = buffer_state.rewards[indices]
-            next_obs = buffer_state.next_obs[indices]
-            discounts = buffer_state.discount[indices]
-            loss, grads = jax.value_and_grad(_loss)(
-                train_state.params,
-                target_params,
-                obs_batch,
-                actions,
-                rewards,
-                next_obs,
-                discounts,
-            )
-            return train_state.apply_gradients(grads=grads), loss
+        return DQNAtariAgentState(
+            train_state=TrainState.create(
+                apply_fn=network.apply,
+                params=params,
+                tx=build_dqn_zoo_atari_rmsprop(self.config),
+            ),
+            target_params=params,
+            buffer_state=buffer.init(),
+            last_obs=jnp.zeros(observation_shape, dtype=observation_dtype),
+            last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
+            num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
+            key=carry_key,
+        )
 
-        def _skip_learn(args: tuple[TrainState, VariableDict, ReplayBufferState]) -> tuple[TrainState, jax.Array]:
-            train_state, _target_params, _buffer_state = args
-            return train_state, jnp.asarray(0.0)
+    def step(
+        self,
+        state: DQNAtariAgentState,
+        timestep: Timestep[jax.Array],
+        step_index: jax.Array,
+    ) -> AgentStep[DQNAtariAgentState, jax.Array]:
+        """Close the pending transition, learn from replay, sync the target, then act.
 
+        The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
+        ``timestep.observation``: at an episode boundary the latter is the post-reset
+        observation, and bootstrapping from it is the defect this port removes.
+
+        Args:
+            state: The agent state from the previous iteration.
+            timestep: This iteration's view of the environment.
+            step_index: Transitions closed so far. Iteration ``0`` closes none, so
+                insertion is guarded above it, and every schedule keys off it.
+
+        Returns:
+            The next state, the action to apply, and a fixed two-key metric schema.
+            ``loss`` is a zero placeholder on the iterations that do not learn, so the
+            pytree returned to ``lax.scan`` is identical on every iteration.
+        """
+        buffer = _buffer_from_state(state.buffer_state)
+        carry_key, sample_key, action_key = jax.random.split(state.key, 3)
+
+        buffer_state = jax.lax.cond(
+            step_index > 0,
+            lambda: buffer.add(
+                state.buffer_state,
+                state.last_obs[None, ...],
+                state.last_action[None, ...],
+                timestep.reward[None, ...],
+                timestep.bootstrap_observation[None, ...],
+                timestep.discount[None, ...],
+            ),
+            lambda: state.buffer_state,
+        )
+
+        can_train = (buffer_state.count >= self.min_replay_capacity) & (step_index % self.learn_period_env_steps == 0)
         train_state, loss = jax.lax.cond(
-            can_learn,
-            _do_learn,
-            _skip_learn,
-            (train_state, target_params, buffer_state),
+            can_train,
+            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key),
+            lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
         target_params = jax.lax.cond(
-            env_step % target_update_period_env_steps == 0,
+            step_index % self.target_update_period_env_steps == 0,
             lambda: train_state.params,
-            lambda: target_params,
+            lambda: state.target_params,
         )
 
-        step_metrics = dict(info)
-        step_metrics["epsilon"] = epsilon
-        step_metrics["loss"] = loss
+        epsilon = self._exploration_epsilon(step_index)
+        q_values = jnp.asarray(train_state.apply_fn(train_state.params, timestep.observation))
+        action = epsilon_greedy_action(q_values, epsilon, key=action_key).astype(state.last_action.dtype)
 
-        next_runner_state = RunnerState(train_state=train_state, target_params=target_params, buffer_state=buffer_state, env_state=env_state, last_obs=obs, rng=rng)
-        return next_runner_state, step_metrics
+        return AgentStep(
+            state=DQNAtariAgentState(
+                train_state=train_state,
+                target_params=target_params,
+                buffer_state=buffer_state,
+                last_obs=timestep.observation,
+                last_action=action,
+                num_actions=state.num_actions,
+                key=carry_key,
+            ),
+            action=action,
+            metrics={"loss": loss, "epsilon": epsilon},
+        )
 
-    return train_step
+    def _exploration_epsilon(self, step_index: jax.Array) -> jax.Array:
+        """Hold epsilon at its start value through the replay warmup, then decay linearly."""
+        config = self.config
+        warmup_complete = step_index > self.min_replay_capacity
+        elapsed_decay_steps = jnp.minimum(
+            jnp.maximum(step_index - self.min_replay_capacity, 0),
+            self.exploration_decay_env_steps,
+        )
+        progress = elapsed_decay_steps / self.exploration_decay_env_steps
+        decayed = config.EXPLORATION_EPSILON_BEGIN + (
+            config.EXPLORATION_EPSILON_END - config.EXPLORATION_EPSILON_BEGIN
+        ) * progress
+        return jnp.where(warmup_complete, decayed, config.EXPLORATION_EPSILON_BEGIN).astype(jnp.float32)
 
+    def _learn(
+        self,
+        train_state: TrainState,
+        target_params: VariableDict,
+        buffer_state: ReplayBufferState,
+        buffer: ReplayBuffer,
+        key: chex.PRNGKey,
+    ) -> tuple[TrainState, jax.Array]:
+        """Take one gradient step on a replay minibatch."""
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
-class DQNAtariTrainOutput(TypedDict):
-    runner_state: RunnerState
-    metrics: dict[str, jax.Array]
+        def _loss_fn(params: VariableDict) -> jax.Array:
+            q_values = jnp.asarray(train_state.apply_fn(params, obs))
+            q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
+            next_q_max = jnp.max(jnp.asarray(train_state.apply_fn(target_params, next_obs)), axis=-1)
+            targets = rewards + discounts * next_q_max
+            return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(targets)))
 
-
-def make_train(
-    config: DQNAtariConfig,
-    runtime_config: DQNAtariRuntimeConfig,
-    env: GymEnv[DiscreteActionSpace],
-    env_params: object | None = None,
-) -> Callable[[jax.Array], DQNAtariTrainOutput]:
-    total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
-
-    def train(rng: jax.Array) -> DQNAtariTrainOutput:
-        network, buffer, runner_state = initialize_train_state(config, env, rng, env_params)
-        train_step = make_train_step(config, runtime_config, env, network, buffer, env_params)
-        runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))
-        return {"runner_state": runner_state, "metrics": metrics}
-
-    return train
+        loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
+        return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)

@@ -1,72 +1,101 @@
-"""Medium integration tests for rl_agents.dqn with injected Nature-CNN environments."""
+"""Medium integration test for ``DQNAgent`` against a Nature-CNN-shaped environment.
+
+The point is the construction path, not the arithmetic: an injected environment whose
+``EnvSpec`` reports stacked ``uint8`` image observations must drive the whole port --
+spec-derived network selection, a ``uint8`` replay buffer, and a ``lax.scan`` that traces
+under ``jit`` -- with nothing but the spec to go on.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
-from rl_agents.dqn import DQNConfig, make_train
-from rl_components.gym_env import DiscreteActionSpace, ObservationSpace
+from rl_agents.dqn import DQNAgent, DQNConfig
+from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+from rl_components.loop import run
 
-
-@dataclass(frozen=True)
-class FakeObservationSpace:
-    shape: tuple[int, ...]
-    dtype: jnp.dtype
-
-
-@dataclass(frozen=True)
-class FakeActionSpace:
-    n: int
+OBSERVATION_SHAPE = (4, 84, 84, 1)
+NUM_ACTIONS = 3
+STEPS = 4
+GAMMA = 0.99
 
 
 class FakeAtariLikeEnv:
-    def observation_space(self, params: object | None = None) -> ObservationSpace:
-        del params
-        return FakeObservationSpace(shape=(4, 84, 84, 1), dtype=jnp.uint8)
+    """A counter environment wearing Atari's observation shape and dtype."""
 
-    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
+    def spec(self, params: None = None) -> EnvSpec:
         del params
-        return FakeActionSpace(n=3)
+        return EnvSpec(
+            id="fake-atari",
+            observation_shape=OBSERVATION_SHAPE,
+            action_shape=(),
+            observation_dtype=jnp.dtype(jnp.uint8),
+            action_dtype=jnp.dtype(jnp.int32),
+            num_actions=NUM_ACTIONS,
+        )
 
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, jax.Array]:
         del key, params
-        observation = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
-        state = jnp.array(0, dtype=jnp.int32)
-        return observation, state
+        return EnvReset(
+            observation=jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
+            state=jnp.array(0, dtype=jnp.int32),
+        )
 
     def step(
         self,
         key: jax.Array,
         state: jax.Array,
         action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        params: None = None,
+    ) -> EnvStep[jax.Array, jax.Array]:
         del key, action, params
         next_state = state + jnp.array(1, dtype=jnp.int32)
-        observation = jnp.full((4, 84, 84, 1), next_state, dtype=jnp.uint8)
-        reward = jnp.array(1.0, dtype=jnp.float32)
-        done = jnp.array(False)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        return observation, next_state, reward, done, info
+        return EnvStep(
+            observation=jnp.full(OBSERVATION_SHAPE, next_state, dtype=jnp.uint8),
+            state=next_state,
+            reward=jnp.array(1.0, dtype=jnp.float32),
+            terminated=jnp.bool_(False),
+            truncated=jnp.bool_(False),
+            info={},
+        )
 
 
 class TestDQNNatureEnvIntegration:
-    def test_make_train_accepts_injected_atari_like_env(self) -> None:
+    def test_run_drives_the_agent_against_an_injected_atari_like_env(self) -> None:
         config = DQNConfig(
             NETWORK_PRESET="nature_cnn",
-            TOTAL_TIMESTEPS=4,
+            TOTAL_TIMESTEPS=STEPS,
             LEARNING_STARTS=100,
             BUFFER_SIZE=16,
             BATCH_SIZE=4,
         )
-        train = make_train(config, env=FakeAtariLikeEnv(), env_params=None)
-        out = jax.jit(train)(jax.random.key(0))
+        agent = DQNAgent(config)
+        env = FakeAtariLikeEnv()
 
-        metrics = out["metrics"]
-        assert metrics["returned_episode"].shape == (4,)
-        assert metrics["returned_episode_returns"].shape == (4,)
+        final_state, metrics = jax.jit(
+            lambda key: run(agent, env, key, steps=STEPS, gamma=GAMMA)
+        )(jax.random.key(0))
+
+        for key_name in ("loss", "epsilon", "q_max", "loop/reward", "loop/episode_end"):
+            assert metrics[key_name].shape == (STEPS,), key_name
+
+        buffer_state = final_state.agent_state.buffer_state
+        assert buffer_state.obs.dtype == jnp.uint8, "the spec's observation dtype must reach the buffer"
+        assert int(buffer_state.count) == STEPS - 1, "the final action opens a transition that never closes"
+        assert jnp.all(metrics["loss"] == 0.0), "LEARNING_STARTS above the budget must keep the learn path shut"
+
+    def test_the_spec_selects_the_nature_network_without_an_observation_argument(self) -> None:
+        """``init`` sees only the spec, so the CNN choice must follow from it alone."""
+        agent = DQNAgent(DQNConfig(NETWORK_PRESET="nature_cnn", BUFFER_SIZE=8))
+
+        state = agent.init(jax.random.key(0), FakeAtariLikeEnv().spec())
+
+        q_values = state.train_state.apply_fn(
+            state.train_state.params,
+            jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
+        )
+        assert q_values.shape == (NUM_ACTIONS,)
+        assert state.last_obs.shape == OBSERVATION_SHAPE
+        assert state.last_obs.dtype == jnp.uint8
+        assert state.last_action.shape == ()
+        assert int(state.num_actions) == NUM_ACTIONS

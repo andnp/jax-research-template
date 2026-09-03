@@ -21,14 +21,16 @@ def _write_workspace_config(workspace_root: Path) -> None:
     ("algorithm", "env_name"),
     [
         ("ppo", "CartPole-v1"),
-        ("dqn", "CartPole-v1"),
-        ("double_dqn", "CartPole-v1"),
-        ("dueling_dqn", "CartPole-v1"),
         ("sac", "MountainCarContinuous-v0"),
     ],
 )
-def test_project_template_train_uses_explicit_env_api(algorithm: str, env_name: str) -> None:
-    """The generated smoke starter must construct and pass the environment explicitly."""
+def test_unported_project_template_train_uses_explicit_env_api(algorithm: str, env_name: str) -> None:
+    """An unported algorithm's starter must construct and pass the environment explicitly.
+
+    These branches still own private training loops, so they take the Gymnax tuple surface
+    and a ``LogWrapper``. Each branch leaves this case as its agent ports; the parameter
+    list empties, and this test goes with the compatibility bridge it pins.
+    """
     rendered = _render_project_template(
         "train.py.jinja",
         project_name="demo",
@@ -43,6 +45,38 @@ def test_project_template_train_uses_explicit_env_api(algorithm: str, env_name: 
     assert "env = gymnax.wrappers.LogWrapper(env)" in rendered
     assert "train_fn = make_train(config, env=env, env_params=env_params)" in rendered
     assert "make_train(config)" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("algorithm", "agent", "env_name"),
+    [
+        ("dqn", "DQNAgent", "CartPole-v1"),
+        ("double_dqn", "DoubleDQNAgent", "CartPole-v1"),
+        ("dueling_dqn", "DuelingDQNAgent", "CartPole-v1"),
+    ],
+)
+def test_ported_project_template_train_drives_the_shared_loop(algorithm: str, agent: str, env_name: str) -> None:
+    """A ported algorithm's starter must build an agent and hand it to ``loop.run``.
+
+    The starter is the composition root, so it is where the discount lives now that the
+    agent config no longer carries one, and it must not reach for the Gymnax tuple surface
+    or a ``LogWrapper``: the loop reports episode returns itself.
+    """
+    rendered = _render_project_template(
+        "train.py.jinja",
+        project_name="demo",
+        description="A demo experiment",
+        env_name=env_name,
+        algorithm=algorithm,
+    )
+
+    assert "from rl_components.loop import run" in rendered
+    assert "env = make_gymnax_env(raw_env)" in rendered
+    assert f"agent = {agent}(config)" in rendered
+    assert "steps=config.TOTAL_TIMESTEPS," in rendered
+    assert "gamma=GAMMA," in rendered
+    assert "gymnax.wrappers" not in rendered
+    assert "make_train" not in rendered
 
 
 def _render_project_template(template_name: str, **context: str) -> str:
@@ -176,10 +210,14 @@ def test_project_template_pyproject_declares_truthful_runtime_dependencies(algor
 
     if algorithm == "ppo":
         assert '"matplotlib>=3.9"' in rendered
+    else:
+        assert '"matplotlib>=3.9"' not in rendered
+
+    # The ported starters import rl_components directly, for the loop and the Gymnax adapter.
+    if algorithm in ("ppo", "dqn", "double_dqn", "dueling_dqn"):
         assert '"rl-components"' in rendered
         assert "rl-components = { workspace = true }" in rendered
     else:
-        assert '"matplotlib>=3.9"' not in rendered
         assert '"rl-components"' not in rendered
         assert "rl-components = { workspace = true }" not in rendered
 

@@ -1,8 +1,17 @@
 """Behavioural gate: every replay-buffer agent must actually reach its learn path.
 
-Each case drives an agent through its public ``make_train`` entry point only. No loss,
-target or update rule is re-implemented here, so a broken agent cannot satisfy these
-assertions by agreeing with a copy of itself.
+Each case drives an agent through its public entry point only. No loss, target or update
+rule is re-implemented here, so a broken agent cannot satisfy these assertions by agreeing
+with a copy of itself.
+
+There are two such entry points during the migration, and each agent names its own driver.
+A ported agent goes through ``AgentProtocol`` plus :func:`rl_components.loop.run`; the rest
+still go through their private ``make_train``. Every assertion below holds for both, which
+is what makes the pair comparable: a port that loses the learn path fails the same test its
+``make_train`` predecessor passed. Two facts differ by construction rather than by defect,
+so the driver reports them instead of the assertions assuming them -- the loop closes
+``steps - 1`` transitions where ``make_train`` closes ``steps``, and boundary flags arrive
+under the loop's reserved ``loop/`` prefix rather than in the environment's ``info``.
 
 Every agent is run twice against the same seed and the same toy environment:
 
@@ -16,22 +25,27 @@ bit-identical in the second, which is only possible if the gradient update ran. 
 publish a loss metric must additionally report a nonzero loss in the learning run and an
 all-zero loss in the warmup-only run, so a zero-filled placeholder metric fails.
 
-The toy environment terminates every ``EPISODE_LENGTH`` steps and auto-resets, so each run
-crosses several episode boundaries with a nonzero ``done``. The stored discounts must then
-carry an exact ``0.0``, which fails any agent that ignores ``done`` when writing to its
-buffer. That the zero *target* also collapses to the bare reward is gated separately, through
+The toy environment terminates every ``EPISODE_LENGTH`` steps, so each run crosses several
+episode boundaries with a nonzero ``done``. The stored discounts must then carry an exact
+``0.0``, which fails any agent that ignores ``done`` when writing to its buffer. Who
+performs the reset differs by driver: the ``make_train`` agents have no reset of their own,
+so their environment auto-resets inside ``step``; the loop owns the boundary, so its
+environment does not, and the true terminal observation therefore survives to be asserted
+on. That the zero *target* also collapses to the bare reward is gated separately, through
 each agent's real loss, in ``test_rl_agents_terminal_bootstrap.py`` and
 ``test_rl_agents_qrc_gradient.py``.
 
-Excluded agents: ``dqn_atari`` needs the ALE construction path and its own runtime config,
-and ``rainbow`` samples from its own prioritised buffer rather than
-``rl_components.buffers.ReplayBuffer``. Both need their own gate.
+Excluded agents: ``dqn_atari`` needs image observations for its Nature CNN and gates
+learning on replay occupancy rather than on ``LEARNING_STARTS``, and ``rainbow`` samples
+from its own prioritised buffer rather than ``rl_components.buffers.ReplayBuffer``. Both
+need their own gate; ``dqn_atari`` has one in
+``tests/medium/test_rl_agents_dqn_atari_learn_path.py``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import NamedTuple, cast
+from typing import NamedTuple, cast, override
 
 import jax
 import jax.numpy as jnp
@@ -42,6 +56,7 @@ from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.gymnax_bridge import make_gymnax_compat_env
+from rl_components.loop import run
 
 TOTAL_TIMESTEPS = 12
 """Step budget for every case: short enough to stay inside the medium tier."""
@@ -55,6 +70,8 @@ EPISODE_LENGTH = 5
 BUFFER_SIZE = 16
 BATCH_SIZE = 4
 SEED = 0
+GAMMA = 0.99
+"""Discount for the ported drivers, where it belongs to ``loop.run`` rather than a config."""
 
 
 def _observation(step: jax.Array) -> jax.Array:
@@ -67,6 +84,14 @@ def _advance(step: jax.Array) -> tuple[jax.Array, jax.Array]:
     nxt = step + jnp.int32(1)
     terminated = nxt >= EPISODE_LENGTH
     return jnp.where(terminated, jnp.int32(0), nxt), terminated
+
+
+TERMINAL_OBSERVATION = _observation(jnp.int32(EPISODE_LENGTH))
+"""The true final observation of an episode, distinct from the post-reset ``_observation(0)``.
+
+An agent that inserts the post-reset observation instead of the terminal one stores
+``_observation(0)`` here, which is what makes the distinction assertable.
+"""
 
 
 class ToyDiscreteEnv:
@@ -140,6 +165,34 @@ class ToyContinuousEnv:
         )
 
 
+class ToyDiscreteEpisodeEnv(ToyDiscreteEnv):
+    """``ToyDiscreteEnv`` without the auto-reset, for the driver whose loop owns boundaries.
+
+    Reaching the boundary leaves the counter at ``EPISODE_LENGTH`` rather than wrapping to
+    zero, so ``EnvStep.observation`` is the state the transition actually reached.
+    """
+
+    @override
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: None = None,
+    ) -> EnvStep[jax.Array, jax.Array]:
+        del key, params
+        next_step = state + jnp.int32(1)
+        reward = action.astype(jnp.float32) - 0.25 * state.astype(jnp.float32)
+        return EnvStep(
+            observation=_observation(next_step),
+            state=next_step,
+            reward=reward,
+            terminated=next_step >= EPISODE_LENGTH,
+            truncated=jnp.bool_(False),
+            info={},
+        )
+
+
 def _discrete_env() -> GymEnv[DiscreteActionSpace]:
     # The bridge reports a union action space because EnvSpec decides at runtime;
     # the toy environment is always discrete.
@@ -169,21 +222,46 @@ class Run(NamedTuple):
     discounts: jax.Array
     """The discount stored for every transition the run actually wrote to the buffer."""
 
+    next_observations: jax.Array
+    """The bootstrap observation stored for every transition the run wrote to the buffer."""
+
+    observations: jax.Array
+    """The acting observation stored for every transition the run wrote to the buffer."""
+
     metrics: dict[str, jax.Array]
 
+    terminated: jax.Array
+    """Per-step environment termination flag, wherever this driver reports it."""
 
-def _finish(runner_state: Mapping[str, object], metrics: dict[str, jax.Array]) -> Run:
+    transitions: int
+    """Transitions this driver closes over the budget, which the loop and ``make_train``
+    disagree about by one: the action taken on the loop's final iteration opens a
+    transition that never closes."""
+
+
+def _finish(
+    agent_fields: Mapping[str, object],
+    metrics: dict[str, jax.Array],
+    *,
+    terminated: jax.Array,
+    transitions: int,
+) -> Run:
     params = {
         name: jax.tree_util.tree_leaves(field.params)
-        for name, field in runner_state.items()
+        for name, field in agent_fields.items()
         if isinstance(field, TrainState)
     }
-    buffer_state = runner_state["buffer_state"]
+    buffer_state = agent_fields["buffer_state"]
     assert isinstance(buffer_state, ReplayBufferState)
+    count = int(buffer_state.count)
     return Run(
         params=params,
-        discounts=buffer_state.discount[: int(buffer_state.count)],
+        discounts=buffer_state.discount[:count],
+        next_observations=buffer_state.next_obs[:count],
+        observations=buffer_state.obs[:count],
         metrics=metrics,
+        terminated=terminated,
+        transitions=transitions,
     )
 
 
@@ -194,8 +272,17 @@ def _run_dqn(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    agent = dqn.DQNAgent(config)
+    env = ToyDiscreteEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
+    return _finish(
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
+    )
 
 
 def _run_double_dqn(learning_starts: int) -> Run:
@@ -205,8 +292,17 @@ def _run_double_dqn(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(double_dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    agent = double_dqn.DoubleDQNAgent(config)
+    env = ToyDiscreteEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
+    return _finish(
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
+    )
 
 
 def _run_dueling_dqn(learning_starts: int) -> Run:
@@ -216,8 +312,17 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(dueling_dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    agent = dueling_dqn.DuelingDQNAgent(config)
+    env = ToyDiscreteEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
+    return _finish(
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
+    )
 
 
 def _run_qrc(learning_starts: int) -> Run:
@@ -228,7 +333,12 @@ def _run_qrc(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(qrc.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    return _finish(
+        out["runner_state"]._asdict(),
+        out["metrics"],
+        terminated=out["metrics"]["terminated"],
+        transitions=TOTAL_TIMESTEPS,
+    )
 
 
 def _run_sac(learning_starts: int) -> Run:
@@ -239,7 +349,12 @@ def _run_sac(learning_starts: int) -> Run:
         BATCH_SIZE=BATCH_SIZE,
     )
     out = jax.jit(sac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    return _finish(
+        out["runner_state"]._asdict(),
+        out["metrics"],
+        terminated=out["metrics"]["terminated"],
+        transitions=TOTAL_TIMESTEPS,
+    )
 
 
 def _run_td3(learning_starts: int) -> Run:
@@ -251,7 +366,12 @@ def _run_td3(learning_starts: int) -> Run:
         POLICY_DELAY=1,
     )
     out = jax.jit(td3.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    return _finish(
+        out["runner_state"]._asdict(),
+        out["metrics"],
+        terminated=out["metrics"]["terminated"],
+        transitions=TOTAL_TIMESTEPS,
+    )
 
 
 def _run_greedy_ac(learning_starts: int) -> Run:
@@ -264,7 +384,12 @@ def _run_greedy_ac(learning_starts: int) -> Run:
         NUM_RAND_ACTIONS=2,
     )
     out = jax.jit(greedy_ac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
-    return _finish(out["runner_state"]._asdict(), out["metrics"])
+    return _finish(
+        out["runner_state"]._asdict(),
+        out["metrics"],
+        terminated=out["metrics"]["terminated"],
+        transitions=TOTAL_TIMESTEPS,
+    )
 
 
 AGENT_RUNS: dict[str, Callable[[int], Run]] = {
@@ -277,15 +402,20 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOSS_METRIC_AGENTS = ("sac", "td3", "greedy_ac")
+LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn")
+"""Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
+
+Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
+``ToyDiscreteEnv``'s auto-reset and the Gymnax compatibility bridge all go together."""
+
+LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3", "greedy_ac")
 """Agents that publish their losses.
 
-``dqn``, ``double_dqn``, ``dueling_dqn`` and ``qrc`` compute a real loss and then discard it
--- ``dqn._update_step`` binds ``loss`` and returns the raw environment ``info`` -- so four of
-the seven agents cannot be gated on it and are observable only through their parameters.
-That is a defect in the agents, not in this gate: follow-up is to surface the loss each one
-already computes as part of that agent's port commit, at which point this allowlist becomes
-the full agent set and can be deleted."""
+``qrc`` computes a real loss and then discards it -- its ``_update_step`` binds ``loss`` and
+returns the raw environment ``info`` -- so one of the seven agents cannot be gated on it and
+is observable only through its parameters. That is a defect in the agent, not in this gate:
+each port surfaces the loss its agent already computes, at which point this allowlist
+becomes the full agent set and can be deleted."""
 
 
 @pytest.fixture(scope="module")
@@ -325,7 +455,7 @@ def test_learn_path_reports_nonzero_loss(
     warmup_only_runs: dict[str, Run],
 ) -> None:
     learned = learning_runs[agent].metrics
-    losses = {key: value for key, value in learned.items() if key.endswith("_loss")}
+    losses = {key: value for key, value in learned.items() if key == "loss" or key.endswith("_loss")}
     assert losses, f"{agent} published no loss metric"
 
     for key, value in losses.items():
@@ -344,9 +474,10 @@ def test_terminal_transitions_store_a_zero_discount(agent: str, learning_runs: d
     asserts on what the agent wrote instead: an agent that ignores termination stores the
     bare ``GAMMA`` everywhere and never produces the exact ``0.0`` demanded here.
     """
-    discounts = learning_runs[agent].discounts
+    learned = learning_runs[agent]
+    discounts = learned.discounts
 
-    assert discounts.size == TOTAL_TIMESTEPS
+    assert discounts.size == learned.transitions
     assert jnp.any(discounts == 0.0), (
         f"{agent} stored no zero discount: termination never reached the stored transitions"
     )
@@ -355,12 +486,59 @@ def test_terminal_transitions_store_a_zero_discount(agent: str, learning_runs: d
 
 @pytest.mark.parametrize("agent", list(AGENT_RUNS))
 def test_run_crosses_episode_boundaries(agent: str, learning_runs: dict[str, Run]) -> None:
-    metrics = learning_runs[agent].metrics
+    learned = learning_runs[agent]
+    metrics = learned.metrics
 
-    terminated = metrics["terminated"]
+    terminated = learned.terminated
     assert terminated.shape == (TOTAL_TIMESTEPS,)
     assert int(jnp.sum(terminated)) >= 2, f"{agent} never crossed an episode boundary"
 
     for key, value in metrics.items():
         if jnp.issubdtype(value.dtype, jnp.floating):
             assert jnp.all(jnp.isfinite(value)), f"{agent} reported a non-finite {key} across a boundary"
+
+
+@pytest.mark.parametrize("agent", LOOP_DRIVER_AGENTS)
+def test_terminal_transitions_store_the_true_final_observation(agent: str, learning_runs: dict[str, Run]) -> None:
+    """The bootstrap must be taken at the boundary, never across it.
+
+    The fused auto-reset this port removes replaced the terminal observation with the
+    post-reset one, so a terminal transition bootstrapped from the start of the next
+    episode. The discount is zero there, which is why the defect was invisible for
+    one-step targets and corrupting for every n-step and multi-network agent that follows.
+    """
+    learned = learning_runs[agent]
+    terminal = learned.discounts == 0.0
+
+    assert bool(jnp.any(terminal)), f"{agent} stored no terminal transition to check"
+    assert jnp.allclose(learned.next_observations[terminal], TERMINAL_OBSERVATION), (
+        f"{agent} stored the post-reset observation at a boundary instead of the true final state"
+    )
+    assert not jnp.allclose(TERMINAL_OBSERVATION, _observation(jnp.int32(0))), (
+        "the toy environment must make the two observations distinguishable"
+    )
+
+
+@pytest.mark.parametrize("agent", LOOP_DRIVER_AGENTS)
+def test_the_transition_after_a_boundary_starts_the_new_episode(agent: str, learning_runs: dict[str, Run]) -> None:
+    """The mirror of the terminal-observation property, and it fails the other way.
+
+    Insertion must read ``timestep.bootstrap_observation`` while the agent's carried
+    ``last_obs`` must become ``timestep.observation``. Getting the first wrong bootstraps a
+    terminal transition from the next episode; getting the second wrong pairs the previous
+    episode's final state with an action chosen from the new episode's first state, which
+    is a transition that never happened in any episode. Both stay plausible under training
+    and only this assertion separates them.
+    """
+    learned = learning_runs[agent]
+    terminal = jnp.flatnonzero(learned.discounts == 0.0)
+    count = int(learned.observations.shape[0])
+    following = [int(index) + 1 for index in terminal if int(index) + 1 < count]
+
+    assert following, f"{agent} closed no transition after a boundary to check"
+    episode_start = _observation(jnp.int32(0))
+    for index in following:
+        assert jnp.allclose(learned.observations[index], episode_start), (
+            f"{agent} acted from the post-reset state but stored the previous episode's "
+            f"final state as the observation of transition {index}"
+        )
