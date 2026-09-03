@@ -17,7 +17,7 @@
 
 ### 2.2 Policy Comparison & Hypothesis Testing
 - Implementation of statistical tests with appropriate assumptions for RL data (e.g., handling non-normality and autocorrelation).
-- Support for **Skillings-Mack tests** and other robust methods for comparing multiple agents across different tasks.
+- Support for Friedman tests with listwise deletion when comparing multiple agents across different tasks; at least three complete environment-seed rows are required.
 - Automated confidence interval (CI) generation using appropriate bootstrapping techniques.
 
 ### 2.3 Experimental Design Primitives

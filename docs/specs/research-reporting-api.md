@@ -89,7 +89,7 @@ Used to compare multiple algorithms ($K \ge 3$) across a benchmark suite of seve
   1. Retrieve curves across all tasks and algorithms.
   2. Apply ECDF-based (Empirical Cumulative Distribution Function) normalization to scale returns across environments with different return boundaries.
   3. Detect missing run data (e.g., if certain seeds/tasks failed or are incomplete).
-  4. Perform the **Skillings-Mack test** (robust to missing data) or the **Friedman test** (if data is complete) as an omnibus check.
+  4. Perform the **Friedman test** as an omnibus check, applying listwise deletion to missing environment-seed rows. Require at least three complete rows; otherwise fail clearly rather than reporting a placeholder result.
   5. If the omnibus test is significant, run post-hoc pairwise Wilcoxon tests with Bonferroni-Holm family-wise error rate corrections.
 
 ---
