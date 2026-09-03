@@ -28,7 +28,7 @@ class TestQRCGradientFlow:
         obs, actions, rewards, next_obs, discounts = _batch(jax.random.key(1), 4, 2, 32)
 
         def loss_fn(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 1.0)
+            return qrc_loss_batch(params, obs, actions, rewards, next_obs, discounts, 0.1, 1.0, apply_fn=net.apply)
 
         loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
         new_state = train_state.apply_gradients(grads=grads)
@@ -46,7 +46,7 @@ class TestQRCGradientFlow:
 
         @jax.jit
         def compute_loss(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 1.0)
+            return qrc_loss_batch(params, obs, actions, rewards, next_obs, discounts, 0.1, 1.0, apply_fn=net.apply)
 
         loss = compute_loss(params)
         assert loss.shape == ()
@@ -78,7 +78,7 @@ class TestQRCGradientFlow:
         }
 
         def trunk_loss(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 0.0)
+            return qrc_loss_batch(params, obs, actions, rewards, next_obs, discounts, 0.1, 0.0, apply_fn=net.apply)
 
         grad_zero = jax.grad(trunk_loss)(params)
         grad_nonzero = jax.grad(trunk_loss)(params_h_nonzero)
@@ -132,8 +132,8 @@ class TestQRCGradientFlow:
         next_obs_a = jax.random.normal(jax.random.key(2), (8, 4))
         next_obs_b = jax.random.normal(jax.random.key(3), (8, 4)) * 100.0
 
-        loss_a = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_a, discounts, 0.1, 1.0)
-        loss_b = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_b, discounts, 0.1, 1.0)
+        loss_a = qrc_loss_batch(params, obs, actions, rewards, next_obs_a, discounts, 0.1, 1.0, apply_fn=net.apply)
+        loss_b = qrc_loss_batch(params, obs, actions, rewards, next_obs_b, discounts, 0.1, 1.0, apply_fn=net.apply)
 
         assert jnp.allclose(loss_a, loss_b)
 
@@ -166,7 +166,7 @@ class TestQRCGradientFlow:
         batched = (obs[None, :], action[None], reward[None], obs[None, :], jnp.full((1,), gamma))
 
         def total_loss(p: VariableDict) -> jax.Array:
-            return qrc_loss_batch(p, net, *batched, 0.1, 0.0)
+            return qrc_loss_batch(p, *batched, 0.1, 0.0, apply_fn=net.apply)
 
         def q_taken(p: VariableDict) -> jax.Array:
             q, _ = net.apply(p, obs)
