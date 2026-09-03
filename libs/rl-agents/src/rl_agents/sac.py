@@ -118,7 +118,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
         else:
             target_entropy = config.TARGET_ENTROPY
 
-        log_alpha = {"log_alpha": jnp.zeros(1)}
+        log_alpha = {"log_alpha": jnp.log(jnp.array([config.ALPHA]))}
         alpha_state = TrainState.create(apply_fn=None, params=log_alpha, tx=optax.adam(config.LR))
 
         # INIT BUFFER
