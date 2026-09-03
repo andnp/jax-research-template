@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Generic, Protocol, TypeVar, cast
 
 import jax
 
 T_co = TypeVar("T_co", covariant=True)
+
+
+class _SupportsApply(Protocol[T_co]):
+    """The apply() the sibling nn.Module base contributes at runtime via the MRO."""
+
+    def apply(self, variables: object, x: jax.Array, *, rngs: object | None = None) -> T_co: ...
 
 
 class TypedApply(Generic[T_co]):
@@ -28,4 +34,4 @@ class TypedApply(Generic[T_co]):
         *,
         rngs: object | None = None,
     ) -> T_co:
-        return super().apply(variables, x, rngs=rngs)  # type: ignore[return-value]
+        return cast(_SupportsApply[T_co], super()).apply(variables, x, rngs=rngs)

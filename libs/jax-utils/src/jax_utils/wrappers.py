@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import overload
+from typing import cast, overload
 
 import jax
 
@@ -31,7 +31,7 @@ def typed_jit[**P, R](
     Returns:
         A JIT-compiled callable with the same signature as *fn*.
     """
-    return jax.jit(fn, donate_argnums=donate_argnums)  # type: ignore[return-value]
+    return cast(Callable[P, R], jax.jit(fn, donate_argnums=donate_argnums))
 
 
 def typed_vmap[**P, R](
