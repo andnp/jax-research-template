@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781753937673,
+  "lastUpdate": 1788471786893,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -3193,6 +3193,121 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000016905244387677025",
             "extra": "mean: 39.843199999722856 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "distinct": true,
+          "id": "2ec67ab5f6fefc4b6965d19732d6bcfac3c64838",
+          "message": "chore: ignore generated results output\n\nAnalysis and example runs write results/ into the checkout, so it\nsurfaced as untracked noise in every status check.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T15:23:11-06:00",
+          "tree_id": "e57e81da9b403309a3fc03b5dbe8471b4e957066",
+          "url": "https://github.com/andnp/jax-research-template/commit/2ec67ab5f6fefc4b6965d19732d6bcfac3c64838"
+        },
+        "date": 1788471786557,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 7.721497725530192,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020102402220209366",
+            "extra": "mean: 129.5085533333283 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.446359186375744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015066628282640734",
+            "extra": "mean: 691.3911906666689 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.05155597993308217,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025824998410217",
+            "extra": "mean: 19.396392063499995 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.7034953725173928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0031239238004338097",
+            "extra": "mean: 1.4214734582000061 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 3198.8719497270426,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003855471080507219",
+            "extra": "mean: 312.61020000670214 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 25.746971524064556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0019425692686215073",
+            "extra": "mean: 38.83951939999406 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 0.7245526678547913,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017426616516143415",
+            "extra": "mean: 1.3801619183333287 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 4606.773492993006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00004217926943718712",
+            "extra": "mean: 217.07166664934144 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_without_learning_speed",
+            "value": 233.28444987326307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0010393061360161352",
+            "extra": "mean: 4.286612333326427 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_with_learning_speed",
+            "value": 5.081473457445862,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0041068183006216",
+            "extra": "mean: 196.79331366666966 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 48844.34282441594,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011807781560184617",
+            "extra": "mean: 20.47320000997388 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 49260.11308412451,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012368925096278365",
+            "extra": "mean: 20.300400007045027 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 33719.079602842154,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000014814518205741256",
+            "extra": "mean: 29.65680000102111 usec\nrounds: 5"
           }
         ]
       }
