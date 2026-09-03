@@ -178,7 +178,7 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         else:
             cutoff_reached = jnp.zeros((), jnp.bool_)
 
-        discount, episode_end = bootstrap_terms(
+        discount, episode_end, is_truncated = bootstrap_terms(
             env_step.terminated,
             env_step.truncated,
             cutoff_reached,
@@ -227,7 +227,7 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         metrics["loop/discount"] = discount
         metrics["loop/episode_end"] = episode_end
         metrics["loop/terminated"] = terminated
-        metrics["loop/truncated"] = episode_end & ~terminated
+        metrics["loop/truncated"] = is_truncated
         metrics["loop/episode_return"] = jnp.where(episode_end, completed_return, jnp.zeros((), jnp.float32))
         metrics["loop/episode_length"] = jnp.where(episode_end, completed_length, jnp.zeros((), jnp.int32))
         return next_state, metrics
