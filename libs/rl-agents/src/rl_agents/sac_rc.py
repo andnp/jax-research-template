@@ -15,6 +15,11 @@ Two design decisions carried over from ``qrc.py``:
   otherwise stand in for. Stop-gradienting that bootstrap would silently
   collapse SAC-RC back into plain semi-gradient SAC with an inert extra head.
 
+The squared losses carry a ``0.5`` that TDRC's published form omits. That is
+a house convention, but it scales the data terms and not ``BETA``'s
+regulariser, so a given ``BETA`` is twice as strong relative to the data as
+the same number in the published sweeps.
+
 The actor loss and the entropy-coefficient (alpha) update are unchanged from
 ``rl_agents.sac``; only the critic loss and the twin-critic network gain the
 h-head and correction term.
