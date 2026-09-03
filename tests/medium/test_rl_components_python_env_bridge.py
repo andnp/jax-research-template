@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from rl_components.frame_stack import FrameStackWrapper
+from rl_components.gymnax_bridge import make_gymnax_compat_env
 from rl_components.python_env_bridge import (
     FINAL_OBSERVATION_INFO_KEY,
     FINAL_OBSERVATION_VALID_INFO_KEY,
@@ -82,3 +84,29 @@ def test_bridge_preserves_post_reset_observation_and_exposes_terminal_frame(
     assert bool(terminal.info[FINAL_OBSERVATION_VALID_INFO_KEY]) is True
     assert int(next_step.observation[0]) == 41
     assert bool(next_step.info[FINAL_OBSERVATION_VALID_INFO_KEY]) is False
+
+
+def test_frame_stack_rollout_uses_reset_observation_and_preserves_terminal_info() -> None:
+    """Verify stacked rollouts act from reset frames after a terminal step."""
+    bridge = PythonEnvBridge(lambda: _FakeGymALE("terminated"))
+    env = make_gymnax_compat_env(FrameStackWrapper(bridge, n_frames=2))
+
+    def rollout(key: jax.Array) -> tuple[jax.Array, dict[str, jax.Array]]:
+        observation, state = env.reset(key, None)
+
+        def step(
+            carry: tuple[object, jax.Array], _: jax.Array
+        ) -> tuple[tuple[object, jax.Array], tuple[jax.Array, dict[str, jax.Array]]]:
+            state, last_observation = carry
+            action = jnp.asarray(last_observation[-1, 0] % 2, dtype=jnp.int32)
+            next_observation, next_state, _reward, _done, info = env.step(key, state, action, None)
+            return (next_state, next_observation), (next_observation, info)
+
+        (_, _), outputs = jax.lax.scan(step, (state, observation), jnp.arange(3))
+        return outputs
+
+    observations, info = jax.jit(rollout)(jax.random.key(0))
+
+    assert observations[:, -1, 0].tolist() == [31, 40, 41]
+    assert info[FINAL_OBSERVATION_VALID_INFO_KEY].tolist() == [False, True, False]
+    assert info[FINAL_OBSERVATION_INFO_KEY][1, :, 0].tolist() == [31, 32]
