@@ -143,7 +143,10 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    ```bash
    uv run research experiment status projects/ppo-cartpole-sweep/results/experiments.sqlite
    ```
-   To force specific work to be redone, mark it invalid first: `research experiment invalidate <db> --execution <id>`.
+   To force specific work to be redone, mark it invalid first: `research experiment invalidate <db> --execution <id>`,
+   or select a whole arm by hyperparameter: `research experiment invalidate <db> --experiment <slug> --where algorithm=<arm>`.
+   Before re-running anything, read [Running Experiments Without Wasting Compute](experiment-efficiency.md) — editing an
+   agent's source invalidates nothing on its own, and re-identifying a study re-runs all of it.
 
 5. **Read the results:**
    Reporting and analysis are library functions, not CLI subcommands — use `research_analysis` (e.g. `research_analysis.reporting.analyze_hypers`, `compare_bakeoff`, `compare_pairwise`, and `research_analysis.bootstrap.bootstrap_ci`) against the two SQLite databases.
