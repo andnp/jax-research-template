@@ -630,6 +630,14 @@ class DatabaseManager:
         ).fetchone()
         return ExperimentRow(*row) if row else None
 
+    def get_experiment_by_id(self, experiment_id: int) -> ExperimentRow | None:
+        """Fetch an experiment by id."""
+        row = self.conn.execute(
+            "SELECT id, name, description, created_at FROM Experiments WHERE id = ?",
+            (experiment_id,),
+        ).fetchone()
+        return ExperimentRow(*row) if row else None
+
     # ------------------------------------------------------------------
     # Runs
     # ------------------------------------------------------------------
