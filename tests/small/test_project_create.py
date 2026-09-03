@@ -260,6 +260,8 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
     assert calls == [
         ("copier", _template_root(), projects_root),
         ("git", ["git", "init"], project_root),
+        ("git", ["git", "add", "."], project_root),
+        ("git", ["git", "commit", "-m", "chore: initialize project"], project_root),
         (
             "gh",
             [
@@ -275,4 +277,65 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
             ],
             project_root,
         ),
+        (
+            "git",
+            ["git", "submodule", "add", "--force", "https://github.com/acme/demo.git", "projects/demo"],
+            workspace_root,
+        ),
     ]
+
+
+def test_project_create_uses_workspace_defaults_for_private_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enabled workspace defaults create a private remote and register its project submodule."""
+    workspace_root = tmp_path.resolve()
+    projects_root = workspace_root / "projects"
+    project_root = projects_root / "demo"
+    projects_root.mkdir()
+    _write_workspace_config(
+        workspace_root,
+    )
+    (workspace_root / "research.yaml").write_text(
+        "core_path: core\nstorage_backend: local\ndefault_github_org: acme\n"
+        "auto_create_private_project_repos: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace_root)
+
+    calls: list[tuple[str, object, object]] = []
+
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
+        calls.append(("copier", Path(src_path), Path(dst_path)))
+        project_root.mkdir()
+
+    def fake_run(args: list[str], cwd: Path) -> None:
+        calls.append((args[0], args, cwd))
+
+    monkeypatch.setattr(project_module, "run_copy", fake_run_copy)
+    monkeypatch.setattr(project_module, "_run", fake_run)
+
+    result = runner.invoke(app, ["project", "create", "demo"])
+
+    assert result.exit_code == 0, result.output
+    assert "acme/demo" in result.output
+    assert calls[-1] == (
+        "git",
+        ["git", "submodule", "add", "--force", "https://github.com/acme/demo.git", "projects/demo"],
+        workspace_root,
+    )
+
+
+def test_project_create_rejects_enabled_private_repos_without_default_org(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enabled automatic repository creation must require an organization before rendering."""
+    workspace_root = tmp_path.resolve()
+    (workspace_root / "projects").mkdir()
+    (workspace_root / "research.yaml").write_text(
+        "core_path: core\nstorage_backend: local\nauto_create_private_project_repos: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace_root)
+
+    result = runner.invoke(app, ["project", "create", "demo"])
+
+    assert result.exit_code != 0
+    assert "default_github_org is not configured" in result.output
+    assert not (workspace_root / "projects" / "demo").exists()

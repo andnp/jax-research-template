@@ -13,7 +13,9 @@ AcceleratorLabel = Literal["cpu", "gpu", "tpu"]
 _ALLOWED_STORAGE_BACKENDS = frozenset({"local", "s3"})
 _ALLOWED_ACCELERATORS = frozenset({"cpu", "gpu", "tpu"})
 _REQUIRED_KEYS = ("core_path", "storage_backend")
-_KNOWN_TOP_LEVEL_KEYS = frozenset({"core_path", "storage_backend", "default_github_org", "github_owner", "doctor"})
+_KNOWN_TOP_LEVEL_KEYS = frozenset(
+    {"core_path", "storage_backend", "default_github_org", "auto_create_private_project_repos", "github_owner", "doctor"},
+)
 
 
 class ResearchConfigError(ValueError):
@@ -30,6 +32,7 @@ class ResearchConfig:
     core_path: Path
     storage_backend: StorageBackend
     default_github_org: str | None = None
+    auto_create_private_project_repos: bool = False
     github_owner: str | None = None
     doctor: DoctorConfig | None = None
     extra_values: dict[str, object] = field(default_factory=dict)
@@ -65,6 +68,7 @@ def load_research_config(config_path: Path):
         core_path=Path(_require_string(raw_config, "core_path", config_path)),
         storage_backend=_validate_storage_backend(_require_string(raw_config, "storage_backend", config_path), config_path),
         default_github_org=_optional_string(raw_config, "default_github_org", config_path),
+        auto_create_private_project_repos=_optional_bool(raw_config, "auto_create_private_project_repos", config_path),
         github_owner=_optional_string(raw_config, "github_owner", config_path),
         doctor=doctor_config,
         extra_values=extra_values,
@@ -91,6 +95,15 @@ def _optional_string(config: Mapping[str, object], key: str, config_path: Path):
     if isinstance(value, str):
         return value
     raise ResearchConfigError(f"Invalid research.yaml at '{config_path}': '{key}' must be a string when provided.")
+
+
+def _optional_bool(config: Mapping[str, object], key: str, config_path: Path) -> bool:
+    value = config.get(key)
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    raise ResearchConfigError(f"Invalid research.yaml at '{config_path}': '{key}' must be a boolean when provided.")
 
 
 def _load_doctor_config(raw_doctor: object, config_path: Path):

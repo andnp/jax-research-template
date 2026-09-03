@@ -4,6 +4,7 @@ from pathlib import Path
 import typer
 from copier import run_copy
 
+from research_cli.config import ResearchConfigError, load_research_config
 from research_cli.workspace import WorkspaceResolutionError, resolve_workspace_root
 
 project_app = typer.Typer(help="Manage projects within a research workspace.")
@@ -57,6 +58,36 @@ def _github_repo_create_command(project_root: Path, github_repo: str) -> list[st
     ]
 
 
+def _github_repo_url(github_repo: str) -> str:
+    return f"https://github.com/{github_repo}.git"
+
+
+def _submodule_add_command(workspace_root: Path, project_root: Path, github_repo: str) -> list[str]:
+    project_path = project_root.relative_to(workspace_root)
+    return ["git", "submodule", "add", "--force", _github_repo_url(github_repo), str(project_path)]
+
+
+def _project_github_repo(workspace_root: Path, name: str, explicit_repo: str | None) -> str | None:
+    if explicit_repo is not None:
+        return explicit_repo
+
+    try:
+        config = load_research_config(workspace_root / "research.yaml")
+    except ResearchConfigError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not config.auto_create_private_project_repos:
+        return None
+    if config.default_github_org is None:
+        typer.echo(
+            "Error: auto_create_private_project_repos is enabled, but default_github_org is not configured in research.yaml.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return f"{config.default_github_org}/{name}"
+
+
 @project_app.command()
 def create(
     name: str = typer.Argument(..., help="Name of the project to create under projects/."),
@@ -76,6 +107,8 @@ def create(
         typer.echo(f"Error: '{project_root}' already exists.", err=True)
         raise typer.Exit(code=1)
 
+    selected_github_repo = _project_github_repo(workspace_root, name, github_repo)
+
     typer.echo(f"{'[dry-run] ' if dry_run else ''}Create project '{name}'")
     typer.echo(f"  Workspace root: {workspace_root}")
     typer.echo(f"  Template root: {template_root}")
@@ -84,9 +117,10 @@ def create(
         "  Git ownership: the shell repo keeps shared workspace files such as research.yaml and uv.lock; "
         "this command still runs 'git init' inside the new child project."
     )
-    if github_repo is not None:
-        github_command = _github_repo_create_command(project_root, github_repo)
+    if selected_github_repo is not None:
+        github_command = _github_repo_create_command(project_root, selected_github_repo)
         typer.echo(f"  GitHub repo: {' '.join(github_command)}")
+        typer.echo(f"  Submodule: {' '.join(_submodule_add_command(workspace_root, project_root, selected_github_repo))}")
 
     if dry_run:
         return
@@ -99,5 +133,8 @@ def create(
 
     _run(["git", "init"], cwd=project_root)
 
-    if github_repo is not None:
-        _run(_github_repo_create_command(project_root, github_repo), cwd=project_root)
+    if selected_github_repo is not None:
+        _run(["git", "add", "."], cwd=project_root)
+        _run(["git", "commit", "-m", "chore: initialize project"], cwd=project_root)
+        _run(_github_repo_create_command(project_root, selected_github_repo), cwd=project_root)
+        _run(_submodule_add_command(workspace_root, project_root, selected_github_repo), cwd=workspace_root)

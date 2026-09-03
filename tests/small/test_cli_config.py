@@ -18,6 +18,7 @@ def test_load_research_config_reads_required_and_optional_fields(tmp_path: Path)
                 "core_path: core",
                 "storage_backend: local",
                 "default_github_org: rlcore",
+                "auto_create_private_project_repos: true",
                 "github_owner: andy",
                 "doctor:",
                 "  expected_accelerators:",
@@ -33,6 +34,7 @@ def test_load_research_config_reads_required_and_optional_fields(tmp_path: Path)
     assert config.core_path == Path("core")
     assert config.storage_backend == "local"
     assert config.default_github_org == "rlcore"
+    assert config.auto_create_private_project_repos is True
     assert config.github_owner == "andy"
     assert config.doctor is not None
     assert config.doctor.expected_accelerators == ("cpu", "gpu")
@@ -87,6 +89,17 @@ def test_load_research_config_raises_for_invalid_storage_backend(tmp_path: Path)
     config_path = _write_config(tmp_path, "core_path: core\nstorage_backend: filesystem\n")
 
     with pytest.raises(ResearchConfigError, match="invalid storage_backend 'filesystem'"):
+        load_research_config(config_path)
+
+
+def test_load_research_config_raises_for_invalid_private_repo_toggle(tmp_path: Path) -> None:
+    """The private-repository setting must reject non-boolean YAML values."""
+    config_path = _write_config(
+        tmp_path,
+        "core_path: core\nstorage_backend: local\nauto_create_private_project_repos: enabled\n",
+    )
+
+    with pytest.raises(ResearchConfigError, match="must be a boolean"):
         load_research_config(config_path)
 
 

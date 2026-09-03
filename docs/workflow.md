@@ -24,7 +24,7 @@ All workspace lifecycle management is handled by the `research` command-line too
 
 ### Project Commands
 - `project create <name> [--dry-run] [--github-repo <slug>]`
-  Creates a new experiment directory under `projects/` using `copier` templates. Automatically runs `git init` inside the new folder. Optional `--github-repo` creates a private remote repository via the GitHub `gh` CLI.
+  Creates a new experiment directory under `projects/` using `copier` templates. Automatically runs `git init` inside the new folder. Optional `--github-repo` creates a private remote repository via the GitHub `gh` CLI and registers the project as a shell submodule. The same behavior is automatic when `research.yaml` sets `auto_create_private_project_repos: true` and provides `default_github_org`; the derived repository slug is `<org>/<name>`.
 
 ### Lifecycle Commands
 - `eject <project> <library>`
@@ -73,6 +73,15 @@ To launch a new experiment using a template:
    cd projects/ppo-cartpole-sweep
    uv run python train.py
    ```
+
+To have project creation create private GitHub repositories and register them as submodules, configure the workspace first:
+
+```yaml
+default_github_org: my-org
+auto_create_private_project_repos: true
+```
+
+The command requires an authenticated GitHub CLI session when this setting is enabled.
 
 ### Workflow C: Customizing and Harvesting a Shared Library (The Eject-Harvest Loop)
 When a shared library (e.g., `rl-agents`) needs custom modifications that are experimental or breaking for other projects:

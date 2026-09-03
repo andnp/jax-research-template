@@ -37,6 +37,8 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
     - Runs `git init` inside the new project.
     - The shell repo remains the owner of shared workspace files such as `research.yaml` and `uv.lock`; the rendered child project is an independent nested Git repo under `projects/`.
     - (Optional) Uses `gh repo create` to create a private remote and link it.
+    - When `research.yaml` enables `auto_create_private_project_repos` and sets `default_github_org`, derives the private repo slug as `<org>/<name>` when `--github-repo` is omitted.
+    - Registers GitHub-backed projects in the shell repository as submodules after creating the child repository's initial commit.
 - `research project archive <name>`:
     - Moves a project from `projects/active/` to `projects/archive/`.
     - Removes it from the active `uv` workspace to keep resolution fast.
@@ -115,6 +117,7 @@ The orchestrator must be "JAX-aware." It identifies which parameters are **stati
 The CLI will look for a `research.yaml` file at the monorepo root to store:
 - Path to the `core/` submodule.
 - Default GitHub organization/user for new projects.
+- Whether new projects should automatically get private GitHub repositories and parent submodule registration.
 - Preferred storage backend (Local vs. S3) for the `research-store` integration.
 
 The initial schema is intentionally conservative:
@@ -126,14 +129,15 @@ Example:
 
 ```yaml
 core_path: core
-github_owner: my-org
+default_github_org: my-org
+auto_create_private_project_repos: true
 storage_backend: local
 doctor:
     expected_accelerators:
         - gpu
 ```
 
-`doctor.expected_accelerators` is optional. If it is absent, `research doctor` still validates `uv` and JAX availability, but it does not fail solely because no accelerator expectation was configured. The accepted values are conservative platform labels (`cpu`, `gpu`, `tpu`) so the setting can map cleanly onto JAX device discovery without locking the config to a host-specific device string.
+`auto_create_private_project_repos` defaults to `false`. When enabled, `default_github_org` is required by `research project create` unless an explicit `--github-repo` override is supplied. `doctor.expected_accelerators` is optional. If it is absent, `research doctor` still validates `uv` and JAX availability, but it does not fail solely because no accelerator expectation was configured. The accepted values are conservative platform labels (`cpu`, `gpu`, `tpu`) so the setting can map cleanly onto JAX device discovery without locking the config to a host-specific device string.
 
 ## 4. User Workflows
 
