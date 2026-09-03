@@ -1180,6 +1180,42 @@ class DatabaseManager:
             )
         return [int(row[0]) for row in rows]
 
+    def find_executions_by_hyperparams(self, experiment_id: int, where: Mapping[str, str]) -> list[ExecutionRow]:
+        """Return COMPLETED/FAILED executions whose covered runs all match ``where``.
+
+        Each clause compares the CLI string against ``str()`` of the
+        JSON-decoded hyperparameter value, so ``learning_rate=0.001`` matches
+        a stored float ``0.001`` but not an equal value spelled ``1e-3``. An
+        execution batch is included only when every run it covers satisfies
+        every clause -- a partially matching batch is skipped, since
+        invalidating runs the caller did not select is worse than
+        under-selecting.
+        """
+        rows = self.conn.execute(
+            "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
+            "e.git_commit, e.git_diff_blob, e.jax_config_json "
+            "FROM Executions e "
+            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+            "INNER JOIN Runs r ON r.id = er.run_id "
+            "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
+            "ORDER BY e.id",
+            (experiment_id,),
+        ).fetchall()
+        matched = []
+        for row in rows:
+            execution = ExecutionRow(*row)
+            runs = self.list_execution_runs(execution.id)
+            if runs and all(self._hyperparams_match(run.hyper_id, where) for run in runs):
+                matched.append(execution)
+        return matched
+
+    def _hyperparams_match(self, hyper_id: int, where: Mapping[str, str]) -> bool:
+        config = self.get_hyperparam_config(hyper_id)
+        if config is None:
+            return False
+        params = json.loads(config.json_blob)
+        return all(key in params and str(params[key]) == value for key, value in where.items())
+
     def list_executions(
         self,
         experiment_id: int | None = None,
