@@ -760,6 +760,20 @@ class DatabaseManager:
                 raise RuntimeError("Insert failed: no execution ID returned.")
             return int(cur.lastrowid)
 
+    def record_execution_git_metadata(
+        self,
+        execution_id: int,
+        git_commit: str | None,
+        git_diff_blob: str | None,
+    ) -> None:
+        """Update git metadata for an execution, keeping existing values on ``None``."""
+        with self.conn:
+            self.conn.execute(
+                "UPDATE Executions SET git_commit = COALESCE(?, git_commit), "
+                "git_diff_blob = COALESCE(?, git_diff_blob) WHERE id = ?",
+                (git_commit, git_diff_blob, execution_id),
+            )
+
     def get_execution(self, execution_id: int) -> ExecutionRow | None:
         """Fetch a single Execution by id."""
         row = self.conn.execute(
