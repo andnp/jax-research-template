@@ -46,6 +46,35 @@ class RainbowRuntimeConfig:
     SEED: int = 42
 
 
+@chex_struct(frozen=True)
+class RainbowHypers:
+    """The hyperparameters ``train`` reads as traced values.
+
+    These ride as a ``train(rng, hypers)`` argument rather than the closed-over
+    ``RainbowConfig`` so a sweep can ``jax.vmap`` one compiled kernel across a
+    batch of arms. Everything here is read only in arithmetic, never to size an
+    array or take a Python branch -- those stay on ``RainbowConfig``.
+    """
+
+    LEARNING_RATE: jax.Array
+    OPTIMIZER_EPSILON: jax.Array
+    RMSPROP_DECAY: jax.Array
+    V_MIN: jax.Array
+    V_MAX: jax.Array
+    ADDITIONAL_DISCOUNT: jax.Array
+
+
+def rainbow_hypers(config: RainbowConfig) -> RainbowHypers:
+    return RainbowHypers(
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        OPTIMIZER_EPSILON=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
+        RMSPROP_DECAY=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        V_MIN=jnp.asarray(config.V_MIN, jnp.float32),
+        V_MAX=jnp.asarray(config.V_MAX, jnp.float32),
+        ADDITIONAL_DISCOUNT=jnp.asarray(config.ADDITIONAL_DISCOUNT, jnp.float32),
+    )
+
+
 class RainbowTransition(NamedTuple):
     obs: jax.Array
     action: jax.Array
@@ -87,10 +116,18 @@ class RainbowNatureNetwork(TypedApply[jax.Array], nn.Module):
 
 
 def build_rainbow_zoo_atari_rmsprop(config: RainbowConfig) -> optax.GradientTransformation:
-    return optax.rmsprop(
-        learning_rate=config.LEARNING_RATE,
-        decay=config.RMSPROP_DECAY,
-        eps=config.OPTIMIZER_EPSILON,
+    """Build the rmsprop transform with a swept-value slot for its scalar hyperparameters.
+
+    ``learning_rate``, ``decay`` and ``eps`` are injected via
+    ``optax.inject_hyperparams`` so a sweep can overwrite them in ``opt_state``
+    each step (see ``make_train_step``'s ``_do_learn``) instead of leaking one
+    arm's value into every arm's compiled transform. ``centered`` stays a
+    ``static_args`` entry: it selects a code path, not a scalar.
+    """
+    return optax.inject_hyperparams(optax.rmsprop, static_args=("centered",))(
+        learning_rate=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        decay=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
         centered=config.RMSPROP_CENTERED,
     )
 
@@ -179,6 +216,15 @@ def rainbow_support(config: RainbowConfig) -> jax.Array:
     return jnp.linspace(config.V_MIN, config.V_MAX, config.NUM_ATOMS, dtype=jnp.float32)
 
 
+def _rainbow_support_from_hypers(hypers: "RainbowHypers", num_atoms: int) -> jax.Array:
+    """Rebuild the support array from traced endpoints so a sweep can vary ``V_MIN``/``V_MAX``.
+
+    ``num_atoms`` stays the static array length (``RainbowConfig.NUM_ATOMS``);
+    only the endpoints come from the traced ``hypers``.
+    """
+    return jnp.linspace(hypers.V_MIN, hypers.V_MAX, num_atoms, dtype=jnp.float32)
+
+
 def rainbow_probabilities(logits: jax.Array) -> jax.Array:
     return jax.nn.softmax(logits, axis=-1)
 
@@ -195,7 +241,7 @@ def categorical_target_support(
     rewards: jax.Array,
     dones: jax.Array,
     support: jax.Array,
-    discount: float,
+    discount: jax.Array | float,
 ) -> jax.Array:
     rewards = jnp.asarray(rewards, dtype=support.dtype)
     dones = jnp.asarray(dones, dtype=support.dtype)
@@ -207,7 +253,7 @@ def categorical_target_probabilities(
     dones: jax.Array,
     next_probabilities: jax.Array,
     support: jax.Array,
-    discount: float,
+    discount: jax.Array | float,
 ) -> jax.Array:
     target_support = categorical_target_support(rewards, dones, support, discount)
     return categorical_l2_project(target_support, next_probabilities, support)
@@ -266,11 +312,14 @@ def _materialize_n_step_transitions(
     accumulator: _NStepAccumulatorState,
     next_obs: jax.Array,
     done: jax.Array,
+    *,
+    discount: jax.Array | float | None = None,
 ) -> RainbowTransition:
     indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
     reward_offsets = indices[None, :] - indices[:, None]
     future_reward_mask = reward_offsets >= 0
-    discount = jnp.asarray(config.ADDITIONAL_DISCOUNT, dtype=prototype.reward.dtype)
+    resolved_discount = config.ADDITIONAL_DISCOUNT if discount is None else discount
+    discount = jnp.asarray(resolved_discount, dtype=prototype.reward.dtype)
     discount_matrix = jnp.where(
         future_reward_mask,
         discount ** reward_offsets.astype(prototype.reward.dtype),
@@ -301,9 +350,11 @@ def _advance_n_step_accumulator(
     reward: jax.Array,
     next_obs: jax.Array,
     done: jax.Array,
+    *,
+    discount: jax.Array | float | None = None,
 ) -> tuple[_NStepAccumulatorState, RainbowTransition, jax.Array]:
     appended = _append_n_step_raw_transition(accumulator, obs, action, reward)
-    transitions = _materialize_n_step_transitions(config, prototype, appended, next_obs, done)
+    transitions = _materialize_n_step_transitions(config, prototype, appended, next_obs, done, discount=discount)
 
     indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
     appended_is_full = appended.size == jnp.asarray(config.N_STEP, dtype=appended.size.dtype)
@@ -392,11 +443,15 @@ def make_train_step(
     env: GymEnv[DiscreteActionSpace],
     network: RainbowNatureNetwork,
     replay_prototype: RainbowTransition,
+    hypers: RainbowHypers,
     env_params: object | None = None,
 ) -> Callable[["RunnerState", jax.Array], tuple["RunnerState", dict[str, jax.Array]]]:
     del runtime_config
-    support = rainbow_support(config)
-    bootstrap_discount = config.ADDITIONAL_DISCOUNT**config.N_STEP
+    # Derived from the traced `hypers` (not the static `config`) so a
+    # `jax.vmap` sweep over `ADDITIONAL_DISCOUNT`/`V_MIN`/`V_MAX` recomputes
+    # both quantities per arm instead of baking one arm's value in here.
+    support = _rainbow_support_from_hypers(hypers, config.NUM_ATOMS)
+    bootstrap_discount = hypers.ADDITIONAL_DISCOUNT**config.N_STEP
     def _loss(
         params: VariableDict,
         target_params: VariableDict,
@@ -447,6 +502,7 @@ def make_train_step(
             reward,
             obs,
             done,
+            discount=hypers.ADDITIONAL_DISCOUNT,
         )
         buffer_state = _per_add_batched_transitions(buffer_state, finalized_transitions, insert_mask)
 
@@ -462,6 +518,24 @@ def make_train_step(
                 prototype=replay_prototype,
             )
             online_obs_noise_rng, online_next_noise_rng, target_next_noise_rng = jax.random.split(learn_rng, 3)
+
+            # `LEARNING_RATE`/`RMSPROP_DECAY`/`OPTIMIZER_EPSILON` are traced
+            # `hypers`, not the static config the optimizer was constructed
+            # with, so each arm's current value must be pushed into the
+            # injected optimizer state before every gradient step -- otherwise
+            # every vmapped arm would silently train at whichever value the
+            # transform was built with.
+            opt_state = train_state.opt_state
+            train_state = train_state.replace(
+                opt_state=opt_state._replace(
+                    hyperparams={
+                        **opt_state.hyperparams,
+                        "learning_rate": hypers.LEARNING_RATE,
+                        "decay": hypers.RMSPROP_DECAY,
+                        "eps": hypers.OPTIMIZER_EPSILON,
+                    }
+                )
+            )
 
             def _loss_with_priorities(params: VariableDict) -> tuple[jax.Array, jax.Array]:
                 return _loss(
@@ -539,12 +613,14 @@ def make_train(
     runtime_config: RainbowRuntimeConfig,
     env: GymEnv[DiscreteActionSpace],
     env_params: object | None = None,
-) -> Callable[[jax.Array], RainbowTrainOutput]:
+) -> Callable[[jax.Array, RainbowHypers | None], RainbowTrainOutput]:
     total_env_steps = rainbow_zoo_atari_total_train_env_steps(runtime_config)
 
-    def train(rng: jax.Array) -> RainbowTrainOutput:
+    def train(rng: jax.Array, hypers: RainbowHypers | None = None) -> RainbowTrainOutput:
+        if hypers is None:
+            hypers = rainbow_hypers(config)
         network, replay_prototype, runner_state = initialize_train_state(config, env, rng, env_params)
-        train_step = make_train_step(config, runtime_config, env, network, replay_prototype, env_params)
+        train_step = make_train_step(config, runtime_config, env, network, replay_prototype, hypers, env_params)
         runner_state, metrics = jax.lax.scan(train_step, runner_state, jnp.arange(total_env_steps))
         return {"runner_state": runner_state, "metrics": metrics}
 
