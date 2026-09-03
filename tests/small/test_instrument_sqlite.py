@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from research_instrument.collector import MetricFrame
+from research_instrument.collector import MetricFrame, subsample_frames
 from research_instrument.sqlite_backend import SQLiteBackend
 
 
@@ -224,3 +224,30 @@ class TestSQLiteBackendBasic:
 
             with pytest.raises(RuntimeError, match="legacy schema without required identity columns"):
                 make_backend(db_path)
+
+
+class TestSubsampleFrames:
+    def _frames(self, n: int) -> list[MetricFrame]:
+        return [MetricFrame(name="r", value=float(i), global_step=i, seed_id=0) for i in range(n)]
+
+    def test_factor_one_returns_all_frames(self) -> None:
+        frames = self._frames(10)
+        assert subsample_frames(frames, 1) == frames
+
+    def test_factor_keeps_divisible_steps(self) -> None:
+        frames = self._frames(10)  # steps 0..9
+        result = subsample_frames(frames, 3)
+        assert [f.global_step for f in result] == [0, 3, 6, 9]
+
+    def test_preserves_original_step_indices(self) -> None:
+        frames = self._frames(20)
+        result = subsample_frames(frames, 5)
+        for f in result:
+            assert f.global_step % 5 == 0
+
+    def test_empty_input(self) -> None:
+        assert subsample_frames([], 4) == []
+
+    def test_invalid_factor_raises(self) -> None:
+        with pytest.raises(ValueError, match="subsample factor must be >= 1"):
+            subsample_frames(self._frames(5), 0)
