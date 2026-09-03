@@ -21,7 +21,7 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, sac, td3
+from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, sac, sac_rc, td3
 from rl_agents.q_networks import make_q_network
 
 BATCH_SIZE = 8
@@ -178,6 +178,54 @@ def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
             actor=actor,
             critic=critic,
             config=config,
+        )
+
+    terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)
+    assert jnp.allclose(loss(next_obs_a, terminal), loss(next_obs_b, terminal))
+
+    surviving = jnp.full((BATCH_SIZE,), 0.99, dtype=jnp.float32)
+    assert not jnp.allclose(loss(next_obs_a, surviving), loss(next_obs_b, surviving))
+
+
+def test_sac_rc_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
+    """The gradient correction must vanish with the bootstrap it corrects.
+
+    SAC-RC's correction term carries the discount as a factor of its own, so a terminal
+    row silences both the semi-gradient target and the correction. A port that kept the
+    correction term unscaled would leave the loss dependent on ``next_obs`` here while
+    still training, which is what makes the nonzero-discount control necessary.
+    """
+    actor = sac.Actor(ACTION_DIM)
+    critic = sac_rc.SACRCCritic()
+
+    obs_zeros = jnp.zeros((OBS_DIM,), dtype=jnp.float32)
+    action_zeros = jnp.zeros((ACTION_DIM,), dtype=jnp.float32)
+    actor_params = actor.init(jax.random.key(0), obs_zeros)
+    critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
+        jax.random.split(jax.random.key(1), 2), obs_zeros, action_zeros
+    )
+
+    obs = jax.random.normal(jax.random.key(2), (BATCH_SIZE, OBS_DIM), dtype=jnp.float32)
+    actions = jax.random.uniform(
+        jax.random.key(3), (BATCH_SIZE, ACTION_DIM), dtype=jnp.float32, minval=-1.0, maxval=1.0
+    )
+    rewards = jax.random.normal(jax.random.key(4), (BATCH_SIZE,), dtype=jnp.float32)
+    next_obs_a, next_obs_b = _next_obs_pair((BATCH_SIZE, OBS_DIM))
+
+    def loss(next_obs: jax.Array, discounts: jax.Array) -> jax.Array:
+        return sac_rc.sac_rc_loss_batch(
+            critic_params,
+            critic,
+            actor_params,
+            actor,
+            jnp.asarray(0.2, dtype=jnp.float32),
+            obs,
+            actions,
+            rewards,
+            next_obs,
+            discounts,
+            jax.random.key(5),
+            1.0,
         )
 
     terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)

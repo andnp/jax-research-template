@@ -51,7 +51,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from flax.training.train_state import TrainState
-from rl_agents import double_dqn, dqn, dueling_dqn, greedy_ac, qrc, sac, td3
+from rl_agents import double_dqn, dqn, dueling_dqn, greedy_ac, qrc, sac, sac_rc, td3
 from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
@@ -406,6 +406,26 @@ def _run_td3(learning_starts: int) -> Run:
     )
 
 
+def _run_sac_rc(learning_starts: int) -> Run:
+    config = sac_rc.SACRCConfig(
+        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        LEARNING_STARTS=learning_starts,
+        BUFFER_SIZE=BUFFER_SIZE,
+        BATCH_SIZE=BATCH_SIZE,
+    )
+    agent = sac_rc.SACRCAgent(config)
+    env = ToyContinuousEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
+    return _finish(
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
+    )
+
+
 def _run_greedy_ac(learning_starts: int) -> Run:
     config = greedy_ac.GACConfig(
         TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
@@ -431,16 +451,17 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "qrc": _run_qrc,
     "sac": _run_sac,
     "td3": _run_td3,
+    "sac_rc": _run_sac_rc,
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3")
+LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3", "sac_rc")
 """Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
 
 Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
 ``ToyDiscreteEnv``'s auto-reset and the Gymnax compatibility bridge all go together."""
 
-LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3", "greedy_ac")
+LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "sac_rc", "td3", "greedy_ac")
 """Agents that publish their losses.
 
 ``qrc`` computes a real loss and then discards it -- its ``_update_step`` binds ``loss`` and
