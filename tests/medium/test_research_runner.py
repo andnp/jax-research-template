@@ -244,3 +244,68 @@ class TestCaptureGitMetadata:
         commit, diff = capture_git_metadata()
         assert isinstance(commit, (str, type(None)))
         assert isinstance(diff, (str, type(None)))
+
+
+# ── mid-sweep crash recovery ─────────────────────────────────────────────────
+
+
+class TestMidSweepCrashRecovery:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "experiments.sqlite"
+
+    @pytest.fixture()
+    def executions_root(self, tmp_path: Path) -> Path:
+        return tmp_path / "results" / "executions"
+
+    def _make_two_batch_experiment(self) -> Experiment:
+        algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
+        env = Component(name="TestEnv", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment("CrashSweep", description="test experiment")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(algo):
+            exp.add_parameter("arch", ["cnn", "mlp"], is_static=True)
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        return exp
+
+    def test_resumes_after_first_batch_crashes(self, db_path: Path, executions_root: Path) -> None:
+        """
+        A sweep with 2 batches whose train_fn raises on its very first call
+        must, after a retry, still reach every batch: the un-executed batch
+        must never be stranded as an unplannable PENDING execution.
+        """
+        exp = self._make_two_batch_experiment()
+        calls: list[str] = []
+
+        def flaky_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+            calls.append(str(ctx.hyperparameters["arch"]))
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return ExecutionResult(metadata={"trained": True})
+
+        with pytest.raises(RuntimeError, match="boom"):
+            run_experiment(
+                db_path,
+                exp,
+                flaky_train_fn,
+                executions_root=executions_root,
+                capture_git=False,
+            )
+
+        roots = run_experiment(
+            db_path,
+            exp,
+            flaky_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+
+        assert set(calls) == {"cnn", "mlp"}
+        assert len(roots) == 2
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("CrashSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) == []
