@@ -1,20 +1,27 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from experiment_definition import Experiment
-from experiment_definition.db import ExperimentRow, RunRow
+from experiment_definition import Experiment, ParameterValue
+
+
+@dataclass(frozen=True, slots=True)
+class RunPoint:
+    """One logical run's resolved hyperparameters, including its seed."""
+
+    run_id: int
+    hyperparameters: Mapping[str, ParameterValue]
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionContext:
     execution_id: int
-    experiment: ExperimentRow
-    runs: list[RunRow]
-    hyperparameters: dict[str, object]
-    seed_values: tuple[int, ...]
+    experiment_id: int
+    experiment_name: str
+    static_config: Mapping[str, ParameterValue]
+    points: tuple[RunPoint, ...]
     execution_root: Path
     metrics_db_path: Path
 

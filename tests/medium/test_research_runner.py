@@ -279,7 +279,7 @@ class TestMidSweepCrashRecovery:
         calls: list[str] = []
 
         def flaky_train_fn(ctx: ExecutionContext) -> ExecutionResult:
-            calls.append(str(ctx.hyperparameters["arch"]))
+            calls.append(str(ctx.static_config["arch"]))
             if len(calls) == 1:
                 raise RuntimeError("boom")
             return ExecutionResult(metadata={"trained": True})

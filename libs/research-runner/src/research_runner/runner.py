@@ -5,11 +5,11 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from experiment_definition import Experiment
+from experiment_definition import Experiment, ParameterValue
 from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
 
 from .git import capture_git_metadata
-from .types import ExecutionContext, ExecutionResult
+from .types import ExecutionContext, ExecutionResult, RunPoint
 
 
 def run_experiment(
@@ -79,8 +79,8 @@ def execute_batch(
         manifest_path = Path(planned.manifest_path)
         runs = database.list_execution_runs(planned.execution_id)
         experiment_row = _resolve_experiment(database, runs)
-        hyperparameters = _resolve_hyperparameters(database, runs)
-        seed_values = tuple(run.seed for run in runs)
+        static_config = json.loads(planned.static_config_json)
+        points = _resolve_points(database, runs, static_config)
         resolved_metrics_db = metrics_db_path or _derive_metrics_db_path(execution_root)
 
         if capture_git:
@@ -93,10 +93,10 @@ def execute_batch(
 
     context = ExecutionContext(
         execution_id=planned.execution_id,
-        experiment=experiment_row,
-        runs=runs,
-        hyperparameters=hyperparameters,
-        seed_values=seed_values,
+        experiment_id=experiment_row.id,
+        experiment_name=experiment_row.name,
+        static_config=static_config,
+        points=points,
         execution_root=execution_root,
         metrics_db_path=resolved_metrics_db,
     )
@@ -110,8 +110,7 @@ def execute_batch(
             "execution_id": planned.execution_id,
             "root_path": str(execution_root),
             "metrics_db_path": str(resolved_metrics_db),
-            "seed_values": list(seed_values),
-            "run_ids": [run.id for run in runs],
+            "run_ids": [point.run_id for point in points],
             "metadata": result.metadata,
         }
         manifest_path.write_text(
@@ -156,11 +155,28 @@ def _resolve_experiment(database: DatabaseManager, runs: list[RunRow]):
     return experiment_row
 
 
-def _resolve_hyperparameters(database: DatabaseManager, runs: list[RunRow]):
-    hyper_config = database.get_hyperparam_config(runs[0].hyper_id)
-    if hyper_config is None:
-        raise ValueError(f"Missing hyperparameter config for run {runs[0].id}.")
-    return json.loads(hyper_config.json_blob)
+def _resolve_points(
+    database: DatabaseManager,
+    runs: list[RunRow],
+    static_config: dict[str, ParameterValue],
+) -> tuple[RunPoint, ...]:
+    config_cache: dict[int, dict[str, ParameterValue]] = {}
+    points: list[RunPoint] = []
+    for run in runs:
+        if run.hyper_id not in config_cache:
+            hyper_config = database.get_hyperparam_config(run.hyper_id)
+            if hyper_config is None:
+                raise ValueError(f"Missing hyperparameter config for run {run.id}.")
+            config_cache[run.hyper_id] = json.loads(hyper_config.json_blob)
+        hyperparameters = {**config_cache[run.hyper_id], "seed": run.seed}
+        for key, value in static_config.items():
+            if hyperparameters.get(key) != value:
+                raise ValueError(
+                    f"Run {run.id} static parameter {key!r} ({hyperparameters.get(key)!r}) "
+                    f"does not match the batch's static config value {value!r}.",
+                )
+        points.append(RunPoint(run_id=run.id, hyperparameters=hyperparameters))
+    return tuple(points)
 
 
 def _derive_metrics_db_path(execution_root: Path):
