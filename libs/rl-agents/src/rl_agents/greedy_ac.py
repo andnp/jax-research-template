@@ -1,7 +1,6 @@
 """Greedy Actor-Critic (GAC) — percentile actor + QRC critic for continuous control.
 
-Faithful implementation of the GAC algorithm ported from
-``~/Projects/personal/light-controller/src/algorithms/greedy_ac.py``.
+Faithful implementation of the GAC algorithm.
 
 Key aspects:
 - Percentile Actor: learns from top-k%% actions ranked by Q-value
@@ -11,8 +10,12 @@ Key aspects:
 - Continuous actions via TanhNormalDiag (tanh-squashed, [-1, 1])
 
 References:
-- Original: ~/Projects/personal/light-controller/src/algorithms/greedy_ac.py
-- QRC / TDC: Gradient TD learning with auxiliary h-network
+- GAC: Neumann et al., "Greedy Actor-Critic: A New Conditional Cross-Entropy
+  Method for Policy Improvement", ICLR 2023 (arXiv:1810.09103)
+- QRC: Ghiassian et al., "Gradient Temporal-Difference Learning with
+  Regularized Corrections", ICML 2020 (arXiv:2007.00611). QRC is the
+  nonlinear control variant of TDRC; the auxiliary h-network and its L2
+  term come from there.
 """
 
 from __future__ import annotations
