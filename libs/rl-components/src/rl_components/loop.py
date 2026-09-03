@@ -14,6 +14,27 @@ closes nothing: its ``reward`` and ``discount`` are zero and its ``episode_end``
 run of ``N`` iterations yields ``N - 1`` closed transitions, because the action taken
 on the final iteration opens a transition that never closes.
 
+Loop metrics use the OTHER indexing, and the two differ by one. A loop metric
+recorded at scan index ``i`` describes the environment transition produced by the
+action taken at index ``i`` -- that is, the transition the agent will see CLOSED at
+``i + 1``. So a run of ``N`` iterations records ``N`` environment transitions in
+metrics while the agent observes ``N - 1`` of them closed. Aligning a ``loop/`` metric
+with an agent metric from the same scan index compares a transition with the one
+before it; mis-aligning them silently is easy, so shift deliberately.
+
+Metric semantics
+----------------
+``loop/reward``, ``loop/discount``, ``loop/episode_end``, ``loop/terminated`` and
+``loop/truncated`` are dense per-step signals.
+
+``loop/episode_return`` and ``loop/episode_length`` are SPARSE IMPULSE signals. They
+carry the completed episode's undiscounted return and step count on boundary steps and
+are zero on every other step. Averaging them over a window without masking on
+``loop/episode_end`` divides an episode's total by the window length and yields a
+number with no meaning. When the horizon ends mid-episode the partial return and
+length are never emitted as metrics at all; they remain in the returned
+:class:`LoopState`.
+
 Reaching ``steps`` mid-episode is neither a termination nor a truncation. It is simply
 where data stops: ``episode_end`` is false on that step and the loop does nothing
 special. Only the environment's own flags end an episode.
@@ -52,6 +73,9 @@ from rl_components.agent_protocol import AgentProtocol
 from rl_components.env_protocol import EnvProtocol, TruncationPolicy
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep, bootstrap_terms
+
+LOOP_METRIC_PREFIX = "loop/"
+"""Metric-key namespace reserved for the loop; an agent using it is an error."""
 
 
 @chex_struct(frozen=True)
@@ -105,11 +129,12 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
 
     Returns:
         The final :class:`LoopState` and the scan-stacked metrics, whose leaves each
-        have leading axis ``steps``. The metrics are the agent's own.
+        have leading axis ``steps``. Metric keys beginning ``loop/`` are the loop's;
+        the rest are the agent's.
 
     Raises:
         ValueError: If the resolved truncation policy is neither ``"bootstrap"`` nor
-            ``"terminate"``.
+            ``"terminate"``, or if an agent metric key begins with ``loop/``.
     """
     spec = env.spec(env_params)
     policy: TruncationPolicy = spec.truncation_policy if truncation_policy is None else truncation_policy
@@ -181,6 +206,20 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
             key=carry_key,
         )
 
-        return next_state, agent_step.metrics
+        metrics = dict(agent_step.metrics)
+        for metric_key in metrics:
+            if metric_key.startswith(LOOP_METRIC_PREFIX):
+                raise ValueError(
+                    f"agent metric {metric_key!r} collides with the reserved {LOOP_METRIC_PREFIX!r} namespace"
+                )
+        terminated = jnp.asarray(env_step.terminated, jnp.bool_)
+        metrics["loop/reward"] = reward
+        metrics["loop/discount"] = discount
+        metrics["loop/episode_end"] = episode_end
+        metrics["loop/terminated"] = terminated
+        metrics["loop/truncated"] = episode_end & ~terminated
+        metrics["loop/episode_return"] = jnp.where(episode_end, completed_return, jnp.zeros((), jnp.float32))
+        metrics["loop/episode_length"] = jnp.where(episode_end, completed_length, jnp.zeros((), jnp.int32))
+        return next_state, metrics
 
     return jax.lax.scan(_body, initial, jnp.arange(steps, dtype=jnp.int32))
