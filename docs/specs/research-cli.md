@@ -58,34 +58,30 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
     - Handles forking, branching, and opening the PR via `gh`.
 
 ### 2.4 Experiment Orchestration
-The CLI manages a multi-stage pipeline for large-scale experiments, using SQLite as the persistent state-of-the-world. An experiment is defined in a project Python file as a module-level, zero-argument function annotated to return `research_runner.ExperimentSpec`; the CLI discovers such functions by inspecting return-type annotations. All `research experiment ...` subcommands take that spec file and (optionally) the name of the function via `--spec`.
+The CLI manages experiments declared with `experiment-definition`, using SQLite as the persistent state-of-the-world. A *spec file* is a Python module whose factory functions return an `ExperimentSpec`; each names one absolute `results_root`, and the experiment database, metrics database and execution roots are derived from it.
 
-- `research experiment plan <spec_file.py> [--spec <name>] [--results-root <path>]`:
-    - Syncs the experiment definition to the spec's `experiments.sqlite` and prints the batches it *would* run (a true dry run: no executions are created).
+Commands taking a spec file accept `--spec <name>` to select a single factory and `--results-root <path>` to relocate the whole results tree.
 
-- `research experiment run <spec_file.py> [--spec <name>] [--results-root <path>] [--max-runs <n>]`:
-    - Reads the database to identify runs that are not yet "satisfied" (linked to a `COMPLETED` execution) and executes them in batches, driven by the project's `train_fn`.
-    - Because only unsatisfied runs are re-planned, an interrupted `run` resumes automatically on the next invocation instead of repeating completed work.
-
+- `research experiment plan <spec_file>`:
+    - Syncs the definition and reports the batches that would run, without creating executions.
+- `research experiment run <spec_file> [--max-runs <n>]`:
+    - Plans one batch at a time and executes it before planning the next, so an interrupted sweep leaves no unexecuted `PENDING` executions stranded.
+    - Groups work into **"vmap-zones"**: a batch is one static configuration, and the parameters that vary inside it arrive as per-run points the training function can map over.
+    - Records each execution as `RUNNING`, then `COMPLETED` or `FAILED`. A `FAILED` execution is retried on the next run.
+- `research experiment status <db_path> [--experiment <slug>]`:
+    - Reports total, completed and pending logical runs per experiment.
 - `research experiment list <db_path>`:
-    - Lists the experiments recorded in an `experiments.sqlite` database.
+    - Lists the experiments recorded in a database.
+- `research experiment executions <db_path> [--experiment <slug>] [--status <status>] [--git-commit <sha>]`:
+    - Lists executions with status, hostname, start time and commit.
+- `research experiment invalidate <db_path> (--execution <id> | --git-commit <sha>)`:
+    - Marks executions `INVALID` so their runs become plannable again. This is also how a run killed mid-execution — left claimed as `RUNNING` — is released.
+- `research experiment execute-batch <db_path> --execution-id <id> --spec-file <file> --spec <name>`:
+    - Executes a single already-planned execution. This is the entry point a scheduler invokes.
+- `research experiment submit <spec_file> [slurm options] [--dry-run]`:
+    - Plans every outstanding batch up front, writes a Slurm array script, and submits it. The planned executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` must never re-plan them.
 
-- `research experiment status <db_path> [--experiment <name>]`:
-    - Reports total/completed/pending run counts per experiment.
-
-- `research experiment executions <db_path> [--experiment <name>] [--status <status>] [--git-commit <sha>]`:
-    - Lists individual executions with their status, hostname, start time, and git commit.
-
-- `research experiment invalidate <db_path> [--execution <id>] [--git-commit <sha>]`:
-    - Marks one or more executions `INVALID` (after an interactive confirmation prompt), so the runs they covered become unsatisfied and are re-planned by the next `run`. `--execution` may be repeated to invalidate several executions in one invocation; `--git-commit` invalidates all executions recorded against a commit.
-
-- `research experiment execute-batch <db_path> --execution-id <id> --spec-file <spec_file.py> --spec <name>`:
-    - Executes a single already-planned execution by ID. Used internally by batch/cluster dispatch rather than directly by researchers.
-
-- `research experiment submit <spec_file.py> [--spec <name>] [--results-root <path>] [--account ...] [--partition ...] [--time ...] [--cpus-per-task ...] [--mem-per-cpu ...] [--gpus ...] [--dry-run] [--script-path <path>]`:
-    - Plans the experiment like `plan`, then submits the resulting batches as a Slurm job array instead of running them locally.
-
-There is no `report` or `analyze` subcommand. Reading results back — statistical summaries, hyperparameter sensitivity, and A/B or bakeoff comparisons — is a library concern handled by `research_analysis` (e.g. `research_analysis.reporting.analyze_hypers`, `compare_pairwise`, `compare_bakeoff`), not the CLI.
+Analysis is deliberately not a CLI concern: `research-analysis` reads the metrics database produced by a run.
 
 ### 2.5 Diagnostics
 - `research doctor`:
