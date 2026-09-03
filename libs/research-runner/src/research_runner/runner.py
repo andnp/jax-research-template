@@ -81,7 +81,7 @@ def execute_batch(
         experiment_row = _resolve_experiment(database, runs)
         static_config = json.loads(planned.static_config_json)
         points = _resolve_points(database, runs, static_config)
-        resolved_metrics_db = metrics_db_path or _derive_metrics_db_path(execution_root)
+        resolved_metrics_db = metrics_db_path or db_path.parent / "metrics.sqlite"
 
         if capture_git:
             git_commit, git_diff = capture_git_metadata()
@@ -177,13 +177,3 @@ def _resolve_points(
                 )
         points.append(RunPoint(run_id=run.id, hyperparameters=hyperparameters))
     return tuple(points)
-
-
-def _derive_metrics_db_path(execution_root: Path):
-    for candidate in (execution_root, *execution_root.parents):
-        if candidate.name == "executions":
-            return candidate.parent / "metrics.sqlite"
-    raise ValueError(
-        f"Could not derive metrics DB path from execution root {execution_root}. "
-        "Pass metrics_db_path explicitly or use a conventional executions/ directory.",
-    )

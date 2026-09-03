@@ -10,7 +10,6 @@ from experiment_definition import Component, ComponentType, Experiment
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from research_runner import ExecutionContext, ExecutionResult, execute_batch, run_experiment
 from research_runner.git import capture_git_metadata
-from research_runner.runner import _derive_metrics_db_path
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -201,39 +200,7 @@ class TestExecuteBatch:
             assert execution.status == "FAILED"
 
 
-# ── _derive_metrics_db_path ──────────────────────────────────────────────────
 
-
-class TestDeriveMetricsDbPath:
-    def test_with_executions_ancestor(self) -> None:
-        """
-        When execution_root contains an 'executions' ancestor directory,
-        metrics.sqlite is placed next to it.
-        """
-        root = Path("/tmp/results/executions/123")
-        result = _derive_metrics_db_path(root)
-        assert result == Path("/tmp/results/metrics.sqlite")
-
-    def test_without_executions_ancestor_raises(self) -> None:
-        """
-        When execution_root has no 'executions' ancestor, raises ValueError
-        to force explicit metrics_db_path.
-        """
-        root = Path("/tmp/some/other/path")
-        with pytest.raises(ValueError, match="Pass metrics_db_path explicitly"):
-            _derive_metrics_db_path(root)
-
-    def test_executions_is_root_itself(self) -> None:
-        """
-        When the execution_root directory is itself named 'executions',
-        metrics.sqlite is placed in its parent.
-        """
-        root = Path("/tmp/results/executions")
-        result = _derive_metrics_db_path(root)
-        assert result == Path("/tmp/results/metrics.sqlite")
-
-
-# ── capture_git_metadata ─────────────────────────────────────────────────────
 
 
 class TestCaptureGitMetadata:
