@@ -59,6 +59,32 @@ class SACConfig:
     SEED: int = 42
 
 
+@chex_struct(frozen=True)
+class SACHypers:
+    """The hyperparameters ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. ``TARGET_ENTROPY`` is
+    not here: it is resolved from ``config.TARGET_ENTROPY`` (or the action
+    dimension) into a Python float at construction time, so it stays a
+    per-state leaf derived once in ``init`` rather than a swept hyper.
+    """
+
+    LR: jax.Array
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    TAU: jax.Array
+
+
+def sac_hypers(config: SACConfig) -> SACHypers:
+    return SACHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        TAU=jnp.asarray(config.TAU, jnp.float32),
+    )
+
+
 class Critic(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
@@ -263,6 +289,7 @@ class SACAgentState:
         target_entropy: The entropy target, as a float32 leaf. It is derived from the
             action dimension, which only ``init`` sees, so ``step`` reaches it here.
         key: PRNG key for sampling minibatches, actions and exploration.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     actor_state: TrainState
@@ -274,6 +301,7 @@ class SACAgentState:
     last_action: jax.Array
     target_entropy: jax.Array
     key: chex.PRNGKey
+    hypers: SACHypers
 
 
 class SACAgent:
@@ -328,28 +356,30 @@ class SACAgent:
         )
         target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
 
+        lr = jnp.asarray(self.config.LR, jnp.float32)
         return SACAgentState(
             actor_state=TrainState.create(
                 apply_fn=actor.apply,
                 params=actor.init(actor_key, zero_obs),
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             critic_state=TrainState.create(
                 apply_fn=critic.apply,
                 params=critic_params,
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             critic_target_params=critic_params,
             alpha_state=TrainState.create(
                 apply_fn=None,
                 params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             buffer_state=buffer.init(),
             last_obs=zero_obs,
             last_action=zero_action,
             target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),
             key=carry_key,
+            hypers=sac_hypers(self.config),
         )
 
     def step(
@@ -377,7 +407,6 @@ class SACAgent:
             loss is a zero placeholder on the iterations that do not learn, so the pytree
             returned to ``lax.scan`` is identical on every iteration.
         """
-        config = self.config
         action_dim = state.last_action.shape[0]
         actor, _ = _networks(action_dim)
         buffer = ReplayBuffer.from_state(state.buffer_state)
@@ -396,7 +425,8 @@ class SACAgent:
             lambda: state.buffer_state,
         )
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        hypers = state.hypers
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         (
             actor_state,
             critic_state,
@@ -420,7 +450,7 @@ class SACAgent:
         )
 
         action = jax.lax.cond(
-            step_index < config.LEARNING_STARTS,
+            step_index < hypers.LEARNING_STARTS,
             lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
             lambda: actor.sample(actor_state.params, timestep.observation, action_key)[0].astype(
                 state.last_action.dtype
@@ -438,6 +468,7 @@ class SACAgent:
                 last_action=action,
                 target_entropy=state.target_entropy,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={
@@ -461,13 +492,21 @@ class SACAgent:
         the reference algorithm: the actor is scored by the critic that has just moved,
         and the temperature is measured against the policy that has just moved.
         """
+        hypers = state.hypers
         actor, critic = _networks(state.last_action.shape[0])
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
 
+        def _with_lr(train_state: TrainState) -> TrainState:
+            opt_state = train_state.opt_state
+            return train_state.replace(
+                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR})
+            )
+
+        critic_state = _with_lr(state.critic_state)
         critic_loss, critic_grads = jax.value_and_grad(partial(sac_critic_loss, actor=actor, critic=critic))(
-            state.critic_state.params,
+            critic_state.params,
             state.actor_state.params,
             state.critic_target_params,
             obs,
@@ -478,20 +517,22 @@ class SACAgent:
             alpha,
             critic_key,
         )
-        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+        critic_state = critic_state.apply_gradients(grads=critic_grads)
 
+        actor_state = _with_lr(state.actor_state)
         actor_loss, actor_grads = jax.value_and_grad(partial(sac_actor_loss, actor=actor, critic=critic))(
-            state.actor_state.params, critic_state.params, obs, alpha, actor_key
+            actor_state.params, critic_state.params, obs, alpha, actor_key
         )
-        actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+        actor_state = actor_state.apply_gradients(grads=actor_grads)
 
+        alpha_state = _with_lr(state.alpha_state)
         alpha_loss, alpha_grads = jax.value_and_grad(partial(sac_alpha_loss, actor=actor))(
-            state.alpha_state.params, actor_state.params, obs, state.target_entropy, alpha_key
+            alpha_state.params, actor_state.params, obs, state.target_entropy, alpha_key
         )
-        alpha_state = state.alpha_state.apply_gradients(grads=alpha_grads)
+        alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
         critic_target_params = jax.tree_util.tree_map(
-            lambda target, online: self.config.TAU * online + (1.0 - self.config.TAU) * target,
+            lambda target, online: hypers.TAU * online + (1.0 - hypers.TAU) * target,
             state.critic_target_params,
             critic_state.params,
         )
