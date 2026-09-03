@@ -430,12 +430,16 @@ def _run_greedy_ac(learning_starts: int) -> Run:
         NUM_SAMPLES=4,
         NUM_RAND_ACTIONS=2,
     )
-    out = jax.jit(greedy_ac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
+    agent = greedy_ac.GACAgent(config)
+    env = ToyContinuousEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
     return _finish(
-        out["runner_state"]._asdict(),
-        out["metrics"],
-        terminated=out["metrics"]["terminated"],
-        transitions=TOTAL_TIMESTEPS,
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
     )
 
 
@@ -450,11 +454,11 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "qrc", "sac", "td3", "sac_rc")
-"""Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
+LOOP_DRIVER_AGENTS = tuple(AGENT_RUNS)
+"""Agents driven through ``AgentProtocol`` plus ``loop.run``, which is now all of them.
 
-Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
-``ToyDiscreteEnv``'s auto-reset and the Gymnax compatibility bridge all go together."""
+The tuple has held every agent since ``greedy_ac`` ported, so it no longer selects a
+subset and exists only to say so. It goes with the last of the ``make_train`` drivers."""
 
 LOSS_METRIC_AGENTS = tuple(AGENT_RUNS)
 """Agents that publish their losses, which is now all of them.
