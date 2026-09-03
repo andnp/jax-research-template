@@ -1,9 +1,11 @@
 """Network construction for the two double-Q variants, which is all they differ in.
 
 Their update rule is shared and gated elsewhere: end to end for each agent by
-``test_rl_agents_learn_path.py``, and on the real loss by
-``test_rl_agents_terminal_bootstrap.py::test_double_q_loss_ignores_next_obs_on_terminal_rows``.
-What is left here is the part those two cannot separate -- the network each config selects,
+``test_rl_agents_learn_path.py``, on the real loss by
+``test_rl_agents_terminal_bootstrap.py::test_double_q_loss_ignores_next_obs_on_terminal_rows``,
+and on the online-network selection that makes that target double-Q rather than vanilla by
+``test_rl_agents_double_q_selection.py``.
+What is left here is the part none of those can separate -- the network each config selects,
 and the shapes it produces.
 
 Three gradient cases were deleted rather than migrated. Two rebuilt Double DQN's action
