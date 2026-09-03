@@ -705,18 +705,16 @@ The ordering principle is normative: **an adapter's boundary fix lands in the st
 ports the code consuming it, never earlier**, because the adapter's fused reset is the only
 reset its unmigrated consumers have.
 
-- **`brax.py:38`** — `BraxConfig.auto_reset` defaults `True`, so Brax's `AutoResetWrapper`
-  replaces the returned observation with `info['first_obs']` on exactly the step that
-  becomes `done`. The true boundary state never reaches the port. Fixing the
-  `terminated`/`truncated` mapping makes truncation bootstrapping *expressible*; this makes
-  it *correct*. Until both land, a truncated transition with `d = gamma` would bootstrap
-  from a post-reset observation — the §4.3 failure, and strictly worse than today. This one
-  lands with the loop, §9 step 3, because the brax adapter has no legacy training consumer:
-  the only references anywhere in the monorepo are
-  `core/tests/small/test_rl_components_brax_adapter.py`,
-  `core/tests/small/test_rl_components_gymnax_bridge.py:11,166` and
-  `core/tests/medium/test_rl_components_gymnax_bridge_jit.py:11,75,99`, all adapter-level,
-  and nothing passes `auto_reset` explicitly.
+- **`brax` `auto_reset` — FIXED, no longer present.** `BraxConfig` used to carry an
+  `auto_reset` field defaulting to `True`, so Brax's `AutoResetWrapper` replaced the
+  returned observation with `info['first_obs']` on exactly the step that became `done`,
+  and the true boundary state never reached the port. A truncated transition with
+  `d = gamma` would then have bootstrapped from a post-reset observation — the §4.3
+  failure. The field is gone: the adapter now constructs its wrappers with
+  `auto_reset=False` unconditionally, and the loop owns every boundary (§6.2).
+  Going forward the adapter must never auto-reset, and reintroducing a config knob to
+  re-enable it is not an option to weigh — it would create a second owner of the
+  boundary, which is the defect rather than a setting.
 - **`python_env_bridge.py:92-93`** — fused autoreset inside the `io_callback`: on
   `terminated or truncated` it calls `self._env.reset()` and returns the post-reset
   observation. The adapter must stop resetting and let the loop own boundaries, but not
