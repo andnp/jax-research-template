@@ -6,13 +6,14 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_agents.dqn import DQNConfig, _make_q_network
+from rl_agents.dqn import DQNConfig
+from rl_agents.q_networks import make_q_network
 
 
 class TestDQNGradientFlow:
     def test_params_change_after_update(self) -> None:
         """Network parameters should change after a gradient step."""
-        net = _make_q_network(DQNConfig(), action_dim=2)
+        net = make_q_network(DQNConfig(), action_dim=2)
         key = jax.random.key(0)
         params = net.init(key, jnp.zeros((4,)))
 
@@ -48,7 +49,7 @@ class TestDQNGradientFlow:
 
     def test_loss_fn_jit(self) -> None:
         """Loss function should be JIT-compilable."""
-        net = _make_q_network(DQNConfig(), action_dim=2)
+        net = make_q_network(DQNConfig(), action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
         @jax.jit
@@ -71,7 +72,7 @@ class TestDQNGradientFlow:
 
     def test_nature_q_network_gradient_and_jit(self) -> None:
         """Nature preset should support gradient flow for Atari-style stacked observations."""
-        net = _make_q_network(
+        net = make_q_network(
             DQNConfig(NETWORK_PRESET="nature_cnn"),
             action_dim=2,
             observation_shape=(4, 84, 84, 1),

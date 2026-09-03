@@ -35,7 +35,6 @@ class BraxConfig:
     env_name: str
     backend: str | None = None
     episode_length: int = 1000
-    auto_reset: bool = True
 
 
 def _as_brax_env(env: object) -> _BraxEnv[_BraxState]:
@@ -49,14 +48,14 @@ def _make_brax_env(config: BraxConfig) -> _BraxEnv[_BraxState]:
         env = brax_envs.create(
             config.env_name,
             episode_length=config.episode_length,
-            auto_reset=config.auto_reset,
+            auto_reset=False,
         )
     else:
         env = brax_envs.create(
             config.env_name,
             backend=config.backend,
             episode_length=config.episode_length,
-            auto_reset=config.auto_reset,
+            auto_reset=False,
         )
     return _as_brax_env(env)
 
@@ -124,13 +123,14 @@ class BraxAdapter:
         del key, params
         next_state = self._env.step(state, action)
         info = _coerce_info(next_state.info)
-        truncated = info.get("truncated", info.get("truncation", jnp.asarray(False)))
+        truncated = jnp.asarray(info.get("truncation", False), dtype=bool)
+        done = jnp.asarray(next_state.done, dtype=bool)
         return EnvStep(
             observation=next_state.obs,
             state=next_state,
             reward=jnp.asarray(next_state.reward),
-            terminated=jnp.asarray(next_state.done),
-            truncated=jnp.asarray(truncated),
+            terminated=done & ~truncated,
+            truncated=truncated,
             info=info,
         )
 

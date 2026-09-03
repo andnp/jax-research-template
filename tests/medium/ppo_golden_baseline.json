@@ -1,0 +1,45 @@
+{
+  "config": {
+    "ENV_NAME": "CartPole-v1",
+    "SEED": 42,
+    "TOTAL_TIMESTEPS": 1024,
+    "NUM_STEPS": 32,
+    "NUM_MINIBATCHES": 4,
+    "UPDATE_EPOCHS": 4,
+    "NORMALIZE_OBSERVATIONS": true,
+    "num_updates": 32
+  },
+  "port_gate": {
+    "num_seeds": 512,
+    "first_seed": 42,
+    "rollout_mean_smoothed_return_seed_mean": {
+      "0": 6.163818359375,
+      "7": 24.71697998046875,
+      "15": 29.14459228515625,
+      "23": 38.30169677734375,
+      "31": 48.45751953125
+    },
+    "rollout_mean_smoothed_return_seed_standard_error": {
+      "0": 0.1352613119435573,
+      "7": 0.4923199084135123,
+      "15": 0.6495229329121138,
+      "23": 0.9538988327538458,
+      "31": 1.2312045282934552
+    },
+    "observation_count": 1025.0
+  },
+  "pre_port_determinism": {
+    "seed": 42,
+    "rollout_mean_smoothed_return": {
+      "0": 6.75,
+      "7": 16.5,
+      "15": 15.625,
+      "23": 23.375,
+      "31": 39.15625
+    },
+    "observation_count": 1025.0,
+    "value_head_std": 0.17897933721542358,
+    "actor_head_mean": -1.091745070880279e-05,
+    "actor_head_std": 0.017033670097589493
+  }
+}

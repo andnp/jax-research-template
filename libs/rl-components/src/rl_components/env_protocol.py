@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 import chex
 import jax
@@ -10,6 +10,16 @@ import jax.numpy as jnp
 from jax.errors import TracerBoolConversionError
 
 from rl_components.structs import chex_struct
+
+TruncationPolicy = Literal["bootstrap", "terminate"]
+"""How a task wants a time-limit truncation treated when bootstrapping.
+
+``"bootstrap"`` marks a time-unlimited task, where the limit is a training device
+external to the problem: a truncation keeps its bootstrap with coefficient ``gamma``.
+``"terminate"`` marks a time-limited task, where the horizon is part of the MDP and the
+optimal policy is time-dependent: a truncation kills the bootstrap like a real
+termination. Either way the truncation breaks the trajectory.
+"""
 
 
 @chex_struct(frozen=True)
@@ -22,8 +32,12 @@ class EnvSpec:
     num_actions: int | None = None
     action_low: jax.Array | None = None
     action_high: jax.Array | None = None
+    truncation_policy: TruncationPolicy = "bootstrap"
 
     def __post_init__(self) -> None:
+        if self.truncation_policy not in ("bootstrap", "terminate"):
+            raise ValueError(f"truncation_policy must be 'bootstrap' or 'terminate', got {self.truncation_policy!r}")
+
         action_dtype = jnp.dtype(self.action_dtype)
 
         if self.num_actions is not None:

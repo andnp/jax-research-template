@@ -8,14 +8,14 @@ import optax
 import pytest
 from flax.training.train_state import TrainState
 from rl_agents.double_dqn import DoubleDQNConfig
-from rl_agents.dqn import NatureQNetwork, _make_q_network
 from rl_agents.dueling_dqn import DuelingDQNConfig, DuelingQNetwork, _make_dueling_q_network
+from rl_agents.q_networks import NatureQNetwork, make_q_network
 
 
 class TestDoubleDQNGradient:
     def test_double_dqn_target_uses_online_for_selection(self) -> None:
         """In Double DQN, online net selects actions, target net evaluates them."""
-        net = _make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
+        net = make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
         key = jax.random.key(0)
         params = net.init(key, jnp.zeros((4,)))
         target_params = net.init(jax.random.key(99), jnp.zeros((4,)))
@@ -30,7 +30,7 @@ class TestDoubleDQNGradient:
         assert next_q_value.shape == (8,)
 
     def test_double_dqn_params_change(self) -> None:
-        net = _make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
+        net = make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         target_params = params
 
@@ -60,7 +60,7 @@ class TestDoubleDQNGradient:
         assert any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
 
     def test_double_dqn_can_use_nature_preset(self) -> None:
-        net = _make_q_network(
+        net = make_q_network(
             DoubleDQNConfig(NETWORK_PRESET="nature_cnn"),
             action_dim=3,
             observation_shape=(4, 84, 84, 1),

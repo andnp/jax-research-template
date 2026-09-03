@@ -22,6 +22,10 @@ All agents and shared components in the Core must be **End-to-End JIT-able**.
 ### 3. Linearized Control Flow
 - Prefer `jax.lax.select` or masking (multiplying by 0/1) over `jax.lax.cond` for small branches to maximize kernel fusion.
 - Use `jax.debug.callback` only for non-critical logging and never for training logic.
+- Narrowed by `docs/specs/agent-port-and-training-loop.md` §6.3: masking and
+  `jax.lax.select` remain the rule for selecting a *value* between pure branches.
+  Guarding an *effectful* call — an `io_callback`, for instance — requires `jax.lax.cond`,
+  because there evaluating the untaken branch is not merely wasteful but wrong.
 
 ## Consequences
 -   **Pros:** Extreme throughput (~250k+ SPS on CPU for PPO); massive scalability over seeds; deterministic results.
