@@ -107,33 +107,13 @@ class TestActionNormalizationWrapper:
                 "action_low and action_high bounds",
                 id="missing-bounds",
             ),
-            pytest.param(
-                EnvSpec(
-                    id="shape-mismatch",
-                    observation_shape=(1,),
-                    action_shape=(2,),
-                    action_dtype=jnp.float32,
-                    action_low=jnp.array([-1.0], dtype=jnp.float32),
-                    action_high=jnp.array([1.0, 1.0], dtype=jnp.float32),
-                ),
-                "shape must match action_shape",
-                id="shape-mismatch",
-            ),
-            pytest.param(
-                EnvSpec(
-                    id="invalid-ordering",
-                    observation_shape=(1,),
-                    action_shape=(2,),
-                    action_dtype=jnp.float32,
-                    action_low=jnp.array([0.5, -1.0], dtype=jnp.float32),
-                    action_high=jnp.array([0.25, 1.0], dtype=jnp.float32),
-                ),
-                "action_low <= action_high",
-                id="invalid-ordering",
-            ),
         ],
     )
     def test_spec_rejects_invalid_wrapped_specs(self, spec: EnvSpec, message: str) -> None:
+        """Reject wrapper inputs that are not continuous bounded environments.
+
+        EnvSpec owns structural bound validation; the wrapper keeps its own preconditions.
+        """
         wrapper = ActionNormalizationWrapper(
             cast(EnvProtocol[jax.Array, RecordedStep, jax.Array, None], DummyContinuousEnv(spec))
         )

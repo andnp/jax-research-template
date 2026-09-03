@@ -86,20 +86,34 @@ class TestEnvSpec:
                 action_low=jnp.array([-1.0, -1.0], dtype=jnp.float32),
             )
 
-    def test_allows_continuous_bounds_without_deep_semantic_validation(self) -> None:
-        spec = EnvSpec(
-            id="lightweight-continuous",
-            observation_shape=(3,),
-            action_shape=(2,),
-            action_dtype=jnp.float32,
-            action_low=jnp.array([0.5], dtype=jnp.float32),
-            action_high=jnp.array([0.25, 1.0], dtype=jnp.float32),
-        )
+    @pytest.mark.parametrize(
+        ("action_low", "action_high", "action_dtype", "message"),
+        [
+            pytest.param(jnp.array([0.5], dtype=jnp.float32), jnp.array([0.25, 1.0], dtype=jnp.float32), jnp.float32, "shape", id="shape"),
+            pytest.param(jnp.array([-1, -1], dtype=jnp.int32), jnp.array([1, 1], dtype=jnp.int32), jnp.float32, "dtype", id="dtype"),
+            pytest.param(jnp.array([0.5, -1.0], dtype=jnp.float32), jnp.array([0.25, 1.0], dtype=jnp.float32), jnp.float32, "action_low <= action_high", id="ordering"),
+        ],
+    )
+    def test_rejects_malformed_continuous_bounds(
+        self,
+        action_low: jax.Array,
+        action_high: jax.Array,
+        action_dtype: jnp.dtype,
+        message: str,
+    ) -> None:
+        """Reject continuous bounds with invalid shape, dtype, or ordering.
 
-        assert spec.action_low is not None
-        assert spec.action_high is not None
-        assert spec.action_low.shape == (1,)
-        assert spec.action_high.shape == (2,)
+        These invariants make malformed environment metadata fail at its source.
+        """
+        with pytest.raises((TypeError, ValueError), match=message):
+            EnvSpec(
+                id="malformed-continuous",
+                observation_shape=(3,),
+                action_shape=(2,),
+                action_dtype=action_dtype,
+                action_low=action_low,
+                action_high=action_high,
+            )
 
     def test_allows_traced_continuous_bounds_inside_jit(self) -> None:
         @jax.jit
