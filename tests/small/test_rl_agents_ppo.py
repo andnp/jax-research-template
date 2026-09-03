@@ -1,6 +1,8 @@
 """Small tests for rl_agents.ppo — loss function math and Transition structure."""
 
 
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -30,14 +32,25 @@ class TestTransition:
         assert t[3] == 1.0
 
 
-class _ValidationEnv:
-    def observation_space(self, params: object | None = None) -> object:
-        del params
-        return type("ObsSpace", (), {"shape": (4,)})()
+@dataclass(frozen=True)
+class _ObsSpace:
+    shape: tuple[int, ...]
+    dtype: jnp.dtype
 
-    def action_space(self, params: object | None = None) -> object:
+
+@dataclass(frozen=True)
+class _ActionSpace:
+    n: int
+
+
+class _ValidationEnv:
+    def observation_space(self, params: object | None = None) -> _ObsSpace:
         del params
-        return type("ActionSpace", (), {"n": 2})()
+        return _ObsSpace(shape=(4,), dtype=jnp.dtype(jnp.float32))
+
+    def action_space(self, params: object | None = None) -> _ActionSpace:
+        del params
+        return _ActionSpace(n=2)
 
     def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
         del key, params
@@ -58,7 +71,7 @@ class TestRewardScaleValidation:
         config = PPOConfig(REWARD_SCALE=reward_scale)
 
         with pytest.raises(ValueError, match="REWARD_SCALE"):
-            make_train(config, env=_ValidationEnv(), env_params=None)  # type: ignore[arg-type]
+            make_train(config, env=_ValidationEnv(), env_params=None)
 
 
 class TestPPOClippedObjective:
