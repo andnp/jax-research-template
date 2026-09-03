@@ -209,6 +209,7 @@ def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: 
             def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+                discounts = config.GAMMA * (1.0 - dones)
 
                 def _loss_fn(
                     params: VariableDict,
@@ -217,20 +218,20 @@ def make_train(config: DQNConfig, env: GymEnv[DiscreteActionSpace], env_params: 
                     actions: jax.Array,
                     rewards: jax.Array,
                     next_obs: jax.Array,
-                    dones: jax.Array,
+                    discounts: jax.Array,
                 ) -> jax.Array:
                     q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
 
                     next_q_values = network.apply(target_params, next_obs)
                     next_q_max = jnp.max(next_q_values, axis=-1)
-                    target = rewards + config.GAMMA * next_q_max * (1.0 - dones)
+                    target = rewards + discounts * next_q_max
 
                     loss = jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
                     return loss
 
                 grad_fn = jax.value_and_grad(_loss_fn)
-                loss, grads = grad_fn(train_state.params, target_params, obs, actions, rewards, next_obs, dones)
+                loss, grads = grad_fn(train_state.params, target_params, obs, actions, rewards, next_obs, discounts)
                 train_state = train_state.apply_gradients(grads=grads)
                 return train_state, loss
 
