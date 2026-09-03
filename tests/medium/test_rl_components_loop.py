@@ -37,13 +37,21 @@ class ToyState:
     counter: jax.Array
 
 
+def _unit_reward(counter: jax.Array) -> jax.Array:
+    del counter
+    return jnp.ones((), jnp.float32)
+
+
 class ToyEnv:
-    """A counter that pays 1.0 a step and ends the episode at configured counts.
+    """A counter that pays a reward a step and ends the episode at configured counts.
 
     Args:
         terminate_at: Counter value reported as ``terminated``. ``NEVER`` disables it.
         truncate_at: Counter value reported as ``truncated``. ``NEVER`` disables it.
         truncation_policy: The policy the environment declares on its spec.
+        reward_of: Injected per-step reward, applied to the post-step counter. The
+            default pays 1.0 a step; a step-dependent reward makes the reward metric
+            falsifiable against a constant.
     """
 
     def __init__(
@@ -52,10 +60,12 @@ class ToyEnv:
         terminate_at: int = NEVER,
         truncate_at: int = NEVER,
         truncation_policy: TruncationPolicy = "bootstrap",
+        reward_of: Callable[[jax.Array], jax.Array] = _unit_reward,
     ) -> None:
         self.terminate_at = terminate_at
         self.truncate_at = truncate_at
         self.truncation_policy = truncation_policy
+        self.reward_of = reward_of
 
     def spec(self, params: None = None) -> EnvSpec:
         del params
@@ -79,7 +89,7 @@ class ToyEnv:
         return EnvStep(
             observation=counter.astype(jnp.float32)[None],
             state=ToyState(counter=counter),
-            reward=jnp.ones((), jnp.float32),
+            reward=self.reward_of(counter),
             terminated=counter == jnp.asarray(self.terminate_at, jnp.int32),
             truncated=counter == jnp.asarray(self.truncate_at, jnp.int32),
             info={},
@@ -385,6 +395,20 @@ class TestKeyStream:
             _metric(with_boundary, "seen/bootstrap_observation"),
             _metric(without_boundary, "seen/bootstrap_observation"),
         )
+
+
+class TestRewardMetric:
+    def test_the_reward_metric_carries_each_step_s_environment_reward(self) -> None:
+        """Catches a ``loop/reward`` replaced by any constant, zero included.
+
+        The ramp differs step to step and across the boundary, so no single value
+        satisfies the expected array.
+        """
+        env = ToyEnv(terminate_at=3, reward_of=lambda counter: counter.astype(jnp.float32) * 2.0)
+
+        _, metrics = run(RecordAgent(), env, jax.random.key(0), steps=9, gamma=GAMMA)
+
+        np.testing.assert_allclose(_metric(metrics, "loop/reward"), [2, 4, 6, 2, 4, 6, 2, 4, 6], rtol=1e-6)
 
 
 class TestEpisodeStatistics:
