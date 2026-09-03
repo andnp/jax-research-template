@@ -699,9 +699,9 @@ class DatabaseManager:
             "    SELECT DISTINCT er.run_id AS run_id "
             "    FROM ExecutionRuns er "
             "    INNER JOIN Executions e ON e.id = er.execution_id "
-            "    WHERE e.status = 'COMPLETED'"
-            ") completed ON completed.run_id = r.id "
-            "WHERE r.experiment_id = ? AND completed.run_id IS NULL "
+            "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+            ") claimed ON claimed.run_id = r.id "
+            "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
             "ORDER BY r.seed, r.hyper_id, r.id",
             (experiment_id,),
         ).fetchall()
@@ -857,10 +857,23 @@ class DatabaseManager:
         jax_config: dict[str, object] | None = None,
     ) -> int | None:
         """Create a pending execution covering unsatisfied runs for an experiment."""
-        unsatisfied_runs = self.list_unsatisfied_runs(experiment_id)
-        if not unsatisfied_runs:
+        rows = self.conn.execute(
+            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
+            "FROM Runs r "
+            "LEFT JOIN ("
+            "    SELECT DISTINCT er.run_id AS run_id "
+            "    FROM ExecutionRuns er "
+            "    INNER JOIN Executions e ON e.id = er.execution_id "
+            "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+            ") claimed ON claimed.run_id = r.id "
+            "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
+            "ORDER BY r.seed, r.hyper_id, r.id",
+            (experiment_id,),
+        ).fetchall()
+        if not rows:
             return None
 
+        unsatisfied_runs = [RunRow(*row) for row in rows]
         selected_runs = unsatisfied_runs if limit is None else unsatisfied_runs[:limit]
         return self.plan_execution(
             [run.id for run in selected_runs],

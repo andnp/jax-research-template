@@ -577,6 +577,9 @@ def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: 
 
 
 def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseManager) -> None:
+    """
+    Replanning before execution does not create another active batch.
+    """
     algo_id = db.add_component("FacadeAlgo", "ALGO")
     env_id = db.add_component("FacadeEnv", "ENV")
     algo_ver = db.add_component_version(algo_id, "algo-hash")
@@ -605,6 +608,8 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
     assert artifacts.root_path == planned[0].root_path
     assert artifacts.manifest_path == planned[0].manifest_path
     assert '"run_ids": [1, 2]' in (artifacts.metadata_json or "")
+
+    assert db.plan_experiment_execution_batches(exp_id, "/tmp/experiment-executions") == []
 
 
 # ---------------------------------------------------------------------------
