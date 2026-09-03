@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ale_py  # noqa: F401  # registers ALE namespace with gymnasium
 import gymnasium
+import jax
 from gymnasium.wrappers import AtariPreprocessing
 
 from rl_components.frame_stack import FrameStackWrapper
@@ -41,7 +42,7 @@ def _make_ale_env(config: AleAtariConfig) -> gymnasium.Env:
     return env
 
 
-def make_atari_adapter(config: AleAtariConfig) -> FrameStackWrapper:
+def make_atari_adapter(config: AleAtariConfig) -> FrameStackWrapper[jax.Array, jax.Array, jax.Array, None]:
     """Create an ALE Atari adapter conforming to EnvProtocol.
 
     Returns a FrameStackWrapper around a PythonEnvBridge wrapping an ALE gymnasium env.
