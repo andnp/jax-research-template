@@ -5,6 +5,13 @@
 > weights, which live in agent state as `train_state.params` / `target_params`
 > and are already traced. Do not name the dynamic pytree `params`.
 
+> Status: the split described here is IMPLEMENTED for every agent. Each has a
+> `*Hypers` chex_struct and a `*_hypers(config)` builder; the `AgentProtocol`
+> agents carry it as a `hypers` field on their state, while `ppo` and `rainbow`
+> take it as a traced argument to `train` rather than being ported to the port.
+> `AgentProtocol` itself was left unchanged. Two fields remain unsweepable by
+> necessity: `greedy_ac.ACTOR_PERCENTILE` and `greedy_ac.UNIFORM_WEIGHT`.
+
 > Snapshot notice: this document reflects `libs/rl-agents` (and the referenced
 > parts of `libs/rl-components`) as read at commit `2ec67ab5`. Another session
 > was actively editing `libs/rl-agents` and `libs/rl-components` while this
