@@ -37,8 +37,8 @@ its per-transition ``gamma``; :class:`QRCAgent` never reads ``config.GAMMA``.
 
 from __future__ import annotations
 
-from collections.abc import Callable as _Callable
-from typing import Callable, NamedTuple, TypedDict
+from collections.abc import Callable
+from typing import NamedTuple, TypedDict
 
 import chex
 import flax.linen as nn
@@ -55,7 +55,7 @@ from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
-type QRCApplyFn = _Callable[..., tuple[jax.Array, jax.Array]]
+type QRCApplyFn = Callable[..., tuple[jax.Array, jax.Array]]
 """``QRCNetwork.apply``, as reached through ``TrainState.apply_fn``."""
 
 
