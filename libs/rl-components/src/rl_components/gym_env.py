@@ -32,14 +32,6 @@ class ContinuousActionSpace(Protocol):
     def shape(self) -> tuple[int, ...]: ...
 
 
-class BoundedContinuousActionSpace(ContinuousActionSpace, Protocol):
-    @property
-    def action_low(self) -> jax.Array | None: ...
-
-    @property
-    def action_high(self) -> jax.Array | None: ...
-
-
 class GymEnv[ActionSpaceT](Protocol):
     def observation_space(self, params: object | None = None) -> ObservationSpace: ...
 
