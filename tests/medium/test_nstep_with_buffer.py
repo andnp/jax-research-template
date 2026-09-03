@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-import jax  # type: ignore[import-untyped]
-import jax.numpy as jnp  # type: ignore[import-untyped]
+import jax
+import jax.numpy as jnp
 from jax_replay.nstep import compute_nstep_returns
 from jax_replay.uniform import add, init_buffer
 

@@ -6,7 +6,7 @@ Target duration: << 1 ms per test (no JIT).
 
 from __future__ import annotations
 
-import jax.numpy as jnp  # type: ignore[import-untyped]
+import jax.numpy as jnp
 from jax_replay.nstep import compute_nstep_returns
 
 

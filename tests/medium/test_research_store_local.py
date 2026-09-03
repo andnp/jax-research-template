@@ -89,8 +89,8 @@ class TestOrbaxPutGet:
         uri = store.put(params, name="weights", execution_id=run_id)
         recovered = store.get(uri)
         assert isinstance(recovered, dict)
-        assert recovered["w"].shape == (4, 4)  # type: ignore[union-attr]
-        assert recovered["b"].shape == (4,)  # type: ignore[union-attr]
+        assert recovered["w"].shape == (4, 4)
+        assert recovered["b"].shape == (4,)
 
     def test_checkpoint_dir_exists(self, store: Store, run_id: uuid.UUID, tmp_path: Path) -> None:
         params = {"w": jnp.array([1.0, 2.0])}
