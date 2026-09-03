@@ -161,6 +161,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
             # STEP ENV
             rng, _rng = jax.random.split(rng)
             obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
+            discount = config.GAMMA * (1.0 - done)
 
             # ADD TO BUFFER
             buffer_state = buffer.add(
@@ -169,7 +170,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 action[None, ...],
                 reward[None, ...],
                 obsv[None, ...],
-                done[None, ...],
+                discount[None, ...],
             )
 
             # TRAIN
@@ -182,7 +183,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 rng: jax.Array,
             ) -> tuple[TrainState, TrainState, VariableDict, TrainState, jax.Array, jax.Array]:
                 rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 log_alpha_arr = cast(jax.Array, alpha_state.params["log_alpha"])
                 alpha = jnp.exp(log_alpha_arr[0])
@@ -197,7 +198,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                     actions: jax.Array,
                     rewards: jax.Array,
                     next_obs: jax.Array,
-                    dones: jax.Array,
+                    discounts: jax.Array,
                     rng: jax.Array,
                 ) -> jax.Array:
                     rng, _rng = jax.random.split(rng)
@@ -210,7 +211,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                         critic_target_params, next_obs, next_actions
                     )
                     next_q_min = jnp.min(next_q_values, axis=0)
-                    target_q = rewards + config.GAMMA * (1.0 - dones) * (next_q_min - alpha * next_log_probs)
+                    target_q = rewards + discounts * (next_q_min - alpha * next_log_probs)
 
                     def _single_critic_loss(params: VariableDict) -> jax.Array:
                         q = _critic_apply(critic, params, obs, actions)
@@ -221,7 +222,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
 
                 grad_fn = jax.value_and_grad(_critic_loss_fn)
                 critic_loss, critic_grads = grad_fn(
-                    critic_state.params, actor_state.params, critic_target_params, alpha, obs, actions, rewards, next_obs, dones, rng
+                    critic_state.params, actor_state.params, critic_target_params, alpha, obs, actions, rewards, next_obs, discounts, rng
                 )
                 critic_state = critic_state.apply_gradients(grads=critic_grads)
 

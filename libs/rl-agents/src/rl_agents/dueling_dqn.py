@@ -129,6 +129,7 @@ def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_p
             action = jnp.where(chose_random, random_action, greedy_action)
 
             obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
+            discount = config.GAMMA * (1.0 - done)
 
             buffer_state = buffer.add(
                 buffer_state,
@@ -136,12 +137,12 @@ def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_p
                 action[None, ...],
                 reward[None, ...],
                 obsv[None, ...],
-                done[None, ...],
+                discount[None, ...],
             )
 
             def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(
                     params: VariableDict,
@@ -150,7 +151,7 @@ def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_p
                     actions: jax.Array,
                     rewards: jax.Array,
                     next_obs: jax.Array,
-                    dones: jax.Array,
+                    discounts: jax.Array,
                 ) -> jax.Array:
                     q_values = network.apply(params, obs)
                     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
@@ -161,12 +162,12 @@ def make_train(config: DuelingDQNConfig, env: GymEnv[DiscreteActionSpace], env_p
                     next_q_target = network.apply(target_params, next_obs)
                     next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
 
-                    target = rewards + config.GAMMA * next_q_value * (1.0 - dones)
+                    target = rewards + discounts * next_q_value
                     loss = jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
                     return loss
 
                 grad_fn = jax.value_and_grad(_loss_fn)
-                loss, grads = grad_fn(train_state.params, target_params, obs, actions, rewards, next_obs, dones)
+                loss, grads = grad_fn(train_state.params, target_params, obs, actions, rewards, next_obs, discounts)
                 train_state = train_state.apply_gradients(grads=grads)
                 return train_state, loss
 

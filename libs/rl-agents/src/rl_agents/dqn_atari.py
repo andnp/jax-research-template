@@ -225,14 +225,14 @@ def make_train_step(
         actions: jax.Array,
         rewards: jax.Array,
         next_obs: jax.Array,
-        dones: jax.Array,
+        discounts: jax.Array,
     ) -> jax.Array:
         q_values = network.apply(params, obs)
         q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
 
         next_q_values = network.apply(target_params, next_obs)
         next_q_max = jnp.max(next_q_values, axis=-1)
-        targets = rewards + config.ADDITIONAL_DISCOUNT * next_q_max * (1.0 - dones)
+        targets = rewards + discounts * next_q_max
         td_error = q_action - jax.lax.stop_gradient(targets)
         return jnp.mean(jnp.square(td_error))
 
@@ -247,13 +247,14 @@ def make_train_step(
         action = epsilon_greedy_action(q_values, epsilon, key=action_rng)
 
         obs, env_state, reward, done, info = env.step(step_rng, env_state, action, env_params)
+        discount = config.ADDITIONAL_DISCOUNT * (1.0 - done)
         buffer_state = buffer.add(
             buffer_state,
             last_obs[None, ...],
             action[None, ...],
             reward[None, ...],
             obs[None, ...],
-            done[None, ...],
+            discount[None, ...],
         )
 
         can_learn = (buffer_state.count >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
@@ -270,7 +271,7 @@ def make_train_step(
             actions = buffer_state.actions[indices]
             rewards = buffer_state.rewards[indices]
             next_obs = buffer_state.next_obs[indices]
-            dones = buffer_state.dones[indices]
+            discounts = buffer_state.discount[indices]
             loss, grads = jax.value_and_grad(_loss)(
                 train_state.params,
                 target_params,
@@ -278,7 +279,7 @@ def make_train_step(
                 actions,
                 rewards,
                 next_obs,
-                dones,
+                discounts,
             )
             return train_state.apply_gradients(grads=grads), loss
 

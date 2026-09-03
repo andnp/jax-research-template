@@ -20,7 +20,7 @@ class TestReplayBufferJIT:
                 action=jnp.zeros((1,)),
                 reward=jnp.ones((1,)),
                 next_obs=jnp.ones((1, 4)),
-                done=jnp.zeros((1,), dtype=jnp.bool_),
+                discount=jnp.full((1,), 0.99),
             )
 
         state = add_one(state)
@@ -37,7 +37,7 @@ class TestReplayBufferJIT:
                 action=jnp.zeros((1,)),
                 reward=jnp.ones((1,)),
                 next_obs=jnp.ones((1, 4)),
-                done=jnp.zeros((1,), dtype=jnp.bool_),
+                discount=jnp.full((1,), 0.99),
             )
 
         @jax.jit
@@ -45,7 +45,7 @@ class TestReplayBufferJIT:
             return buf.sample(state, key, batch_size=4)
 
         key = jax.random.key(0)
-        obs, actions, rewards, next_obs, dones = sample(state, key)
+        obs, actions, rewards, next_obs, discounts = sample(state, key)
         assert obs.shape == (4, 4)
 
     def test_add_sample_loop_in_scan(self) -> None:
@@ -62,7 +62,7 @@ class TestReplayBufferJIT:
                 action=jnp.zeros((1,), dtype=jnp.int32),
                 reward=jnp.ones((1,)),
                 next_obs=jnp.ones((1, 2)),
-                done=jnp.zeros((1,), dtype=jnp.bool_),
+                discount=jnp.full((1,), 0.99),
             )
             obs, _, _, _, _ = buf.sample(buf_state, k1, batch_size=2)
             return (buf_state, key), obs.mean()
@@ -84,12 +84,12 @@ class TestReplayBufferJIT:
                 action=jnp.zeros((1,), dtype=jnp.int32),
                 reward=jnp.ones((1,)),
                 next_obs=jnp.full((1, 2, 2, 1), 9, dtype=jnp.uint8),
-                done=jnp.zeros((1,), dtype=jnp.bool_),
+                discount=jnp.full((1,), 0.99),
             )
             return updated_state, buf.sample(updated_state, key, batch_size=1)
 
         next_state, sample = add_and_sample(state, jax.random.key(0))
-        obs, actions, rewards, next_obs, dones = sample
+        obs, actions, rewards, next_obs, discounts = sample
 
         assert next_state.obs.dtype == jnp.uint8
         assert next_state.next_obs.dtype == jnp.uint8
@@ -97,7 +97,7 @@ class TestReplayBufferJIT:
         assert next_obs.dtype == jnp.uint8
         assert actions.dtype == jnp.int32
         assert rewards.dtype == jnp.float32
-        assert dones.dtype == jnp.bool_
+        assert discounts.dtype == jnp.float32
 
 
 class TestReplayBufferNetworkShapes:
@@ -128,7 +128,7 @@ class TestReplayBufferNetworkShapes:
                 action=jnp.zeros((1,)),
                 reward=jnp.ones((1,)),
                 next_obs=jnp.ones((1, 4)),
-                done=jnp.zeros((1,), dtype=jnp.bool_),
+                discount=jnp.full((1,), 0.99),
             )
 
         net = SimpleNet()
