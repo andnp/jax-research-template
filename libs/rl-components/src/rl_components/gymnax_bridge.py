@@ -110,7 +110,36 @@ class _GymnaxObservationSpace(Protocol):
 
 
 class _GymnaxActionSpace(Protocol):
+    shape: tuple[int, ...]
     dtype: jnp.dtype
+
+
+class _GymnaxBoundedActionSpace(Protocol):
+    low: jax.Array | float
+    high: jax.Array | float
+
+
+def _continuous_bounds(
+    action_space: _GymnaxActionSpace,
+    action_shape: tuple[int, ...],
+) -> tuple[jax.Array, jax.Array] | tuple[None, None]:
+    """Read a continuous Gymnax action space's bounds, broadcast to the action shape.
+
+    Args:
+        action_space: The Gymnax action space.
+        action_shape: The shape a bound must take to satisfy :class:`EnvSpec`.
+
+    Returns:
+        The lower and upper bounds, or ``(None, None)`` when the space declares neither;
+        :class:`EnvSpec` accepts both bounds or neither, never one.
+    """
+    if not (hasattr(action_space, "low") and hasattr(action_space, "high")):
+        return None, None
+    bounded = cast(_GymnaxBoundedActionSpace, action_space)
+    return (
+        jnp.broadcast_to(jnp.asarray(bounded.low, dtype=jnp.float32), action_shape),
+        jnp.broadcast_to(jnp.asarray(bounded.high, dtype=jnp.float32), action_shape),
+    )
 
 
 class _GymnaxEnv[StateT, ParamsT](Protocol):
@@ -154,9 +183,9 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
     truncation; Gymnax exposes no way to tell the two apart, and no environment in the
     registry distinguishes them either.
 
-    Only discrete action spaces are supported, because they are the only ones with a
-    ported consumer. A continuous Gymnax environment raises rather than being silently
-    mis-specified.
+    Both action-space kinds are specified. A space exposing an integer ``n`` is discrete;
+    any other space is continuous and is described by its own ``shape`` plus, when it
+    carries them, its ``low``/``high`` bounds broadcast to that shape.
     """
 
     _env: _GymnaxEnv[StateT, ParamsT]
@@ -179,17 +208,25 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         observation_space = self._env.observation_space(resolved)
         action_space = self._env.action_space(resolved)
         num_actions = getattr(action_space, "n", None)
-        if not isinstance(num_actions, int):
-            raise TypeError(
-                f"GymnaxEnv supports discrete action spaces only, got {type(action_space).__name__}"
+        if isinstance(num_actions, int):
+            return EnvSpec(
+                id=f"gymnax:{self._env.name}",
+                observation_shape=tuple(observation_space.shape),
+                action_shape=(),
+                observation_dtype=jnp.dtype(observation_space.dtype),
+                action_dtype=jnp.dtype(jnp.int32),
+                num_actions=num_actions,
             )
+        action_shape = tuple(action_space.shape)
+        action_low, action_high = _continuous_bounds(action_space, action_shape)
         return EnvSpec(
             id=f"gymnax:{self._env.name}",
             observation_shape=tuple(observation_space.shape),
-            action_shape=(),
+            action_shape=action_shape,
             observation_dtype=jnp.dtype(observation_space.dtype),
-            action_dtype=jnp.dtype(jnp.int32),
-            num_actions=num_actions,
+            action_dtype=jnp.dtype(jnp.float32),
+            action_low=action_low,
+            action_high=action_high,
         )
 
     def reset(self, key: chex.PRNGKey, params: ParamsT | None = None) -> EnvReset[jax.Array, StateT]:
