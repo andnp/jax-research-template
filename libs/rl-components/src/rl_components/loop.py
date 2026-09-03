@@ -37,7 +37,8 @@ length are never emitted as metrics at all; they remain in the returned
 
 Reaching ``steps`` mid-episode is neither a termination nor a truncation. It is simply
 where data stops: ``episode_end`` is false on that step and the loop does nothing
-special. Only the environment's own flags end an episode.
+special. Only the environment's own flags, and the optional ``episode_cutoff``, end an
+episode.
 
 ``gamma`` is a parameter of this loop and of nothing else. Two sources of truth for the
 discount is precisely how the bootstrap bug class this contract exists to fix recurs.
@@ -52,8 +53,8 @@ be merged; the failure is a loud trace-time error.
 Jitting
 -------
 ``run`` is deliberately NOT decorated with ``jit``. ``agent``, ``env``, ``steps``,
-``gamma``, ``truncation_policy`` and ``env_params`` are static or closed over, and only
-``key`` is traced, so callers wrap it::
+``gamma``, ``episode_cutoff``, ``truncation_policy`` and ``env_params`` are static or
+closed over, and only ``key`` is traced, so callers wrap it::
 
     final_state, metrics = jax.jit(
         lambda k: run(agent, env, k, steps=100_000, gamma=0.99)
@@ -110,6 +111,7 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
     *,
     steps: int,
     gamma: float,
+    episode_cutoff: int = -1,
     truncation_policy: TruncationPolicy | None = None,
     env_params: ParamsT | None = None,
 ) -> tuple[LoopState[EnvStateT, AgentStateT, ObsT], dict[str, jax.Array]]:
@@ -123,6 +125,9 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         steps: Number of scan iterations. The agent closes ``steps - 1`` transitions.
         gamma: Discount factor, used as the bootstrap coefficient wherever the
             bootstrap survives. This is its only home.
+        episode_cutoff: Loop-imposed episode length limit, reported as a truncation.
+            Any value ``<= 0`` disables it. A static Python int, so the branch on it
+            resolves at trace time.
         truncation_policy: Overrides the environment spec's own policy. ``None``
             defers to ``env.spec(env_params).truncation_policy``.
         env_params: Environment parameters, forwarded to every ``env`` call.
@@ -168,10 +173,15 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         agent_step = agent.step(loop_state.agent_state, loop_state.timestep, step_index)
         env_step = env.step(step_key, loop_state.env_state, agent_step.action, env_params)
 
+        if episode_cutoff > 0:
+            cutoff_reached = loop_state.episode_length + 1 >= episode_cutoff
+        else:
+            cutoff_reached = jnp.zeros((), jnp.bool_)
+
         discount, episode_end = bootstrap_terms(
             env_step.terminated,
             env_step.truncated,
-            jnp.zeros((), jnp.bool_),
+            cutoff_reached,
             gamma=gamma,
             truncation_policy=policy,
         )
