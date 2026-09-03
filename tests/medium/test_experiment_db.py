@@ -599,6 +599,39 @@ def test_list_unsatisfied_run_batches_respects_batch_limit(db: DatabaseManager) 
     assert [len(batch.run_ids) for batch in batches] == [2, 2, 1]
 
 
+def test_list_unsatisfied_run_batches_chunks_do_not_interleave_hyper_configs(db: DatabaseManager) -> None:
+    """Chunking must group by hyperparameter configuration, not interleave across it.
+
+    Two hyperparameter configs share the same static config (same ``arch``, differing
+    only in the vmapped ``lr``), so they land in the same batch bucket. Runs for both
+    configs are added interleaved by seed. With a batch limit smaller than the total
+    run count, each chunk must still contain runs from only one hyperparameter config --
+    a seed-first SQL ordering would instead interleave the two configs' seeds across
+    chunk boundaries.
+    """
+    algo_id = db.add_component("InterleaveAlgo", "ALGO")
+    env_id = db.add_component("InterleaveEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Interleave Experiment")
+
+    vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
+    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
+    hyper_b = db.add_hyperparam_config({"arch": "mlp", "lr": 2e-3}, vmap_zone=vmap_zone)
+
+    hyper_a_run_ids = []
+    hyper_b_run_ids = []
+    for seed in range(3):
+        hyper_a_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=seed))
+        hyper_b_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=seed))
+
+    batches = db.list_unsatisfied_run_batches(exp_id, max_runs_per_batch=3)
+
+    assert len(batches) == 2
+    assert {run_id for run_id in batches[0].run_ids} == set(hyper_a_run_ids)
+    assert {run_id for run_id in batches[1].run_ids} == set(hyper_b_run_ids)
+
+
 def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: DatabaseManager) -> None:
     algo_id = db.add_component("PlannerAlgo", "ALGO")
     env_id = db.add_component("PlannerEnv", "ENV")
