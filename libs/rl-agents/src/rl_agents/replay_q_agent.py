@@ -145,6 +145,7 @@ class ReplayQHypers:
     or take a Python branch -- those stay on the config.
     """
 
+    LR: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     TARGET_NETWORK_FREQUENCY: jax.Array
@@ -157,6 +158,7 @@ class ReplayQHypers:
 
 def replay_q_hypers(config: ReplayQConfig):
     return ReplayQHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
@@ -260,7 +262,7 @@ class ReplayQAgent:
             train_state=TrainState.create(
                 apply_fn=network.apply,
                 params=params,
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LR, jnp.float32)),
             ),
             target_params=params,
             buffer_state=buffer.init(),
@@ -314,7 +316,7 @@ class ReplayQAgent:
         can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
             can_train,
-            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key),
+            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key, hypers.LR),
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
@@ -365,8 +367,17 @@ class ReplayQAgent:
         buffer_state: ReplayBufferState,
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
+        learning_rate: jax.Array,
     ) -> tuple[TrainState, jax.Array]:
-        """Take one gradient step on a replay minibatch."""
+        """Take one gradient step on a replay minibatch.
+
+        The rate is pushed into the optimizer state each step because the
+        transformation itself is a static field and cannot hold a traced value.
+        """
+        opt_state = train_state.opt_state
+        train_state = train_state.replace(
+            opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
+        )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
         loss, grads = jax.value_and_grad(
