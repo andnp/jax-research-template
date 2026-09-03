@@ -58,28 +58,34 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
     - Handles forking, branching, and opening the PR via `gh`.
 
 ### 2.4 Experiment Orchestration
-The CLI manages a multi-stage pipeline for large-scale experiments, using SQLite as the persistent state-of-the-world.
+The CLI manages a multi-stage pipeline for large-scale experiments, using SQLite as the persistent state-of-the-world. An experiment is defined in a project Python file as a module-level, zero-argument function annotated to return `research_runner.ExperimentSpec`; the CLI discovers such functions by inspecting return-type annotations. All `research experiment ...` subcommands take that spec file and (optionally) the name of the function via `--spec`.
 
-- `research exp define <config.py> [--name <experiment_name>]`:
-    - Executes the definition script which uses `rl-sweeper` to generate a Cartesian product of hyperparameters and seeds.
-    - populates a `experiments.sqlite` database with rows for every individual "unit of work" (Seed + Hyperparam Set).
-    - Returns a unique `experiment_id`.
+- `research experiment plan <spec_file.py> [--spec <name>] [--results-root <path>]`:
+    - Syncs the experiment definition to the spec's `experiments.sqlite` and prints the batches it *would* run (a true dry run: no executions are created).
 
-- `research exp run <experiment_id> [--executor <local|slurm>]`:
-    - Reads the database to identify `PENDING` or `FAILED` runs.
-    - Groups work into **"vmap-zones"**: sets of runs that can be executed in a single `jax.vmap` call (e.g., all seeds for Algorithm X with Hyperparam Set Y).
-    - Dispatches batches to the selected executor.
-    - Updates the DB state to `RUNNING` and eventually `COMPLETED` or `FAILED`.
+- `research experiment run <spec_file.py> [--spec <name>] [--results-root <path>] [--max-runs <n>]`:
+    - Reads the database to identify runs that are not yet "satisfied" (linked to a `COMPLETED` execution) and executes them in batches, driven by the project's `train_fn`.
+    - Because only unsatisfied runs are re-planned, an interrupted `run` resumes automatically on the next invocation instead of repeating completed work.
 
-- `research exp status <experiment_id>`:
-    - Provides a progress bar and breakdown of status (Pending/Running/Success/Fail) across algorithms and hyperparameters.
+- `research experiment list <db_path>`:
+    - Lists the experiments recorded in an `experiments.sqlite` database.
 
-- `research exp report <experiment_id> [--best-by <metric_name>]`:
-    - Queries the DB to find the optimal hyperparameter combinations.
-    - Generates a statistical summary (Mean/Std/Max) per algorithm.
+- `research experiment status <db_path> [--experiment <name>]`:
+    - Reports total/completed/pending run counts per experiment.
 
-- `research exp analyze <experiment_id> --using <analysis_script.py>`:
-    - Injects the experiment data into a project-specific analysis script for publication-ready plotting.
+- `research experiment executions <db_path> [--experiment <name>] [--status <status>] [--git-commit <sha>]`:
+    - Lists individual executions with their status, hostname, start time, and git commit.
+
+- `research experiment invalidate <db_path> [--execution <id>] [--git-commit <sha>]`:
+    - Marks one or more executions `INVALID` (after an interactive confirmation prompt), so the runs they covered become unsatisfied and are re-planned by the next `run`. `--execution` may be repeated to invalidate several executions in one invocation; `--git-commit` invalidates all executions recorded against a commit.
+
+- `research experiment execute-batch <db_path> --execution-id <id> --spec-file <spec_file.py> --spec <name>`:
+    - Executes a single already-planned execution by ID. Used internally by batch/cluster dispatch rather than directly by researchers.
+
+- `research experiment submit <spec_file.py> [--spec <name>] [--results-root <path>] [--account ...] [--partition ...] [--time ...] [--cpus-per-task ...] [--mem-per-cpu ...] [--gpus ...] [--dry-run] [--script-path <path>]`:
+    - Plans the experiment like `plan`, then submits the resulting batches as a Slurm job array instead of running them locally.
+
+There is no `report` or `analyze` subcommand. Reading results back — statistical summaries, hyperparameter sensitivity, and A/B or bakeoff comparisons — is a library concern handled by `research_analysis` (e.g. `research_analysis.reporting.analyze_hypers`, `compare_pairwise`, `compare_bakeoff`), not the CLI.
 
 ### 2.5 Diagnostics
 - `research doctor`:
@@ -137,10 +143,11 @@ doctor:
 
 ## 4. User Workflows
 
-### Workflow A: The "One Agent, One World" Sweep
-1. Researcher writes a single-agent script in `projects/new-idea/train.py`.
-2. Runs `research run train.py --vmap 128`.
-3. The CLI handles the seed splitting and parallel execution, returning aggregated statistics.
+### Workflow A: The Hyperparameter Sweep
+1. Researcher defines an `Experiment` (parameters, static axes, metrics) and a module-level, zero-argument function returning `ExperimentSpec` in a project file, e.g. `projects/new-idea/sweep.py`.
+2. Runs `uv run research experiment plan sweep.py --spec my_sweep` to preview the batches that would run, with no side effects.
+3. Runs `uv run research experiment run sweep.py --spec my_sweep`. The CLI groups work into vmap-zones sharing static parameters and dispatches them, writing intent/provenance to `experiments.sqlite` and metric series to `metrics.sqlite`.
+4. If the run is interrupted, rerunning the same `run` command re-plans and executes only the unsatisfied runs; completed work is never repeated.
 
 ### Workflow B: The Library Contribution
 1. Researcher identifies that three projects are using a custom `ReplayBuffer`.
