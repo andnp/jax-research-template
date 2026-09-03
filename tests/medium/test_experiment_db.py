@@ -410,13 +410,21 @@ def test_record_execution_artifacts_round_trip(db: DatabaseManager) -> None:
 
 
 def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) -> None:
+    """
+    Updating runtime artifact data retains metadata recorded during planning.
+    """
     execution_id = db.add_execution(hostname="node-artifact-update")
-    db.record_execution_artifacts(execution_id, "/tmp/executions/old")
+    db.record_execution_artifacts(
+        execution_id,
+        "/tmp/executions/old",
+        metadata={"run_ids": [1], "static_config_json": "{}"},
+    )
 
     db.record_execution_artifacts(
         execution_id,
         "/tmp/executions/new",
         manifest_path="/tmp/executions/new/manifest.json",
+        metadata={"trained": True},
     )
 
     artifact = db.get_execution_artifacts(execution_id)
@@ -424,6 +432,11 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
     assert artifact is not None
     assert artifact.root_path == "/tmp/executions/new"
     assert artifact.manifest_path == "/tmp/executions/new/manifest.json"
+    assert json.loads(artifact.metadata_json or "{}") == {
+        "run_ids": [1],
+        "static_config_json": "{}",
+        "trained": True,
+    }
 
 
 def test_one_execution_covers_multiple_runs(populated_db: Populated) -> None:

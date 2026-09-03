@@ -806,7 +806,19 @@ class DatabaseManager:
         manifest_path: str | None,
         metadata: dict[str, object] | None,
     ) -> None:
-        metadata_json = json.dumps(metadata, sort_keys=True) if metadata is not None else None
+        existing = self.conn.execute(
+            "SELECT metadata_json FROM ExecutionArtifacts WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+        merged_metadata: dict[str, object] = {}
+        if existing is not None and existing[0] is not None:
+            parsed = json.loads(existing[0])
+            if not isinstance(parsed, dict):
+                raise ValueError("Execution artifact metadata must be a JSON object.")
+            merged_metadata.update(parsed)
+        if metadata is not None:
+            merged_metadata.update(metadata)
+        metadata_json = json.dumps(merged_metadata, sort_keys=True) if merged_metadata else None
         self.conn.execute(
             "INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path, metadata_json) "
             "VALUES (?, ?, ?, ?) "
