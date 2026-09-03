@@ -35,8 +35,8 @@ The agent's ordering within ``step`` is **normative**: complete the pending tran
 using ``bootstrap_observation``, THEN reset traces if ``episode_end``, THEN select an
 action from ``observation``. An agent that resets its traces first silently drops the
 last update of every episode. A single ``step`` method under ``lax.scan`` cannot
-enforce statement order structurally, and nothing in the types objects, so this
-ordering is guarded by test rather than by construction.
+enforce statement order structurally, and nothing in the types objects, so each agent
+must guard this ordering in its own tests.
 """
 
 from __future__ import annotations
@@ -113,7 +113,15 @@ def bootstrap_terms(
         ``episode_end`` is bool and is true on termination and truncation alike;
         ``is_truncated`` is bool and is true only on a truncation that is not also a
         termination.
+
+    Raises:
+        ValueError: If ``truncation_policy`` is neither ``"bootstrap"`` nor
+            ``"terminate"``. An unrecognised value would otherwise take the
+            ``"terminate"`` branch silently and kill every truncation's bootstrap.
     """
+    if truncation_policy not in ("bootstrap", "terminate"):
+        raise ValueError(f"truncation_policy must be 'bootstrap' or 'terminate', got {truncation_policy!r}")
+
     is_terminated = jnp.asarray(terminated, dtype=jnp.bool_)
     is_truncated = (
         jnp.asarray(truncated, jnp.bool_) | jnp.asarray(cutoff_reached, jnp.bool_)

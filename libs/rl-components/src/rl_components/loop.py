@@ -143,8 +143,6 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
     """
     spec = env.spec(env_params)
     policy: TruncationPolicy = spec.truncation_policy if truncation_policy is None else truncation_policy
-    if policy not in ("bootstrap", "terminate"):
-        raise ValueError(f"truncation_policy must be 'bootstrap' or 'terminate', got {policy!r}")
 
     key, agent_key, initial_reset_key = jax.random.split(key, 3)
     agent_state = agent.init(agent_key, spec)

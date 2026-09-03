@@ -10,6 +10,8 @@ distinguishable from both a killed one and an undiscounted one.
 
 from __future__ import annotations
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -142,3 +144,18 @@ class TestBootstrapTermsUnderJit:
         assert discount.dtype == jnp.float32
         assert episode_end.dtype == jnp.bool_
         assert is_truncated.dtype == jnp.bool_
+
+
+class TestPolicyValidation:
+    """An unrecognised policy must fail loudly rather than silently killing bootstraps."""
+
+    @pytest.mark.parametrize("policy", ["Bootstrap", "bootstrapp", "TERMINATE", ""])
+    def test_an_unrecognised_policy_is_rejected(self, policy: str) -> None:
+        with pytest.raises(ValueError, match="truncation_policy"):
+            bootstrap_terms(
+                jnp.asarray(False, jnp.bool_),
+                jnp.asarray(True, jnp.bool_),
+                jnp.asarray(False, jnp.bool_),
+                gamma=GAMMA,
+                truncation_policy=cast(TruncationPolicy, policy),
+            )

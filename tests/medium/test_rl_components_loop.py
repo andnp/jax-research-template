@@ -412,7 +412,7 @@ class TestValidation:
 
         np.testing.assert_allclose(_metric(metrics, "loop/discount"), [0.9, 0.9, 0.0, 0.9, 0.9], rtol=1e-6)
 
-    def test_an_invalid_spec_policy_is_rejected(self) -> None:
+    def test_an_invalid_spec_policy_is_rejected_when_env_spec_is_built(self) -> None:
         env = ToyEnv(truncate_at=3, truncation_policy=cast(TruncationPolicy, "bootstrapp"))
 
         with pytest.raises(ValueError, match="truncation_policy"):
