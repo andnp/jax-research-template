@@ -696,6 +696,123 @@ def _load_bakeoff_data(
     return data_by_group, all_scores_by_env
 
 
+@dataclass(frozen=True)
+class _BakeoffStatistics:
+    ecdf_scores: dict[str, dict[str, float]]
+    omnibus_details: StatisticalTestDetails
+    posthoc_matrix: dict[str, dict[str, float]]
+    ecdf_curves: dict[str, tuple[list[float], list[float]]]
+
+
+def _compute_bakeoff_statistics(
+    data_by_group: dict[tuple[str, str], dict[int, float]],
+    all_scores_by_env: dict[str, list[float]],
+    algorithms: list[str],
+    environments: list[str],
+) -> _BakeoffStatistics:
+    ecdf_normalized: dict[tuple[str, str], dict[int, float]] = {}
+    for (algo, env), seed_map in data_by_group.items():
+        pool = sorted(all_scores_by_env[env])
+        if not pool:
+            continue
+        n_pool = len(pool)
+        for seed, val in seed_map.items():
+            rank_sum = sum(1 for score in pool if score < val)
+            ecdf_normalized.setdefault((algo, env), {})[seed] = rank_sum / n_pool
+
+    ecdf_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
+    for algo in algorithms:
+        for env in environments:
+            seeds = ecdf_normalized.get((algo, env), {})
+            ecdf_means[algo][env] = float(np.mean(list(seeds.values()))) if seeds else float("nan")
+
+    row_keys = []
+    for env in environments:
+        all_seeds_for_env = set()
+        for algo in algorithms:
+            all_seeds_for_env.update(ecdf_normalized.get((algo, env), {}).keys())
+        for seed in sorted(all_seeds_for_env):
+            row_keys.append((env, seed))
+
+    matrix = []
+    has_missing = False
+    for env, seed in row_keys:
+        row = []
+        for algo in algorithms:
+            val = ecdf_normalized.get((algo, env), {}).get(seed)
+            if val is None:
+                has_missing = True
+            row.append(val)
+        matrix.append(row)
+
+    matrix = np.array(matrix, dtype=np.float64)
+    valid_rows = [r for r in matrix if not np.isnan(r).any()]
+    n_complete = len(valid_rows)
+    if n_complete < 3:
+        raise ValueError(f"Insufficient complete bakeoff data: need at least 3 rows, got {n_complete}")
+
+    friedman_matrix = np.array(valid_rows)
+    res = stats.friedmanchisquare(*[friedman_matrix[:, i] for i in range(len(algorithms))])
+    p_val = float(res.pvalue)
+    stat = float(res.statistic)
+    if has_missing:
+        test_name = "Friedman Test (Listwise Deleted for Missing Data)"
+        justification = (
+            "Selected Friedman test with listwise deletion because missing values were present; "
+            "rows containing missing data were excluded from the omnibus check."
+        )
+    else:
+        test_name = "Friedman Test"
+        justification = "Selected Friedman test because data is complete (no missing environment-seed points)."
+
+    posthoc: dict[str, dict[str, float]] = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
+    for i, algo_a in enumerate(algorithms):
+        for j, algo_b in enumerate(algorithms):
+            if i >= j:
+                continue
+            paired_a = []
+            paired_b = []
+            for env, seed in row_keys:
+                va = ecdf_normalized.get((algo_a, env), {}).get(seed)
+                vb = ecdf_normalized.get((algo_b, env), {}).get(seed)
+                if va is not None and vb is not None:
+                    paired_a.append(va)
+                    paired_b.append(vb)
+            if len(paired_a) >= 3:
+                res_w = stats.wilcoxon(paired_a, paired_b)
+                raw_p = float(res_w.pvalue)
+                num_comparisons = (len(algorithms) * (len(algorithms) - 1)) / 2
+                adjusted_p = min(1.0, raw_p * num_comparisons)
+                posthoc[algo_a][algo_b] = adjusted_p
+                posthoc[algo_b][algo_a] = adjusted_p
+
+    ecdf_curves = {}
+    for algo in algorithms:
+        all_vals = []
+        for env in environments:
+            all_vals.extend(ecdf_normalized.get((algo, env), {}).values())
+        if all_vals:
+            sorted_vals = sorted(all_vals)
+            proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
+            ecdf_curves[algo] = (sorted_vals, proportions)
+
+    return _BakeoffStatistics(
+        ecdf_scores=ecdf_means,
+        omnibus_details=StatisticalTestDetails(
+            test_name=test_name,
+            statistic=stat,
+            p_value=p_val,
+            effect_size=None,
+            is_significant=p_val < 0.05,
+            assumptions={"has_missing": has_missing},
+            justification=justification,
+            intermediate_tests={},
+        ),
+        posthoc_matrix=posthoc,
+        ecdf_curves=ecdf_curves,
+    )
+
+
 def compare_bakeoff(
     db_path: Path | str,
     experiment_slug: str,
@@ -719,110 +836,16 @@ def compare_bakeoff(
         metric_name,
     )
 
-    # 1. Apply ECDF normalization per environment
-    # ECDF score = fraction of all scores in pool that are less than raw score
-    ecdf_normalized: dict[tuple[str, str], dict[int, float]] = {}
-    for (algo, env), seed_map in data_by_group.items():
-        pool = sorted(all_scores_by_env[env])
-        if not pool:
-            continue
-        n_pool = len(pool)
-        for seed, val in seed_map.items():
-            rank_sum = sum(1 for score in pool if score < val)
-            ecdf_normalized.setdefault((algo, env), {})[seed] = rank_sum / n_pool
-
-    # Aggregate ECDF means per algorithm per env
-    ecdf_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
-    for algo in algorithms:
-        for env in environments:
-            seeds = ecdf_normalized.get((algo, env), {})
-            if seeds:
-                ecdf_means[algo][env] = float(np.mean(list(seeds.values())))
-            else:
-                ecdf_means[algo][env] = float("nan")
-
-    # 2. Non-Parametric Omnibus Friedman Test
-    # Rows are environment-seed indices and columns are algorithms.
-    # Rows will represent environment-seed combinations.
-    row_keys = []
-    for env in environments:
-        all_seeds_for_env = set()
-        for algo in algorithms:
-            all_seeds_for_env.update(ecdf_normalized.get((algo, env), {}).keys())
-        for seed in sorted(all_seeds_for_env):
-            row_keys.append((env, seed))
-
-    matrix = []
-    has_missing = False
-    for env, seed in row_keys:
-        row = []
-        for algo in algorithms:
-            val = ecdf_normalized.get((algo, env), {}).get(seed)
-            if val is None:
-                has_missing = True
-            row.append(val)
-        matrix.append(row)
-
-    matrix = np.array(matrix, dtype=np.float64)
-
-    valid_rows = [r for r in matrix if not np.isnan(r).any()]
-    n_complete = len(valid_rows)
-    if n_complete < 3:
-        raise ValueError(
-            f"Insufficient complete bakeoff data: need at least 3 rows, got {n_complete}"
-        )
-
-    friedman_matrix = np.array(valid_rows)
-    res = stats.friedmanchisquare(*[friedman_matrix[:, i] for i in range(len(algorithms))])
-    p_val = float(res.pvalue)
-    stat = float(res.statistic)
-    if has_missing:
-        test_name = "Friedman Test (Listwise Deleted for Missing Data)"
-        justification = (
-            "Selected Friedman test with listwise deletion because missing values were present; "
-            "rows containing missing data were excluded from the omnibus check."
-        )
-    else:
-        test_name = "Friedman Test"
-        justification = (
-            "Selected Friedman test because data is complete (no missing environment-seed points)."
-        )
-
-    # 3. Post-hoc pairwise testing with Wilcoxon and Bonferroni corrections
-    posthoc: dict[str, dict[str, float]] = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
-    for i, algo_a in enumerate(algorithms):
-        for j, algo_b in enumerate(algorithms):
-            if i >= j:
-                continue
-            # Get paired observations
-            paired_a = []
-            paired_b = []
-            for env, seed in row_keys:
-                va = ecdf_normalized.get((algo_a, env), {}).get(seed)
-                vb = ecdf_normalized.get((algo_b, env), {}).get(seed)
-                if va is not None and vb is not None:
-                    paired_a.append(va)
-                    paired_b.append(vb)
-            if len(paired_a) >= 3:
-                res_w = stats.wilcoxon(paired_a, paired_b)
-                raw_p = float(res_w.pvalue)
-                # Bonferroni correction
-                num_comparisons = (len(algorithms) * (len(algorithms) - 1)) / 2
-                adjusted_p = min(1.0, raw_p * num_comparisons)
-                posthoc[algo_a][algo_b] = adjusted_p
-                posthoc[algo_b][algo_a] = adjusted_p
-
-    # 4. Plot ECDF Curves
-    # Construct curve values: sorted ECDF values and their cumulative proportions
-    ecdf_curves = {}
-    for algo in algorithms:
-        all_vals = []
-        for env in environments:
-            all_vals.extend(ecdf_normalized.get((algo, env), {}).values())
-        if all_vals:
-            sorted_vals = sorted(all_vals)
-            proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
-            ecdf_curves[algo] = (sorted_vals, proportions)
+    statistics = _compute_bakeoff_statistics(
+        data_by_group,
+        all_scores_by_env,
+        algorithms,
+        environments,
+    )
+    ecdf_means = statistics.ecdf_scores
+    omnibus_details = statistics.omnibus_details
+    posthoc = statistics.posthoc_matrix
+    ecdf_curves = statistics.ecdf_curves
 
     analysis_dir = Path("results/analysis") / experiment_slug
     plot_path = analysis_dir / "ecdf_comparison.png"
@@ -830,17 +853,6 @@ def compare_bakeoff(
         plot_ecdf(ecdf_curves, plot_path)
     else:
         plot_path = None
-
-    omnibus_details = StatisticalTestDetails(
-        test_name=test_name,
-        statistic=stat,
-        p_value=p_val,
-        effect_size=None,
-        is_significant=p_val < 0.05,
-        assumptions={"has_missing": has_missing},
-        justification=justification,
-        intermediate_tests={},
-    )
 
     report = BenchmarkBakeoffReport(
         algorithms=algorithms,
