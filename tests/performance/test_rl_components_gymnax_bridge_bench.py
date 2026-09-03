@@ -106,11 +106,11 @@ def _bridge_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.
 
 def _bridge_log_wrapper_rollout(reset_key: chex.PRNGKey, step_keys: jax.Array, actions: jax.Array) -> tuple[Any, jax.Array]:
     env = gymnax.wrappers.LogWrapper(GymnaxCompatibilityBridge[jax.Array, jax.Array, jax.Array, None](DummyCanonicalEnv()))
-    _, state = env.reset(reset_key, None)  # type: ignore[not-iterable, invalid-argument-type, too-many-positional-arguments]  # gymnax JitWrapped
+    _, state = env.reset(reset_key, None)  # gymnax JitWrapped
 
     def _step(carry_state: object, xs: tuple[jax.Array, jax.Array]) -> tuple[object, jax.Array]:
         step_key, action = xs
-        observation, next_state, reward, done, info = env.step(step_key, carry_state, action, None)  # type: ignore[not-iterable, invalid-argument-type, too-many-positional-arguments]  # gymnax JitWrapped
+        observation, next_state, reward, done, info = env.step(step_key, carry_state, action, None)  # gymnax JitWrapped
         metric = (
             reward
             + observation[0]

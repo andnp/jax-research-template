@@ -6,8 +6,8 @@ Target duration: << 1 ms per test (no JIT).
 
 from __future__ import annotations
 
-import jax  # type: ignore[import-untyped]
-import jax.numpy as jnp  # type: ignore[import-untyped]
+import jax
+import jax.numpy as jnp
 from jax_replay.sum_tree import _tree_find, tree_init, tree_sample, tree_sample_batch, tree_update
 
 

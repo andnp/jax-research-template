@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-import jax  # type: ignore[import-untyped]
-import jax.numpy as jnp  # type: ignore[import-untyped]
+import jax
+import jax.numpy as jnp
 from jax_replay.per import init_per_buffer, per_add, per_sample, per_update_priorities
 
 

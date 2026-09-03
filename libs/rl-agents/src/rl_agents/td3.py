@@ -50,7 +50,7 @@ class Critic(nn.Module):
         *,
         rngs: object | None = None,
     ) -> jax.Array:
-        return super().apply(variables, x, a, rngs=rngs)  # type: ignore[return-value]
+        return super().apply(variables, x, a, rngs=rngs)
 
 
 class Actor(TypedApply[jax.Array], nn.Module):
