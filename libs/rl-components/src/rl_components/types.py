@@ -25,5 +25,4 @@ class PPOConfig:
     # Environment
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
-    DEBUG: bool = False
 
