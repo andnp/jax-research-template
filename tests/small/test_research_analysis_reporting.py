@@ -127,6 +127,43 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.distribution_plot_path.exists()
 
 
+def test_compare_pairwise_honors_confidence_level(temp_experiment_setup: dict[str, Any]) -> None:
+    """Use the requested confidence level for significance and interval width."""
+    setup = temp_experiment_setup
+    differences = [-2.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
+
+    with DatabaseManager(setup["db_path"]) as db:
+        for seed, difference in enumerate(differences):
+            hyper_id = db.add_hyperparam_config({"condition_name": "a", "seed": seed})
+            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+            execution_id = db.add_execution()
+            db.update_execution_status(execution_id, "COMPLETED")
+            db.link_execution_run(execution_id, run_id)
+            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]), metadata={"metrics_db_path": str(setup["metrics_db_path"])})
+            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [difference], execution_id=execution_id)
+
+            hyper_id = db.add_hyperparam_config({"condition_name": "b", "seed": seed})
+            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+            execution_id = db.add_execution()
+            db.update_execution_status(execution_id, "COMPLETED")
+            db.link_execution_run(execution_id, run_id)
+            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]), metadata={"metrics_db_path": str(setup["metrics_db_path"])})
+            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [0.0], execution_id=execution_id)
+
+    report_90 = compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.90, verbose=False)
+    report_95 = compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.95, verbose=False)
+    assert report_90.test_details.is_significant is True
+    assert report_95.test_details.is_significant is False
+    assert report_90.difference_ci[0] >= report_95.difference_ci[0]
+    assert report_90.difference_ci[1] <= report_95.difference_ci[1]
+
+
+def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
+    """Reject confidence levels outside the open unit interval."""
+    with pytest.raises(ValueError, match="confidence_level must be in"):
+        compare_pairwise("unused.sqlite", "test-exp", "a", "b", "metric", confidence_level=1.0, verbose=False)
+
+
 def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
     setup = temp_experiment_setup
     db_path = setup["db_path"]

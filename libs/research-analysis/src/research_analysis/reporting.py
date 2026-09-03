@@ -120,6 +120,9 @@ def compare_pairwise(
     verbose: bool = True,
 ) -> ABComparisonReport:
     """Compare exactly two experimental conditions, selecting the correct test automatically."""
+    if not 0 < confidence_level < 1:
+        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+    alpha = 1.0 - confidence_level
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -245,7 +248,7 @@ def compare_pairwise(
             )
             effect_size = mw.rank_biserial_correlation
 
-    is_significant = p_value < 0.05
+    is_significant = p_value < alpha
 
     # 3. Bootstrapped Confidence Interval of the Difference of Means
     rng = np.random.default_rng(12345)
@@ -262,7 +265,7 @@ def compare_pairwise(
             idx_b = rng.choice(n_b, size=n_b, replace=True)
             boot_diffs.append(np.mean(vals_a[idx_a]) - np.mean(vals_b[idx_b]))
 
-    ci_low, ci_high = np.percentile(boot_diffs, [2.5, 97.5])
+    ci_low, ci_high = np.percentile(boot_diffs, [100 * alpha / 2, 100 * (1 - alpha / 2)])
 
     test_details = StatisticalTestDetails(
         test_name=test_name,
