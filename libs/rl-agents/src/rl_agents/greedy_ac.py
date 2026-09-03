@@ -16,22 +16,51 @@ References:
   Regularized Corrections", ICML 2020 (arXiv:2007.00611). QRC is the
   nonlinear control variant of TDRC; the auxiliary h-network and its L2
   term come from there.
+
+:class:`GACAgent` is the
+:class:`~rl_components.agent_protocol.AgentProtocol` port; ``make_train``
+below it is the private training loop it replaces. This module has no
+out-of-repository caller, so ``make_train``, :class:`RunnerState`,
+:class:`GACTrainOutput` and ``GACConfig.GAMMA`` can go as soon as the
+in-repository callers do. **Removal condition:** the ``make_train`` drivers in
+``tests/`` are the last of them.
+
+``GAMMA`` survives only for that legacy path. The discount belongs to
+:func:`rl_components.loop.run`, which stores a per-transition coefficient in
+replay, and that coefficient is read straight through as each transition's
+``gamma`` in :func:`gac_critic_loss`; :class:`GACAgent` never reads
+``config.GAMMA``. Like ``qrc``, GAC has no eligibility trace to reset at an
+episode boundary: the ``h``-head is an ordinary ``nn.Dense`` inside the
+critic's ``TrainState.params`` and is persistent by design.
+
+Both batch losses take their network as an argument rather than constructing
+one. They used to build ``GACCritic()`` and ``GACActor(action_dim)`` with
+default widths, which silently disagreed with the trained parameters for any
+``HIDDEN_SIZE`` other than 256; the port needs the real network and so passes
+it in.
 """
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Callable, NamedTuple, TypedDict, cast
 
+import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.env_protocol import EnvSpec
 from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.networks import TanhNormalDiag
 from rl_components.structs import chex_struct
+from rl_components.timestep import Timestep
+
+from rl_agents.continuous_actions import continuous_action_dim, uniform_exploration_action
 
 # ═══════════════════════════════════════════════════════════════
 # Config
@@ -73,7 +102,7 @@ class GACConfig:
     TOTAL_TIMESTEPS: int = 200_000
     LEARNING_STARTS: int = 1_000
     TRAIN_FREQUENCY: int = 1
-    GAMMA: float = 0.99
+    GAMMA: float = 0.99  # Legacy make_train only; see the module docstring.
     TAU: float = 0.005
     NUM_SAMPLES: int = 32
     ACTOR_PERCENTILE: float = 0.1
@@ -267,6 +296,8 @@ def _qrc_loss(
     critic_params: VariableDict,
     transition: QRCTransition,
     next_action: jax.Array,
+    *,
+    critic: GACCritic,
 ) -> tuple[jax.Array, QRCMetrics]:
     r"""QRC loss for a single transition (TDC-style).
 
@@ -289,8 +320,8 @@ def _qrc_loss(
     action = action.reshape((-1,))
     next_action = next_action.reshape((-1,))
 
-    q, h = _critic_apply(GACCritic(), critic_params, obs, action)
-    q_prime, _ = _critic_apply(GACCritic(), critic_params, next_obs, next_action)
+    q, h = _critic_apply(critic, critic_params, obs, action)
+    q_prime, _ = _critic_apply(critic, critic_params, next_obs, next_action)
 
     target = reward + gamma * q_prime
 
@@ -315,7 +346,7 @@ def _qrc_loss(
     return loss, metrics
 
 
-def _batch_qrc_loss(
+def gac_critic_loss(
     critic_params: VariableDict,
     obs: jax.Array,
     actions: jax.Array,
@@ -324,15 +355,21 @@ def _batch_qrc_loss(
     discounts: jax.Array,
     next_actions: jax.Array,
     reg_weight: float,
+    *,
+    critic: GACCritic,
 ) -> tuple[jax.Array, QRCMetrics]:
     """Vectorised QRC loss over a batch of transitions.
 
     L2 regularization is applied **only** to the h-head parameters
     (QRC paper §3.2).
+
+    ``discounts`` is the per-transition bootstrap coefficient the loop
+    computed, passed straight through as each transition's ``gamma``, so a
+    terminal row's ``0.0`` removes the bootstrap and the correction with it.
     """
     transitions = jax.vmap(QRCTransition)(obs, actions, rewards, next_obs, discounts)
 
-    losses, metrics = jax.vmap(_qrc_loss, in_axes=(None, 0, 0))(
+    losses, metrics = jax.vmap(partial(_qrc_loss, critic=critic), in_axes=(None, 0, 0))(
         critic_params, transitions, next_actions,
     )
 
@@ -449,28 +486,316 @@ def _actor_loss(
     top_actions: jax.Array,
     entropy_weight: float,
     sigma_min: float,
+    *,
+    actor: GACActor,
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
     """Negative log-likelihood on top actions + entropy bonus."""
-    act = GACActor(action_dim=top_actions.shape[-1])
-    log_prob = actor_mean_log_prob(act, actor_params, state_features, top_actions, sigma_min)
+    log_prob = actor_mean_log_prob(actor, actor_params, state_features, top_actions, sigma_min)
     nll = -jnp.mean(log_prob)
-    ent = jnp.sum(actor_entropy(act, actor_params, state_features, sigma_min))
+    ent = jnp.sum(actor_entropy(actor, actor_params, state_features, sigma_min))
     loss = nll - entropy_weight * ent
     return loss, {"nll": nll, "entropy": ent}
 
 
-def _batch_actor_loss(
+def gac_actor_loss(
     actor_params: VariableDict,
     state_features: jax.Array,
     top_actions_batch: jax.Array,  # (batch, k, action_dim)
     entropy_weight: float,
     sigma_min: float,
+    *,
+    actor: GACActor,
 ) -> jax.Array:
     """Mean actor loss across a batch of states."""
     losses, _ = jax.vmap(
-        lambda sf, ta: _actor_loss(actor_params, sf, ta, entropy_weight, sigma_min),
+        lambda sf, ta: _actor_loss(actor_params, sf, ta, entropy_weight, sigma_min, actor=actor),
     )(state_features, top_actions_batch)
     return jnp.mean(losses)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Agent
+# ═══════════════════════════════════════════════════════════════
+
+
+def _networks(action_dim: int, hidden_size: int) -> tuple[GACActor, GACCritic]:
+    """Build the two Flax modules from the two static facts that shape them.
+
+    ``init`` reads the action dimension from the environment spec and ``step`` reads it
+    back off the shape of the action it carries; the width is a configuration constant.
+    Neither the width nor the dimension is a traced value, so neither has to be stored.
+    """
+    return GACActor(action_dim, hidden_size=hidden_size), GACCritic(hidden_size=hidden_size)
+
+
+@chex_struct(frozen=True)
+class GACAgentState:
+    """Everything :class:`GACAgent` carries between loop iterations.
+
+    There is no target-network field: GAC bootstraps from the online critic, whose
+    ``h``-head supplies the QRC correction instead. ``GACConfig.TAU`` describes a Polyak
+    coefficient neither this agent nor ``make_train`` reads.
+
+    Attributes:
+        actor_state: Percentile-actor parameters, optimizer state and the static
+            ``apply_fn``.
+        critic_state: QRC critic parameters, optimizer state and its ``apply_fn``.
+        buffer_state: Replay contents, and the only record of the buffer's geometry.
+        last_obs: Observation the pending transition started from. Zero-primed at
+            ``init``; never read before the first insertion, which is guarded on
+            ``step_index > 0``.
+        last_action: Action that opened the pending transition, zero-primed likewise. Its
+            shape is also where ``step`` recovers the action dimension.
+        key: PRNG key for sampling minibatches, proposals, actions and exploration.
+    """
+
+    actor_state: TrainState
+    critic_state: TrainState
+    buffer_state: ReplayBufferState
+    last_obs: jax.Array
+    last_action: jax.Array
+    key: chex.PRNGKey
+
+
+class GACAgent:
+    """Greedy Actor-Critic: a percentile actor trained on the critic's own top proposals.
+
+    The policy is tanh-squashed, so the environment's action space must already be
+    normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
+    """
+
+    def __init__(self, config: GACConfig) -> None:
+        """Bind the configuration. The object is static under ``jit``.
+
+        Args:
+            config: Hyperparameters. Read at trace time only, so every field may be a
+                Python scalar. ``GAMMA`` is not read at all.
+        """
+        self.config = config
+
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> GACAgentState:
+        """Build networks, optimizers, replay buffer and the zero-primed pending slots.
+
+        Args:
+            key: PRNG key for parameter initialization.
+            spec: The environment description, and the only place the observation shape
+                and action dimension come from.
+
+        Returns:
+            The initial agent state.
+
+        Raises:
+            ValueError: If ``spec`` does not describe a one-dimensional continuous action.
+        """
+        action_dim = continuous_action_dim(spec)
+        observation_shape = tuple(spec.observation_shape)
+        observation_dtype = jnp.dtype(spec.observation_dtype)
+        action_dtype = jnp.dtype(spec.action_dtype)
+        actor, critic = _networks(action_dim, self.config.HIDDEN_SIZE)
+
+        actor_key, critic_key, carry_key = jax.random.split(key, 3)
+        zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
+        zero_action = jnp.zeros((action_dim,), dtype=action_dtype)
+        buffer = ReplayBuffer(
+            capacity=self.config.BUFFER_SIZE,
+            obs_shape=observation_shape,
+            action_shape=(action_dim,),
+            action_dtype=action_dtype,
+            obs_dtype=observation_dtype,
+        )
+
+        return GACAgentState(
+            actor_state=TrainState.create(
+                apply_fn=actor.apply,
+                params=actor.init(actor_key, zero_obs),
+                tx=optax.chain(
+                    optax.clip_by_global_norm(1.0),
+                    optax.adamw(learning_rate=self.config.ACTOR_LR, weight_decay=0.1),
+                ),
+            ),
+            critic_state=TrainState.create(
+                apply_fn=critic.apply,
+                params=critic.init(critic_key, zero_obs, zero_action),
+                tx=optax.chain(
+                    optax.clip_by_global_norm(1.0),
+                    optax.adamw(learning_rate=self.config.LR, weight_decay=0.1),
+                ),
+            ),
+            buffer_state=buffer.init(),
+            last_obs=zero_obs,
+            last_action=zero_action,
+            key=carry_key,
+        )
+
+    def step(
+        self,
+        state: GACAgentState,
+        timestep: Timestep[jax.Array],
+        step_index: jax.Array,
+    ) -> AgentStep[GACAgentState, jax.Array]:
+        """Close the pending transition, learn from replay, then act.
+
+        The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
+        ``timestep.observation``: at an episode boundary the latter is the post-reset
+        observation, and bootstrapping from it is the defect this port removes. There is
+        no target-network synchronisation step, and nothing to reset at a boundary.
+
+        Args:
+            state: The agent state from the previous iteration.
+            timestep: This iteration's view of the environment.
+            step_index: Transitions closed so far. Iteration ``0`` closes none, so both
+                insertion and learning are guarded above it.
+
+        Returns:
+            The next state, the action to apply, and a fixed four-key metric schema. Every
+            value is a zero placeholder on the iterations that do not learn, so the pytree
+            returned to ``lax.scan`` is identical on every iteration. The gradient norms
+            are worth reporting here because both optimizers clip at a global norm of 1.
+        """
+        config = self.config
+        action_dim = state.last_action.shape[0]
+        actor, _ = _networks(action_dim, config.HIDDEN_SIZE)
+        buffer = ReplayBuffer.from_state(state.buffer_state)
+        carry_key, learn_key, action_key = jax.random.split(state.key, 3)
+
+        buffer_state = jax.lax.cond(
+            step_index > 0,
+            lambda: buffer.add(
+                state.buffer_state,
+                state.last_obs[None, ...],
+                state.last_action[None, ...],
+                timestep.reward[None, ...],
+                timestep.bootstrap_observation[None, ...],
+                timestep.discount[None, ...],
+            ),
+            lambda: state.buffer_state,
+        )
+
+        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        actor_state, critic_state, metrics = jax.lax.cond(
+            can_train,
+            lambda: self._learn(state, buffer_state, buffer, learn_key),
+            lambda: (
+                state.actor_state,
+                state.critic_state,
+                {
+                    "critic_loss": jnp.zeros((), jnp.float32),
+                    "actor_loss": jnp.zeros((), jnp.float32),
+                    "critic_grad_norm": jnp.zeros((), jnp.float32),
+                    "actor_grad_norm": jnp.zeros((), jnp.float32),
+                },
+            ),
+        )
+
+        action = jax.lax.cond(
+            step_index < config.LEARNING_STARTS,
+            lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
+            lambda: actor_sample(
+                actor,
+                actor_state.params,
+                timestep.observation,
+                action_key,
+                config.INFERENCE_SIGMA_MIN,
+                n=1,
+            )[0][0].astype(state.last_action.dtype),
+        )
+
+        return AgentStep(
+            state=GACAgentState(
+                actor_state=actor_state,
+                critic_state=critic_state,
+                buffer_state=buffer_state,
+                last_obs=timestep.observation,
+                last_action=action,
+                key=carry_key,
+            ),
+            action=action,
+            metrics=metrics,
+        )
+
+    def _learn(
+        self,
+        state: GACAgentState,
+        buffer_state: ReplayBufferState,
+        buffer: ReplayBuffer,
+        key: chex.PRNGKey,
+    ) -> tuple[TrainState, TrainState, dict[str, jax.Array]]:
+        """Take one critic and one actor gradient step on a replay minibatch.
+
+        The actor's targets are re-proposed against the critic that has just moved, which
+        is what makes this a policy-improvement step rather than a fit to a stale ranking.
+        """
+        config = self.config
+        action_dim = state.last_action.shape[0]
+        actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
+        sample_key, next_key, proposal_key = jax.random.split(key, 3)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, config.BATCH_SIZE)
+
+        next_actions = _select_best_next_action(
+            state.critic_state.params,
+            state.actor_state.params,
+            next_obs,
+            jax.random.split(next_key, config.BATCH_SIZE),
+            config.NUM_RAND_ACTIONS,
+            action_dim,
+            config.INFERENCE_SIGMA_MIN,
+            critic=critic,
+            actor=actor,
+        )
+
+        def _critic_loss_fn(params: VariableDict) -> jax.Array:
+            loss, _ = gac_critic_loss(
+                params,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                discounts,
+                next_actions,
+                config.H_REGULARIZATION,
+                critic=critic,
+            )
+            return loss
+
+        critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(state.critic_state.params)
+        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+
+        top_actions_batch = _propose_and_rank_topk(
+            critic_state.params,
+            state.actor_state.params,
+            obs,
+            jax.random.split(proposal_key, config.BATCH_SIZE),
+            config.NUM_SAMPLES,
+            config.UNIFORM_WEIGHT,
+            config.ACTOR_PERCENTILE,
+            action_dim,
+            config.TRAINING_SIGMA_MIN,
+            critic=critic,
+            actor=actor,
+        )
+
+        actor_loss, actor_grads = jax.value_and_grad(
+            lambda params: gac_actor_loss(
+                params,
+                obs,
+                top_actions_batch,
+                config.ENTROPY_WEIGHT,
+                config.TRAINING_SIGMA_MIN,
+                actor=actor,
+            )
+        )(state.actor_state.params)
+        actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+
+        return (
+            actor_state,
+            critic_state,
+            {
+                "critic_loss": critic_loss.astype(jnp.float32),
+                "actor_loss": actor_loss.astype(jnp.float32),
+                "critic_grad_norm": _tree_norm(critic_grads).astype(jnp.float32),
+                "actor_grad_norm": _tree_norm(actor_grads).astype(jnp.float32),
+            },
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -495,7 +820,7 @@ def make_train(
         # ── Initialise networks ──────────────────────────────────
         rng, critic_key, actor_key = jax.random.split(rng, 3)
 
-        critic = GACCritic(hidden_size=config.HIDDEN_SIZE)
+        actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
         init_obs = jnp.zeros(obs_shape)
         init_action = jnp.zeros((action_dim,))
         critic_params = critic.init(critic_key, init_obs, init_action)
@@ -508,7 +833,6 @@ def make_train(
             ),
         )
 
-        actor = GACActor(action_dim, hidden_size=config.HIDDEN_SIZE)
         actor_params = actor.init(actor_key, init_obs)
         actor_state = TrainState.create(
             apply_fn=actor.apply,
@@ -589,9 +913,9 @@ def make_train(
                 )
 
                 def _critic_loss_fn(params: VariableDict) -> jax.Array:
-                    loss, _ = _batch_qrc_loss(
+                    loss, _ = gac_critic_loss(
                         params, obs, actions, rewards, next_obs, discounts,
-                        next_actions, config.H_REGULARIZATION,
+                        next_actions, config.H_REGULARIZATION, critic=critic,
                     )
                     return loss
 
@@ -609,9 +933,9 @@ def make_train(
                 )
 
                 def _actor_loss_fn(params: VariableDict) -> jax.Array:
-                    return _batch_actor_loss(
+                    return gac_actor_loss(
                         params, obs, top_actions_batch,
-                        config.ENTROPY_WEIGHT, config.TRAINING_SIGMA_MIN,
+                        config.ENTROPY_WEIGHT, config.TRAINING_SIGMA_MIN, actor=actor,
                     )
 
                 actor_loss, actor_grads = jax.value_and_grad(_actor_loss_fn)(actor_state.params)

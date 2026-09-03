@@ -255,8 +255,8 @@ def test_greedy_ac_critic_loss_ignores_next_transition_on_terminal_rows() -> Non
     next_actions_a, next_actions_b = _next_obs_pair((BATCH_SIZE, ACTION_DIM))
 
     def loss(next_obs: jax.Array, next_actions: jax.Array) -> jax.Array:
-        total, _ = greedy_ac._batch_qrc_loss(
-            critic_params, obs, actions, rewards, next_obs, discounts, next_actions, 1.0
+        total, _ = greedy_ac.gac_critic_loss(
+            critic_params, obs, actions, rewards, next_obs, discounts, next_actions, 1.0, critic=critic
         )
         return total
 
