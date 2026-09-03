@@ -137,6 +137,22 @@ class TestReplayBufferSample:
         obs, actions, rewards, next_obs, discounts = buf.sample(state, key, batch_size=1)
         assert jnp.allclose(obs[0], jnp.array([42.0, 43.0]))
         assert float(rewards[0]) == 99.0
+        assert float(discounts[0]) == 0.0
+
+    def test_sample_returns_nonterminal_discount(self) -> None:
+        buf = ReplayBuffer(capacity=1, obs_shape=(2,), action_shape=())
+        state = buf.init()
+        state = buf.add(
+            state,
+            obs=jnp.array([[42.0, 43.0]]),
+            action=jnp.array([7.0]),
+            reward=jnp.array([99.0]),
+            next_obs=jnp.array([[44.0, 45.0]]),
+            discount=jnp.array([0.5]),
+        )
+        key = jax.random.key(0)
+        _, _, _, _, discounts = buf.sample(state, key, batch_size=1)
+        assert float(discounts[0]) == 0.5
 
 
 class TestReplayBufferStateNamedTuple:
