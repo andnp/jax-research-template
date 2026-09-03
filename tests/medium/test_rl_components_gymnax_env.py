@@ -21,7 +21,7 @@ class _CartPoleState(Protocol):
     time: jax.Array
 
 
-class _CartPoleParams(Protocol):
+class _TimeLimitedParams(Protocol):
     max_steps_in_episode: int
 
 
@@ -33,15 +33,15 @@ class _CartPole(Protocol):
         key: jax.Array,
         state: _CartPoleState,
         action: jax.Array,
-        params: _CartPoleParams,
+        params: _TimeLimitedParams,
     ) -> tuple[jax.Array, _CartPoleState, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
-def _cartpole(limit: int | None = None) -> tuple[_CartPole, _CartPoleParams]:
+def _cartpole(limit: int | None = None) -> tuple[_CartPole, _TimeLimitedParams]:
     raw, params = gymnax.make("CartPole-v1")
     if limit is not None:
         params = params.replace(max_steps_in_episode=limit)
-    return cast(_CartPole, raw), cast(_CartPoleParams, params)
+    return cast(_CartPole, raw), cast(_TimeLimitedParams, params)
 
 
 class TestGymnaxEnvSpec:
@@ -108,6 +108,73 @@ class TestGymnaxEnvBoundaries:
         step = jax.jit(env.step)(key, state, jnp.int32(0), params)
         while not (step.terminated | step.truncated):
             step = jax.jit(env.step)(key, step.state, jnp.int32(0), params)
+
+        assert bool(step.terminated)
+        assert not bool(step.truncated)
+        assert int(step.state.time) < params.max_steps_in_episode
+
+
+_FULL_THROTTLE = jnp.array([1.0], dtype=jnp.float32)
+
+
+def _continuous_mountain_car(*, limit: int, goal_position: float) -> tuple[object, _TimeLimitedParams]:
+    raw, params = gymnax.make("MountainCarContinuous-v0")
+    params = params.replace(max_steps_in_episode=limit, goal_position=goal_position)
+    return raw, cast(_TimeLimitedParams, params)
+
+
+class TestGymnaxEnvContinuousSpec:
+    def test_spec_describes_the_continuous_action_space(self) -> None:
+        raw, params = _continuous_mountain_car(limit=500, goal_position=0.45)
+        env = make_gymnax_env(raw)
+
+        spec = env.spec(params)
+
+        assert spec.id == "gymnax:MountainCarContinuous-v0"
+        assert spec.num_actions is None
+        assert spec.action_shape == (1,)
+        assert spec.action_dtype == jnp.dtype(jnp.float32)
+        assert spec.observation_shape == (2,)
+        assert spec.observation_dtype == jnp.dtype(jnp.float32)
+
+    def test_spec_carries_the_action_bounds_shaped_like_an_action(self) -> None:
+        """``EnvSpec`` rejects a bound whose shape does not match ``action_shape``."""
+        raw, params = _continuous_mountain_car(limit=500, goal_position=0.45)
+        env = make_gymnax_env(raw)
+
+        spec = env.spec(params)
+
+        assert spec.action_low is not None
+        assert spec.action_high is not None
+        assert jnp.array_equal(spec.action_low, jnp.array([-1.0], dtype=jnp.float32))
+        assert jnp.array_equal(spec.action_high, jnp.array([1.0], dtype=jnp.float32))
+
+
+class TestGymnaxEnvContinuousBoundaries:
+    def test_the_time_limit_is_a_truncation_not_a_termination(self) -> None:
+        raw, params = _continuous_mountain_car(limit=3, goal_position=0.45)
+        env = make_gymnax_env(raw)
+        key = jax.random.key(0)
+
+        state = env.reset(key, params).state
+        flags = []
+        for _ in range(3):
+            step = jax.jit(env.step)(key, state, _FULL_THROTTLE, params)
+            flags.append((bool(step.terminated), bool(step.truncated)))
+            state = step.state
+
+        assert flags == [(False, False), (False, False), (False, True)]
+
+    def test_reaching_the_goal_is_not_reported_as_a_truncation(self) -> None:
+        """Driving the car past ``goal_position`` must kill the bootstrap."""
+        raw, params = _continuous_mountain_car(limit=500, goal_position=-0.4)
+        env = make_gymnax_env(raw)
+        key = jax.random.key(0)
+
+        state = env.reset(key, params).state
+        step = jax.jit(env.step)(key, state, _FULL_THROTTLE, params)
+        while not (step.terminated | step.truncated):
+            step = jax.jit(env.step)(key, step.state, _FULL_THROTTLE, params)
 
         assert bool(step.terminated)
         assert not bool(step.truncated)
