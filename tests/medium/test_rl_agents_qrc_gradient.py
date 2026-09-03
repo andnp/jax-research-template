@@ -8,14 +8,14 @@ from flax.typing import VariableDict
 from rl_agents.qrc import QRCNetwork, qrc_loss, qrc_loss_batch
 
 
-def _batch(key: jax.Array, obs_dim: int, action_dim: int, batch_size: int) -> tuple[jax.Array, ...]:
+def _batch(key: jax.Array, obs_dim: int, action_dim: int, batch_size: int, gamma: float = 0.99) -> tuple[jax.Array, ...]:
     keys = jax.random.split(key, 4)
     obs = jax.random.normal(keys[0], (batch_size, obs_dim))
     actions = jax.random.randint(keys[1], (batch_size,), 0, action_dim)
     rewards = jax.random.normal(keys[2], (batch_size,))
     next_obs = jax.random.normal(keys[3], (batch_size, obs_dim))
-    dones = jnp.zeros((batch_size,))
-    return obs, actions, rewards, next_obs, dones
+    discounts = jnp.full((batch_size,), gamma)
+    return obs, actions, rewards, next_obs, discounts
 
 
 class TestQRCGradientFlow:
@@ -25,10 +25,10 @@ class TestQRCGradientFlow:
         tx = optax.adam(3e-4)
         train_state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
 
-        obs, actions, rewards, next_obs, dones = _batch(jax.random.key(1), 4, 2, 32)
+        obs, actions, rewards, next_obs, discounts = _batch(jax.random.key(1), 4, 2, 32)
 
         def loss_fn(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, dones, 0.99, 0.1, 1.0)
+            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 1.0)
 
         loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
         new_state = train_state.apply_gradients(grads=grads)
@@ -42,11 +42,11 @@ class TestQRCGradientFlow:
     def test_loss_fn_jit(self) -> None:
         net = QRCNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        obs, actions, rewards, next_obs, dones = _batch(jax.random.key(1), 4, 2, 8)
+        obs, actions, rewards, next_obs, discounts = _batch(jax.random.key(1), 4, 2, 8)
 
         @jax.jit
         def compute_loss(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, dones, 0.99, 0.1, 1.0)
+            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 1.0)
 
         loss = compute_loss(params)
         assert loss.shape == ()
@@ -60,7 +60,7 @@ class TestQRCGradientFlow:
         """
         net = QRCNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        obs, actions, rewards, next_obs, dones = _batch(jax.random.key(1), 4, 2, 16)
+        obs, actions, rewards, next_obs, discounts = _batch(jax.random.key(1), 4, 2, 16)
 
         q_head_kernel = params["params"]["q_head"]["kernel"]
         nonzero_q_head = jax.random.normal(jax.random.key(3), q_head_kernel.shape)
@@ -78,7 +78,7 @@ class TestQRCGradientFlow:
         }
 
         def trunk_loss(params: object) -> jax.Array:
-            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, dones, 0.99, 0.1, 0.0)
+            return qrc_loss_batch(params, net, obs, actions, rewards, next_obs, discounts, 0.1, 0.0)
 
         grad_zero = jax.grad(trunk_loss)(params)
         grad_nonzero = jax.grad(trunk_loss)(params_h_nonzero)
@@ -96,7 +96,7 @@ class TestQRCGradientFlow:
         """
         net = QRCNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        obs, actions, rewards, next_obs, dones = _batch(jax.random.key(1), 4, 2, 16)
+        obs, actions, rewards, next_obs, discounts = _batch(jax.random.key(1), 4, 2, 16)
 
         h_head_kernel = params["params"]["h_head"]["kernel"]
         nonzero_h_head = jax.random.normal(jax.random.key(4), h_head_kernel.shape)
@@ -104,13 +104,12 @@ class TestQRCGradientFlow:
 
         q, h = net.apply(params, obs)
         q_next, _ = net.apply(params, next_obs)
-        gammas = 0.99 * (1.0 - dones)
 
         def h_loss_only(params: object) -> jax.Array:
             q, h = net.apply(params, obs)
             q_next, _ = net.apply(params, next_obs)
             _, h_loss, _ = jax.vmap(qrc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
-                q, h, actions, rewards, gammas, q_next, 0.1
+                q, h, actions, rewards, discounts, q_next, 0.1
             )
             return jnp.mean(h_loss)
 
@@ -128,13 +127,13 @@ class TestQRCGradientFlow:
         net = QRCNetwork(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         obs, actions, rewards, _, _ = _batch(jax.random.key(1), 4, 2, 8)
-        dones = jnp.ones((8,))
+        discounts = jnp.zeros((8,))
 
         next_obs_a = jax.random.normal(jax.random.key(2), (8, 4))
         next_obs_b = jax.random.normal(jax.random.key(3), (8, 4)) * 100.0
 
-        loss_a = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_a, dones, 0.99, 0.1, 1.0)
-        loss_b = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_b, dones, 0.99, 0.1, 1.0)
+        loss_a = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_a, discounts, 0.1, 1.0)
+        loss_b = qrc_loss_batch(params, net, obs, actions, rewards, next_obs_b, discounts, 0.1, 1.0)
 
         assert jnp.allclose(loss_a, loss_b)
 
@@ -164,10 +163,10 @@ class TestQRCGradientFlow:
         action = jnp.array(0)
 
         # Self-loop: next_obs == obs, so v_next depends on the same parameters as q.
-        batched = (obs[None, :], action[None], reward[None], obs[None, :], jnp.zeros((1,)))
+        batched = (obs[None, :], action[None], reward[None], obs[None, :], jnp.full((1,), gamma))
 
         def total_loss(p: VariableDict) -> jax.Array:
-            return qrc_loss_batch(p, net, *batched, gamma, 0.1, 0.0)
+            return qrc_loss_batch(p, net, *batched, 0.1, 0.0)
 
         def q_taken(p: VariableDict) -> jax.Array:
             q, _ = net.apply(p, obs)

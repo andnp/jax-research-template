@@ -128,8 +128,7 @@ def qrc_loss_batch(
     actions: jax.Array,
     rewards: jax.Array,
     next_obs: jax.Array,
-    dones: jax.Array,
-    gamma: float,
+    discounts: jax.Array,
     epsilon: jax.Array | float,
     beta: float,
 ) -> jax.Array:
@@ -140,10 +139,9 @@ def qrc_loss_batch(
     """
     q, h = network.apply(params, obs)
     q_next, _ = network.apply(params, next_obs)
-    gammas = gamma * (1.0 - dones)
 
     v_loss, h_loss, _ = jax.vmap(qrc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
-        q, h, actions, rewards, gammas, q_next, epsilon
+        q, h, actions, rewards, discounts, q_next, epsilon
     )
 
     h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
@@ -219,9 +217,10 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
             def _do_train(train_state: TrainState, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
                 obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+                discounts = config.GAMMA * (1.0 - dones)
 
                 def _loss_fn(params: VariableDict) -> jax.Array:
-                    return qrc_loss_batch(params, network, obs, actions, rewards, next_obs, dones, config.GAMMA, epsilon, config.BETA)
+                    return qrc_loss_batch(params, network, obs, actions, rewards, next_obs, discounts, epsilon, config.BETA)
 
                 loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
                 train_state = train_state.apply_gradients(grads=grads)
