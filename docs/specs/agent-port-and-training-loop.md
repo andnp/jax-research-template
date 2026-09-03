@@ -688,29 +688,49 @@ other. The rest cannot land until the loop exists and are scheduled in §9 accor
   `manipulation/franka_emika_panda/pick_cartesian.py:370`); the adapter cannot distinguish
   those, and they are the §4.4 `truncation_policy` case rather than an adapter bug.
 
-Three further defects are **not** fixable before the loop exists, and are scheduled in §9
-step 3 rather than here:
+Three further defects depend on the loop existing, and they do **not** all move together.
+The ordering principle is normative: **an adapter's boundary fix lands in the step that
+ports the code consuming it, never earlier**, because the adapter's fused reset is the only
+reset its unmigrated consumers have.
 
 - **`brax.py:38`** — `BraxConfig.auto_reset` defaults `True`, so Brax's `AutoResetWrapper`
   replaces the returned observation with `info['first_obs']` on exactly the step that
   becomes `done`. The true boundary state never reaches the port. Fixing the
   `terminated`/`truncated` mapping makes truncation bootstrapping *expressible*; this makes
   it *correct*. Until both land, a truncated transition with `d = gamma` would bootstrap
-  from a post-reset observation — the §4.3 failure, and strictly worse than today.
+  from a post-reset observation — the §4.3 failure, and strictly worse than today. This one
+  lands with the loop, §9 step 3, because the brax adapter has no legacy training consumer:
+  the only references anywhere in the monorepo are
+  `core/tests/small/test_rl_components_brax_adapter.py`,
+  `core/tests/small/test_rl_components_gymnax_bridge.py:11,166` and
+  `core/tests/medium/test_rl_components_gymnax_bridge_jit.py:11,75,99`, all adapter-level,
+  and nothing passes `auto_reset` explicitly.
 - **`python_env_bridge.py:92-93`** — fused autoreset inside the `io_callback`: on
   `terminated or truncated` it calls `self._env.reset()` and returns the post-reset
-  observation. The adapter must stop resetting and let the loop own boundaries, but it
-  cannot yet: its reset is the *only* reset on the ALE path (`dqn_atari.make_train` calls
-  `env.reset` once before its `lax.scan` and never again, `gymnax_bridge` only collapses
-  flags, and `FrameStackWrapper` never calls inner reset), and its JAX-visible state is a
-  one-byte dummy token, so §6.3's "`env.reset` must be safe to call every step" cannot hold
-  until ALE and `AtariPreprocessing` state are externalised into the pytree.
+  observation. The adapter must stop resetting and let the loop own boundaries, but not
+  before its consumer ports: `dqn_atari.py:194` is the **only** `env.reset` call on the ALE
+  path and it fires once before `lax.scan` and never again (`gymnax_bridge` only collapses
+  flags, and `FrameStackWrapper` never calls inner reset). Removing the fused reset while
+  `dqn_atari` still owns its private loop would leave the ALE path with zero resets and
+  freeze training on the first terminal observation. This fix therefore lands in §9 step 7,
+  with the `dqn_atari` port.
 - **`frame_stack.py`** — `step` performs a second, independent fused reset of the frame
-  buffer. It must move in the same commit as the `python_env_bridge` fix, since either
-  alone leaves the ALE path inconsistent.
+  buffer. It lands in §9 step 7 as well, and must land together with the
+  `python_env_bridge` fix, since either alone leaves the ALE frame buffer and the emulator
+  disagreeing about where the boundary was.
 
 - `gymnax_bridge.py:79` collapses to `done`, but it is the legacy compatibility layer and
   is deleted in step 10 of §9 rather than fixed.
+
+The §6.3 `cond` decision does not retire the ALE state externalisation. It removes it as a
+prerequisite for the *unbatched* path only: with the boundary reset guarded by `cond`,
+`python_env_bridge` needs merely to stop resetting inside `step`, and its JAX-visible
+one-byte dummy token is then sufficient. Externalising ALE and `AtariPreprocessing` state
+into the returned pytree remains a hard requirement for any `jax.vmap(run)` over seeds on
+Atari, because `io_callback` does not vectorise: `ordered=True` raises outright under
+`vmap`, and even unordered the `cond` degrades to a `select` and fires the Python-side reset
+for every seed on every step. Until that externalisation lands, `atari_ale` is an
+unbatched-only adapter.
 
 ## 9. Migration
 
@@ -724,18 +744,22 @@ behaviour are scaffolding inside that commit, not surviving parallel paths.
 2. Migrate `ReplayBufferState.dones` to `discount` across eighteen files in three
    repositories (§8.1), as consumer-side preparation followed by one storage flip per
    repository. Independent of the port; unblocks everything after.
-3. `Timestep`, `AgentProtocol`, `loop.run`, and `EnvSpec.truncation_policy`. No agent
-   callers; tests use a two-state toy environment and a constant-action agent, and pin
-   continuation / termination / truncation against hand-computed targets. The three
-   loop-dependent adapter defects of §8.2 — `brax` `auto_reset`, `python_env_bridge`'s
-   fused reset, and `frame_stack`'s — land here, because only now is there a loop to own
-   the boundary.
+3. `Timestep`, `AgentProtocol`, `loop.run`, `EnvSpec.truncation_policy`, and the `brax`
+   `auto_reset` fix of §8.2. No agent callers; tests use a two-state toy environment and a
+   constant-action agent, and pin continuation / termination / truncation against
+   hand-computed targets. `brax` `auto_reset` lands here because there is now a loop to own
+   the boundary and the adapter has no legacy consumer to strand. `python_env_bridge`'s
+   fused reset and `frame_stack`'s do **not** land here: per the ordering principle of
+   §8.2 they move to step 7 with the `dqn_atari` port, and must land together with each
+   other.
 4. Port `DQN` to `DQNAgent`; delete `dqn.make_train`; update callers and tests.
 5. `double_dqn`, `dueling_dqn` — near-identical to DQN, should be close to free.
 6. `sac`, `td3`, `qrc`, `greedy_ac`. `sac` and `td3` must migrate together with
    `projects/process-control-baselines` (`rl_comparison.py:156-158`,
    `declarative.py:304,317`), which calls their `make_train` directly.
-7. `dqn_atari` — already half-split via `init_runner_state` / `make_train_step`.
+7. `dqn_atari` — already half-split via `init_runner_state` / `make_train_step`. Removes
+   `python_env_bridge`'s fused reset and `frame_stack`'s in the same commit as the port,
+   since until this step they are the ALE path's only reset (§8.2).
 8. `ppo` last: per-step rollout accumulation, the completion-indexed slot layout of §4.5
    with `bootstrap_value` stored forward, and the GAE change.
 9. `rainbow`: the §4.5 n-step change — cumulative `D_t`, a `jax.Array` discount in
