@@ -118,7 +118,7 @@ class TestExperimentBuilder:
 
     def test_add_metric(self) -> None:
         exp = Experiment("Test")
-        exp.add_metric("reward", type="float", frequency="per_episode")
+        exp.add_metric("reward", kind="float", frequency="per_episode")
         assert len(exp._state.metrics) == 1
         m = exp._state.metrics[0]
         assert m.name == "reward"
@@ -133,15 +133,15 @@ class TestExperimentBuilder:
 
     def test_fluent_chaining(self) -> None:
         exp = Experiment("Test")
-        result = exp.add_parameter("lr", [1e-3]).add_metric("reward", type="float", frequency="per_episode").add_ablation("x", {})
+        result = exp.add_parameter("lr", [1e-3]).add_metric("reward", kind="float", frequency="per_episode").add_ablation("x", {})
         assert result is exp
 
     def test_invalid_metric_type_raises(self) -> None:
         exp = Experiment("Test")
         with pytest.raises(ValueError):
-            exp.add_metric("x", type="invalid", frequency="per_episode")
+            exp.add_metric("x", kind="invalid", frequency="per_episode")
 
     def test_invalid_metric_frequency_raises(self) -> None:
         exp = Experiment("Test")
         with pytest.raises(ValueError):
-            exp.add_metric("x", type="float", frequency="invalid")
+            exp.add_metric("x", kind="float", frequency="invalid")

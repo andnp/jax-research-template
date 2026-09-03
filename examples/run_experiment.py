@@ -44,8 +44,8 @@ def main() -> None:
         exp.add_parameter("env_name", ["CartPole-v1"])
 
     exp.add_parameter("seed", list(range(3)))
-    exp.add_metric("returned_episode_returns", type="float", frequency="per_episode")
-    exp.add_metric("loss", type="float", frequency="per_update")
+    exp.add_metric("returned_episode_returns", kind="float", frequency="per_episode")
+    exp.add_metric("loss", kind="float", frequency="per_update")
 
     # Persist definition to SQLite
     db_path = Path("experiment.sqlite")

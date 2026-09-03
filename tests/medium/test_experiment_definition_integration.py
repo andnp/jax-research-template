@@ -96,8 +96,8 @@ class TestSyncToDb:
 
     def test_metric_specs_stored(self, db_path: Path) -> None:
         exp = Experiment("Test")
-        exp.add_metric("reward", type="float", frequency="per_episode")
-        exp.add_metric("value_loss", type="float", frequency="per_update")
+        exp.add_metric("reward", kind="float", frequency="per_episode")
+        exp.add_metric("value_loss", kind="float", frequency="per_update")
         exp.sync(db_path)
         with sqlite3.connect(db_path) as con:
             rows = {r[0] for r in con.execute("SELECT name FROM MetricSpecs").fetchall()}
