@@ -223,6 +223,9 @@ class Run(NamedTuple):
     next_observations: jax.Array
     """The bootstrap observation stored for every transition the run wrote to the buffer."""
 
+    observations: jax.Array
+    """The acting observation stored for every transition the run wrote to the buffer."""
+
     metrics: dict[str, jax.Array]
 
     terminated: jax.Array
@@ -253,6 +256,7 @@ def _finish(
         params=params,
         discounts=buffer_state.discount[:count],
         next_observations=buffer_state.next_obs[:count],
+        observations=buffer_state.obs[:count],
         metrics=metrics,
         terminated=terminated,
         transitions=transitions,
@@ -503,3 +507,28 @@ def test_terminal_transitions_store_the_true_final_observation(agent: str, learn
     assert not jnp.allclose(TERMINAL_OBSERVATION, _observation(jnp.int32(0))), (
         "the toy environment must make the two observations distinguishable"
     )
+
+
+@pytest.mark.parametrize("agent", LOOP_DRIVER_AGENTS)
+def test_the_transition_after_a_boundary_starts_the_new_episode(agent: str, learning_runs: dict[str, Run]) -> None:
+    """The mirror of the terminal-observation property, and it fails the other way.
+
+    Insertion must read ``timestep.bootstrap_observation`` while the agent's carried
+    ``last_obs`` must become ``timestep.observation``. Getting the first wrong bootstraps a
+    terminal transition from the next episode; getting the second wrong pairs the previous
+    episode's final state with an action chosen from the new episode's first state, which
+    is a transition that never happened in any episode. Both stay plausible under training
+    and only this assertion separates them.
+    """
+    learned = learning_runs[agent]
+    terminal = jnp.flatnonzero(learned.discounts == 0.0)
+    count = int(learned.observations.shape[0])
+    following = [int(index) + 1 for index in terminal if int(index) + 1 < count]
+
+    assert following, f"{agent} closed no transition after a boundary to check"
+    episode_start = _observation(jnp.int32(0))
+    for index in following:
+        assert jnp.allclose(learned.observations[index], episode_start), (
+            f"{agent} acted from the post-reset state but stored the previous episode's "
+            f"final state as the observation of transition {index}"
+        )
