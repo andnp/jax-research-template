@@ -60,6 +60,40 @@ class TD3Config:
     SEED: int = 42
 
 
+@chex_struct(frozen=True)
+class TD3Hypers:
+    """The hyperparameters ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. ``POLICY_DELAY`` is
+    here despite reading like a structural period: it is only a traced modulo
+    comparand feeding ``lax.cond``, so the compiled graph is identical
+    regardless of its value.
+    """
+
+    LR: jax.Array
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    TAU: jax.Array
+    POLICY_DELAY: jax.Array
+    EXPLORATION_NOISE: jax.Array
+    POLICY_NOISE: jax.Array
+    NOISE_CLIP: jax.Array
+
+
+def td3_hypers(config: TD3Config) -> TD3Hypers:
+    return TD3Hypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        TAU=jnp.asarray(config.TAU, jnp.float32),
+        POLICY_DELAY=jnp.asarray(config.POLICY_DELAY, jnp.int32),
+        EXPLORATION_NOISE=jnp.asarray(config.EXPLORATION_NOISE, jnp.float32),
+        POLICY_NOISE=jnp.asarray(config.POLICY_NOISE, jnp.float32),
+        NOISE_CLIP=jnp.asarray(config.NOISE_CLIP, jnp.float32),
+    )
+
+
 class Critic(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
@@ -95,7 +129,7 @@ class Actor(TypedApply[jax.Array], nn.Module):
         return jnp.tanh(x)
 
 
-def _soft_update(tau: float, target: VariableDict, online: VariableDict) -> VariableDict:
+def _soft_update(tau: jax.Array | float, target: VariableDict, online: VariableDict) -> VariableDict:
     return jax.tree_util.tree_map(lambda tp, p: tau * p + (1.0 - tau) * tp, target, online)
 
 
@@ -109,10 +143,11 @@ def td3_critic_loss(
     next_obs: jax.Array,
     discounts: jax.Array,
     rng: jax.Array,
+    policy_noise: jax.Array,
+    noise_clip: jax.Array,
     *,
     actor: Actor,
     critic: Critic,
-    config: TD3Config,
 ) -> jax.Array:
     """Mean squared error against the smoothed, clipped double-Q target, over one minibatch.
 
@@ -132,17 +167,18 @@ def td3_critic_loss(
         next_obs: True observations the stored transitions reached.
         discounts: Bootstrap coefficients, ``0.0`` wherever the transition terminated.
         rng: PRNG key for target policy smoothing.
+        policy_noise: Std of the target-policy smoothing noise.
+        noise_clip: Clip bound applied to that noise.
         actor: The policy module, static because it is a Python object.
         critic: The critic module, likewise.
-        config: Hyperparameters, read for the smoothing noise scale and its clip.
 
     Returns:
         The scalar loss, averaged over ensemble members.
     """
     rng, _rng_noise = jax.random.split(rng)
     next_actions = actor.apply(actor_target_params, next_obs)
-    noise = jax.random.normal(_rng_noise, next_actions.shape) * config.POLICY_NOISE
-    noise = jnp.clip(noise, -config.NOISE_CLIP, config.NOISE_CLIP)
+    noise = jax.random.normal(_rng_noise, next_actions.shape) * policy_noise
+    noise = jnp.clip(noise, -noise_clip, noise_clip)
     next_actions = jnp.clip(next_actions + noise, -1.0, 1.0)
 
     next_q = jax.vmap(
@@ -215,6 +251,7 @@ class TD3AgentState:
         last_action: Action that opened the pending transition, zero-primed likewise. Its
             shape is also where ``step`` recovers the action dimension.
         key: PRNG key for sampling minibatches, smoothing targets and exploring.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     actor_state: TrainState
@@ -225,6 +262,7 @@ class TD3AgentState:
     last_obs: jax.Array
     last_action: jax.Array
     key: chex.PRNGKey
+    hypers: TD3Hypers
 
 
 class TD3Agent:
@@ -279,12 +317,13 @@ class TD3Agent:
             obs_dtype=observation_dtype,
         )
 
+        lr = jnp.asarray(self.config.LR, jnp.float32)
         return TD3AgentState(
             actor_state=TrainState.create(
-                apply_fn=actor.apply, params=actor_params, tx=optax.adam(self.config.LR)
+                apply_fn=actor.apply, params=actor_params, tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr)
             ),
             critic_state=TrainState.create(
-                apply_fn=critic.apply, params=critic_params, tx=optax.adam(self.config.LR)
+                apply_fn=critic.apply, params=critic_params, tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr)
             ),
             actor_target_params=actor_params,
             critic_target_params=critic_params,
@@ -292,6 +331,7 @@ class TD3Agent:
             last_obs=zero_obs,
             last_action=zero_action,
             key=carry_key,
+            hypers=td3_hypers(self.config),
         )
 
     def step(
@@ -319,7 +359,6 @@ class TD3Agent:
             ``actor_loss`` also on the iterations the policy delay skips -- so the pytree
             returned to ``lax.scan`` is identical on every iteration.
         """
-        config = self.config
         action_dim = state.last_action.shape[0]
         actor, _ = _networks(action_dim)
         buffer = ReplayBuffer.from_state(state.buffer_state)
@@ -338,7 +377,8 @@ class TD3Agent:
             lambda: state.buffer_state,
         )
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        hypers = state.hypers
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         (
             actor_state,
             critic_state,
@@ -364,10 +404,10 @@ class TD3Agent:
 
         def _act() -> jax.Array:
             action = actor.apply(actor_state.params, timestep.observation)
-            noise = jax.random.normal(noise_key, action.shape) * config.EXPLORATION_NOISE
+            noise = jax.random.normal(noise_key, action.shape) * hypers.EXPLORATION_NOISE
             return jnp.clip(action + noise, -1.0, 1.0).astype(state.last_action.dtype)
 
-        action = jax.lax.cond(step_index < config.LEARNING_STARTS, _explore, _act)
+        action = jax.lax.cond(step_index < hypers.LEARNING_STARTS, _explore, _act)
 
         return AgentStep(
             state=TD3AgentState(
@@ -379,6 +419,7 @@ class TD3Agent:
                 last_obs=timestep.observation,
                 last_action=action,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={"critic_loss": critic_loss, "actor_loss": actor_loss},
@@ -393,15 +434,20 @@ class TD3Agent:
         step_index: jax.Array,
     ) -> tuple[TrainState, TrainState, VariableDict, VariableDict, jax.Array, jax.Array]:
         """Take a critic gradient step, and an actor step plus both Polyak updates on the delay."""
-        config = self.config
+        hypers = state.hypers
         actor, critic = _networks(state.last_action.shape[0])
         sample_key, critic_key = jax.random.split(key)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
 
-        critic_loss, critic_grads = jax.value_and_grad(
-            partial(td3_critic_loss, actor=actor, critic=critic, config=config)
-        )(
-            state.critic_state.params,
+        def _with_lr(train_state: TrainState) -> TrainState:
+            opt_state = train_state.opt_state
+            return train_state.replace(
+                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR})
+            )
+
+        critic_state = _with_lr(state.critic_state)
+        critic_loss, critic_grads = jax.value_and_grad(partial(td3_critic_loss, actor=actor, critic=critic))(
+            critic_state.params,
             state.actor_target_params,
             state.critic_target_params,
             obs,
@@ -410,18 +456,21 @@ class TD3Agent:
             next_obs,
             discounts,
             critic_key,
+            hypers.POLICY_NOISE,
+            hypers.NOISE_CLIP,
         )
-        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+        critic_state = critic_state.apply_gradients(grads=critic_grads)
 
         def _update_actor() -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
+            actor_state = _with_lr(state.actor_state)
             actor_loss, actor_grads = jax.value_and_grad(partial(td3_actor_loss, actor=actor, critic=critic))(
-                state.actor_state.params, critic_state.params, obs
+                actor_state.params, critic_state.params, obs
             )
-            actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+            actor_state = actor_state.apply_gradients(grads=actor_grads)
             return (
                 actor_state,
-                _soft_update(config.TAU, state.actor_target_params, actor_state.params),
-                _soft_update(config.TAU, state.critic_target_params, critic_state.params),
+                _soft_update(hypers.TAU, state.actor_target_params, actor_state.params),
+                _soft_update(hypers.TAU, state.critic_target_params, critic_state.params),
                 actor_loss.astype(jnp.float32),
             )
 
@@ -434,7 +483,7 @@ class TD3Agent:
             )
 
         actor_state, actor_target_params, critic_target_params, actor_loss = jax.lax.cond(
-            step_index % config.POLICY_DELAY == 0, _update_actor, _skip_actor
+            step_index % hypers.POLICY_DELAY == 0, _update_actor, _skip_actor
         )
 
         return (
@@ -471,7 +520,7 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
     actor, critic = _networks(action_dim)
     buffer = ReplayBuffer(config.BUFFER_SIZE, obs_dim, action_shape, jnp.float32)
 
-    _bound_critic_loss = partial(td3_critic_loss, actor=actor, critic=critic, config=config)
+    _bound_critic_loss = partial(td3_critic_loss, actor=actor, critic=critic)
     _bound_actor_loss = partial(td3_actor_loss, actor=actor, critic=critic)
 
     def train(rng: jax.Array) -> TD3TrainOutput:
@@ -513,6 +562,8 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 next_obs,
                 discounts,
                 _rng_cl,
+                config.POLICY_NOISE,
+                config.NOISE_CLIP,
             )
             critic_state = critic_state.apply_gradients(grads=critic_grads)
 

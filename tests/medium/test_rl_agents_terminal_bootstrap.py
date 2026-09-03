@@ -175,9 +175,10 @@ def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
             next_obs,
             discounts,
             jax.random.key(5),
+            jnp.asarray(config.POLICY_NOISE, jnp.float32),
+            jnp.asarray(config.NOISE_CLIP, jnp.float32),
             actor=actor,
             critic=critic,
-            config=config,
         )
 
     terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)
