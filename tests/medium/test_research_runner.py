@@ -309,3 +309,67 @@ class TestMidSweepCrashRecovery:
             experiment_row = database.get_experiment("CrashSweep")
             assert experiment_row is not None
             assert database.list_unsatisfied_runs(experiment_row.id) == []
+
+
+class TestDynamicArmCoverage:
+    @pytest.fixture()
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "experiments.sqlite"
+
+    @pytest.fixture()
+    def executions_root(self, tmp_path: Path) -> Path:
+        return tmp_path / "results" / "executions"
+
+    def _make_static_plus_dynamic_experiment(self) -> Experiment:
+        algo = Component(name="TestAlgo", path=Path("/nonexistent/algo.py"), type=ComponentType.ALGO)
+        exp = Experiment("ArmSweep", description="test experiment")
+        exp.add_parameter("seed", [0, 1])
+        with exp.for_component(algo):
+            exp.add_parameter("arch", ["mlp"], is_static=True)
+            exp.add_parameter("lr", [1e-3, 3e-4])
+        return exp
+
+    def test_every_swept_arm_reaches_train_fn(self, db_path: Path, executions_root: Path) -> None:
+        """
+        A batch keyed on the static config may still hold several dynamic arms.
+        Every declared (lr, seed) pair must be handed to train_fn, and no run
+        may be recorded as satisfied without having been trained.
+        """
+        exp = self._make_static_plus_dynamic_experiment()
+        seen: set[tuple[float, int]] = set()
+        stacked_lrs: set[float] = set()
+        axis_keys: list[list[str]] = []
+
+        def recording_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+            assert ctx.static_config["arch"] == "mlp"
+            axes = ctx.axes()
+            axis_keys.append(sorted(axes))
+            for stacked in axes.get("lr", []):
+                assert isinstance(stacked, float)
+                stacked_lrs.add(stacked)
+            for point in ctx.points:
+                lr = point.hyperparameters["lr"]
+                seed = point.hyperparameters["seed"]
+                assert isinstance(lr, float)
+                assert isinstance(seed, int)
+                seen.add((lr, seed))
+            return ExecutionResult(metadata={"trained": True})
+
+        run_experiment(
+            db_path,
+            exp,
+            recording_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+
+        assert seen == {(1e-3, 0), (1e-3, 1), (3e-4, 0), (3e-4, 1)}
+
+        assert stacked_lrs == {1e-3, 3e-4}
+        assert all("arch" not in keys for keys in axis_keys)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("ArmSweep")
+            assert experiment_row is not None
+            assert database.list_unsatisfied_runs(experiment_row.id) == []
