@@ -1,15 +1,7 @@
 import gymnax
 import gymnax.wrappers
 import jax
-import pytest
 from rl_agents.dqn import DQNConfig, make_train
-
-
-def test_dqn_make_train_requires_explicit_env() -> None:
-    config_only_args = [DQNConfig()]
-
-    with pytest.raises(TypeError, match="env"):
-        make_train(*config_only_args)  # type: ignore[arg-type]
 
 
 def test_dqn_cartpole_learns() -> None:

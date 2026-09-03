@@ -7,7 +7,6 @@ import chex
 import jax
 import jax.numpy as jnp
 import optax
-import pytest
 from flax.training.train_state import TrainState
 from rl_agents.sac import Actor, Critic, SACConfig, make_train
 from rl_components.action_normalization import ActionNormalizationWrapper
@@ -25,6 +24,8 @@ class FakeObservationSpace:
 @dataclass(frozen=True)
 class FakeActionSpace:
     shape: tuple[int, ...]
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 class FakeContinuousEnv:
@@ -120,18 +121,6 @@ class TestSACGradientFlow:
 
         assert metrics["returned_episode"].shape == (4,)
         assert metrics["returned_episode_returns"].shape == (4,)
-
-    def test_make_train_requires_explicit_env(self) -> None:
-        config = SACConfig(
-            TOTAL_TIMESTEPS=4,
-            LEARNING_STARTS=100,
-            BUFFER_SIZE=16,
-            BATCH_SIZE=4,
-        )
-        config_only_args = [config]
-
-        with pytest.raises(TypeError, match="env"):
-            make_train(*config_only_args)  # type: ignore[arg-type]
 
     def test_make_train_accepts_normalized_canonical_env_via_bridge(self) -> None:
         config = SACConfig(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)

@@ -28,7 +28,7 @@ def _discover_specs(module: object, spec_name: str | None) -> dict[str, Callable
             continue
         ret = hints.get("return")
         if ret is ExperimentSpec:
-            specs[attr_name] = obj
+            specs[attr_name] = typing.cast(Callable[[], ExperimentSpec], obj)
     if spec_name is not None:
         if spec_name not in specs:
             typer.echo(f"Error: spec '{spec_name}' not found. Available: {', '.join(sorted(specs))}", err=True)

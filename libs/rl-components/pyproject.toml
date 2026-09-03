@@ -8,11 +8,13 @@ dependencies = [
     "chex~=0.1",
     "distrax>=0.1.8",
     "flax~=0.12",
+    "gymnax~=0.0",
     "jax-nn",
     "ale-py>=0.10",
     "gymnasium[atari]>=1.0",
     "opencv-python-headless>=4.0",
     "jax~=0.9",
+    "process-control",
 ]
 
 [project.optional-dependencies]

@@ -16,6 +16,8 @@ from rl_components.structs import chex_struct
 class GymnaxSpace:
     shape: tuple[int, ...]
     dtype: jnp.dtype
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 @chex_struct(frozen=True)
@@ -23,6 +25,8 @@ class GymnaxDiscreteSpace:
     shape: tuple[int, ...]
     dtype: jnp.dtype
     n: int
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 def _observation_space_from_spec(spec: EnvSpec) -> GymnaxSpace:
@@ -42,6 +46,8 @@ def _action_space_from_spec(spec: EnvSpec) -> GymnaxSpace | GymnaxDiscreteSpace:
     return GymnaxSpace(
         shape=tuple(spec.action_shape),
         dtype=jnp.dtype(spec.action_dtype),
+        action_low=spec.action_low,
+        action_high=spec.action_high,
     )
 
 

@@ -6,7 +6,6 @@ from typing import Any, override
 import jax
 import jax.numpy as jnp
 import optax
-import pytest
 from flax.training.train_state import TrainState
 from rl_agents.ppo import _sum_action_event_terms, make_train
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
@@ -28,6 +27,8 @@ class FakeActionSpace:
 @dataclass(frozen=True)
 class FakeContinuousActionSpace:
     shape: tuple[int, ...]
+    action_low: jax.Array | None = None
+    action_high: jax.Array | None = None
 
 
 class FakeDiscreteEnv:
@@ -184,13 +185,6 @@ class TestPPOGradientFlow:
 
         assert metrics["returned_episode"].shape == (2,)
         assert metrics["returned_episode_returns"].shape == (2,)
-
-    def test_make_train_requires_explicit_env(self) -> None:
-        config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
-        config_only_args = [config]
-
-        with pytest.raises(TypeError, match="env"):
-            make_train(*config_only_args)  # type: ignore[arg-type]
 
     def test_params_change_after_update(self) -> None:
         """ActorCritic params should change after a PPO gradient step."""

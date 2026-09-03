@@ -907,7 +907,7 @@ class DatabaseManager:
         hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: dict[str, object] | None = None,
+        jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> int:
         """Create a pending execution and link it to the supplied runs."""
         if not run_ids:
@@ -937,7 +937,7 @@ class DatabaseManager:
         hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: dict[str, object] | None = None,
+        jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> int | None:
         """Create a pending execution covering unsatisfied runs for an experiment."""
         rows = self.conn.execute(
@@ -974,7 +974,7 @@ class DatabaseManager:
         hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: dict[str, object] | None = None,
+        jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> list[int]:
         """Create one pending execution per unsatisfied static-config batch."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -1000,7 +1000,7 @@ class DatabaseManager:
         hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: dict[str, object] | None = None,
+        jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> list[PlannedExecution]:
         """Plan execution batches and register deterministic artifact paths."""
         base_path = Path(artifacts_root)

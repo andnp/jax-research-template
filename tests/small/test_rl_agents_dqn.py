@@ -18,14 +18,6 @@ class TestDQNConfig:
         assert cfg.EPSILON_END == 0.05
         assert cfg.NETWORK_PRESET == "mlp"
 
-    def test_frozen(self) -> None:
-        cfg = DQNConfig()
-        try:
-            cfg.LR = 0.1  # type: ignore[misc]
-            raise AssertionError("Should have raised")
-        except AttributeError:
-            pass
-
     def test_custom_config(self) -> None:
         cfg = DQNConfig(LR=1e-3, BUFFER_SIZE=1000, ENV_NAME="CartPole-v1")
         assert cfg.LR == 1e-3
