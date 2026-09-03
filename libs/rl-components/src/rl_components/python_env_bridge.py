@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Protocol, cast
 
 import chex
 import gymnasium
@@ -9,6 +9,20 @@ import jax.numpy as jnp
 import numpy as np
 
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+
+
+class _ALEHandle(Protocol):
+    """The slice of ale-py's ALE interface this bridge depends on."""
+
+    def cloneState(self) -> object: ...
+
+    def restoreState(self, state: object, /) -> None: ...
+
+
+class _ALEUnwrapped(Protocol):
+    """An unwrapped gymnasium ALE env, which exposes the raw ALE interface."""
+
+    ale: _ALEHandle
 
 
 class PythonEnvBridge:
@@ -28,6 +42,7 @@ class PythonEnvBridge:
     _num_actions: int
     _state_size: int
     _env_id: str
+    _ale: _ALEHandle
     _ale_state: object  # opaque ALEState from cloneState()
 
     def __init__(
@@ -44,9 +59,13 @@ class PythonEnvBridge:
         self._obs_dtype = obs_arr.dtype
         # ale-py 0.11+ uses opaque ALEState; store internally, pass dummy token through JAX
         self._state_size = 1
-        self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
+        self._ale = cast(_ALEUnwrapped, self._env.unwrapped).ale
+        self._ale_state = self._ale.cloneState()
         # Determine num actions
-        self._num_actions = int(self._env.action_space.n)  # type: ignore[union-attr]
+        action_space = self._env.action_space
+        if not isinstance(action_space, gymnasium.spaces.Discrete):
+            raise TypeError(f"{type(self).__name__} requires a Discrete action space, got {type(action_space).__name__}")
+        self._num_actions = int(action_space.n)
         # Re-sync to a clean state for actual use
         self._env.reset(seed=0)
 
@@ -67,7 +86,7 @@ class PythonEnvBridge:
 
         def _do_reset(seed_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             raw_obs, _ = self._env.reset(seed=int(seed_arr))
-            self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
+            self._ale_state = self._ale.cloneState()
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
             state = np.zeros(1, dtype=np.uint8)  # dummy token
             return obs, state
@@ -87,12 +106,12 @@ class PythonEnvBridge:
         del key, params
 
         def _do_step(state_arr: np.ndarray, action_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-            self._env.unwrapped.ale.restoreState(self._ale_state)  # type: ignore[attr-defined]
+            self._ale.restoreState(self._ale_state)
             raw_obs, reward, terminated, truncated, _ = self._env.step(int(action_arr))
             if terminated or truncated:
                 raw_obs, _ = self._env.reset()
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
-            self._ale_state = self._env.unwrapped.ale.cloneState()  # type: ignore[attr-defined]
+            self._ale_state = self._ale.cloneState()
             next_state = np.zeros(1, dtype=np.uint8)  # dummy token
             return (
                 obs,
