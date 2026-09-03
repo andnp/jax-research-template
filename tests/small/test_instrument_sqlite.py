@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 from research_instrument.collector import MetricFrame, subsample_frames
+from research_instrument.seed_batch import write_seed_batch_curve
 from research_instrument.sqlite_backend import SQLiteBackend
 
 
@@ -224,6 +225,118 @@ class TestSQLiteBackendBasic:
 
             with pytest.raises(RuntimeError, match="legacy schema without required identity columns"):
                 make_backend(db_path)
+
+
+class TestWriteSeedBatchCurve:
+    def test_each_row_lands_under_its_own_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+            curves = [[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]]
+            run_ids = [201, 202, 203]
+            seed_ids = [1, 2, 3]
+
+            write_seed_batch_curve(
+                db_path,
+                curves,
+                metric_name="returned_episode_returns",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=run_ids,
+                seed_ids=seed_ids,
+            )
+
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute(
+                    "SELECT run_id, seed_id, global_step, value FROM metrics ORDER BY run_id, global_step"
+                ).fetchall()
+            assert rows == [
+                (201, 1, 0, 10.0),
+                (201, 1, 1, 11.0),
+                (202, 2, 0, 20.0),
+                (202, 2, 1, 21.0),
+                (203, 3, 0, 30.0),
+                (203, 3, 1, 31.0),
+            ]
+
+    def test_mispaired_run_ids_attribute_wrong_seed_to_wrong_run(self) -> None:
+        """Deliberately scramble run_ids relative to curves: rows land under the wrong run."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+            curves = [[10.0], [20.0], [30.0]]
+            correct_run_ids = [201, 202, 203]
+            scrambled_run_ids = [202, 203, 201]  # row 0 (seed's value 10.0) mispaired to run 202
+            seed_ids = [1, 2, 3]
+
+            write_seed_batch_curve(
+                db_path,
+                curves,
+                metric_name="returned_episode_returns",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=scrambled_run_ids,
+                seed_ids=seed_ids,
+            )
+
+            with sqlite3.connect(db_path) as conn:
+                value_by_run = dict(
+                    conn.execute("SELECT run_id, value FROM metrics").fetchall()
+                )
+            # Row 0's value (10.0) belongs to run 201 under correct pairing, but the
+            # scrambled run_ids attribute it to run 202 instead — proving that a
+            # mispairing between curves and run_ids silently mislabels results.
+            assert value_by_run[correct_run_ids[0]] != 10.0
+            assert value_by_run[scrambled_run_ids[0]] == 10.0
+
+    def test_mismatched_lengths_raise(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+            with pytest.raises(ValueError):
+                write_seed_batch_curve(
+                    db_path,
+                    [[1.0], [2.0]],
+                    metric_name="reward",
+                    experiment_id=10,
+                    execution_id=1001,
+                    run_ids=[201],
+                    seed_ids=[1, 2],
+                )
+
+    def test_subsample_preserves_true_step_indices(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+            curve = [float(i) for i in range(20)]
+
+            write_seed_batch_curve(
+                db_path,
+                [curve],
+                metric_name="reward",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=[301],
+                seed_ids=[7],
+                subsample_factor=5,
+            )
+
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute(
+                    "SELECT global_step, value FROM metrics ORDER BY global_step"
+                ).fetchall()
+            # Steps are not renumbered 0..3 — the original step indices survive.
+            assert rows == [(0, 0.0), (5, 5.0), (10, 10.0), (15, 15.0)]
+
+    def test_creates_parent_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "nested" / "dir" / "seed_batch.db"
+            write_seed_batch_curve(
+                db_path,
+                [[1.0]],
+                metric_name="reward",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=[301],
+                seed_ids=[7],
+            )
+            assert db_path.exists()
 
 
 class TestSubsampleFrames:
