@@ -124,13 +124,14 @@ class BraxAdapter:
         del key, params
         next_state = self._env.step(state, action)
         info = _coerce_info(next_state.info)
-        truncated = info.get("truncated", info.get("truncation", jnp.asarray(False)))
+        truncated = jnp.asarray(info.get("truncation", False), dtype=bool)
+        done = jnp.asarray(next_state.done, dtype=bool)
         return EnvStep(
             observation=next_state.obs,
             state=next_state,
             reward=jnp.asarray(next_state.reward),
-            terminated=jnp.asarray(next_state.done),
-            truncated=jnp.asarray(truncated),
+            terminated=done & ~truncated,
+            truncated=truncated,
             info=info,
         )
 

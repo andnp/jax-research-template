@@ -114,7 +114,7 @@ class FakeBraxEnv:
             reward=jnp.array(2.5, dtype=jnp.float32),
             done=jnp.array(False),
             info={
-                "truncated": jnp.array(True),
+                "truncation": jnp.array(True),
                 "contact_forces": jnp.array([0.25, 0.5], dtype=jnp.float32),
             },
         )
