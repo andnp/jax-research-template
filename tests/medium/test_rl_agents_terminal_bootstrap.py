@@ -9,11 +9,8 @@ semantics without re-implementing the target rule or hand-computing a constant.
 ``rl_agents.qrc`` is already covered this way by
 ``test_rl_agents_qrc_gradient.py::test_terminal_transitions_zero_bootstrap_in_batch``.
 
-``sac`` cannot be gated here, because its loss is a closure defined inside the function
-that trains it and is not reachable from outside the module; exposing it belongs to its
-own port commit, not to a test. ``dqn`` is reachable as
-:func:`rl_agents.dqn.dqn_loss` and has no case here yet, so both are gated only
-structurally for now, by
+``dqn`` is reachable as :func:`rl_agents.dqn.dqn_loss` and has no case here yet, so it is
+gated only structurally for now, by
 ``test_rl_agents_learn_path.py::test_terminal_transitions_store_a_zero_discount``.
 """
 
@@ -24,7 +21,7 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, td3
+from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, sac, td3
 from rl_agents.q_networks import make_q_network
 
 BATCH_SIZE = 8
@@ -88,6 +85,52 @@ def test_double_q_loss_ignores_next_obs_on_terminal_rows(agent: str) -> None:
             next_obs,
             discounts,
             apply_fn=network.apply,
+        )
+
+    terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)
+    assert jnp.allclose(loss(next_obs_a, terminal), loss(next_obs_b, terminal))
+
+    surviving = jnp.full((BATCH_SIZE,), 0.99, dtype=jnp.float32)
+    assert not jnp.allclose(loss(next_obs_a, surviving), loss(next_obs_b, surviving))
+
+
+def test_sac_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
+    """The soft bootstrap must vanish whole: the twin-Q minimum and the entropy term alike.
+
+    The zero-discount case is the property; the nonzero-discount case is its control,
+    without which a loss that never bootstrapped at all would look correct.
+    """
+    actor = sac.Actor(ACTION_DIM)
+    critic = sac.Critic()
+
+    obs_zeros = jnp.zeros((OBS_DIM,), dtype=jnp.float32)
+    action_zeros = jnp.zeros((ACTION_DIM,), dtype=jnp.float32)
+    actor_params = actor.init(jax.random.key(0), obs_zeros)
+    critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
+        jax.random.split(jax.random.key(1), 2), obs_zeros, action_zeros
+    )
+
+    obs = jax.random.normal(jax.random.key(2), (BATCH_SIZE, OBS_DIM), dtype=jnp.float32)
+    actions = jax.random.uniform(
+        jax.random.key(3), (BATCH_SIZE, ACTION_DIM), dtype=jnp.float32, minval=-1.0, maxval=1.0
+    )
+    rewards = jax.random.normal(jax.random.key(4), (BATCH_SIZE,), dtype=jnp.float32)
+    next_obs_a, next_obs_b = _next_obs_pair((BATCH_SIZE, OBS_DIM))
+
+    def loss(next_obs: jax.Array, discounts: jax.Array) -> jax.Array:
+        return sac.sac_critic_loss(
+            critic_params,
+            actor_params,
+            critic_params,
+            obs,
+            actions,
+            rewards,
+            next_obs,
+            discounts,
+            jnp.asarray(0.2, dtype=jnp.float32),
+            jax.random.key(5),
+            actor=actor,
+            critic=critic,
         )
 
     terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)

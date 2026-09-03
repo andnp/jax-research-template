@@ -193,6 +193,30 @@ class ToyDiscreteEpisodeEnv(ToyDiscreteEnv):
         )
 
 
+class ToyContinuousEpisodeEnv(ToyContinuousEnv):
+    """``ToyContinuousEnv`` without the auto-reset, for the driver whose loop owns boundaries."""
+
+    @override
+    def step(
+        self,
+        key: jax.Array,
+        state: jax.Array,
+        action: jax.Array,
+        params: None = None,
+    ) -> EnvStep[jax.Array, jax.Array]:
+        del key, params
+        next_step = state + jnp.int32(1)
+        reward = -jnp.square(action[0] - 0.5) - 0.25 * state.astype(jnp.float32)
+        return EnvStep(
+            observation=_observation(next_step),
+            state=next_step,
+            reward=reward,
+            terminated=next_step >= EPISODE_LENGTH,
+            truncated=jnp.bool_(False),
+            info={},
+        )
+
+
 def _discrete_env() -> GymEnv[DiscreteActionSpace]:
     # The bridge reports a union action space because EnvSpec decides at runtime;
     # the toy environment is always discrete.
@@ -348,12 +372,16 @@ def _run_sac(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(sac.make_train(config, env=_continuous_env()))(jax.random.key(SEED))
+    agent = sac.SACAgent(config)
+    env = ToyContinuousEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
     return _finish(
-        out["runner_state"]._asdict(),
-        out["metrics"],
-        terminated=out["metrics"]["terminated"],
-        transitions=TOTAL_TIMESTEPS,
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
     )
 
 
@@ -402,7 +430,7 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn")
+LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac")
 """Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
 
 Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
