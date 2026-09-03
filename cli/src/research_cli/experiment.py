@@ -156,6 +156,11 @@ def run(
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     max_runs: int | None = typer.Option(None, "--max-runs", help="Override max runs per batch."),
+    reclaim_stale_after: float | None = typer.Option(
+        None,
+        "--reclaim-stale-after",
+        help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
+    ),
 ):
     from research_runner import run_experiment
 
@@ -175,6 +180,7 @@ def run(
             metrics_db_path=experiment_spec.metrics_db_path,
             max_runs_per_batch=max_runs_per_batch,
             capture_git=experiment_spec.capture_git,
+            reclaim_stale_after_seconds=reclaim_stale_after,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
