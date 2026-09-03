@@ -524,7 +524,7 @@ def compare_bakeoff(
     metric_name: str,
     verbose: bool = True,
 ) -> BenchmarkBakeoffReport:
-    """Compare multiple algorithms across multiple environments using ECDF-based normalization and Skillings-Mack."""
+    """Compare algorithms with ECDF normalization and a listwise-deleted Friedman test."""
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -585,9 +585,8 @@ def compare_bakeoff(
             else:
                 ecdf_means[algo][env] = float("nan")
 
-    # 3. Non-Parametric Omnibus Skillings-Mack / Friedman Test
-    # Skillings-Mack is selected if there are missing values (imbalanced task-seed matrix).
-    # For a simple bakeoff test, we construct the matrix: task-seed indices as rows, algorithms as columns.
+    # 3. Non-Parametric Omnibus Friedman Test
+    # Rows are environment-seed indices and columns are algorithms.
     # Rows will represent environment-seed combinations.
     row_keys = []
     for env in environments:
@@ -610,30 +609,24 @@ def compare_bakeoff(
 
     matrix = np.array(matrix, dtype=np.float64)
 
-    # Simple Friedman Test implementation or Skillings-Mack approximation
-    # Friedman test (requires no missing data)
+    valid_rows = [r for r in matrix if not np.isnan(r).any()]
+    n_complete = len(valid_rows)
+    if n_complete < 3:
+        raise ValueError(
+            f"Insufficient complete bakeoff data: need at least 3 rows, got {n_complete}"
+        )
+
+    friedman_matrix = np.array(valid_rows)
+    res = stats.friedmanchisquare(*[friedman_matrix[:, i] for i in range(len(algorithms))])
+    p_val = float(res.pvalue)
+    stat = float(res.statistic)
     if has_missing:
-        # Simple drop missing rows for Friedman as a fallback
-        valid_rows = [r for r in matrix if not np.isnan(r).any()]
-        n_valid = len(valid_rows)
-        if n_valid >= 3:
-            friedman_matrix = np.array(valid_rows)
-            res = stats.friedmanchisquare(*[friedman_matrix[:, i] for i in range(len(algorithms))])
-            p_val = float(res.pvalue)
-            stat = float(res.statistic)
-        else:
-            p_val = 1.0
-            stat = 0.0
         test_name = "Friedman Test (Listwise Deleted for Missing Data)"
         justification = (
-            "Selected listwise-deleted Friedman test because missing values were present, "
-            "and we dropped rows containing missing data to run the check."
+            "Selected Friedman test with listwise deletion because missing values were present; "
+            "rows containing missing data were excluded from the omnibus check."
         )
     else:
-        # Standard Friedman Test
-        res = stats.friedmanchisquare(*[matrix[:, i] for i in range(len(algorithms))])
-        p_val = float(res.pvalue)
-        stat = float(res.statistic)
         test_name = "Friedman Test"
         justification = (
             "Selected Friedman test because data is complete (no missing environment-seed points)."

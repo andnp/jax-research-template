@@ -225,3 +225,42 @@ def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
     assert sorted(report.environments) == sorted(envs)
     assert report.ecdf_plot_path is not None
     assert report.ecdf_plot_path.exists()
+
+
+def _populate_bakeoff_rows(setup: dict[str, Any], rows: list[tuple[str, str, int, float]]) -> None:
+    with DatabaseManager(setup["db_path"]) as db:
+        for algorithm, environment, seed, value in rows:
+            hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "env_name": environment})
+            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+            execution_id = db.add_execution()
+            db.update_execution_status(execution_id, "COMPLETED")
+            db.link_execution_run(execution_id, run_id)
+            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
+            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [value])
+
+
+def test_compare_bakeoff_reports_listwise_missing_data(temp_experiment_setup: dict[str, Any]) -> None:
+    """Run Friedman on complete rows while reporting listwise deletion."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [
+        (algorithm, "CartPole", seed, float(seed + index))
+        for seed in range(3)
+        for index, algorithm in enumerate(algorithms)
+    ] + [("ppo", "CartPole", 3, 10.0), ("sac", "CartPole", 3, 11.0)]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+
+    report = compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
+
+    assert report.omnibus_details.test_name == "Friedman Test (Listwise Deleted for Missing Data)"
+    assert report.omnibus_details.assumptions["has_missing"] is True
+
+
+def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:
+    """Fail clearly when missingness leaves fewer than three complete rows."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [(algorithm, "CartPole", 0, float(index)) for index, algorithm in enumerate(algorithms)]
+    rows += [("ppo", "CartPole", 1, 10.0), ("sac", "CartPole", 1, 11.0)]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+
+    with pytest.raises(ValueError, match="Insufficient complete bakeoff data"):
+        compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
