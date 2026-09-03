@@ -40,14 +40,26 @@ Check the batch count against the arm you changed. If you changed one of two arm
 `plan` reports the whole grid, stop and find out why. That check takes seconds; the
 wasted run takes as long as the sweep.
 
-## Code changes do not invalidate anything
+## Code changes invalidate through component hashes
 
-Content addressing only sees what is expressed *as a hyperparameter*. Change an
-algorithm's source without changing its config and every Run stays satisfied, so the
-sweep reports the old numbers with no error and no warning. Source hashes are recorded
-in `ComponentVersions`, but nothing consumes them for invalidation.
+`Runs` is unique on `(experiment, algo_version_id, env_version_id, hyper_id, seed,
+ablation)`, and a `ComponentVersion` is the SHA-256 of its source file. So editing a
+file a declared `Component` points at mints a new version id, which makes new Run rows
+and re-plans them. That is usually what you want.
 
-So after editing an agent, invalidate its runs yourself:
+The catch is granularity. `_insert_runs` stamps one algo component per run, so when an
+experiment declares exactly one `ALGO` component, every arm carries it — and editing one
+arm's source invalidates the other arms too. Adding a third arm to a two-arm study by
+editing the iterated agent's file re-planned all 450 runs, not the 150 that were new.
+
+Declaring a `Component` per arm does not fix it: with more than one `ALGO` component the
+stamp becomes NULL, which is honest about attribution but drops hash tracking entirely,
+so code edits stop invalidating at all. Pick deliberately: one component gives coarse
+invalidation with misattributed provenance, several give accurate provenance with no
+invalidation.
+
+Either way, check `plan`'s count against the arm you changed before launching, and use
+`--where` when you need to re-run less than the hash change implies:
 
 ```bash
 uv run research experiment invalidate <db> \
