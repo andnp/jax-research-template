@@ -36,6 +36,18 @@ All workspace lifecycle management is handled by the `research` command-line too
 - `doctor`
   Runs a read-only diagnostic sweep of the workspace to verify package directories, symlink mappings, configuration parameters, and dependency files.
 
+### Experiment Commands
+- `experiment plan <spec_file.py> [--spec <name>] [--results-root <path>]`
+  Dry-runs an experiment definition: syncs it to `experiments.sqlite` and prints the batches that would run, without executing anything.
+- `experiment run <spec_file.py> [--spec <name>] [--results-root <path>] [--max-runs <n>]`
+  Executes the unsatisfied runs for an experiment definition, writing provenance to `experiments.sqlite` and metrics to `metrics.sqlite`.
+- `experiment status <db_path> [--experiment <name>]`, `experiment list <db_path>`, `experiment executions <db_path>`
+  Read-only progress and execution history against an `experiments.sqlite` database.
+- `experiment invalidate <db_path> --execution <id>`
+  Marks an execution `INVALID` (with a confirmation prompt) so its runs are re-planned by the next `run`.
+- `experiment submit <spec_file.py> [--spec <name>] [...slurm options]`
+  Submits the planned batches as a Slurm job array instead of running them locally.
+
 ---
 
 ## 3. Example Workflows
@@ -98,3 +110,33 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
    - The component is moved from the project folder back to `libs/rl-agents/src/rl_agents/`.
    - The CLI automatically rewrites import statements back to the global name: `components.rl_agents.ppo` becomes `rl_agents.ppo` in both the project files and the library files.
    - The CLI registers the library in the root workspace `pyproject.toml` dependencies, workspace sources, and `pyrefly` analysis paths.
+
+### Workflow D: Defining and Running an Experiment (Sweeps)
+To run a hyperparameter sweep instead of a single training script, define it declaratively rather than hand-rolling a loop over `train.py`:
+
+1. **Define the sweep:**
+   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter axes with `add_parameter(name, values, is_static=...)`, declare metrics with `add_metric(name, frequency=..., kind=...)` (`kind` defaults to `"float"`), and expose a module-level, zero-argument function annotated `-> ExperimentSpec`. The CLI discovers entry points by that return annotation.
+
+2. **Preview the run (dry run):**
+   ```bash
+   uv run research experiment plan sweep.py --spec my_sweep
+   ```
+   This syncs the definition and prints the batches that would run, without executing anything.
+
+3. **Run it:**
+   ```bash
+   uv run research experiment run sweep.py --spec my_sweep
+   ```
+   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), and `metrics.sqlite` holds the metric series written by the project's `train_fn`.
+
+4. **Resume after a failure:**
+   Re-running the same `run` command re-plans only the unsatisfied runs — those without a linked `COMPLETED` execution — so an interrupted sweep picks back up without repeating finished work. Check progress with:
+   ```bash
+   uv run research experiment status projects/ppo-cartpole-sweep/results/experiments.sqlite
+   ```
+   To force specific work to be redone, mark it invalid first: `research experiment invalidate <db> --execution <id>`.
+
+5. **Read the results:**
+   Reporting and analysis are library functions, not CLI subcommands — use `research_analysis` (e.g. `research_analysis.reporting.analyze_hypers`, `compare_bakeoff`, `compare_pairwise`, and `research_analysis.bootstrap.bootstrap_ci`) against the two SQLite databases.
+
+For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and metrics together, see `core/examples/run_experiment.py`.
