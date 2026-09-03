@@ -963,6 +963,43 @@ class DatabaseManager:
             )
         return planned
 
+    def plan_next_execution_batch(
+        self,
+        experiment_id: int,
+        artifacts_root: str | Path,
+        *,
+        max_runs_per_batch: int | None = None,
+        manifest_name: str = "manifest.json",
+        hostname: str | None = None,
+        git_commit: str | None = None,
+        git_diff_blob: str | None = None,
+        jax_config: Mapping[str, ParameterValue] | None = None,
+    ) -> PlannedExecution | None:
+        """Plan and return the next unsatisfied execution batch, or None when none remain."""
+        base_path = Path(artifacts_root)
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            batches = self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch)
+            if not batches:
+                self.conn.commit()
+                return None
+            batch = batches[0]
+            execution_id = self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
+            root_path = str(base_path / str(execution_id))
+            manifest_path = str(Path(root_path) / manifest_name)
+            self._record_execution_artifacts(
+                execution_id,
+                root_path,
+                manifest_path,
+                {"run_ids": batch.run_ids, "static_config_json": batch.static_config_json, "vmap_zone_json": batch.vmap_zone_json},
+            )
+            planned = PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config_json, batch.vmap_zone_json)
+            self.conn.commit()
+            return planned
+        except Exception:
+            self.conn.rollback()
+            raise
+
     def list_execution_runs(self, execution_id: int) -> list[RunRow]:
         """Return the logical runs linked to an execution."""
         rows = self.conn.execute(
