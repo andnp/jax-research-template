@@ -4,14 +4,11 @@ Each case drives an agent through its public entry point only. No loss, target o
 rule is re-implemented here, so a broken agent cannot satisfy these assertions by agreeing
 with a copy of itself.
 
-There are two such entry points during the migration, and each agent names its own driver.
-A ported agent goes through ``AgentProtocol`` plus :func:`rl_components.loop.run`; the rest
-still go through their private ``make_train``. Every assertion below holds for both, which
-is what makes the pair comparable: a port that loses the learn path fails the same test its
-``make_train`` predecessor passed. Two facts differ by construction rather than by defect,
-so the driver reports them instead of the assertions assuming them -- the loop closes
-``steps - 1`` transitions where ``make_train`` closes ``steps``, and boundary flags arrive
-under the loop's reserved ``loop/`` prefix rather than in the environment's ``info``.
+Every agent goes through the same entry point: ``AgentProtocol`` plus
+:func:`rl_components.loop.run`. Each still reports its transition count rather than having
+it assumed, because the loop closes ``steps - 1`` of them -- the action taken on the final
+iteration opens a transition that never closes -- and an agent that silently dropped one
+more would otherwise look identical.
 
 Every agent is run twice against the same seed and the same toy environment:
 
@@ -27,13 +24,11 @@ all-zero loss in the warmup-only run, so a zero-filled placeholder metric fails.
 
 The toy environment terminates every ``EPISODE_LENGTH`` steps, so each run crosses several
 episode boundaries with a nonzero ``done``. The stored discounts must then carry an exact
-``0.0``, which fails any agent that ignores ``done`` when writing to its buffer. Who
-performs the reset differs by driver: the ``make_train`` agents have no reset of their own,
-so their environment auto-resets inside ``step``; the loop owns the boundary, so its
-environment does not, and the true terminal observation therefore survives to be asserted
-on. That the zero *target* also collapses to the bare reward is gated separately, through
-each agent's real loss, in ``test_rl_agents_terminal_bootstrap.py`` and
-``test_rl_agents_qrc_gradient.py``.
+``0.0``, which fails any agent that ignores ``done`` when writing to its buffer. The loop
+owns the reset, so neither toy environment performs one and the true terminal observation
+survives into replay to be asserted on. That the zero *target* also collapses to the bare
+reward is gated separately, through each agent's real loss, in
+``test_rl_agents_terminal_bootstrap.py`` and ``test_rl_agents_qrc_gradient.py``.
 
 Excluded agents: ``dqn_atari`` needs image observations for its Nature CNN and gates
 learning on replay occupancy rather than on ``LEARNING_STARTS``, and ``rainbow`` samples
@@ -45,7 +40,7 @@ need their own gate; ``dqn_atari`` has one in
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import NamedTuple, cast, override
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -53,9 +48,7 @@ import pytest
 from flax.training.train_state import TrainState
 from rl_agents import double_dqn, dqn, dueling_dqn, greedy_ac, qrc, sac, sac_rc, td3
 from rl_components.buffers import ReplayBufferState
-from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
-from rl_components.gym_env import ContinuousActionSpace, GymEnv
-from rl_components.gymnax_bridge import make_gymnax_compat_env
+from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 
 TOTAL_TIMESTEPS = 12
@@ -79,13 +72,6 @@ def _observation(step: jax.Array) -> jax.Array:
     return jnp.stack([scaled, 1.0 - scaled])
 
 
-def _advance(step: jax.Array) -> tuple[jax.Array, jax.Array]:
-    """Step the counter, terminating and auto-resetting at the episode boundary."""
-    nxt = step + jnp.int32(1)
-    terminated = nxt >= EPISODE_LENGTH
-    return jnp.where(terminated, jnp.int32(0), nxt), terminated
-
-
 TERMINAL_OBSERVATION = _observation(jnp.int32(EPISODE_LENGTH))
 """The true final observation of an episode, distinct from the post-reset ``_observation(0)``.
 
@@ -94,8 +80,14 @@ An agent that inserts the post-reset observation instead of the terminal one sto
 """
 
 
-class ToyDiscreteEnv:
-    """Two-action counter environment with a reward that depends on the action."""
+class ToyDiscreteEpisodeEnv:
+    """Two-action counter environment with a reward that depends on the action.
+
+    Reaching the boundary leaves the counter at ``EPISODE_LENGTH`` rather than wrapping to
+    zero, so ``EnvStep.observation`` is the state the transition actually reached. The
+    loop performs the reset, and asserting on the terminal observation depends on this
+    environment not performing one of its own.
+    """
 
     def spec(self, params: None = None) -> EnvSpec:
         del params
@@ -114,20 +106,24 @@ class ToyDiscreteEnv:
         params: None = None,
     ) -> EnvStep[jax.Array, jax.Array]:
         del key, params
-        next_step, terminated = _advance(state)
+        next_step = state + jnp.int32(1)
         reward = action.astype(jnp.float32) - 0.25 * state.astype(jnp.float32)
         return EnvStep(
             observation=_observation(next_step),
             state=next_step,
             reward=reward,
-            terminated=terminated,
+            terminated=next_step >= EPISODE_LENGTH,
             truncated=jnp.bool_(False),
             info={},
         )
 
 
-class ToyContinuousEnv:
-    """One-dimensional counter environment with a reward that depends on the action."""
+class ToyContinuousEpisodeEnv:
+    """One-dimensional counter environment, with the same boundary contract.
+
+    Its action space is already normalized to ``[-1, 1]``, which is what every continuous
+    agent here requires; see :mod:`rl_agents.continuous_actions`.
+    """
 
     def spec(self, params: None = None) -> EnvSpec:
         del params
@@ -153,58 +149,6 @@ class ToyContinuousEnv:
         params: None = None,
     ) -> EnvStep[jax.Array, jax.Array]:
         del key, params
-        next_step, terminated = _advance(state)
-        reward = -jnp.square(action[0] - 0.5) - 0.25 * state.astype(jnp.float32)
-        return EnvStep(
-            observation=_observation(next_step),
-            state=next_step,
-            reward=reward,
-            terminated=terminated,
-            truncated=jnp.bool_(False),
-            info={},
-        )
-
-
-class ToyDiscreteEpisodeEnv(ToyDiscreteEnv):
-    """``ToyDiscreteEnv`` without the auto-reset, for the driver whose loop owns boundaries.
-
-    Reaching the boundary leaves the counter at ``EPISODE_LENGTH`` rather than wrapping to
-    zero, so ``EnvStep.observation`` is the state the transition actually reached.
-    """
-
-    @override
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: None = None,
-    ) -> EnvStep[jax.Array, jax.Array]:
-        del key, params
-        next_step = state + jnp.int32(1)
-        reward = action.astype(jnp.float32) - 0.25 * state.astype(jnp.float32)
-        return EnvStep(
-            observation=_observation(next_step),
-            state=next_step,
-            reward=reward,
-            terminated=next_step >= EPISODE_LENGTH,
-            truncated=jnp.bool_(False),
-            info={},
-        )
-
-
-class ToyContinuousEpisodeEnv(ToyContinuousEnv):
-    """``ToyContinuousEnv`` without the auto-reset, for the driver whose loop owns boundaries."""
-
-    @override
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: None = None,
-    ) -> EnvStep[jax.Array, jax.Array]:
-        del key, params
         next_step = state + jnp.int32(1)
         reward = -jnp.square(action[0] - 0.5) - 0.25 * state.astype(jnp.float32)
         return EnvStep(
@@ -215,13 +159,6 @@ class ToyContinuousEpisodeEnv(ToyContinuousEnv):
             truncated=jnp.bool_(False),
             info={},
         )
-
-
-def _continuous_env() -> GymEnv[ContinuousActionSpace]:
-    return cast(
-        GymEnv[ContinuousActionSpace],
-        make_gymnax_compat_env(cast(EnvProtocol[jax.Array, jax.Array, jax.Array, None], ToyContinuousEnv())),
-    )
 
 
 class Run(NamedTuple):
@@ -454,21 +391,6 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = tuple(AGENT_RUNS)
-"""Agents driven through ``AgentProtocol`` plus ``loop.run``, which is now all of them.
-
-The tuple has held every agent since ``greedy_ac`` ported, so it no longer selects a
-subset and exists only to say so. It goes with the last of the ``make_train`` drivers."""
-
-LOSS_METRIC_AGENTS = tuple(AGENT_RUNS)
-"""Agents that publish their losses, which is now all of them.
-
-``qrc`` used to be the exception: it computed a real loss and then discarded it, returning
-the raw environment ``info``, so it was observable only through its parameters. Its port
-publishes the loss it already computed, so the allowlist is no longer a subset and this
-name exists only to say so. It goes when the last ``make_train`` driver does."""
-
-
 @pytest.fixture(scope="module")
 def learning_runs() -> dict[str, Run]:
     return {name: run(LEARNING_STARTS) for name, run in AGENT_RUNS.items()}
@@ -499,7 +421,7 @@ def test_learn_path_moves_parameters(
         )
 
 
-@pytest.mark.parametrize("agent", LOSS_METRIC_AGENTS)
+@pytest.mark.parametrize("agent", list(AGENT_RUNS))
 def test_learn_path_reports_nonzero_loss(
     agent: str,
     learning_runs: dict[str, Run],
@@ -549,7 +471,7 @@ def test_run_crosses_episode_boundaries(agent: str, learning_runs: dict[str, Run
             assert jnp.all(jnp.isfinite(value)), f"{agent} reported a non-finite {key} across a boundary"
 
 
-@pytest.mark.parametrize("agent", LOOP_DRIVER_AGENTS)
+@pytest.mark.parametrize("agent", list(AGENT_RUNS))
 def test_terminal_transitions_store_the_true_final_observation(agent: str, learning_runs: dict[str, Run]) -> None:
     """The bootstrap must be taken at the boundary, never across it.
 
@@ -570,7 +492,7 @@ def test_terminal_transitions_store_the_true_final_observation(agent: str, learn
     )
 
 
-@pytest.mark.parametrize("agent", LOOP_DRIVER_AGENTS)
+@pytest.mark.parametrize("agent", list(AGENT_RUNS))
 def test_the_transition_after_a_boundary_starts_the_new_episode(agent: str, learning_runs: dict[str, Run]) -> None:
     """The mirror of the terminal-observation property, and it fails the other way.
 
