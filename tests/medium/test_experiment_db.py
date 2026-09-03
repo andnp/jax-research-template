@@ -7,6 +7,8 @@ version pointer logic.
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
@@ -574,6 +576,35 @@ def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: 
     second_batch_runs = db.list_execution_runs(execution_ids[1])
     assert [len(first_batch_runs), len(second_batch_runs)] == [1, 2]
     assert all(_require(db.get_execution(execution_id)).hostname == "batch-planner" for execution_id in execution_ids)
+
+
+def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
+    """
+    Two database connections planning the same experiment create one batch.
+    """
+    db_path = tmp_path / "concurrent.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        algo_id = database.add_component("ConcurrentAlgo", "ALGO")
+        env_id = database.add_component("ConcurrentEnv", "ENV")
+        algo_ver = database.add_component_version(algo_id, "algo-hash")
+        env_ver = database.add_component_version(env_id, "env-hash")
+        exp_id = database.add_experiment("Concurrent Experiment")
+        hyper_id = database.add_hyperparam_config({"lr": 1e-3})
+        database.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=0)
+
+    def plan() -> list[int]:
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            return database.plan_unsatisfied_execution_batches(exp_id, hostname="planner")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: plan(), range(2)))
+
+    assert sorted(len(result) for result in results) == [0, 1]
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        assert len(database.list_executions(exp_id)) == 1
 
 
 def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseManager) -> None:

@@ -749,16 +749,25 @@ class DatabaseManager:
 
                     {"jax_version": "0.4.30", "platform": "gpu", "devices": 4}
         """
-        jax_json = json.dumps(jax_config, sort_keys=True) if jax_config is not None else None
         with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO Executions(hostname, git_commit, git_diff_blob, jax_config_json) "
-                "VALUES (?, ?, ?, ?)",
-                (hostname, git_commit, git_diff_blob, jax_json),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no execution ID returned.")
-            return int(cur.lastrowid)
+            return self._insert_execution(hostname, git_commit, git_diff_blob, jax_config)
+
+    def _insert_execution(
+        self,
+        hostname: str | None,
+        git_commit: str | None,
+        git_diff_blob: str | None,
+        jax_config: Mapping[str, ParameterValue] | None,
+    ) -> int:
+        jax_json = json.dumps(jax_config, sort_keys=True) if jax_config is not None else None
+        cur = self.conn.execute(
+            "INSERT INTO Executions(hostname, git_commit, git_diff_blob, jax_config_json) "
+            "VALUES (?, ?, ?, ?)",
+            (hostname, git_commit, git_diff_blob, jax_json),
+        )
+        if cur.lastrowid is None:
+            raise RuntimeError("Insert failed: no execution ID returned.")
+        return int(cur.lastrowid)
 
     def get_execution(self, execution_id: int) -> ExecutionRow | None:
         """Fetch a single Execution by id."""
@@ -778,17 +787,26 @@ class DatabaseManager:
         metadata: dict[str, object] | None = None,
     ) -> None:
         """Create or update canonical artifact linkage for an execution."""
-        metadata_json = json.dumps(metadata, sort_keys=True) if metadata is not None else None
         with self.conn:
-            self.conn.execute(
-                "INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path, metadata_json) "
-                "VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(execution_id) DO UPDATE SET "
-                "root_path = excluded.root_path, "
-                "manifest_path = excluded.manifest_path, "
-                "metadata_json = excluded.metadata_json",
-                (execution_id, root_path, manifest_path, metadata_json),
-            )
+            self._record_execution_artifacts(execution_id, root_path, manifest_path, metadata)
+
+    def _record_execution_artifacts(
+        self,
+        execution_id: int,
+        root_path: str,
+        manifest_path: str | None,
+        metadata: dict[str, object] | None,
+    ) -> None:
+        metadata_json = json.dumps(metadata, sort_keys=True) if metadata is not None else None
+        self.conn.execute(
+            "INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path, metadata_json) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(execution_id) DO UPDATE SET "
+            "root_path = excluded.root_path, "
+            "manifest_path = excluded.manifest_path, "
+            "metadata_json = excluded.metadata_json",
+            (execution_id, root_path, manifest_path, metadata_json),
+        )
 
     def get_execution_artifacts(self, execution_id: int) -> ExecutionArtifactRow | None:
         """Fetch canonical artifact linkage for an execution."""
@@ -836,14 +854,20 @@ class DatabaseManager:
         if not run_ids:
             raise ValueError("run_ids must not be empty.")
 
-        execution_id = self.add_execution(
-            hostname=hostname,
-            git_commit=git_commit,
-            git_diff_blob=git_diff_blob,
-            jax_config=jax_config,
-        )
+        with self.conn:
+            return self._plan_execution(run_ids, hostname, git_commit, git_diff_blob, jax_config)
+
+    def _plan_execution(
+        self,
+        run_ids: list[int],
+        hostname: str | None,
+        git_commit: str | None,
+        git_diff_blob: str | None,
+        jax_config: Mapping[str, ParameterValue] | None,
+    ) -> int:
+        execution_id = self._insert_execution(hostname, git_commit, git_diff_blob, jax_config)
         for run_id in run_ids:
-            self.link_execution_run(execution_id, run_id)
+            self._link_execution_run(execution_id, run_id)
         return execution_id
 
     def plan_unsatisfied_execution(
@@ -894,18 +918,18 @@ class DatabaseManager:
         jax_config: dict[str, object] | None = None,
     ) -> list[int]:
         """Create one pending execution per unsatisfied static-config batch."""
-        execution_ids: list[int] = []
-        for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
-            execution_ids.append(
-                self.plan_execution(
-                    batch.run_ids,
-                    hostname=hostname,
-                    git_commit=git_commit,
-                    git_diff_blob=git_diff_blob,
-                    jax_config=jax_config,
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            execution_ids: list[int] = []
+            for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
+                execution_ids.append(
+                    self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
                 )
-            )
-        return execution_ids
+            self.conn.commit()
+            return execution_ids
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def plan_experiment_execution_batches(
         self,
@@ -921,38 +945,27 @@ class DatabaseManager:
     ) -> list[PlannedExecution]:
         """Plan execution batches and register deterministic artifact paths."""
         base_path = Path(artifacts_root)
-        planned: list[PlannedExecution] = []
-        for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
-            execution_id = self.plan_execution(
-                batch.run_ids,
-                hostname=hostname,
-                git_commit=git_commit,
-                git_diff_blob=git_diff_blob,
-                jax_config=jax_config,
-            )
-            root_path = str(base_path / str(execution_id))
-            manifest_path = str(Path(root_path) / manifest_name)
-            self.record_execution_artifacts(
-                execution_id,
-                root_path,
-                manifest_path=manifest_path,
-                metadata={
-                    "run_ids": batch.run_ids,
-                    "static_config_json": batch.static_config_json,
-                    "vmap_zone_json": batch.vmap_zone_json,
-                },
-            )
-            planned.append(
-                PlannedExecution(
-                    execution_id=execution_id,
-                    run_ids=batch.run_ids,
-                    root_path=root_path,
-                    manifest_path=manifest_path,
-                    static_config_json=batch.static_config_json,
-                    vmap_zone_json=batch.vmap_zone_json,
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            planned: list[PlannedExecution] = []
+            for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
+                execution_id = self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
+                root_path = str(base_path / str(execution_id))
+                manifest_path = str(Path(root_path) / manifest_name)
+                self._record_execution_artifacts(
+                    execution_id,
+                    root_path,
+                    manifest_path,
+                    {"run_ids": batch.run_ids, "static_config_json": batch.static_config_json, "vmap_zone_json": batch.vmap_zone_json},
                 )
-            )
-        return planned
+                planned.append(
+                    PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config_json, batch.vmap_zone_json)
+                )
+            self.conn.commit()
+            return planned
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def list_execution_runs(self, execution_id: int) -> list[RunRow]:
         """Return the logical runs linked to an execution."""
@@ -989,10 +1002,13 @@ class DatabaseManager:
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""
         with self.conn:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO ExecutionRuns(execution_id, run_id) VALUES (?, ?)",
-                (execution_id, run_id),
-            )
+            self._link_execution_run(execution_id, run_id)
+
+    def _link_execution_run(self, execution_id: int, run_id: int) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO ExecutionRuns(execution_id, run_id) VALUES (?, ?)",
+            (execution_id, run_id),
+        )
 
     def invalidate_execution(self, execution_id: int):
         existing = self.get_execution(execution_id)
