@@ -42,7 +42,9 @@ ordering is guarded by test rather than by construction.
 from __future__ import annotations
 
 import jax
+import jax.numpy as jnp
 
+from rl_components.env_protocol import TruncationPolicy
 from rl_components.structs import chex_struct
 
 
@@ -71,3 +73,47 @@ class Timestep[ObservationT]:
     episode_end: jax.Array
     # --- begins the next action ---
     observation: ObservationT
+
+
+def bootstrap_terms(
+    terminated: jax.Array,
+    truncated: jax.Array,
+    cutoff_reached: jax.Array,
+    *,
+    gamma: float,
+    truncation_policy: TruncationPolicy,
+) -> tuple[jax.Array, jax.Array]:
+    """Map raw environment boundary flags to a ``Timestep``'s two boundary quantities.
+
+    Termination dominates truncation. Both flags can be true on one step: a pole falls
+    on exactly the step the cutoff is reached, or an adapter reports both. Without the
+    ``& ~is_terminated`` mask, such a genuinely terminal transition -- whose final
+    state has no meaningful value, because nothing follows it -- would be treated as a
+    truncation, receive ``d = gamma`` and be bootstrapped from, biasing every value
+    estimate upward.
+
+    ``truncation_policy`` is a static Python string, so the branch on it resolves at
+    trace time and only one bootstrap rule is ever staged out.
+
+    Args:
+        terminated: Whether the environment reached a terminal state.
+        truncated: Whether the environment cut the episode at a time limit of its own.
+        cutoff_reached: Whether the loop's own episode cutoff fired on this step.
+        gamma: Discount factor to use wherever the bootstrap survives.
+        truncation_policy: The task's answer to whether a truncation keeps its
+            bootstrap (``"bootstrap"``) or kills it like a termination
+            (``"terminate"``).
+
+    Returns:
+        The ``(discount, episode_end)`` pair: ``discount`` is float32 and is ``0``
+        wherever the bootstrap is killed and ``gamma`` elsewhere; ``episode_end`` is
+        bool and is true on termination and truncation alike.
+    """
+    is_terminated = jnp.asarray(terminated, dtype=jnp.bool_)
+    is_truncated = (
+        jnp.asarray(truncated, jnp.bool_) | jnp.asarray(cutoff_reached, jnp.bool_)
+    ) & ~is_terminated
+    episode_end = is_terminated | is_truncated
+    kills_bootstrap = is_terminated if truncation_policy == "bootstrap" else episode_end
+    discount = jnp.where(kills_bootstrap, jnp.zeros((), jnp.float32), jnp.asarray(gamma, jnp.float32))
+    return discount, episode_end
