@@ -1,0 +1,22 @@
+{
+  "config": {
+    "ENV_NAME": "CartPole-v1",
+    "SEED": 42,
+    "TOTAL_TIMESTEPS": 1024,
+    "NUM_STEPS": 32,
+    "NUM_MINIBATCHES": 4,
+    "UPDATE_EPOCHS": 4,
+    "NORMALIZE_OBSERVATIONS": true,
+    "num_updates": 32
+  },
+  "returned_episode_returns": {
+    "0": 6.75,
+    "7": 16.5,
+    "15": 15.625,
+    "23": 23.375,
+    "31": 39.15625
+  },
+  "observation_count": 1025.0,
+  "value_head_mean": 0.04161638393998146,
+  "value_head_std": 0.17897933721542358
+}
