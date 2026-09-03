@@ -722,7 +722,7 @@ class DatabaseManager:
             "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
             ") claimed ON claimed.run_id = r.id "
             "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
-            "ORDER BY r.seed, r.hyper_id, r.id",
+            "ORDER BY r.hyper_id, r.seed, r.id",
             (experiment_id,),
         ).fetchall()
 
