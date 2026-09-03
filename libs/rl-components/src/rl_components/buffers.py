@@ -29,6 +29,23 @@ class ReplayBuffer:
         self.action_dtype = action_dtype
         self.obs_dtype = obs_dtype
 
+    @classmethod
+    def from_state(cls, state: ReplayBufferState) -> "ReplayBuffer":
+        """Rebuild a buffer from the geometry recorded in one of its own states.
+
+        The buffer object holds no data, only shapes and dtypes, and every one of them is
+        recoverable from ``state``. An agent whose ``step`` is closed over by ``jit``
+        therefore needs nothing extra in its carry to reach its buffer: the state it
+        already carries is the geometry.
+        """
+        return cls(
+            capacity=state.obs.shape[0],
+            obs_shape=state.obs.shape[1:],
+            action_shape=state.actions.shape[1:],
+            action_dtype=state.actions.dtype,
+            obs_dtype=state.obs.dtype,
+        )
+
     def init(self) -> ReplayBufferState:
         return ReplayBufferState(
             obs=jnp.zeros((self.capacity,) + self.obs_shape, dtype=self.obs_dtype),

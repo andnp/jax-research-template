@@ -212,17 +212,6 @@ class DQNAtariAgentState:
     key: chex.PRNGKey
 
 
-def _buffer_from_state(buffer_state: ReplayBufferState) -> ReplayBuffer:
-    """Rebuild the replay buffer from the geometry recorded in its own state."""
-    return ReplayBuffer(
-        capacity=buffer_state.obs.shape[0],
-        obs_shape=buffer_state.obs.shape[1:],
-        action_shape=buffer_state.actions.shape[1:],
-        action_dtype=buffer_state.actions.dtype,
-        obs_dtype=buffer_state.obs.dtype,
-    )
-
-
 class DQNAtariAgent:
     """DQN Zoo's Atari DQN: a Nature CNN, centered RMSProp, and a hard target copy."""
 
@@ -314,7 +303,7 @@ class DQNAtariAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        buffer = _buffer_from_state(state.buffer_state)
+        buffer = ReplayBuffer.from_state(state.buffer_state)
         carry_key, sample_key, action_key = jax.random.split(state.key, 3)
 
         buffer_state = jax.lax.cond(
