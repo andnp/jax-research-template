@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788471786893,
+  "lastUpdate": 1788478459367,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -3308,6 +3308,121 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.000014814518205741256",
             "extra": "mean: 29.65680000102111 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "distinct": true,
+          "id": "88fa3fa0074e309b65f3ad3245a7f7d84f4d39e9",
+          "message": "test(rainbow): cover vmapped hypers with independent arms\n\nProves the sweep mechanism: two arms sharing one PRNG key must diverge\non a swept LEARNING_RATE (guards the rmsprop-injection fix) or\nADDITIONAL_DISCOUNT (guards the bootstrap_discount fix, isolated with\nN_STEP=1 so n-step reward-shaping can't mask the loss-side discount on\nits own), while two arms given identical hypers must land on identical\nweights.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T17:14:01-06:00",
+          "tree_id": "85be7db054779001440d68a50d04815bed0195f6",
+          "url": "https://github.com/andnp/jax-research-template/commit/88fa3fa0074e309b65f3ad3245a7f7d84f4d39e9"
+        },
+        "date": 1788478458916,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 7.008228358579525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004919078208119346",
+            "extra": "mean: 142.68941433333757 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 1.0082160734322538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016143158664636208",
+            "extra": "mean: 991.8508803333358 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.03917283861040271,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15451251763795606",
+            "extra": "mean: 25.527892168999998 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.584552699108464,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014244605849620492",
+            "extra": "mean: 1.7107097469999872 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 2461.1773877568994,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00006642849823665909",
+            "extra": "mean: 406.3096000209043 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 19.611421491058955,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014971277909304056",
+            "extra": "mean: 50.99069439999084 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 0.5812623402430724,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0038994142477459847",
+            "extra": "mean: 1.7203935826666832 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 5026.978115690648,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019458123740426138",
+            "extra": "mean: 198.92666667450007 usec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_without_learning_speed",
+            "value": 227.73425143580397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012495824295112093",
+            "extra": "mean: 4.391083000011046 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_with_learning_speed",
+            "value": 4.158572265662543,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0063599554868048235",
+            "extra": "mean: 240.4671449999872 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_canonical_env_rollout_speed",
+            "value": 40405.01992781059,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012336769813705796",
+            "extra": "mean: 24.749399995016574 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_rollout_speed",
+            "value": 41452.15179806713,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012799721153596965",
+            "extra": "mean: 24.124199990183115 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_components_gymnax_bridge_bench.py::test_gymnax_bridge_log_wrapper_rollout_speed",
+            "value": 22504.782268639072,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020432131019046046",
+            "extra": "mean: 44.43499999524647 usec\nrounds: 5"
           }
         ]
       }
