@@ -76,6 +76,42 @@ class QRCConfig:
     SEED: int = 42
 
 
+@chex_struct(frozen=True)
+class QRCHypers:
+    """The hyperparameters :class:`QRCAgent`'s ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. ``TOTAL_TIMESTEPS`` is
+    here and not on ``QRCConfig`` alone because, unlike in the legacy
+    ``make_train`` closure below (where it sizes the ``lax.scan``), the Agent
+    path never scans -- it only appears as a divisor in the epsilon schedule,
+    which makes it DYNAMIC for this path, matching ``dqn.py``'s classification
+    of the same field once it left the scan-owning closure style.
+    """
+
+    LR: jax.Array
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    EPSILON_START: jax.Array
+    EPSILON_END: jax.Array
+    EPSILON_FRACTION: jax.Array
+    TOTAL_TIMESTEPS: jax.Array
+    BETA: jax.Array
+
+
+def qrc_hypers(config: QRCConfig) -> QRCHypers:
+    return QRCHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
+        EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
+        EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
+        TOTAL_TIMESTEPS=jnp.asarray(config.TOTAL_TIMESTEPS, jnp.float32),
+        BETA=jnp.asarray(config.BETA, jnp.float32),
+    )
+
+
 class QRCNetwork(TypedApply[tuple[jax.Array, jax.Array]], nn.Module):
     """Shared trunk with zero-initialised linear q- and h-heads.
 
@@ -158,7 +194,7 @@ def qrc_loss_batch(
     next_obs: jax.Array,
     discounts: jax.Array,
     epsilon: jax.Array | float,
-    beta: float,
+    beta: jax.Array | float,
     *,
     apply_fn: QRCApplyFn,
 ) -> jax.Array:
@@ -207,6 +243,7 @@ class QRCAgentState:
         num_actions: Size of the discrete action space, as an int32 leaf so that random
             exploration can sample against a traced bound.
         key: PRNG key for sampling minibatches and exploring.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     train_state: TrainState
@@ -215,6 +252,7 @@ class QRCAgentState:
     last_action: jax.Array
     num_actions: jax.Array
     key: chex.PRNGKey
+    hypers: QRCHypers
 
 
 class QRCAgent:
@@ -265,13 +303,14 @@ class QRCAgent:
             train_state=TrainState.create(
                 apply_fn=network.apply,
                 params=network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype)),
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LR, jnp.float32)),
             ),
             buffer_state=buffer.init(),
             last_obs=jnp.zeros(observation_shape, dtype=observation_dtype),
             last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
             num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
             key=carry_key,
+            hypers=qrc_hypers(self.config),
         )
 
     def step(
@@ -302,7 +341,7 @@ class QRCAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        config = self.config
+        hypers = state.hypers
         buffer = ReplayBuffer.from_state(state.buffer_state)
         carry_key, sample_key, explore_key, action_key = jax.random.split(state.key, 4)
 
@@ -320,16 +359,16 @@ class QRCAgent:
         )
 
         epsilon = jnp.maximum(
-            jnp.asarray(config.EPSILON_END, jnp.float32),
-            jnp.asarray(config.EPSILON_START, jnp.float32)
-            - (config.EPSILON_START - config.EPSILON_END)
-            * (step_index / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
+            hypers.EPSILON_END,
+            hypers.EPSILON_START
+            - (hypers.EPSILON_START - hypers.EPSILON_END)
+            * (step_index / (hypers.TOTAL_TIMESTEPS * hypers.EPSILON_FRACTION)),
         ).astype(jnp.float32)
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
             can_train,
-            lambda: self._learn(state.train_state, buffer_state, buffer, sample_key, epsilon),
+            lambda: self._learn(state.train_state, buffer_state, buffer, sample_key, epsilon, hypers.LR, hypers.BETA),
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
@@ -346,6 +385,7 @@ class QRCAgent:
                 last_action=action,
                 num_actions=state.num_actions,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={
@@ -362,8 +402,18 @@ class QRCAgent:
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
         epsilon: jax.Array,
+        learning_rate: jax.Array,
+        beta: jax.Array,
     ) -> tuple[TrainState, jax.Array]:
-        """Take one gradient step on a replay minibatch."""
+        """Take one gradient step on a replay minibatch.
+
+        The rate is pushed into the optimizer state each step because the
+        transformation itself is a static field and cannot hold a traced value.
+        """
+        opt_state = train_state.opt_state
+        train_state = train_state.replace(
+            opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
+        )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
         loss, grads = jax.value_and_grad(
@@ -375,7 +425,7 @@ class QRCAgent:
                 next_obs,
                 discounts,
                 epsilon,
-                self.config.BETA,
+                beta,
                 apply_fn=train_state.apply_fn,
             )
         )(train_state.params)
