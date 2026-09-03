@@ -577,6 +577,11 @@ def compare_bakeoff(
     verbose: bool = True,
 ) -> BenchmarkBakeoffReport:
     """Compare algorithms with ECDF normalization and a listwise-deleted Friedman test."""
+    if len(algorithms) < 3:
+        raise ValueError(
+            f"compare_bakeoff requires at least 3 algorithms for the omnibus Friedman test, got "
+            f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
+        )
     db_path = Path(db_path)
     with DatabaseManager(db_path) as database:
         database.initialize()

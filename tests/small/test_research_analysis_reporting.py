@@ -368,3 +368,10 @@ def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setu
 
     with pytest.raises(ValueError, match="Insufficient complete bakeoff data"):
         compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
+
+
+def test_compare_bakeoff_rejects_fewer_than_three_algorithms() -> None:
+    """Fail with an actionable message instead of an opaque scipy error below the Friedman minimum."""
+    with pytest.raises(ValueError, match="compare_pairwise") as exc_info:
+        compare_bakeoff("unused.sqlite", "test-exp", ["ppo", "sac"], ["CartPole"], "metric", verbose=False)
+    assert exc_info.type is ValueError
