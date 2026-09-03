@@ -503,17 +503,34 @@ in §5. That is cheaper than a mask in every agent plus a dilated step index.
 
 ### 6.3 Control flow
 
-Implement the boundary with masking or `jax.lax.select`, per ADR 004 §3, not `lax.cond`.
-An earlier draft argued for `cond` to avoid running `env.reset` every step; that argument
-does not survive the execution model. Under `jax.vmap(run)` across seeds — the standard
-mode here — the boundary predicate is per-seed and therefore batched, and `vmap` of a
-`cond` with a batched predicate converts it to a `select` that evaluates both branches. In
-any case, with typical episode lengths at least one seed resets on almost every step.
+Implement the boundary reset with `jax.lax.cond`, not with masking or `jax.lax.select`.
 
-Correctness must not rest on which branch executes. What is guaranteed is that both
-branches are traced and must be traceable; whether either is *evaluated* is an optimisation
-detail that batching rules and the compiler decide. So the design assumes both run:
-**`env.reset` must stay cheap and must be safe to call on every step.**
+Correctness does not rest on which branch executes. Both branches are traced and must be
+traceable either way, and **`env.reset` must stay cheap and must be safe to call on every
+step**. `cond` therefore changes only whether the reset is *evaluated*; it never changes
+which value the loop selects.
+
+Under `jax.vmap(run)` across seeds — the standard mode here — the boundary predicate is
+per-seed and therefore batched, and `vmap` lawfully degrades the `cond` to a `select` that
+evaluates both branches. That is exactly the masking behaviour, so the batched path loses
+nothing.
+
+On the unbatched path `cond` is load-bearing rather than an optimisation. The ALE bridge
+(`python_env_bridge.py`) holds its emulator state in Python behind an ordered
+`io_callback`, outside the returned pytree. A `select` fires that callback on *every* step:
+the selection discards the returned value while the side effect stands, so the emulator is
+reset behind JAX's back and the running episode is destroyed — besides paying a full ALE
+reset per step. Under `cond` the callback runs only on the iterations whose result is
+actually selected, so the Python-side mutable state stays coherent with the JAX-side
+selection.
+
+Verified in this JAX version: an `ordered=True` `io_callback` inside `lax.cond` compiles,
+and the untaken branch's callback does not fire.
+
+This narrows ADR 004 §3 rather than contradicting it. Masking remains the rule for value
+selection, where both branches are pure and kernel fusion is the only consideration. `cond`
+is for guarding an *effectful* call, where evaluating the untaken branch is a semantic
+change and not merely a cost.
 
 ### 6.4 End of the scan horizon
 
