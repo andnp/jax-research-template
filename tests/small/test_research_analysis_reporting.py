@@ -72,6 +72,7 @@ def temp_experiment_setup() -> Generator[dict[str, Any], None, None]:
 
 
 def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
+    """Report paired outcomes with stable statistics and a distribution artifact."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
 
@@ -165,6 +166,7 @@ def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
 
 
 def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
+    """Return the pooled sensitivity report with every public field populated."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
     
@@ -211,6 +213,14 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.target_hyperparameter == "learning_rate"
     assert report.winning_value == "3e-4"
     assert report.raw_mean == pytest.approx(501.0)
+    assert report.corrected_mean == pytest.approx(501.0)
+    assert report.maximization_bias == pytest.approx(0.0)
+    assert report.sensitivity_best == {
+        "1e-3": pytest.approx(201.0),
+        "3e-4": pytest.approx(501.0),
+        "1e-4": pytest.approx(301.0),
+    }
+    assert report.sensitivity_slice == report.sensitivity_best
     assert report.corrected_mean <= report.raw_mean
     assert report.sensitivity_plot_path is not None
     assert report.sensitivity_plot_path.exists()
@@ -281,6 +291,26 @@ def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_s
     assert alpha_report.sensitivity_plot_path != beta_report.sensitivity_plot_path
     assert alpha_report.sensitivity_plot_path.exists()
     assert beta_report.sensitivity_plot_path.exists()
+
+
+def test_analyze_hypers_group_by_empty_list_keeps_pooled_contract(temp_experiment_setup: dict[str, Any]) -> None:
+    """Treat an empty grouping list like no grouping and return one report."""
+    setup = temp_experiment_setup
+
+    with DatabaseManager(setup["db_path"]) as db:
+        for value, score in [("low", 1.0), ("high", 2.0)]:
+            hyper_id = db.add_hyperparam_config({"setting": value, "seed": 0})
+            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, 0)
+            execution_id = db.add_execution()
+            db.update_execution_status(execution_id, "COMPLETED")
+            db.link_execution_run(execution_id, run_id)
+            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
+            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [score])
+
+    report = analyze_hypers(setup["db_path"], "test-exp", "setting", "metric", group_by=[], verbose=False)
+
+    assert isinstance(report, HyperparameterSensitivityReport)
+    assert report.winning_value == "high"
 
 
 def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
