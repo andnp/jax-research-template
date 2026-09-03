@@ -225,14 +225,14 @@ def make_train_step(
         actions: jax.Array,
         rewards: jax.Array,
         next_obs: jax.Array,
-        dones: jax.Array,
+        discounts: jax.Array,
     ) -> jax.Array:
         q_values = network.apply(params, obs)
         q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
 
         next_q_values = network.apply(target_params, next_obs)
         next_q_max = jnp.max(next_q_values, axis=-1)
-        targets = rewards + config.ADDITIONAL_DISCOUNT * next_q_max * (1.0 - dones)
+        targets = rewards + discounts * next_q_max
         td_error = q_action - jax.lax.stop_gradient(targets)
         return jnp.mean(jnp.square(td_error))
 
@@ -271,6 +271,7 @@ def make_train_step(
             rewards = buffer_state.rewards[indices]
             next_obs = buffer_state.next_obs[indices]
             dones = buffer_state.dones[indices]
+            discounts = config.ADDITIONAL_DISCOUNT * (1.0 - dones)
             loss, grads = jax.value_and_grad(_loss)(
                 train_state.params,
                 target_params,
@@ -278,7 +279,7 @@ def make_train_step(
                 actions,
                 rewards,
                 next_obs,
-                dones,
+                discounts,
             )
             return train_state.apply_gradients(grads=grads), loss
 
