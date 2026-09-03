@@ -261,17 +261,7 @@ def make_train_step(
 
         def _do_learn(args: tuple[TrainState, VariableDict, ReplayBufferState]) -> tuple[TrainState, jax.Array]:
             train_state, target_params, buffer_state = args
-            indices = jax.random.randint(
-                sample_rng,
-                (config.BATCH_SIZE,),
-                0,
-                buffer_state.count,
-            )
-            obs_batch = buffer_state.obs[indices]
-            actions = buffer_state.actions[indices]
-            rewards = buffer_state.rewards[indices]
-            next_obs = buffer_state.next_obs[indices]
-            discounts = buffer_state.discount[indices]
+            obs_batch, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_rng, config.BATCH_SIZE)
             loss, grads = jax.value_and_grad(_loss)(
                 train_state.params,
                 target_params,
