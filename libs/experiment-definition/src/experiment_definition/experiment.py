@@ -166,6 +166,11 @@ class Experiment:
 
     # ── Metrics ───────────────────────────────────────────────────────────────
 
+    @property
+    def metrics(self) -> tuple[MetricSpec, ...]:
+        """Declared metric specs, in declaration order."""
+        return tuple(self._state.metrics)
+
     def add_metric(
         self,
         name: str,
