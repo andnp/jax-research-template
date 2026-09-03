@@ -1,19 +1,22 @@
 """One compiled kernel must train a batch of hyperparameter arms independently."""
 
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 from rl_agents.dqn import DQNAgent, DQNConfig
-from rl_agents.replay_q_agent import replay_q_hypers
+from rl_agents.replay_q_agent import ReplayQAgentState, ReplayQHypers, replay_q_hypers
 from rl_components.env_protocol import EnvSpec
 from rl_components.timestep import Timestep
 
 SPEC = EnvSpec(id="toy-discrete", observation_shape=(2,), action_shape=(), num_actions=2)
 
 
-def _run_arm(agent: DQNAgent, base_hypers, learning_rate: jax.Array, key: jax.Array):
-    state = agent.init(key, SPEC).replace(hypers=base_hypers.replace(LR=learning_rate))
+def _run_arm(agent: DQNAgent, base_hypers: ReplayQHypers, learning_rate: jax.Array, key: jax.Array):
+    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
 
-    def one_step(state, step_index):
+    def one_step(state: ReplayQAgentState, step_index: jax.Array):
         timestep = Timestep(
             observation=jnp.ones((2,), jnp.float32) * (step_index + 1),
             reward=jnp.float32(1.0),
