@@ -60,7 +60,7 @@ The `research` CLI is the orchestration layer for the RL Research Monorepo. It m
     - Handles forking, branching, and opening the PR via `gh`.
 
 ### 2.4 Experiment Orchestration
-The CLI manages experiments declared with `experiment-definition`, using SQLite as the persistent state-of-the-world. A *spec file* is a Python module whose factory functions are decorated with `@spec` from `research_runner` and return an `ExperimentSpec`; each names one absolute `results_root`, and the experiment database, metrics database and execution roots are derived from it. The CLI discovers exactly the factories registered by `@spec`, not every function that happens to return an `ExperimentSpec`.
+The CLI manages experiments declared with `experiment-definition`, using SQLite as the persistent state-of-the-world. A *spec file* is a Python module whose factory functions return an `ExperimentSpec`; each names one absolute `results_root`, and the experiment database, metrics database and execution roots are derived from it.
 
 Commands taking a spec file accept `--spec <name>` to select a single factory and `--results-root <path>` to relocate the whole results tree.
 
@@ -144,7 +144,7 @@ doctor:
 ## 4. User Workflows
 
 ### Workflow A: The Hyperparameter Sweep
-1. Researcher defines an `Experiment` (parameters, static axes, metrics) and a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`, in a project file, e.g. `projects/new-idea/sweep.py`.
+1. Researcher defines an `Experiment` (parameters, static axes, metrics) and a module-level, zero-argument function returning `ExperimentSpec` in a project file, e.g. `projects/new-idea/sweep.py`.
 2. Runs `uv run research experiment plan sweep.py --spec my_sweep` to preview the batches that would run, with no side effects.
 3. Runs `uv run research experiment run sweep.py --spec my_sweep`. The CLI groups work into vmap-zones sharing static parameters and dispatches them, writing intent/provenance to `experiments.sqlite` and metric series to `metrics.sqlite`.
 4. If the run is interrupted, rerunning the same `run` command re-plans and executes only the unsatisfied runs; completed work is never repeated.
