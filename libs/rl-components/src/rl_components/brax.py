@@ -35,7 +35,6 @@ class BraxConfig:
     env_name: str
     backend: str | None = None
     episode_length: int = 1000
-    auto_reset: bool = True
 
 
 def _as_brax_env(env: object) -> _BraxEnv[_BraxState]:
@@ -49,14 +48,14 @@ def _make_brax_env(config: BraxConfig) -> _BraxEnv[_BraxState]:
         env = brax_envs.create(
             config.env_name,
             episode_length=config.episode_length,
-            auto_reset=config.auto_reset,
+            auto_reset=False,
         )
     else:
         env = brax_envs.create(
             config.env_name,
             backend=config.backend,
             episode_length=config.episode_length,
-            auto_reset=config.auto_reset,
+            auto_reset=False,
         )
     return _as_brax_env(env)
 
