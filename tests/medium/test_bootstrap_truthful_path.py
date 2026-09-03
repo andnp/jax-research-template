@@ -103,8 +103,12 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
             "class ExperimentSpec: pass\n",
             encoding="utf-8",
         )
+        (src_dir / "registry.py").write_text(
+            "def spec(factory): return factory\n\n\ndef registered_specs(module): return {}\n",
+            encoding="utf-8",
+        )
         (src_dir / "__init__.py").write_text(
-            "from .types import ExperimentSpec\n",
+            "from .registry import registered_specs, spec\nfrom .types import ExperimentSpec\n",
             encoding="utf-8",
         )
 

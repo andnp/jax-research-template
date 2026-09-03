@@ -2,33 +2,25 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import typing
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
 import typer
 from experiment_definition.db import DatabaseManager, ExperimentRow
-from research_runner import ExperimentSpec
+from research_runner import ExperimentSpec, registered_specs
 
 experiment_app = typer.Typer(help="Manage experiments.")
 
 
 def _discover_specs(module: object, spec_name: str | None) -> dict[str, Callable[[], ExperimentSpec]]:
-    specs: dict[str, Callable[[], ExperimentSpec]] = {}
-    for attr_name in dir(module):
-        if attr_name.startswith("_"):
-            continue
-        obj = getattr(module, attr_name)
-        if not callable(obj):
-            continue
-        try:
-            hints = typing.get_type_hints(obj)
-        except Exception:
-            continue
-        ret = hints.get("return")
-        if ret is ExperimentSpec:
-            specs[attr_name] = typing.cast(Callable[[], ExperimentSpec], obj)
+    specs = registered_specs(module)
+    if not specs:
+        typer.echo(
+            "Error: no experiment specs registered. Decorate a factory with @spec.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     if spec_name is not None:
         if spec_name not in specs:
             typer.echo(f"Error: spec '{spec_name}' not found. Available: {', '.join(sorted(specs))}", err=True)

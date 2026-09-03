@@ -62,9 +62,10 @@ def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult
+            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult, spec
             from experiment_definition import Experiment, Component, ComponentType
 
+            @spec
             def my_spec() -> ExperimentSpec:
                 experiment = Experiment("test-experiment", description="Test")
                 with experiment.for_component(Component(name="test-algo", path=Path("algo.py"), type=ComponentType.ALGO)):
@@ -136,6 +137,24 @@ def test_spec_discovery_ignores_non_spec_functions(tmp_path: Path) -> None:
     specs = _discover_specs(loaded, None)
     assert "my_spec" in specs
     assert "not_a_spec" not in specs
+
+
+def test_experiment_plan_fails_when_no_specs_registered(tmp_path: Path) -> None:
+    spec_file = tmp_path / "unregistered_spec.py"
+    spec_file.write_text(
+        textwrap.dedent("""\
+            from __future__ import annotations
+            from research_runner import ExperimentSpec
+
+            def my_spec() -> ExperimentSpec:
+                raise NotImplementedError
+        """),
+    )
+
+    result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    assert result.exit_code == 1
+    assert "no experiment specs registered" in result.output.lower()
+    assert "@spec" in result.output
 
 
 # ---------------------------------------------------------------------------
