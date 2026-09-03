@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from experiment_definition import Component, ComponentType, Experiment, MetricFrequency, MetricType
 from experiment_definition.ablation import AblationSpec
+from experiment_definition.db import DatabaseManager
 from experiment_definition.metric import MetricSpec
 from experiment_definition.parameter import ParameterSpec
 
@@ -145,3 +146,59 @@ class TestExperimentBuilder:
         exp = Experiment("Test")
         with pytest.raises(ValueError):
             exp.add_metric("x", kind="float", frequency="invalid")
+
+
+# ── Component provenance ──────────────────────────────────────────────────────
+
+
+class TestComponentProvenance:
+    def test_single_algo_component_stamps_version(self, tmp_path: Path) -> None:
+        """The common case: one ALGO component unambiguously authors every run."""
+        db_path = tmp_path / "experiments.sqlite"
+        algo = Component(name="PPO", path=Path("/nonexistent/ppo.py"), type=ComponentType.ALGO)
+        env = Component(name="Env", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment("SingleAlgo")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(algo):
+            exp.add_parameter("lr", [1e-3])
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        exp.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("SingleAlgo")
+            assert experiment_row is not None
+            runs = database.list_runs(experiment_row.id)
+            assert len(runs) == 1
+            assert runs[0].algo_version_id is not None
+
+    def test_two_algo_components_leave_version_null(self, tmp_path: Path) -> None:
+        """
+        A two-agent bakeoff declares two ALGO components. There is no
+        per-run record of which component actually produced a given run, so
+        arbitrarily stamping every Run with the first component's version id
+        would silently attribute one agent's runs to the other. NULL is the
+        honest answer: "unknown", not a specific wrong one.
+        """
+        db_path = tmp_path / "experiments.sqlite"
+        baseline = Component(name="Baseline", path=Path("/nonexistent/baseline.py"), type=ComponentType.ALGO)
+        variant = Component(name="Variant", path=Path("/nonexistent/variant.py"), type=ComponentType.ALGO)
+        env = Component(name="Env", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment("Bakeoff")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(baseline):
+            pass
+        with exp.for_component(variant):
+            pass
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        exp.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("Bakeoff")
+            assert experiment_row is not None
+            runs = database.list_runs(experiment_row.id)
+            assert len(runs) == 1
+            assert runs[0].algo_version_id is None

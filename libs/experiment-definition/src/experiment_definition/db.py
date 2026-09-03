@@ -268,16 +268,21 @@ def _insert_runs(
     Seeds are extracted from the ``seed`` key in the config; all other keys
     form the ``HyperparamConfig``.
     """
-    # Determine algo/env version ids (first ALGO / ENV component wins)
-    algo_vid: int | None = None
-    env_vid: int | None = None
-    for comp in state.components:
-        from .component import ComponentType
+    # Determine algo/env version ids. When exactly one component of a type is
+    # declared it unambiguously authored every run, so its version id is
+    # stamped as before. When *more than one* component of the same type is
+    # declared (e.g. a two-agent bakeoff), the schema has no per-run record
+    # of which component actually produced a given run, so picking one
+    # arbitrarily (previously: "first wins") silently mislabels provenance
+    # for every run that used a different component. Leaving the column
+    # NULL is the honest smallest fix: "unknown" instead of a specific,
+    # wrong, answer.
+    from .component import ComponentType
 
-        if algo_vid is None and comp.type == ComponentType.ALGO:
-            algo_vid = comp_version_ids.get(comp.name)
-        if env_vid is None and comp.type == ComponentType.ENV:
-            env_vid = comp_version_ids.get(comp.name)
+    algo_components = [comp for comp in state.components if comp.type == ComponentType.ALGO]
+    env_components = [comp for comp in state.components if comp.type == ComponentType.ENV]
+    algo_vid: int | None = comp_version_ids.get(algo_components[0].name) if len(algo_components) == 1 else None
+    env_vid: int | None = comp_version_ids.get(env_components[0].name) if len(env_components) == 1 else None
 
     ablation_list: list[tuple[str | None, dict[str, ParameterValue]]] = [(None, {})]
     for abl in state.ablations:
