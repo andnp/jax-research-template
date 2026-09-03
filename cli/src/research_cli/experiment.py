@@ -206,22 +206,63 @@ def executions(
         typer.echo(f"{row.id:<6} {row.status:<12} {hostname_display:<20} {start_display:<22} {commit_display:<10}")
 
 
+def _parse_where_clauses(where: list[str]) -> dict[str, str]:
+    clauses: dict[str, str] = {}
+    for clause in where:
+        if "=" not in clause:
+            typer.echo(f"Error: --where clause '{clause}' must be key=value.", err=True)
+            raise typer.Exit(code=1)
+        key, _, value = clause.partition("=")
+        clauses[key] = value
+    return clauses
+
+
 @experiment_app.command("invalidate")
 def invalidate(
     db_path: Path = typer.Argument(..., help="Path to the experiment database."),
     execution: list[int] | None = typer.Option(None, "--execution", help="Execution ID(s) to invalidate."),
     git_commit: str | None = typer.Option(None, "--git-commit", help="Invalidate all executions for a git commit."),
+    experiment: str | None = typer.Option(None, "--experiment", help="Experiment slug. Required to scope --where."),
+    where: list[str] | None = typer.Option(
+        None,
+        "--where",
+        help="Invalidate executions whose covered runs all match hyperparameter key=value (repeatable, requires --experiment).",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ):
-    if not execution and not git_commit:
-        typer.echo("Error: at least one of --execution or --git-commit must be provided.", err=True)
+    if not execution and not git_commit and not where:
+        typer.echo("Error: at least one of --execution, --git-commit, or --where must be provided.", err=True)
         raise typer.Exit(code=1)
+    if where and not experiment:
+        typer.echo("Error: --where requires --experiment to scope the match.", err=True)
+        raise typer.Exit(code=1)
+
+    where_clauses = _parse_where_clauses(where) if where else {}
+    where_display = ", ".join(f"{k}={v}" for k, v in where_clauses.items())
+
+    matched_where_ids: list[int] = []
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        if where_clauses:
+            assert experiment is not None
+            exp_row = db.get_experiment(experiment)
+            if exp_row is None:
+                typer.echo(f"Error: experiment '{experiment}' not found.", err=True)
+                raise typer.Exit(code=1)
+            matched = db.find_executions_by_hyperparams(exp_row.id, where_clauses)
+            if not matched:
+                typer.echo(f"Error: --where {where_display} matched no executions in experiment '{experiment}'.", err=True)
+                raise typer.Exit(code=1)
+            matched_where_ids = [row.id for row in matched]
+            typer.echo(f"Matched {len(matched_where_ids)} execution(s) for --where {where_display}: {', '.join(str(i) for i in matched_where_ids)}")
 
     parts = []
     if execution:
         parts.append(f"execution ID(s): {', '.join(str(e) for e in execution)}")
     if git_commit:
         parts.append(f"git commit: {git_commit[:8]}")
+    if matched_where_ids:
+        parts.append(f"hyperparameters ({where_display}): {len(matched_where_ids)} execution(s)")
     if not yes:
         typer.confirm(f"Invalidate executions matching {'; '.join(parts)}?", abort=True)
 
@@ -235,6 +276,9 @@ def invalidate(
         if git_commit:
             already = set(invalidated)
             invalidated.extend(eid for eid in db.invalidate_executions_by_commit(git_commit) if eid not in already)
+        if matched_where_ids:
+            already = set(invalidated)
+            invalidated.extend(eid for eid in matched_where_ids if eid not in already and db.invalidate_execution(eid))
 
     if not invalidated:
         typer.echo("Warning: no executions were invalidated.", err=True)
