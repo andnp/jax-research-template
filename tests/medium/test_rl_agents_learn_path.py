@@ -310,12 +310,16 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
     )
-    out = jax.jit(dueling_dqn.make_train(config, env=_discrete_env()))(jax.random.key(SEED))
+    agent = dueling_dqn.DuelingDQNAgent(config)
+    env = ToyDiscreteEpisodeEnv()
+    final_state, metrics = jax.jit(
+        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+    )(jax.random.key(SEED))
     return _finish(
-        out["runner_state"]._asdict(),
-        out["metrics"],
-        terminated=out["metrics"]["terminated"],
-        transitions=TOTAL_TIMESTEPS,
+        dict(final_state.agent_state),
+        metrics,
+        terminated=metrics["loop/terminated"],
+        transitions=TOTAL_TIMESTEPS - 1,
     )
 
 
@@ -396,20 +400,20 @@ AGENT_RUNS: dict[str, Callable[[int], Run]] = {
     "greedy_ac": _run_greedy_ac,
 }
 
-LOOP_DRIVER_AGENTS = ("dqn", "double_dqn")
+LOOP_DRIVER_AGENTS = ("dqn", "double_dqn", "dueling_dqn")
 """Agents driven through ``AgentProtocol`` plus ``loop.run`` rather than ``make_train``.
 
 Each port adds itself here. When the tuple holds every agent, the ``make_train`` drivers,
 ``ToyDiscreteEnv``'s auto-reset and the Gymnax compatibility bridge all go together."""
 
-LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "sac", "td3", "greedy_ac")
+LOSS_METRIC_AGENTS = ("dqn", "double_dqn", "dueling_dqn", "sac", "td3", "greedy_ac")
 """Agents that publish their losses.
 
-``dueling_dqn`` and ``qrc`` compute a real loss and then discard it -- their
-``_update_step`` binds ``loss`` and returns the raw environment ``info`` -- so two of the
-seven agents cannot be gated on it and are observable only through their parameters. That is
-a defect in the agents, not in this gate: each port surfaces the loss its agent already
-computes, at which point this allowlist becomes the full agent set and can be deleted."""
+``qrc`` computes a real loss and then discards it -- its ``_update_step`` binds ``loss`` and
+returns the raw environment ``info`` -- so one of the seven agents cannot be gated on it and
+is observable only through its parameters. That is a defect in the agent, not in this gate:
+each port surfaces the loss its agent already computes, at which point this allowlist
+becomes the full agent set and can be deleted."""
 
 
 @pytest.fixture(scope="module")
