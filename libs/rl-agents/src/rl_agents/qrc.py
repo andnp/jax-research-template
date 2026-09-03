@@ -16,11 +16,17 @@ Two design decisions carried over from the reference implementation:
   for.
 """
 
+from typing import Callable, NamedTuple, TypedDict
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
+from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
 
@@ -93,7 +99,7 @@ def qrc_loss(
     reward: jax.Array,
     gamma: jax.Array,
     q_next: jax.Array,
-    epsilon: float,
+    epsilon: jax.Array | float,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Per-transition QRC loss (Ghiassian et al. 2020, eqs. 8-9).
 
@@ -124,7 +130,7 @@ def qrc_loss_batch(
     next_obs: jax.Array,
     dones: jax.Array,
     gamma: float,
-    epsilon: float,
+    epsilon: jax.Array | float,
     beta: float,
 ) -> jax.Array:
     """Mean QRC loss over a minibatch, plus L2 regularisation on the h-head.
@@ -142,3 +148,100 @@ def qrc_loss_batch(
 
     h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
     return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
+
+
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    buffer_state: ReplayBufferState
+    env_state: object
+    last_obs: jax.Array
+    rng: jax.Array
+
+
+class QRCTrainOutput(TypedDict):
+    runner_state: RunnerState
+    metrics: dict[str, jax.Array]
+
+
+def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], QRCTrainOutput]:
+    def train(rng: jax.Array) -> QRCTrainOutput:
+        # INIT NETWORK
+        observation_shape = tuple(env.observation_space(env_params).shape)
+        action_dim = env.action_space(env_params).n
+        network = QRCNetwork(action_dim)
+        rng, _rng = jax.random.split(rng)
+        init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
+        params = network.init(_rng, init_x)
+
+        tx = optax.adam(config.LR)
+        train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
+
+        # INIT BUFFER
+        buffer = ReplayBuffer(config.BUFFER_SIZE, observation_shape, (), jnp.int32)
+        buffer_state = buffer.init()
+
+        # INIT ENV
+        rng, _rng = jax.random.split(rng)
+        obsv, env_state = env.reset(_rng, env_params)
+
+        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
+            train_state, buffer_state, env_state, last_obs, rng = runner_state
+
+            # EPSILON GREEDY
+            epsilon = jnp.maximum(
+                config.EPSILON_END,
+                config.EPSILON_START
+                - (config.EPSILON_START - config.EPSILON_END)
+                * (t / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
+            )
+
+            rng, _rng_action, _rng_step = jax.random.split(rng, 3)
+            q_values, _ = network.apply(train_state.params, last_obs)
+            greedy_action = jnp.argmax(q_values)
+            random_action = jax.random.randint(_rng_action, (), 0, action_dim)
+            chose_random = jax.random.uniform(_rng_action, ()) < epsilon
+            action = jnp.where(chose_random, random_action, greedy_action)
+
+            # STEP ENV
+            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
+
+            # ADD TO BUFFER
+            buffer_state = buffer.add(
+                buffer_state,
+                last_obs[None, ...],
+                action[None, ...],
+                reward[None, ...],
+                obsv[None, ...],
+                done[None, ...],
+            )
+
+            # TRAIN
+            def _do_train(train_state: TrainState, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
+                rng, _rng = jax.random.split(rng)
+                obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+
+                def _loss_fn(params: VariableDict) -> jax.Array:
+                    return qrc_loss_batch(params, network, obs, actions, rewards, next_obs, dones, config.GAMMA, epsilon, config.BETA)
+
+                loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
+                train_state = train_state.apply_gradients(grads=grads)
+                return train_state, loss
+
+            can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
+            train_state, loss = jax.lax.cond(
+                can_train,
+                lambda: _do_train(train_state, buffer_state, rng),
+                lambda: (train_state, 0.0),
+            )
+
+            runner_state = RunnerState(train_state=train_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+            return runner_state, info
+
+        # RUNNER
+        runner_state = RunnerState(train_state=train_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
+        runner_state, metrics = jax.lax.scan(
+            _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
+        )
+        return {"runner_state": runner_state, "metrics": metrics}
+
+    return train
