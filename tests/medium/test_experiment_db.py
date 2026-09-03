@@ -11,6 +11,17 @@ import sqlite3
 import pytest
 from experiment_definition.db import DatabaseManager
 
+
+def _require[T](value: T | None) -> T:
+    """Return a looked-up row, failing the test if it was not found.
+
+    The db lookups return ``| None`` because a miss is legitimate. These tests
+    seed the rows first, so a miss means the fixture is broken -- assert that
+    directly instead of tripping over ``None`` further downstream.
+    """
+    assert value is not None
+    return value
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -224,23 +235,23 @@ def populated_db(db: DatabaseManager) -> DatabaseManager:
 
 def test_add_run_returns_id(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)
     assert isinstance(run_id, int) and run_id > 0
 
 
 def test_add_run_duplicate_raises(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")
     with pytest.raises(sqlite3.IntegrityError):
-        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")  # type: ignore[union-attr]
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1, ablation="base")
 
 
 def test_ensure_experiment_reuses_existing_id(db: DatabaseManager) -> None:
@@ -252,12 +263,12 @@ def test_ensure_experiment_reuses_existing_id(db: DatabaseManager) -> None:
 
 def test_list_runs_returns_all_runs_for_experiment(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
-    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)
+    db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)
 
     runs = db.list_runs(exp_id)
 
@@ -266,12 +277,12 @@ def test_list_runs_returns_all_runs_for_experiment(populated_db: DatabaseManager
 
 def test_list_unsatisfied_runs_excludes_completed_execution(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run0 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
-    run1 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run0 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)
+    run1 = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)
 
     execution_id = db.add_execution(hostname="node01")
     db.link_execution_run(execution_id, run0)
@@ -284,11 +295,11 @@ def test_list_unsatisfied_runs_excludes_completed_execution(populated_db: Databa
 
 def test_list_unsatisfied_runs_keeps_failed_only_runs(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)
 
     execution_id = db.add_execution(hostname="node02")
     db.link_execution_run(execution_id, run_id)
@@ -336,11 +347,11 @@ def test_add_execution_with_jax_config(db: DatabaseManager) -> None:
 
 def test_link_execution_run(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=7)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=7)
     exec_id = db.add_execution(hostname="node02")
     db.link_execution_run(exec_id, run_id)
     row = db.conn.execute(
@@ -398,13 +409,13 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
 def test_one_execution_covers_multiple_runs(populated_db: DatabaseManager) -> None:
     """Verify the vmap-zone many-to-one semantic: 1 execution → N runs."""
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
     exec_id = db.add_execution(hostname="gpu_node")
     for seed in range(5):
-        run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)  # type: ignore[union-attr]
+        run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)
         db.link_execution_run(exec_id, run_id)
     count = db.conn.execute(
         "SELECT COUNT(*) FROM ExecutionRuns WHERE execution_id = ?", (exec_id,)
@@ -414,12 +425,12 @@ def test_one_execution_covers_multiple_runs(populated_db: DatabaseManager) -> No
 
 def test_plan_execution_creates_pending_execution_and_links_runs(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
     run_ids = [
-        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)  # type: ignore[union-attr]
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)
         for seed in (0, 1)
     ]
 
@@ -441,13 +452,13 @@ def test_plan_execution_requires_non_empty_run_ids(db: DatabaseManager) -> None:
 
 def test_plan_unsatisfied_execution_selects_only_unsatisfied_runs(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    completed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
-    failed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)  # type: ignore[union-attr]
-    fresh_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    completed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)
+    failed_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=1)
+    fresh_run = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=2)
 
     completed_execution = db.add_execution(hostname="node-complete")
     db.link_execution_run(completed_execution, completed_run)
@@ -466,12 +477,12 @@ def test_plan_unsatisfied_execution_selects_only_unsatisfied_runs(populated_db: 
 
 def test_plan_unsatisfied_execution_respects_limit(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
     for seed in range(3):
-        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)  # type: ignore[union-attr]
+        db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=seed)
 
     planned_execution = db.plan_unsatisfied_execution(exp_id, limit=2)
 
@@ -483,11 +494,11 @@ def test_plan_unsatisfied_execution_respects_limit(populated_db: DatabaseManager
 
 def test_plan_unsatisfied_execution_returns_none_when_all_runs_satisfied(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=0)
 
     execution_id = db.add_execution(hostname="node04")
     db.link_execution_run(execution_id, run_id)
@@ -498,11 +509,11 @@ def test_plan_unsatisfied_execution_returns_none_when_all_runs_satisfied(populat
 
 def test_get_latest_completed_execution_for_run_returns_latest(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=9)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=9)
 
     older_execution = db.add_execution(hostname="node-old")
     db.link_execution_run(older_execution, run_id)
@@ -520,11 +531,11 @@ def test_get_latest_completed_execution_for_run_returns_latest(populated_db: Dat
 
 def test_get_latest_completed_artifacts_for_run_returns_artifacts_for_latest_execution(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=11)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=11)
 
     older_execution = db.add_execution(hostname="node-old")
     db.link_execution_run(older_execution, run_id)
@@ -603,7 +614,7 @@ def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: 
     first_batch_runs = db.list_execution_runs(execution_ids[0])
     second_batch_runs = db.list_execution_runs(execution_ids[1])
     assert [len(first_batch_runs), len(second_batch_runs)] == [1, 2]
-    assert all(db.get_execution(execution_id).hostname == "batch-planner" for execution_id in execution_ids)  # type: ignore[union-attr]
+    assert all(_require(db.get_execution(execution_id)).hostname == "batch-planner" for execution_id in execution_ids)
 
 
 def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseManager) -> None:
@@ -657,11 +668,11 @@ def test_context_manager_opens_and_closes() -> None:
 
 def test_invalidate_execution_sets_status(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=20)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=20)
 
     execution_id = db.add_execution(hostname="node-inv")
     db.link_execution_run(execution_id, run_id)
@@ -670,7 +681,7 @@ def test_invalidate_execution_sets_status(populated_db: DatabaseManager) -> None
     result = db.invalidate_execution(execution_id)
 
     assert result is True
-    assert db.get_execution(execution_id).status == "INVALID"  # type: ignore[union-attr]
+    assert _require(db.get_execution(execution_id)).status == "INVALID"
 
 
 def test_invalidate_execution_nonexistent_returns_false(db: DatabaseManager) -> None:
@@ -679,11 +690,11 @@ def test_invalidate_execution_nonexistent_returns_false(db: DatabaseManager) -> 
 
 def test_invalidate_execution_makes_runs_unsatisfied(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
-    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=21)  # type: ignore[union-attr]
+    exp_id = _require(db.get_experiment("Test Exp")).id
+    run_id = db.add_run(exp_id, algo_ver.id, env_ver.id, hyper_id, seed=21)
 
     execution_id = db.add_execution(hostname="node-inv2")
     db.link_execution_run(execution_id, run_id)
@@ -707,9 +718,9 @@ def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
     invalidated = db.invalidate_executions_by_commit("aaa111")
 
     assert sorted(invalidated) == sorted([e1, e2])
-    assert db.get_execution(e1).status == "INVALID"  # type: ignore[union-attr]
-    assert db.get_execution(e2).status == "INVALID"  # type: ignore[union-attr]
-    assert db.get_execution(e3).status == "COMPLETED"  # type: ignore[union-attr]
+    assert _require(db.get_execution(e1)).status == "INVALID"
+    assert _require(db.get_execution(e2)).status == "INVALID"
+    assert _require(db.get_execution(e3)).status == "COMPLETED"
 
 
 def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
@@ -722,9 +733,9 @@ def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> 
     invalidated = db.invalidate_executions_by_commit("ccc333")
 
     assert invalidated == [e_completed]
-    assert db.get_execution(e_pending).status == "PENDING"  # type: ignore[union-attr]
-    assert db.get_execution(e_running).status == "RUNNING"  # type: ignore[union-attr]
-    assert db.get_execution(e_completed).status == "INVALID"  # type: ignore[union-attr]
+    assert _require(db.get_execution(e_pending)).status == "PENDING"
+    assert _require(db.get_execution(e_running)).status == "RUNNING"
+    assert _require(db.get_execution(e_completed)).status == "INVALID"
 
 
 # ---------------------------------------------------------------------------
@@ -754,14 +765,14 @@ def test_list_executions_filter_by_status(db: DatabaseManager) -> None:
 
 def test_list_executions_filter_by_experiment(populated_db: DatabaseManager) -> None:
     db = populated_db
-    algo_ver = db.get_latest_version(db.get_component("PPO3").id)  # type: ignore[union-attr]
-    env_ver = db.get_latest_version(db.get_component("CartPole2").id)  # type: ignore[union-attr]
+    algo_ver = _require(db.get_latest_version(_require(db.get_component("PPO3")).id))
+    env_ver = _require(db.get_latest_version(_require(db.get_component("CartPole2")).id))
     hyper_id = db.add_hyperparam_config({"lr": 1e-3})
-    exp1_id = db.get_experiment("Test Exp").id  # type: ignore[union-attr]
+    exp1_id = _require(db.get_experiment("Test Exp")).id
     exp2_id = db.add_experiment("Other Exp")
 
-    run1 = db.add_run(exp1_id, algo_ver.id, env_ver.id, hyper_id, seed=30)  # type: ignore[union-attr]
-    run2 = db.add_run(exp2_id, algo_ver.id, env_ver.id, hyper_id, seed=31)  # type: ignore[union-attr]
+    run1 = db.add_run(exp1_id, algo_ver.id, env_ver.id, hyper_id, seed=30)
+    run2 = db.add_run(exp2_id, algo_ver.id, env_ver.id, hyper_id, seed=31)
 
     exec1 = db.add_execution(hostname="n1")
     db.link_execution_run(exec1, run1)
