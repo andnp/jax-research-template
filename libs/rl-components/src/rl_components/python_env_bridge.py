@@ -10,9 +10,6 @@ import numpy as np
 
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
-FINAL_OBSERVATION_INFO_KEY = "final_observation"
-FINAL_OBSERVATION_VALID_INFO_KEY = "final_observation_valid"
-
 
 class _ALEHandle(Protocol):
     """The slice of ale-py's ALE interface this bridge depends on."""
@@ -41,6 +38,17 @@ class PythonEnvBridge:
     independently usable under vmap.
 
     The factory callable is invoked once at construction time to produce the gym env.
+
+    ``step`` does NOT reset at a boundary. It returns the observation the transition
+    actually reached, and :func:`rl_components.loop.run` owns the reset. That reset must
+    happen: stepping an ALE env after game over returns the same terminal observation
+    indefinitely, so a driver that never calls ``reset`` freezes on it.
+
+    The loop guards its reset with ``lax.cond`` rather than a select precisely because the
+    emulator state lives in mutable Python behind this ordered ``io_callback``, outside the
+    returned pytree. Under ``cond`` the callback runs only on the iterations whose result is
+    selected, which keeps that Python state coherent with the JAX-side selection; a select
+    would reset the emulator behind JAX's back on every step.
     """
 
     _env: gymnasium.Env
@@ -114,12 +122,9 @@ class PythonEnvBridge:
 
         def _do_step(
             state_arr: np.ndarray, action_arr: np.ndarray
-        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
             self._ale.restoreState(self._ale_state)
             raw_obs, reward, terminated, truncated, _ = self._env.step(int(action_arr))
-            final_obs = np.asarray(raw_obs, dtype=self._obs_dtype)
-            if terminated or truncated:
-                raw_obs, _ = self._env.reset()
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
             self._ale_state = self._ale.cloneState()
             next_state = np.zeros(1, dtype=np.uint8)  # dummy token
@@ -129,10 +134,9 @@ class PythonEnvBridge:
                 np.array(terminated, dtype=np.bool_),
                 np.array(truncated, dtype=np.bool_),
                 next_state,
-                final_obs,
             )
 
-        obs, reward, terminated, truncated, next_state, final_obs = jax.experimental.io_callback(
+        obs, reward, terminated, truncated, next_state = jax.experimental.io_callback(
             _do_step,
             (
                 jax.ShapeDtypeStruct(self._obs_shape, self._obs_dtype),
@@ -140,7 +144,6 @@ class PythonEnvBridge:
                 jax.ShapeDtypeStruct((), jnp.bool_),
                 jax.ShapeDtypeStruct((), jnp.bool_),
                 jax.ShapeDtypeStruct((self._state_size,), jnp.uint8),
-                jax.ShapeDtypeStruct(self._obs_shape, self._obs_dtype),
             ),
             state,
             action,
@@ -152,8 +155,5 @@ class PythonEnvBridge:
             reward=reward,
             terminated=terminated,
             truncated=truncated,
-            info={
-                FINAL_OBSERVATION_INFO_KEY: final_obs,
-                FINAL_OBSERVATION_VALID_INFO_KEY: jnp.logical_or(terminated, truncated),
-            },
+            info={},
         )

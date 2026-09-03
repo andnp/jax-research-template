@@ -1,4 +1,11 @@
-"""Composable frame-stacking wrapper for any EnvProtocol."""
+"""Composable frame-stacking wrapper for any EnvProtocol.
+
+``step`` always rolls. It does not refill the stack at a boundary, because the boundary
+belongs to :func:`rl_components.loop.run`: the loop calls ``reset``, which stacks the fresh
+observation ``n_frames`` times. A wrapper that refilled on its own would disagree with the
+inner environment about where the episode ended -- it would hand the agent a stack of
+post-terminal frames while the emulator was still on the terminal one.
+"""
 
 from __future__ import annotations
 
@@ -57,20 +64,13 @@ class FrameStackWrapper[ObsT: jax.Array, StateT, ActionT, ParamsT]:
     ) -> EnvStep[jax.Array, FrameStackState[StateT]]:
         inner_step = self._env.step(key, state.inner_state, action, params)
         new_obs: jax.Array = inner_step.observation
-        rolled_frames = jnp.roll(state.frames, shift=-1, axis=0).at[-1].set(new_obs)
-        reset_frames = jnp.stack([new_obs] * self._n_frames, axis=0)
-        episode_done = jnp.logical_or(inner_step.terminated, inner_step.truncated)
-        new_frames = jax.lax.cond(episode_done, lambda: reset_frames, lambda: rolled_frames)
+        new_frames = jnp.roll(state.frames, shift=-1, axis=0).at[-1].set(new_obs)
         new_state = FrameStackState(inner_state=inner_step.state, frames=new_frames)
-        info = dict(inner_step.info)
-        if "final_observation" in info:
-            final_observation = info["final_observation"]
-            info["final_observation"] = jnp.roll(state.frames, shift=-1, axis=0).at[-1].set(final_observation)
         return EnvStep(
             observation=new_frames,
             state=new_state,
             reward=inner_step.reward,
             terminated=inner_step.terminated,
             truncated=inner_step.truncated,
-            info=info,
+            info=inner_step.info,
         )
