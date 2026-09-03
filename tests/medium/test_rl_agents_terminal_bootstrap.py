@@ -141,6 +141,11 @@ def test_sac_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
 
 
 def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
+    """The smoothed, clipped bootstrap must vanish on a terminal row and survive elsewhere.
+
+    The nonzero-discount case is the control: without it a loss that never bootstrapped
+    at all would satisfy the invariance and look correct.
+    """
     actor = td3.Actor(ACTION_DIM)
     critic = td3.Critic()
     config = td3.TD3Config()
@@ -157,10 +162,9 @@ def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
         jax.random.key(3), (BATCH_SIZE, ACTION_DIM), dtype=jnp.float32, minval=-1.0, maxval=1.0
     )
     rewards = jax.random.normal(jax.random.key(4), (BATCH_SIZE,), dtype=jnp.float32)
-    discounts = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)
     next_obs_a, next_obs_b = _next_obs_pair((BATCH_SIZE, OBS_DIM))
 
-    def loss(next_obs: jax.Array) -> jax.Array:
+    def loss(next_obs: jax.Array, discounts: jax.Array) -> jax.Array:
         return td3.td3_critic_loss(
             critic_params,
             actor_params,
@@ -176,7 +180,11 @@ def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
             config=config,
         )
 
-    assert jnp.allclose(loss(next_obs_a), loss(next_obs_b))
+    terminal = jnp.zeros((BATCH_SIZE,), dtype=jnp.float32)
+    assert jnp.allclose(loss(next_obs_a, terminal), loss(next_obs_b, terminal))
+
+    surviving = jnp.full((BATCH_SIZE,), 0.99, dtype=jnp.float32)
+    assert not jnp.allclose(loss(next_obs_a, surviving), loss(next_obs_b, surviving))
 
 
 def test_greedy_ac_critic_loss_ignores_next_transition_on_terminal_rows() -> None:
