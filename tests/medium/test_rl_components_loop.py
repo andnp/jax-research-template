@@ -206,6 +206,7 @@ class RecordAgent:
                 "seen/reward": timestep.reward,
                 "seen/discount": timestep.discount,
                 "seen/episode_end": timestep.episode_end,
+                "seen/step_index": step_index.astype(jnp.float32),
             },
         )
 
@@ -345,6 +346,15 @@ class TestIndexing:
 
         assert int(final_state.agent_state.closed) == 8
         assert _metric(metrics, "loop/reward").shape == (9,)
+
+    def test_the_agent_sees_the_scan_iteration_as_its_step_index(self) -> None:
+        # Pins the VALUES, not merely how many are positive: a count-only assertion
+        # survives a mutation to jnp.arange(steps) * 2, which would silently double the
+        # rate of every schedule keyed on step_index (epsilon, LEARNING_STARTS,
+        # TRAIN_FREQUENCY, target sync).
+        _, metrics = run(RecordAgent(), ToyEnv(terminate_at=3), jax.random.key(0), steps=9, gamma=GAMMA)
+
+        np.testing.assert_array_equal(_metric(metrics, "seen/step_index"), list(range(9)))
 
     def test_the_first_iteration_closes_nothing(self) -> None:
         _, metrics = run(RecordAgent(), ToyEnv(terminate_at=3), jax.random.key(0), steps=9, gamma=GAMMA)
