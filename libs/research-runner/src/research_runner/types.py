@@ -25,6 +25,20 @@ class ExecutionContext:
     execution_root: Path
     metrics_db_path: Path
 
+    def axes(self) -> dict[str, list[ParameterValue]]:
+        """Parameters that vary across the batch, stacked in `points` order.
+
+        Only parameters carried by every point are returned, so each list is a
+        usable vmap axis.
+        """
+        if not self.points:
+            return {}
+        shared = set.intersection(*(set(point.hyperparameters) for point in self.points))
+        return {
+            key: [point.hyperparameters[key] for point in self.points]
+            for key in sorted(shared - set(self.static_config))
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
