@@ -322,6 +322,37 @@ def test_update_execution_status(db: DatabaseManager) -> None:
     assert row[1] == "2025-01-01T00:00:00Z"
 
 
+def test_update_execution_status_rejects_illegal_terminal_rewind(db: DatabaseManager) -> None:
+    """
+    A terminal execution cannot return to an active state or finish twice.
+    """
+    eid = db.add_execution()
+    db.update_execution_status(eid, "RUNNING")
+    db.update_execution_status(eid, "COMPLETED")
+
+    with pytest.raises(ValueError, match="Illegal execution transition"):
+        db.update_execution_status(eid, "RUNNING")
+    with pytest.raises(ValueError, match="Illegal execution transition"):
+        db.update_execution_status(eid, "COMPLETED")
+
+
+def test_update_execution_status_allows_one_claim(tmp_path: Path) -> None:
+    """
+    Separate database connections cannot both claim one pending execution.
+    """
+    db_path = tmp_path / "claim.sqlite"
+    with DatabaseManager(db_path) as first:
+        first.initialize()
+        execution_id = first.add_execution()
+
+    with DatabaseManager(db_path) as first, DatabaseManager(db_path) as second:
+        first.initialize()
+        second.initialize()
+        first.update_execution_status(execution_id, "RUNNING")
+        with pytest.raises(ValueError, match="Illegal execution transition"):
+            second.update_execution_status(execution_id, "RUNNING")
+
+
 def test_update_execution_invalid_status_raises(db: DatabaseManager) -> None:
     eid = db.add_execution()
     with pytest.raises(ValueError, match="Invalid status"):

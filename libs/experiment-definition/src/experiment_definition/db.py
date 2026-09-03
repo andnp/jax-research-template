@@ -30,6 +30,15 @@ def _hash_dict(d: Mapping[str, object]) -> str:
     return hashlib.sha256(_json_stable(d).encode()).hexdigest()
 
 
+_EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
+    "PENDING": frozenset({"RUNNING", "COMPLETED", "FAILED", "INVALID"}),
+    "RUNNING": frozenset({"COMPLETED", "FAILED", "INVALID"}),
+    "COMPLETED": frozenset({"INVALID"}),
+    "FAILED": frozenset({"INVALID"}),
+    "INVALID": frozenset(),
+}
+
+
 def _upsert_component(cur: sqlite3.Cursor, name: str, comp_type: str, code_hash: str) -> tuple[int, int]:
     """Insert or look up a component and ensure a version row exists.
 
@@ -834,12 +843,25 @@ class DatabaseManager:
         """
         if status not in ("PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID"):
             raise ValueError(f"Invalid status {status!r}.")
-        with self.conn:
-            self.conn.execute(
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"Execution {execution_id} does not exist.")
+            current_status = str(row[0])
+            if status not in _EXECUTION_TRANSITIONS[current_status]:
+                raise ValueError(f"Illegal execution transition: {current_status} -> {status}.")
+            updated = self.conn.execute(
                 "UPDATE Executions SET status = ?, start_time = COALESCE(?, start_time), "
-                "end_time = COALESCE(?, end_time) WHERE id = ?",
-                (status, start_time, end_time, execution_id),
+                "end_time = COALESCE(?, end_time) WHERE id = ? AND status = ?",
+                (status, start_time, end_time, execution_id, current_status),
             )
+            if updated.rowcount != 1:
+                raise RuntimeError(f"Execution {execution_id} changed before it could be updated.")
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def plan_execution(
         self,
