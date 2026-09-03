@@ -285,6 +285,80 @@ def _plot_pairwise(
     return plot_path
 
 
+def _present_pairwise(
+    report: ABComparisonReport,
+    vals_a: np.ndarray,
+    vals_b: np.ndarray,
+    condition_a: str,
+    condition_b: str,
+    metric_name: str,
+    is_paired: bool,
+    normality_p_values: tuple[float, float],
+    normality_flags: tuple[bool, bool],
+) -> None:
+    console = Console()
+    console.print()
+    console.print(
+        Panel(
+            Text(f"🔬 PAIRWISE REPORT: {report.experiment_name}", style="bold cyan"),
+            subtitle=f"Metric: {metric_name}",
+        )
+    )
+
+    table = Table(title="Descriptive Statistics", show_header=True, header_style="bold magenta")
+    table.add_column("Group", style="dim")
+    table.add_column("N", justify="right")
+    table.add_column("Mean", justify="right")
+    table.add_column("Std Dev", justify="right")
+    table.add_row(condition_a, str(len(vals_a)), f"{report.mean_a:.2f}", f"{np.std(vals_a, ddof=1):.2f}")
+    table.add_row(condition_b, str(len(vals_b)), f"{report.mean_b:.2f}", f"{np.std(vals_b, ddof=1):.2f}")
+    console.print(table)
+
+    test_details = report.test_details
+    shapiro_a_p, shapiro_b_p = normality_p_values
+    normal_a, normal_b = normality_flags
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Hypothesis Test Selection:\n", "bold"),
+                (f"• Selected Test: {test_details.test_name}\n", "yellow"),
+                (f"• Justification: {test_details.justification}\n\n", "italic"),
+                ("Assumptions Checked:\n", "bold"),
+                (f"  - Repeated measures (paired seeds): {'Yes' if is_paired else 'No'}\n"),
+                (f"  - Group A normal distribution (p={shapiro_a_p:.4f}): {'Yes' if normal_a else 'No'}\n"),
+                (f"  - Group B normal distribution (p={shapiro_b_p:.4f}): {'Yes' if normal_b else 'No'}"),
+            ),
+            title="Methodology Justification Box",
+        )
+    )
+
+    sig_style = "bold green" if test_details.is_significant else "bold red"
+    sig_text = "Statistically Significant" if test_details.is_significant else "Not Statistically Significant"
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
+                ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
+                ("Difference Mean : ", "dim"), (f"{report.difference_in_means:.4f}\n"),
+                ("Bootstrapped CI : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
+                ("Pedagogical Interpretation:\n", "bold"),
+                (
+                    f"There is a {report.test_details.p_value * 100:.2f}% chance that we would observe "
+                    "a difference this large purely due to random variations if the two algorithms "
+                    "were completely identical in performance."
+                ),
+            ),
+            title="Findings & Interpretation",
+        )
+    )
+    console.print(
+        Panel(
+            Text(f"Saved distribution visual artifact to: {report.distribution_plot_path}", style="italic green"),
+            title="Artifact Outputs Panel",
+        )
+    )
+
+
 def _load_hyperparameter_records(
     db_path: Path,
     experiment_slug: str,
@@ -380,62 +454,16 @@ def compare_pairwise(
     )
 
     if verbose:
-        console = Console()
-        console.print()
-        console.print(
-            Panel(
-                Text(f"🔬 PAIRWISE REPORT: {report.experiment_name}", style="bold cyan"),
-                subtitle=f"Metric: {metric_name}",
-            )
-        )
-
-        table = Table(title="Descriptive Statistics", show_header=True, header_style="bold magenta")
-        table.add_column("Group", style="dim")
-        table.add_column("N", justify="right")
-        table.add_column("Mean", justify="right")
-        table.add_column("Std Dev", justify="right")
-        table.add_row(condition_a, str(len(vals_a)), f"{report.mean_a:.2f}", f"{np.std(vals_a, ddof=1):.2f}")
-        table.add_row(condition_b, str(len(vals_b)), f"{report.mean_b:.2f}", f"{np.std(vals_b, ddof=1):.2f}")
-        console.print(table)
-
-        just_panel = Panel(
-            Text.assemble(
-                ("Hypothesis Test Selection:\n", "bold"),
-                (f"• Selected Test: {test_details.test_name}\n", "yellow"),
-                (f"• Justification: {test_details.justification}\n\n", "italic"),
-                ("Assumptions Checked:\n", "bold"),
-                (f"  - Repeated measures (paired seeds): {'Yes' if is_paired else 'No'}\n"),
-                (f"  - Group A normal distribution (p={shapiro_a_p:.4f}): {'Yes' if normal_a else 'No'}\n"),
-                (f"  - Group B normal distribution (p={shapiro_b_p:.4f}): {'Yes' if normal_b else 'No'}"),
-            ),
-            title="Methodology Justification Box",
-        )
-        console.print(just_panel)
-
-        sig_style = "bold green" if test_details.is_significant else "bold red"
-        sig_text = "Statistically Significant" if test_details.is_significant else "Not Statistically Significant"
-        findings = Panel(
-            Text.assemble(
-                ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
-                ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
-                ("Difference Mean : ", "dim"), (f"{report.difference_in_means:.4f}\n"),
-                ("Bootstrapped CI : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    f"There is a {report.test_details.p_value * 100:.2f}% chance that we would observe "
-                    "a difference this large purely due to random variations if the two algorithms "
-                    "were completely identical in performance."
-                ),
-            ),
-            title="Findings & Interpretation",
-        )
-        console.print(findings)
-
-        console.print(
-            Panel(
-                Text(f"Saved distribution visual artifact to: {plot_path}", style="italic green"),
-                title="Artifact Outputs Panel",
-            )
+        _present_pairwise(
+            report,
+            vals_a,
+            vals_b,
+            condition_a,
+            condition_b,
+            metric_name,
+            is_paired,
+            pairwise_statistics.normality_p_values,
+            pairwise_statistics.normality_flags,
         )
 
     return report
@@ -598,6 +626,58 @@ def _plot_hypers(
     return plot_path
 
 
+def _present_hypers(
+    report: HyperparameterSensitivityReport,
+    sorted_keys: list[Any],
+    experiment_slug: str,
+    group_label: str | None,
+    correction_ci: tuple[float, float],
+) -> None:
+    console = Console()
+    console.print()
+    subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
+    console.print(
+        Panel(
+            Text(f"📊 HYPERPARAMETER ANALYSIS: {report.target_hyperparameter}", style="bold cyan"),
+            subtitle=subtitle,
+        )
+    )
+
+    table = Table(title="Sensitivity Matrix", show_header=True, header_style="bold magenta")
+    table.add_column("Value", style="dim")
+    table.add_column("Best Achievable Mean", justify="right")
+    table.add_column("Optimal Slice Mean", justify="right")
+    for val in sorted_keys:
+        table.add_row(str(val), f"{report.sensitivity_best[val]:.2f}", f"{report.sensitivity_slice[val]:.2f}")
+    console.print(table)
+
+    ci_low, ci_high = correction_ci
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Raw Winner Mean       : ", "dim"), (f"{report.raw_mean:.2f} (value: {report.winning_value})\n"),
+                ("Corrected Winner Mean : ", "bold green"), (f"{report.corrected_mean:.2f}\n"),
+                ("Maximization Bias     : ", "bold red"), (f"+{report.maximization_bias:.2f}\n"),
+                ("Bootstrap 95% CI      : ", "dim"), (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
+                ("Pedagogical Interpretation:\n", "bold"),
+                (
+                    "Selecting the hyperparameter configuration with the highest raw average results "
+                    "in Maximization Bias. This bias represents how much we have overestimated the algorithm's "
+                    "true performance by selecting the 'lucky' configuration. The Corrected Mean represents "
+                    "a realistic expectation of performance on a fresh set of random seeds."
+                ),
+            ),
+            title="Maximization Bias Correction Log",
+        )
+    )
+    console.print(
+        Panel(
+            Text(f"Saved sensitivity visual artifact to: {report.sensitivity_plot_path}", style="italic green"),
+            title="Artifact Outputs Panel",
+        )
+    )
+
+
 def _analyze_hypers_group(
     records: list[dict[str, Any]],
     *,
@@ -644,47 +724,12 @@ def _analyze_hypers_group(
     )
 
     if verbose:
-        console = Console()
-        console.print()
-        subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
-        console.print(
-            Panel(
-                Text(f"📊 HYPERPARAMETER ANALYSIS: {target_hyperparameter}", style="bold cyan"),
-                subtitle=subtitle,
-            )
-        )
-
-        table = Table(title="Sensitivity Matrix", show_header=True, header_style="bold magenta")
-        table.add_column("Value", style="dim")
-        table.add_column("Best Achievable Mean", justify="right")
-        table.add_column("Optimal Slice Mean", justify="right")
-        for val in sorted_keys:
-            table.add_row(str(val), f"{best_perf[val]:.2f}", f"{slice_perf[val]:.2f}")
-        console.print(table)
-
-        bias_text = Panel(
-            Text.assemble(
-                ("Raw Winner Mean       : ", "dim"), (f"{raw_winner_mean:.2f} (value: {winning_val})\n"),
-                ("Corrected Winner Mean : ", "bold green"), (f"{corrected_mean:.2f}\n"),
-                ("Maximization Bias     : ", "bold red"), (f"+{maximization_bias:.2f}\n"),
-                ("Bootstrap 95% CI      : ", "dim"), (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    "Selecting the hyperparameter configuration with the highest raw average results "
-                    "in Maximization Bias. This bias represents how much we have overestimated the algorithm's "
-                    "true performance by selecting the 'lucky' configuration. The Corrected Mean represents "
-                    "a realistic expectation of performance on a fresh set of random seeds."
-                ),
-            ),
-            title="Maximization Bias Correction Log",
-        )
-        console.print(bias_text)
-
-        console.print(
-            Panel(
-                Text(f"Saved sensitivity visual artifact to: {plot_path}", style="italic green"),
-                title="Artifact Outputs Panel",
-            )
+        _present_hypers(
+            report,
+            sorted_keys,
+            experiment_slug,
+            group_label,
+            statistics.correction_ci,
         )
 
     return report
@@ -857,6 +902,60 @@ def _plot_bakeoff(
     return None
 
 
+def _present_bakeoff(
+    report: BenchmarkBakeoffReport,
+    environments: list[str],
+    experiment_slug: str,
+) -> None:
+    console = Console()
+    console.print()
+    console.print(
+        Panel(
+            Text(f"🏆 BENCHMARK BAKEOFF REPORT: {report.algorithms}", style="bold cyan"),
+            subtitle=f"Experiment: {experiment_slug}",
+        )
+    )
+
+    table = Table(title="ECDF-Normalized Performance Matrix", show_header=True, header_style="bold magenta")
+    table.add_column("Algorithm")
+    for env in environments:
+        table.add_column(env, justify="right")
+    for algo in report.algorithms:
+        row = [algo]
+        for env in environments:
+            row.append(f"{report.ecdf_scores[algo][env]:.2f}")
+        table.add_row(*row)
+    console.print(table)
+
+    omnibus_details = report.omnibus_details
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Omnibus Test Result:\n", "bold"),
+                (f"• Selected Test: {omnibus_details.test_name}\n", "yellow"),
+                (f"• Statistic: {omnibus_details.statistic:.4f}\n"),
+                (f"• p-value: {omnibus_details.p_value:.4f}\n"),
+                (f"• Justification: {omnibus_details.justification}\n\n", "italic"),
+                ("Pedagogical Interpretation:\n", "bold"),
+                (
+                    "Raw scores cannot be averaged across different environments because they reside "
+                    "on different numerical scales. ECDF normalization maps scores to their relative percentile "
+                    "ranks across all algorithms tested on that specific task, making averages statistically valid."
+                ),
+            ),
+            title="Omnibus Methodology Justification",
+        )
+    )
+
+    if report.ecdf_plot_path:
+        console.print(
+            Panel(
+                Text(f"Saved ECDF curves visual artifact to: {report.ecdf_plot_path}", style="italic green"),
+                title="Artifact Outputs Panel",
+            )
+        )
+
+
 def compare_bakeoff(
     db_path: Path | str,
     experiment_slug: str,
@@ -903,50 +1002,6 @@ def compare_bakeoff(
     )
 
     if verbose:
-        console = Console()
-        console.print()
-        console.print(
-            Panel(
-                Text(f"🏆 BENCHMARK BAKEOFF REPORT: {report.algorithms}", style="bold cyan"),
-                subtitle=f"Experiment: {experiment_slug}",
-            )
-        )
-
-        table = Table(title="ECDF-Normalized Performance Matrix", show_header=True, header_style="bold magenta")
-        table.add_column("Algorithm")
-        for env in environments:
-            table.add_column(env, justify="right")
-        for algo in algorithms:
-            row = [algo]
-            for env in environments:
-                row.append(f"{ecdf_means[algo][env]:.2f}")
-            table.add_row(*row)
-        console.print(table)
-
-        just_panel = Panel(
-            Text.assemble(
-                ("Omnibus Test Result:\n", "bold"),
-                (f"• Selected Test: {omnibus_details.test_name}\n", "yellow"),
-                (f"• Statistic: {omnibus_details.statistic:.4f}\n"),
-                (f"• p-value: {omnibus_details.p_value:.4f}\n"),
-                (f"• Justification: {omnibus_details.justification}\n\n", "italic"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    "Raw scores cannot be averaged across different environments because they reside "
-                    "on different numerical scales. ECDF normalization maps scores to their relative percentile "
-                    "ranks across all algorithms tested on that specific task, making averages statistically valid."
-                ),
-            ),
-            title="Omnibus Methodology Justification",
-        )
-        console.print(just_panel)
-
-        if plot_path:
-            console.print(
-                Panel(
-                    Text(f"Saved ECDF curves visual artifact to: {plot_path}", style="italic green"),
-                    title="Artifact Outputs Panel",
-                )
-            )
+        _present_bakeoff(report, environments, experiment_slug)
 
     return report
