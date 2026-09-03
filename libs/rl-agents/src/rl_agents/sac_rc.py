@@ -83,6 +83,33 @@ class SACRCConfig:
     SEED: int = 42
 
 
+@chex_struct(frozen=True)
+class SACRCHypers:
+    """The hyperparameters :class:`SACRCAgent`'s ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. ``ALPHA`` is not here:
+    the entropy coefficient the loss actually uses comes from the learned
+    ``alpha_state.params["log_alpha"]``, never from config -- see the module
+    docstring's "not merely equivalent" note and ``sac.py``'s dead-field flag
+    on the same name.
+    """
+
+    LR: jax.Array
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    BETA: jax.Array
+
+
+def sac_rc_hypers(config: SACRCConfig) -> SACRCHypers:
+    return SACRCHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        BETA=jnp.asarray(config.BETA, jnp.float32),
+    )
+
+
 class SACRCCritic(nn.Module):
     """Twin-critic trunk (matching ``sac.Critic``) plus a QRC-style h-head.
 
@@ -157,7 +184,7 @@ def sac_rc_loss_batch(
     next_obs: jax.Array,
     discounts: jax.Array,
     rng: jax.Array,
-    beta: float,
+    beta: jax.Array | float,
 ) -> jax.Array:
     """Mean SAC-RC critic loss over a minibatch, plus L2 regularisation on the h-heads.
 
@@ -183,6 +210,18 @@ def sac_rc_loss_batch(
         return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
 
     return jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
+
+
+def _with_learning_rate(train_state: TrainState, learning_rate: jax.Array) -> TrainState:
+    """Push a traced learning rate into optimizer state.
+
+    The transformation itself (``TrainState.tx``) is a static field and cannot hold a
+    traced value, so the rate rides ``opt_state.hyperparams`` instead, refreshed each step.
+    """
+    opt_state = train_state.opt_state
+    return train_state.replace(
+        opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
+    )
 
 
 def _networks(action_dim: int) -> tuple[Actor, SACRCCritic]:
@@ -254,6 +293,7 @@ class SACRCAgentState:
         target_entropy: The entropy target, as a float32 leaf. It is derived from the
             action dimension, which only ``init`` sees, so ``step`` reaches it here.
         key: PRNG key for sampling minibatches, actions and exploration.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     actor_state: TrainState
@@ -264,6 +304,7 @@ class SACRCAgentState:
     last_action: jax.Array
     target_entropy: jax.Array
     key: chex.PRNGKey
+    hypers: SACRCHypers
 
 
 class SACRCAgent:
@@ -315,29 +356,31 @@ class SACRCAgent:
         )
         target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
 
+        lr = jnp.asarray(self.config.LR, jnp.float32)
         return SACRCAgentState(
             actor_state=TrainState.create(
                 apply_fn=actor.apply,
                 params=actor.init(actor_key, zero_obs),
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             critic_state=TrainState.create(
                 apply_fn=critic.apply,
                 params=jax.vmap(critic.init, in_axes=(0, None, None))(
                     jax.random.split(critic_key, 2), zero_obs, zero_action
                 ),
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             alpha_state=TrainState.create(
                 apply_fn=None,
                 params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
-                tx=optax.adam(self.config.LR),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
             ),
             buffer_state=buffer.init(),
             last_obs=zero_obs,
             last_action=zero_action,
             target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),
             key=carry_key,
+            hypers=sac_rc_hypers(self.config),
         )
 
     def step(
@@ -364,7 +407,7 @@ class SACRCAgent:
             loss is a zero placeholder on the iterations that do not learn, so the pytree
             returned to ``lax.scan`` is identical on every iteration.
         """
-        config = self.config
+        hypers = state.hypers
         action_dim = state.last_action.shape[0]
         actor, _ = _networks(action_dim)
         buffer = ReplayBuffer.from_state(state.buffer_state)
@@ -383,7 +426,7 @@ class SACRCAgent:
             lambda: state.buffer_state,
         )
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         (
             actor_state,
             critic_state,
@@ -405,7 +448,7 @@ class SACRCAgent:
         )
 
         action = jax.lax.cond(
-            step_index < config.LEARNING_STARTS,
+            step_index < hypers.LEARNING_STARTS,
             lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
             lambda: actor.sample(actor_state.params, timestep.observation, action_key)[0].astype(
                 state.last_action.dtype
@@ -422,6 +465,7 @@ class SACRCAgent:
                 last_action=action,
                 target_entropy=state.target_entropy,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={
@@ -439,18 +483,26 @@ class SACRCAgent:
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
     ) -> tuple[TrainState, TrainState, TrainState, jax.Array, jax.Array, jax.Array]:
-        """Take one critic, actor and temperature gradient step on a replay minibatch."""
-        config = self.config
+        """Take one critic, actor and temperature gradient step on a replay minibatch.
+
+        The rate is pushed into each optimizer's state each step because the
+        transformation itself is a static field and cannot hold a traced value.
+        """
+        hypers = state.hypers
         actor, critic = _networks(state.last_action.shape[0])
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
+
+        critic_state = _with_learning_rate(state.critic_state, hypers.LR)
+        actor_state = _with_learning_rate(state.actor_state, hypers.LR)
+        alpha_state = _with_learning_rate(state.alpha_state, hypers.LR)
 
         critic_loss, critic_grads = jax.value_and_grad(
             lambda params: sac_rc_loss_batch(
                 params,
                 critic,
-                state.actor_state.params,
+                actor_state.params,
                 actor,
                 alpha,
                 obs,
@@ -459,24 +511,24 @@ class SACRCAgent:
                 next_obs,
                 discounts,
                 critic_key,
-                config.BETA,
+                hypers.BETA,
             )
-        )(state.critic_state.params)
-        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+        )(critic_state.params)
+        critic_state = critic_state.apply_gradients(grads=critic_grads)
 
         actor_loss, actor_grads = jax.value_and_grad(
             lambda params: sac_rc_actor_loss(
                 params, critic_state.params, obs, alpha, actor_key, actor=actor, critic=critic
             )
-        )(state.actor_state.params)
-        actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+        )(actor_state.params)
+        actor_state = actor_state.apply_gradients(grads=actor_grads)
 
         alpha_loss, alpha_grads = jax.value_and_grad(
             lambda params: sac_alpha_loss(
                 params, actor_state.params, obs, state.target_entropy, alpha_key, actor=actor
             )
-        )(state.alpha_state.params)
-        alpha_state = state.alpha_state.apply_gradients(grads=alpha_grads)
+        )(alpha_state.params)
+        alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
         return (
             actor_state,
