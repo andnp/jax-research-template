@@ -657,6 +657,45 @@ def _analyze_hypers_group(
     return report
 
 
+def _load_bakeoff_data(
+    db_path: Path,
+    experiment_slug: str,
+    algorithms: list[str],
+    environments: list[str],
+    metric_name: str,
+) -> tuple[dict[tuple[str, str], dict[int, float]], dict[str, list[float]]]:
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment(experiment_slug)
+        if exp_row is None:
+            raise ValueError(f"Unknown experiment {experiment_slug!r}")
+        runs = database.list_runs(exp_row.id)
+
+    data_by_group: dict[tuple[str, str], dict[int, float]] = {}
+    all_scores_by_env: dict[str, list[float]] = {env: [] for env in environments}
+    with DatabaseManager(db_path) as database:
+        for run in runs:
+            latest_exec = database.get_latest_completed_execution_for_run(run.id)
+            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
+            if latest_exec is None or latest_art is None:
+                continue
+            hyper_config = database.get_hyperparam_config(run.hyper_id)
+            if hyper_config is None:
+                continue
+            hypers = json.loads(hyper_config.json_blob)
+            algo = str(hypers.get("algorithm", ""))
+            env = str(hypers.get("env_name", ""))
+            if algo not in algorithms or env not in environments:
+                continue
+            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
+            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
+            if metric_curve is None:
+                continue
+            data_by_group.setdefault((algo, env), {})[run.seed] = float(metric_curve[-1])
+            all_scores_by_env[env].append(float(metric_curve[-1]))
+    return data_by_group, all_scores_by_env
+
+
 def compare_bakeoff(
     db_path: Path | str,
     experiment_slug: str,
@@ -672,44 +711,15 @@ def compare_bakeoff(
             f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
         )
     db_path = Path(db_path)
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-        runs = database.list_runs(exp_row.id)
+    data_by_group, all_scores_by_env = _load_bakeoff_data(
+        db_path,
+        experiment_slug,
+        algorithms,
+        environments,
+        metric_name,
+    )
 
-    # 1. Load run final outcomes grouped by (algo, env, seed)
-    data_by_group: dict[tuple[str, str], dict[int, float]] = {}
-    all_scores_by_env: dict[str, list[float]] = {env: [] for env in environments}
-
-    with DatabaseManager(db_path) as database:
-        for run in runs:
-            latest_exec = database.get_latest_completed_execution_for_run(run.id)
-            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
-            if latest_exec is None or latest_art is None:
-                continue
-
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                continue
-            hypers = json.loads(hyper_config.json_blob)
-
-            algo = str(hypers.get("algorithm", ""))
-            env = str(hypers.get("env_name", ""))
-            if algo not in algorithms or env not in environments:
-                continue
-
-            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
-            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
-            if metric_curve is None:
-                continue
-
-            final_val = float(metric_curve[-1])
-            data_by_group.setdefault((algo, env), {})[run.seed] = final_val
-            all_scores_by_env[env].append(final_val)
-
-    # 2. Apply ECDF normalization per environment
+    # 1. Apply ECDF normalization per environment
     # ECDF score = fraction of all scores in pool that are less than raw score
     ecdf_normalized: dict[tuple[str, str], dict[int, float]] = {}
     for (algo, env), seed_map in data_by_group.items():
@@ -731,7 +741,7 @@ def compare_bakeoff(
             else:
                 ecdf_means[algo][env] = float("nan")
 
-    # 3. Non-Parametric Omnibus Friedman Test
+    # 2. Non-Parametric Omnibus Friedman Test
     # Rows are environment-seed indices and columns are algorithms.
     # Rows will represent environment-seed combinations.
     row_keys = []
@@ -778,7 +788,7 @@ def compare_bakeoff(
             "Selected Friedman test because data is complete (no missing environment-seed points)."
         )
 
-    # Post-hoc pairwise testing with Wilcoxon and Bonferroni corrections
+    # 3. Post-hoc pairwise testing with Wilcoxon and Bonferroni corrections
     posthoc: dict[str, dict[str, float]] = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
     for i, algo_a in enumerate(algorithms):
         for j, algo_b in enumerate(algorithms):
@@ -802,7 +812,7 @@ def compare_bakeoff(
                 posthoc[algo_a][algo_b] = adjusted_p
                 posthoc[algo_b][algo_a] = adjusted_p
 
-    # Plot ECDF Curves
+    # 4. Plot ECDF Curves
     # Construct curve values: sorted ECDF values and their cumulative proportions
     ecdf_curves = {}
     for algo in algorithms:
