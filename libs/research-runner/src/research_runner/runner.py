@@ -82,12 +82,7 @@ def execute_batch(
 
         if capture_git:
             git_commit, git_diff = capture_git_metadata()
-            database.conn.execute(
-                "UPDATE Executions SET git_commit = COALESCE(?, git_commit), "
-                "git_diff_blob = COALESCE(?, git_diff_blob) WHERE id = ?",
-                (git_commit, git_diff, planned.execution_id),
-            )
-            database.conn.commit()
+            database.record_execution_git_metadata(planned.execution_id, git_commit, git_diff)
 
         database.update_execution_status(
             planned.execution_id, "RUNNING", start_time=_utc_now(),
