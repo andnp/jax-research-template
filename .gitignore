@@ -24,3 +24,4 @@ build/
 # codanna
 .codannaignore
 .fastembed_cache
+results/
