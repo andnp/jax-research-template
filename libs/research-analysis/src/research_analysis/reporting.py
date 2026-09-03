@@ -273,6 +273,46 @@ def _compute_pairwise_statistics(
     )
 
 
+def _load_hyperparameter_records(
+    db_path: Path,
+    experiment_slug: str,
+    target_hyperparameter: str,
+    metric_name: str,
+) -> list[dict[str, Any]]:
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment(experiment_slug)
+        if exp_row is None:
+            raise ValueError(f"Unknown experiment {experiment_slug!r}")
+        runs = database.list_runs(exp_row.id)
+
+    records: list[dict[str, Any]] = []
+    with DatabaseManager(db_path) as database:
+        for run in runs:
+            latest_exec = database.get_latest_completed_execution_for_run(run.id)
+            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
+            if latest_exec is None or latest_art is None:
+                continue
+
+            hyper_config = database.get_hyperparam_config(run.hyper_id)
+            if hyper_config is None:
+                continue
+            hypers = json.loads(hyper_config.json_blob)
+            val = hypers.get(target_hyperparameter)
+            if val is None:
+                continue
+
+            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
+            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
+            if metric_curve is None:
+                continue
+            records.append({"run_id": run.id, "value": float(metric_curve[-1]), "hypers": hypers})
+
+    if not records:
+        raise ValueError(f"No completed runs found containing hyperparameter {target_hyperparameter!r}")
+    return records
+
+
 def compare_pairwise(
     db_path: Path | str,
     experiment_slug: str,
@@ -424,41 +464,12 @@ def analyze_hypers(
     ``HyperparameterSensitivityReport`` is returned instead of a single pooled report.
     """
     db_path = Path(db_path)
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-        runs = database.list_runs(exp_row.id)
-
-    # 1. Collect per-run records: target hyperparameter value, final metric, and full hypers
-    records: list[dict[str, Any]] = []
-    with DatabaseManager(db_path) as database:
-        for run in runs:
-            latest_exec = database.get_latest_completed_execution_for_run(run.id)
-            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
-            if latest_exec is None or latest_art is None:
-                continue
-
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                continue
-            hypers = json.loads(hyper_config.json_blob)
-
-            val = hypers.get(target_hyperparameter)
-            if val is None:
-                continue
-
-            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
-            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
-            if metric_curve is None:
-                continue
-
-            final_val = float(metric_curve[-1])
-            records.append({"run_id": run.id, "value": final_val, "hypers": hypers})
-
-    if not records:
-        raise ValueError(f"No completed runs found containing hyperparameter {target_hyperparameter!r}")
+    records = _load_hyperparameter_records(
+        db_path,
+        experiment_slug,
+        target_hyperparameter,
+        metric_name,
+    )
 
     if group_by:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
