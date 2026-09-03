@@ -21,4 +21,4 @@ def metric_whitelist(experiment: Experiment) -> frozenset[str]:
     Returns:
         A frozenset of metric name strings.
     """
-    return frozenset(m.name for m in experiment._state.metrics)
+    return frozenset(m.name for m in experiment.metrics)
