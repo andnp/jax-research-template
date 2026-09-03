@@ -445,7 +445,7 @@ def test_terminal_transitions_store_a_zero_discount(agent: str, learning_runs: d
 
     Whether a terminal transition reaches any particular minibatch is seed luck, so this
     asserts on what the agent wrote instead: an agent that ignores termination stores the
-    bare ``GAMMA`` everywhere and never produces the exact ``0.0`` demanded here.
+    loop's bare ``gamma`` everywhere and never produces the exact ``0.0`` demanded here.
     """
     learned = learning_runs[agent]
     discounts = learned.discounts
