@@ -12,13 +12,13 @@ import jax.numpy as jnp
 import pytest
 from flax.training.train_state import TrainState
 from jax_nn.heads import epsilon_greedy_action
-from rl_agents.dqn import NatureQNetwork
 from rl_agents.dqn_atari import (
     DQNAtariConfig,
     dqn_atari_runtime_from_dqn_zoo,
     initialize_train_state,
     make_train,
 )
+from rl_agents.q_networks import NatureQNetwork
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep

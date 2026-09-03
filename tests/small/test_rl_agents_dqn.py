@@ -3,7 +3,8 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents.dqn import DQNConfig, NatureQNetwork, QNetwork, _make_q_network
+from rl_agents.dqn import DQNConfig
+from rl_agents.q_networks import NatureQNetwork, QNetwork, make_q_network
 
 
 class TestDQNConfig:
@@ -45,29 +46,29 @@ class TestDQNConfig:
 class TestQNetwork:
     def test_make_q_network_uses_mlp_by_default(self) -> None:
         cfg = DQNConfig()
-        network = _make_q_network(cfg, action_dim=4)
+        network = make_q_network(cfg, action_dim=4)
         assert isinstance(network, QNetwork)
 
     def test_make_q_network_uses_nature_cnn_for_atari_style_observations(self) -> None:
         cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
-        network = _make_q_network(cfg, action_dim=4, observation_shape=(4, 84, 84, 1))
+        network = make_q_network(cfg, action_dim=4, observation_shape=(4, 84, 84, 1))
         assert isinstance(network, NatureQNetwork)
 
     def test_make_q_network_requires_observation_shape_for_nature_cnn(self) -> None:
         cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
         with pytest.raises(ValueError, match="requires observation_shape"):
-            _make_q_network(cfg, action_dim=4)
+            make_q_network(cfg, action_dim=4)
 
     def test_make_q_network_rejects_non_image_observation_shape_for_nature_cnn(self) -> None:
         cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
         with pytest.raises(ValueError, match="requires image observations"):
-            _make_q_network(cfg, action_dim=4, observation_shape=(8,))
+            make_q_network(cfg, action_dim=4, observation_shape=(8,))
 
     def test_make_q_network_rejects_invalid_preset(self) -> None:
         cfg = DQNConfig()
         object.__setattr__(cfg, "NETWORK_PRESET", "bogus")
         with pytest.raises(ValueError, match="Invalid NETWORK_PRESET 'bogus'"):
-            _make_q_network(cfg, action_dim=4)
+            make_q_network(cfg, action_dim=4)
 
     def test_output_shape(self) -> None:
         net = QNetwork(action_dim=4)
@@ -82,14 +83,14 @@ class TestQNetwork:
         assert q.shape == (10, 3)
 
     def test_nature_q_network_output_shape_for_atari_observation(self) -> None:
-        net = _make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
+        net = make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
         x = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
         params = net.init(jax.random.key(0), x)
         q = net.apply(params, x)
         assert q.shape == (3,)
 
     def test_nature_q_network_output_shape_for_batched_atari_observation(self) -> None:
-        net = _make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
+        net = make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
         x = jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)
         params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
         q = net.apply(params, x)

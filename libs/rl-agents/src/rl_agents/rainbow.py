@@ -18,7 +18,7 @@ from jax_replay.types import PERBufferState
 from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import _infer_nature_observation_layout, _prepare_nature_observations
+from rl_agents.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -70,7 +70,7 @@ class RainbowNatureNetwork(TypedApply[jax.Array], nn.Module):
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        x = _prepare_nature_observations(x, self.observation_layout)
+        x = prepare_nature_observations(x, self.observation_layout)
         x = NatureCNN(dtype=self.dtype)(x)
         x = NoisyLinear(features=512, dtype=self.dtype)(x)
         x = nn.relu(x)
@@ -349,7 +349,7 @@ def initialize_train_state(
     network = RainbowNatureNetwork(
         action_dim=action_space.n,
         num_atoms=config.NUM_ATOMS,
-        observation_layout=_infer_nature_observation_layout(observation_shape),
+        observation_layout=infer_nature_observation_layout(observation_shape),
     )
 
     rng, init_rng, init_noise_rng = jax.random.split(rng, 3)

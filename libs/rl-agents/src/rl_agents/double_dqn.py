@@ -20,7 +20,7 @@ from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import _make_q_network
+from rl_agents.q_networks import make_q_network
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -59,7 +59,7 @@ class DoubleDQNTrainOutput(TypedDict):
 def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], DoubleDQNTrainOutput]:
     def train(rng: jax.Array) -> DoubleDQNTrainOutput:
         observation_shape = tuple(env.observation_space(env_params).shape)
-        network = _make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)
+        network = make_q_network(config, env.action_space(env_params).n, observation_shape=observation_shape)
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)

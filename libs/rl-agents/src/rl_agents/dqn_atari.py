@@ -10,7 +10,7 @@ from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 
-from rl_agents.dqn import NatureQNetwork, _infer_nature_observation_layout
+from rl_agents.q_networks import NatureQNetwork, infer_nature_observation_layout
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -168,7 +168,7 @@ def initialize_train_state(
     observation_shape = tuple(observation_space.shape)
     network = NatureQNetwork(
         action_dim=action_space.n,
-        observation_layout=_infer_nature_observation_layout(observation_shape),
+        observation_layout=infer_nature_observation_layout(observation_shape),
     )
 
     rng, init_rng = jax.random.split(rng)
