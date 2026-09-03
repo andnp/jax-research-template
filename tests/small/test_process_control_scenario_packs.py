@@ -1,4 +1,6 @@
 from collections.abc import Callable
+from dataclasses import replace
+from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
@@ -22,40 +24,41 @@ FLOW = SignalSpec("influent.flow", "m3/h")
 QUALITY = SignalSpec("influent.quality", "mg/L")
 
 
-def _event(**overrides: object) -> TimedEvent:
-    values: dict[str, object] = {
-        "name": "storm",
-        "kind": EventKind.DISTURBANCE,
-        "target": FLOW.name,
-        "units": FLOW.units,
-        "start_step": 2,
-        "end_step": 4,
-        "magnitude": 1.5,
-        "severity": EventSeverity.HIGH,
-        "tags": ("wet-weather",),
-    }
-    values.update(overrides)
-    return TimedEvent(**values)  # type: ignore[arg-type]
+_DEFAULT_EVENT = TimedEvent(
+    name="storm",
+    kind=EventKind.DISTURBANCE,
+    target=FLOW.name,
+    units=FLOW.units,
+    start_step=2,
+    end_step=4,
+    magnitude=1.5,
+    severity=EventSeverity.HIGH,
+    tags=("wet-weather",),
+)
+
+_DEFAULT_PACK = ScenarioPack(
+    spec=ScenarioSpec(SpecIdentity("wet-weather", "1.2.0"), "1.0.0"),
+    horizon_steps=10,
+    simulation_time_step=0.25,
+    signals=(FLOW, QUALITY),
+    initial_conditions=(
+        InitialCondition("nominal", (InitialValue("tank.level", "m", 2.0),), weight=1.0),
+        InitialCondition("high", (InitialValue("tank.level", "m", 3.0),), weight=2.0),
+    ),
+    exogenous_signals=(SignalTrajectory(FLOW, jnp.arange(10.0)),),
+    events=(_DEFAULT_EVENT,),
+    forecasts=(ForecastTrajectory(SignalTrajectory(QUALITY, jnp.linspace(1.0, 2.0, 10)), 3),),
+    severity=EventSeverity.HIGH,
+    tags=("validation", "wet-weather"),
+)
 
 
-def _pack(**overrides: object) -> ScenarioPack:
-    values: dict[str, object] = {
-        "spec": ScenarioSpec(SpecIdentity("wet-weather", "1.2.0"), "1.0.0"),
-        "horizon_steps": 10,
-        "simulation_time_step": 0.25,
-        "signals": (FLOW, QUALITY),
-        "initial_conditions": (
-            InitialCondition("nominal", (InitialValue("tank.level", "m", 2.0),), weight=1.0),
-            InitialCondition("high", (InitialValue("tank.level", "m", 3.0),), weight=2.0),
-        ),
-        "exogenous_signals": (SignalTrajectory(FLOW, jnp.arange(10.0)),),
-        "events": (_event(),),
-        "forecasts": (ForecastTrajectory(SignalTrajectory(QUALITY, jnp.linspace(1.0, 2.0, 10)), 3),),
-        "severity": EventSeverity.HIGH,
-        "tags": ("validation", "wet-weather"),
-    }
-    values.update(overrides)
-    return ScenarioPack(**values)  # type: ignore[arg-type]
+def _event(**overrides: Any) -> TimedEvent:
+    return replace(_DEFAULT_EVENT, **overrides)
+
+
+def _pack(**overrides: Any) -> ScenarioPack:
+    return replace(_DEFAULT_PACK, **overrides)
 
 
 def test_episode_is_reproducible_and_keeps_version_identity() -> None:
