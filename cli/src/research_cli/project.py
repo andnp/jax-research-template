@@ -71,8 +71,12 @@ def _project_github_repo(workspace_root: Path, name: str, explicit_repo: str | N
     if explicit_repo is not None:
         return explicit_repo
 
+    config_path = workspace_root / "research.yaml"
+    if not config_path.is_file():
+        return None
+
     try:
-        config = load_research_config(workspace_root / "research.yaml")
+        config = load_research_config(config_path)
     except ResearchConfigError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
