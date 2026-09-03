@@ -1,5 +1,6 @@
 """Small tests pinning the Brax time-limit truncation mapping."""
 
+import dataclasses
 from dataclasses import dataclass
 
 import chex
@@ -82,3 +83,41 @@ class TestBraxAdapterTruncationMapping:
         assert bool(step.terminated) is expected_terminated
         assert bool(step.truncated) is expected_truncated
         assert step.terminated.dtype == jnp.bool_
+
+
+class TestBraxAdapterAutoReset:
+    """Pin the removal of Brax auto-reset.
+
+    Brax's ``AutoResetWrapper`` overwrites the terminal observation with
+    ``info["first_obs"]``, so the true boundary state never reaches the port and
+    a bootstrap target computed from it is wrong. The adapter must therefore
+    create its Brax env with ``auto_reset=False`` unconditionally, with no knob
+    to turn it back on.
+    """
+
+    def test_config_has_no_auto_reset_field(self) -> None:
+        assert "auto_reset" not in {field.name for field in dataclasses.fields(BraxConfig)}
+
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            pytest.param(None, id="default_backend"),
+            pytest.param("generalized", id="explicit_backend"),
+        ],
+    )
+    def test_the_brax_env_is_created_with_auto_reset_disabled(self, monkeypatch: pytest.MonkeyPatch, backend: str | None) -> None:
+        from brax import envs as brax_envs
+
+        captured: dict[str, object] = {}
+
+        def record_create(env_name: str, **kwargs: object) -> FakeBraxEnv:
+            captured["env_name"] = env_name
+            captured.update(kwargs)
+            return FakeBraxEnv(done=0.0, truncation=0.0)
+
+        monkeypatch.setattr(brax_envs, "create", record_create)
+
+        BraxAdapter(BraxConfig(env_name="fake", backend=backend))
+
+        assert captured["auto_reset"] is False
+        assert captured["env_name"] == "fake"
