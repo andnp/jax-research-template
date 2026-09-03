@@ -103,12 +103,14 @@ class MujocoPlaygroundAdapter:
         for k, v in next_state.info.items():
             if isinstance(v, jax.Array):
                 info[k] = v
+        truncated = jnp.asarray(info.get("truncation", False), dtype=bool)
+        terminated = jnp.asarray(next_state.done, dtype=bool) & ~truncated
         return EnvStep(
             observation=next_state.obs,
             state=next_state,
             reward=next_state.reward,
-            terminated=next_state.done,
-            truncated=jnp.asarray(False),
+            terminated=terminated,
+            truncated=truncated,
             info=info,
         )
 
