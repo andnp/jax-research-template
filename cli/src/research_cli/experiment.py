@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 from experiment_definition.db import DatabaseManager, ExperimentRow
-from research_runner.types import ExperimentSpec
+from research_runner import ExperimentSpec
 
 experiment_app = typer.Typer(help="Manage experiments.")
 
@@ -150,7 +150,7 @@ def run(
     executions_root: str | None = typer.Option(None, "--executions-root", help="Override executions root."),
     max_runs: int | None = typer.Option(None, "--max-runs", help="Override max runs per batch."),
 ):
-    from research_runner.runner import run_experiment
+    from research_runner import run_experiment
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
@@ -244,7 +244,7 @@ def execute_batch_cmd(
     spec_file: Path = typer.Option(..., "--spec-file", help="Path to the Python spec file."),
     spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
 ):
-    from research_runner.runner import execute_batch
+    from research_runner import execute_batch
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)

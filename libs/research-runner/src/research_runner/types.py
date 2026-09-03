@@ -4,8 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from experiment_definition import Experiment
 from experiment_definition.db import ExperimentRow, RunRow
-from experiment_definition.experiment import Experiment
 
 
 @dataclass(frozen=True, slots=True)

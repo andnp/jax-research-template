@@ -5,8 +5,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from experiment_definition import Experiment
 from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
-from experiment_definition.experiment import Experiment
 
 from .git import capture_git_metadata
 from .types import ExecutionContext, ExecutionResult

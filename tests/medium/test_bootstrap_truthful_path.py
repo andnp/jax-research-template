@@ -103,6 +103,10 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
             "class ExperimentSpec: pass\n",
             encoding="utf-8",
         )
+        (src_dir / "__init__.py").write_text(
+            "from .types import ExperimentSpec\n",
+            encoding="utf-8",
+        )
 
 
 def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) -> None:
