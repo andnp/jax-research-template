@@ -68,7 +68,7 @@ def _upsert_component(cur: sqlite3.Cursor, name: str, comp_type: str, code_hash:
 
 def _upsert_hyperparam_config(
     cur: sqlite3.Cursor,
-    config: dict[str, object],
+    config: dict[str, ParameterValue],
     vmap_zone: dict[str, list[str]] | None = None,
 ) -> int:
     h = _hash_dict(config)
@@ -191,7 +191,7 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
 
 # ── Config generation ─────────────────────────────────────────────────────────
 
-def _generate_configs(state: "_ExperimentState") -> list[dict[str, object]]:
+def _generate_configs(state: "_ExperimentState") -> list[dict[str, ParameterValue]]:
     """Return all valid parameter combinations (cartesian product with conditionals).
 
     Conditionals are resolved iteratively: after each new param is fixed we
@@ -205,14 +205,14 @@ def _generate_configs(state: "_ExperimentState") -> list[dict[str, object]]:
 
     # Start with the cartesian product of unconditional params
     if not unconditional:
-        base_configs: list[dict[str, object]] = [{}]
+        base_configs: list[dict[str, ParameterValue]] = [{}]
     else:
         keys = [p.name for p in unconditional]
         values_lists = [p.values for p in unconditional]
         base_configs = [dict(zip(keys, combo, strict=True)) for combo in _product(*values_lists)]
 
     # Expand each base config with any matching conditional params
-    expanded: list[dict[str, object]] = []
+    expanded: list[dict[str, ParameterValue]] = []
     for config in base_configs:
         expanded.extend(_expand_conditionals(config, conditional))
 
@@ -220,9 +220,9 @@ def _generate_configs(state: "_ExperimentState") -> list[dict[str, object]]:
 
 
 def _expand_conditionals(
-    config: dict[str, object],
+    config: dict[str, ParameterValue],
     conditionals: list,
-) -> list[dict[str, object]]:
+) -> list[dict[str, ParameterValue]]:
     """Recursively expand conditional parameters triggered by ``config``."""
     from itertools import product as _product
 
@@ -238,7 +238,7 @@ def _expand_conditionals(
     # Cartesian product over the newly active params
     keys = [p.name for p in active]
     values_lists = [p.values for p in active]
-    results: list[dict[str, object]] = []
+    results: list[dict[str, ParameterValue]] = []
     for combo in _product(*values_lists):
         merged = {**config, **dict(zip(keys, combo, strict=True))}
         # Recurse: newly fixed values may trigger further conditionals
@@ -251,7 +251,7 @@ def _insert_runs(
     cur: sqlite3.Cursor,
     exp_id: int,
     comp_version_ids: dict[str, int],
-    configs: list[dict[str, object]],
+    configs: list[dict[str, ParameterValue]],
     state: "_ExperimentState",
 ) -> None:
     """Insert Run rows for each (config × ablation) combination.
@@ -275,7 +275,10 @@ def _insert_runs(
         ablation_list.append((abl.name, abl.overrides))
 
     for config in configs:
-        seed = int(config.get("seed", 0))  # type: ignore[arg-type]
+        raw_seed = config.get("seed", 0)
+        if raw_seed is None:
+            raise TypeError("experiment seed must not be None")
+        seed = int(raw_seed)
         hyper_config = {k: v for k, v in config.items() if k != "seed"}
 
         for abl_name, abl_overrides in ablation_list:
@@ -1130,7 +1133,7 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     return _json_stable(static_params)
 
 
-def _vmap_zone_for_hyper_config(state: "_ExperimentState", hyper_config: dict[str, object]) -> dict[str, list[str]]:
+def _vmap_zone_for_hyper_config(state: "_ExperimentState", hyper_config: dict[str, ParameterValue]) -> dict[str, list[str]]:
     static_keys = sorted({param.name for param in state.parameters if param.is_static and param.name in hyper_config})
     dynamic_keys = sorted(key for key in hyper_config if key not in static_keys)
     return {"static_keys": static_keys, "dynamic_keys": dynamic_keys}
