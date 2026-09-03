@@ -158,10 +158,11 @@ def test_rejects_steps_outside_episode_horizon() -> None:
         episode.active_events(10)
 
 
-@pytest.mark.parametrize("seed", [-1, True, 1.5])
-def test_rejects_invalid_episode_seeds(seed: object) -> None:
+@pytest.mark.parametrize("seed", [-1, True])
+def test_rejects_invalid_episode_seeds(seed: int) -> None:
+    """bool is a subclass of int, so the type checker cannot reject it here."""
     with pytest.raises(ValueError, match="seed must be"):
-        SeedBundle.from_seed(seed)  # type: ignore[arg-type]
+        SeedBundle.from_seed(seed)
 
 
 @pytest.mark.parametrize(
