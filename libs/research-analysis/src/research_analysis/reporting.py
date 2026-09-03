@@ -75,6 +75,14 @@ class BenchmarkBakeoffReport:
     ecdf_plot_path: Path | None
 
 
+@dataclass(frozen=True)
+class _PairwiseStatistics:
+    test_details: StatisticalTestDetails
+    difference_ci: tuple[float, float]
+    normality_p_values: tuple[float, float]
+    normality_flags: tuple[bool, bool]
+
+
 # ── Database Helpers ─────────────────────────────────────────────────────────
 
 
@@ -144,29 +152,13 @@ def _load_pairwise_data(
     return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), seeds_a == seeds_b
 
 
-def compare_pairwise(
-    db_path: Path | str,
-    experiment_slug: str,
-    condition_a: str,
-    condition_b: str,
-    metric_name: str,
-    confidence_level: float = 0.95,
-    verbose: bool = True,
-) -> ABComparisonReport:
-    """Compare exactly two experimental conditions, selecting the correct test automatically."""
-    if not 0 < confidence_level < 1:
-        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
-    alpha = 1.0 - confidence_level
-    db_path = Path(db_path)
-    experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
-        db_path,
-        experiment_slug,
-        condition_a,
-        condition_b,
-        metric_name,
-    )
-
-    # 1. Normality Tests (Shapiro-Wilk)
+def _compute_pairwise_statistics(
+    vals_a: np.ndarray,
+    vals_b: np.ndarray,
+    *,
+    alpha: float,
+    is_paired: bool,
+) -> _PairwiseStatistics:
     shapiro_a = stats.shapiro(vals_a) if len(vals_a) >= 3 else (1.0, 1.0)
     shapiro_b = stats.shapiro(vals_b) if len(vals_b) >= 3 else (1.0, 1.0)
     normal_a = shapiro_a[1] > 0.05
@@ -192,10 +184,8 @@ def compare_pairwise(
         justification="Checks if Group B outcomes deviate significantly from a normal distribution.",
         intermediate_tests={},
     )
-
     intermediate_tests = {"normality_a": norm_a_details, "normality_b": norm_b_details}
 
-    # 2. Select and run hypothesis test
     if is_paired:
         differences = vals_a - vals_b
         shapiro_diff = stats.shapiro(differences) if len(differences) >= 3 else (1.0, 1.0)
@@ -212,7 +202,6 @@ def compare_pairwise(
         )
 
         if normal_diff:
-            # Paired t-test
             ttest = stats.ttest_rel(vals_a, vals_b)
             p_value = float(ttest.pvalue)
             statistic = float(ttest.statistic)
@@ -222,7 +211,6 @@ def compare_pairwise(
                 "and differences are normally distributed (Shapiro-Wilk p > 0.05)."
             )
         else:
-            # Wilcoxon Signed-Rank
             wilc = stats.wilcoxon(vals_a, vals_b)
             p_value = float(wilc.pvalue)
             statistic = float(wilc.statistic)
@@ -232,35 +220,29 @@ def compare_pairwise(
                 "but the differences deviate significantly from normality (Shapiro-Wilk p <= 0.05)."
             )
         effect_size = float(np.mean(differences) / np.std(differences, ddof=1)) if np.std(differences, ddof=1) > 0 else 0.0
+    elif normal_a and normal_b:
+        wel = welch_ttest(vals_a, vals_b)
+        p_value = wel.p_value
+        statistic = wel.t_statistic
+        test_name = "Welch's t-test"
+        justification = (
+            "Selected because the groups are independent (unpaired seeds) "
+            "and both are normally distributed."
+        )
+        effect_size = (np.mean(vals_a) - np.mean(vals_b)) / math.sqrt((np.var(vals_a, ddof=1) + np.var(vals_b, ddof=1)) / 2)
     else:
-        if normal_a and normal_b:
-            # Welch's t-test
-            wel = welch_ttest(vals_a, vals_b)
-            p_value = wel.p_value
-            statistic = wel.t_statistic
-            test_name = "Welch's t-test"
-            justification = (
-                "Selected because the groups are independent (unpaired seeds) "
-                "and both are normally distributed."
-            )
-            effect_size = (np.mean(vals_a) - np.mean(vals_b)) / math.sqrt((np.var(vals_a, ddof=1) + np.var(vals_b, ddof=1)) / 2)
-        else:
-            # Mann-Whitney U-test
-            mw = mann_whitney_u_test(vals_a, vals_b)
-            p_value = mw.p_value
-            statistic = mw.u_statistic
-            test_name = "Mann-Whitney U-test"
-            justification = (
-                "Selected because the groups are independent (unpaired seeds) "
-                "and at least one group deviates from normality."
-            )
-            effect_size = mw.rank_biserial_correlation
+        mw = mann_whitney_u_test(vals_a, vals_b)
+        p_value = mw.p_value
+        statistic = mw.u_statistic
+        test_name = "Mann-Whitney U-test"
+        justification = (
+            "Selected because the groups are independent (unpaired seeds) "
+            "and at least one group deviates from normality."
+        )
+        effect_size = mw.rank_biserial_correlation
 
     is_significant = p_value < alpha
-
-    # 3. Bootstrapped Confidence Interval of the Difference of Means
     rng = np.random.default_rng(12345)
-    # Simple bootstrapping of difference of means
     boot_diffs = []
     n_a = len(vals_a)
     n_b = len(vals_b)
@@ -274,17 +256,55 @@ def compare_pairwise(
             boot_diffs.append(np.mean(vals_a[idx_a]) - np.mean(vals_b[idx_b]))
 
     ci_low, ci_high = np.percentile(boot_diffs, [100 * alpha / 2, 100 * (1 - alpha / 2)])
-
-    test_details = StatisticalTestDetails(
-        test_name=test_name,
-        statistic=statistic,
-        p_value=p_value,
-        effect_size=effect_size,
-        is_significant=is_significant,
-        assumptions={"paired": is_paired, "normal_a": normal_a, "normal_b": normal_b},
-        justification=justification,
-        intermediate_tests=intermediate_tests,
+    return _PairwiseStatistics(
+        test_details=StatisticalTestDetails(
+            test_name=test_name,
+            statistic=statistic,
+            p_value=p_value,
+            effect_size=effect_size,
+            is_significant=is_significant,
+            assumptions={"paired": is_paired, "normal_a": normal_a, "normal_b": normal_b},
+            justification=justification,
+            intermediate_tests=intermediate_tests,
+        ),
+        difference_ci=(float(ci_low), float(ci_high)),
+        normality_p_values=(float(shapiro_a[1]), float(shapiro_b[1])),
+        normality_flags=(normal_a, normal_b),
     )
+
+
+def compare_pairwise(
+    db_path: Path | str,
+    experiment_slug: str,
+    condition_a: str,
+    condition_b: str,
+    metric_name: str,
+    confidence_level: float = 0.95,
+    verbose: bool = True,
+) -> ABComparisonReport:
+    """Compare exactly two experimental conditions, selecting the correct test automatically."""
+    if not 0 < confidence_level < 1:
+        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+    alpha = 1.0 - confidence_level
+    db_path = Path(db_path)
+    experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
+        db_path,
+        experiment_slug,
+        condition_a,
+        condition_b,
+        metric_name,
+    )
+
+    pairwise_statistics = _compute_pairwise_statistics(
+        vals_a,
+        vals_b,
+        alpha=alpha,
+        is_paired=is_paired,
+    )
+    test_details = pairwise_statistics.test_details
+    ci_low, ci_high = pairwise_statistics.difference_ci
+    shapiro_a_p, shapiro_b_p = pairwise_statistics.normality_p_values
+    normal_a, normal_b = pairwise_statistics.normality_flags
 
     # 4. Distribution Plot
     analysis_dir = Path("results/analysis") / experiment_slug
@@ -330,15 +350,15 @@ def compare_pairwise(
                 (f"• Justification: {test_details.justification}\n\n", "italic"),
                 ("Assumptions Checked:\n", "bold"),
                 (f"  - Repeated measures (paired seeds): {'Yes' if is_paired else 'No'}\n"),
-                (f"  - Group A normal distribution (p={shapiro_a[1]:.4f}): {'Yes' if normal_a else 'No'}\n"),
-                (f"  - Group B normal distribution (p={shapiro_b[1]:.4f}): {'Yes' if normal_b else 'No'}"),
+                (f"  - Group A normal distribution (p={shapiro_a_p:.4f}): {'Yes' if normal_a else 'No'}\n"),
+                (f"  - Group B normal distribution (p={shapiro_b_p:.4f}): {'Yes' if normal_b else 'No'}"),
             ),
             title="Methodology Justification Box",
         )
         console.print(just_panel)
 
-        sig_style = "bold green" if is_significant else "bold red"
-        sig_text = "Statistically Significant" if is_significant else "Not Statistically Significant"
+        sig_style = "bold green" if test_details.is_significant else "bold red"
+        sig_text = "Statistically Significant" if test_details.is_significant else "Not Statistically Significant"
         findings = Panel(
             Text.assemble(
                 ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
