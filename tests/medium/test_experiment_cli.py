@@ -250,6 +250,98 @@ def test_invalidate_no_args_fails(tmp_path: Path) -> None:
     assert result.exit_code == 1
 
 
+def _seed_two_arm_experiment(db: DatabaseManager) -> tuple[int, int, int]:
+    """Seed one experiment with two hyperparameter arms, each with a completed execution.
+
+    Returns (experiment_id, changed_arm_run_id, stable_arm_run_id).
+    """
+    exp_id = db.add_experiment("bakeoff")
+    algo_id = db.add_component("algo", "ALGO")
+    algo_ver_id = db.add_component_version(algo_id, "abc")
+    env_id = db.add_component("env", "ENV")
+    env_ver_id = db.add_component_version(env_id, "def")
+
+    changed_hyper_id = db.add_hyperparam_config({"algorithm": "gi_qrc"})
+    stable_hyper_id = db.add_hyperparam_config({"algorithm": "baseline"})
+
+    changed_run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, changed_hyper_id, seed=0)
+    stable_run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, stable_hyper_id, seed=0)
+
+    changed_execution = db.add_execution(hostname="n1")
+    db.link_execution_run(changed_execution, changed_run_id)
+    db.update_execution_status(changed_execution, "COMPLETED")
+
+    stable_execution = db.add_execution(hostname="n2")
+    db.link_execution_run(stable_execution, stable_run_id)
+    db.update_execution_status(stable_execution, "COMPLETED")
+
+    return exp_id, changed_run_id, stable_run_id
+
+
+def test_invalidate_by_where_unsatisfies_only_matched_arm(tmp_path: Path) -> None:
+    """
+    The load-bearing case: invalidating one arm by --where must make that
+    arm's runs unsatisfied while leaving the other arm's runs satisfied --
+    the whole point of the feature is avoiding a full re-identify/re-run.
+    """
+    db_path = tmp_path / "bakeoff.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id, changed_run_id, stable_run_id = _seed_two_arm_experiment(db)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--where", "algorithm=gi_qrc"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Invalidated 1" in result.output
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        unsatisfied_ids = {r.id for r in db.list_unsatisfied_runs(exp_id)}
+    assert changed_run_id in unsatisfied_ids
+    assert stable_run_id not in unsatisfied_ids
+
+
+def test_invalidate_by_where_no_match_fails(tmp_path: Path) -> None:
+    db_path = tmp_path / "bakeoff_none.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        _seed_two_arm_experiment(db)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--where", "algorithm=nonexistent"],
+    )
+    assert result.exit_code != 0
+    assert "matched no executions" in (result.output + (result.stderr or "")).lower()
+
+
+def test_invalidate_by_where_requires_experiment(tmp_path: Path) -> None:
+    db_path = tmp_path / "bakeoff_noexp.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+
+    result = runner.invoke(app, ["experiment", "invalidate", str(db_path), "--where", "algorithm=gi_qrc"])
+    assert result.exit_code == 1
+    assert "requires --experiment" in result.output.lower()
+
+
+def test_invalidate_by_where_yes_flag_skips_confirmation(tmp_path: Path) -> None:
+    db_path = tmp_path / "bakeoff_yes.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        _seed_two_arm_experiment(db)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--where", "algorithm=gi_qrc", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Invalidated 1" in result.output
+
+
 def test_invalidate_nonexistent_warns(tmp_path: Path) -> None:
     db_path = tmp_path / "inv_none.sqlite"
     with DatabaseManager(db_path) as db:
