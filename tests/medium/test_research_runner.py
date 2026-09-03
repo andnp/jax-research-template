@@ -82,6 +82,12 @@ class TestRunExperiment:
                 artifacts = database.get_execution_artifacts(exec_id)
                 assert artifacts is not None
                 assert artifacts.root_path == str(root)
+                artifact_metadata = json.loads(artifacts.metadata_json or "{}")
+                assert artifact_metadata["run_ids"] == manifest["run_ids"]
+                assert "static_config_json" in artifact_metadata
+                assert "vmap_zone_json" in artifact_metadata
+                assert artifact_metadata["trained"] is True
+                assert artifact_metadata["metrics_db_path"] == manifest["metrics_db_path"]
 
     def test_on_batch_complete_invoked(self, db_path: Path, executions_root: Path) -> None:
         """
