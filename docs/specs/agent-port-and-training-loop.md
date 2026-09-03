@@ -852,8 +852,15 @@ Resolved by review:
   `vmap` decided it against the non-fused alternative.
 - **O2 (`truncation_policy` placement) — resolved.** Default on `EnvSpec`, per-run override
   on `run`, §4.4.
-- **O4 (`lax.cond` vs ADR 004) — resolved, moot.** `cond` vectorises to `select` under
-  `vmap`, so it buys nothing here; use masking per ADR 004, §6.3.
+- **O4 (`lax.cond` vs ADR 004) — resolved, reversed.** An earlier resolution recorded here
+  claimed `cond` vectorises to `select` under `vmap` and therefore buys nothing. That is true
+  only for a pure environment. Guard the boundary reset with `lax.cond`, §6.3: on the
+  unbatched path it is load-bearing, because an adapter holding state behind an ordered
+  `io_callback` outside the pytree has its reset side effect fire even when a `select`
+  discards the value. And `vmap` does not silently degrade the effectful case — it refuses to
+  compile it (`NotImplementedError: IO effect not supported in vmap-of-cond`). ADR 004 §3's
+  masking preference is narrowed rather than contradicted: masking for value selection,
+  `cond` for guarding an effectful call.
 - **O7 (off-policy correction) — resolved.** See below.
 
 Open:
