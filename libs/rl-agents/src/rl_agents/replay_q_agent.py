@@ -136,6 +136,39 @@ class ReplayQConfig(Protocol):
 
 
 @chex_struct(frozen=True)
+class ReplayQHypers:
+    """The hyperparameters ``step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can
+    ``vmap`` one compiled kernel across a batch of arms. Everything here is
+    read only in arithmetic or in a traced predicate, never to size an array
+    or take a Python branch -- those stay on the config.
+    """
+
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    TARGET_NETWORK_FREQUENCY: jax.Array
+    TAU: jax.Array
+    EPSILON_START: jax.Array
+    EPSILON_END: jax.Array
+    EPSILON_FRACTION: jax.Array
+    TOTAL_TIMESTEPS: jax.Array
+
+
+def replay_q_hypers(config: ReplayQConfig):
+    return ReplayQHypers(
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
+        TAU=jnp.asarray(config.TAU, jnp.float32),
+        EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
+        EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
+        EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
+        TOTAL_TIMESTEPS=jnp.asarray(config.TOTAL_TIMESTEPS, jnp.float32),
+    )
+
+
+@chex_struct(frozen=True)
 class ReplayQAgentState:
     """Everything a replay-based Q agent carries between loop iterations.
 
@@ -152,6 +185,7 @@ class ReplayQAgentState:
         num_actions: Size of the discrete action space, as an int32 leaf so that random
             exploration can sample against a traced bound.
         key: PRNG key for sampling minibatches and exploring.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     train_state: TrainState
@@ -161,6 +195,7 @@ class ReplayQAgentState:
     last_action: jax.Array
     num_actions: jax.Array
     key: chex.PRNGKey
+    hypers: ReplayQHypers
 
 
 class ReplayQAgent:
@@ -233,6 +268,7 @@ class ReplayQAgent:
             last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
             num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
             key=carry_key,
+            hypers=replay_q_hypers(self.config),
         )
 
     def step(
@@ -258,7 +294,6 @@ class ReplayQAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        config = self.config
         buffer = ReplayBuffer.from_state(state.buffer_state)
         carry_key, sample_key, action_key = jax.random.split(state.key, 3)
 
@@ -275,7 +310,8 @@ class ReplayQAgent:
             lambda: state.buffer_state,
         )
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        hypers = state.hypers
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
             can_train,
             lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key),
@@ -283,9 +319,9 @@ class ReplayQAgent:
         )
 
         target_params = jax.lax.cond(
-            step_index % config.TARGET_NETWORK_FREQUENCY == 0,
+            step_index % hypers.TARGET_NETWORK_FREQUENCY == 0,
             lambda: jax.tree_util.tree_map(
-                lambda target, online: config.TAU * online + (1.0 - config.TAU) * target,
+                lambda target, online: hypers.TAU * online + (1.0 - hypers.TAU) * target,
                 state.target_params,
                 train_state.params,
             ),
@@ -293,10 +329,10 @@ class ReplayQAgent:
         )
 
         epsilon = jnp.maximum(
-            jnp.asarray(config.EPSILON_END, jnp.float32),
-            jnp.asarray(config.EPSILON_START, jnp.float32)
-            - (config.EPSILON_START - config.EPSILON_END)
-            * (step_index / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
+            hypers.EPSILON_END,
+            hypers.EPSILON_START
+            - (hypers.EPSILON_START - hypers.EPSILON_END)
+            * (step_index / (hypers.TOTAL_TIMESTEPS * hypers.EPSILON_FRACTION)),
         ).astype(jnp.float32)
         q_values = jnp.asarray(train_state.apply_fn(train_state.params, timestep.observation))
         chose_random = jax.random.uniform(action_key, ()) < epsilon
@@ -312,6 +348,7 @@ class ReplayQAgent:
                 last_action=action,
                 num_actions=state.num_actions,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics={
