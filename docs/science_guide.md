@@ -81,8 +81,8 @@ We do not assume performance is Gaussian. All Confidence Intervals (CIs) must be
 3.  Repeat 10,000 times.
 4.  CI is the $(\frac{\alpha}{2}, 1-\frac{\alpha}{2})$ percentiles of the bootstrap distribution.
 
-### Skillings-Mack Test
-When comparing $K$ algorithms across $T$ tasks, and especially if some results are missing, use the Skillings-Mack test. It is a non-parametric alternative to Friedman’s test that handles missing data correctly.
+### Friedman Test in the Reporting API
+The reporting API compares $K$ algorithms across environment-seed rows with the Friedman test. Missing rows are handled by listwise deletion, so at least three complete rows are required; insufficient data must fail rather than produce a placeholder statistic or p-value.
 
 ### Non-Parametric Tolerance Intervals
 To show performance coverage, use Tolerance Intervals.
