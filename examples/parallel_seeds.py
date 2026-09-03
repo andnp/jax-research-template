@@ -28,7 +28,7 @@ def main() -> None:
     
     env, env_params = gymnax.make(config.ENV_NAME)
     env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
+    train_fn = make_train(config, env=env, env_params=env_params)
 
     # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.

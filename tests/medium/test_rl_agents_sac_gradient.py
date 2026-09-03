@@ -145,7 +145,7 @@ class TestSACGradientFlow:
         )
         gymnax_env = GymnaxCompatibilityBridge(normalized_env)
 
-        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))  # type: ignore[arg-type]
+        out = jax.jit(make_train(config, env=gymnax_env, env_params=None))(jax.random.key(0))
         metrics = out["metrics"]
 
         assert metrics["returned_episode"].shape == (4,)

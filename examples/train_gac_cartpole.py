@@ -40,7 +40,7 @@ class ContinuousCartPole:
         # Report 1D continuous action space in [-1, 1]
         class _ContActionSpace:
             shape = (1,)
-        return _ContActionSpace()  # type: ignore[return-value]
+        return _ContActionSpace()
 
     def reset(self, key: jax.Array, params: Any = None) -> tuple[jax.Array, Any]:
         return self._env.reset(key, params or self._env_params)
@@ -80,7 +80,7 @@ def main() -> None:
     env = ContinuousCartPole(raw_env, env_params)
     env = gymnax.wrappers.LogWrapper(env)
 
-    train_fn = make_train(config, env=env, env_params=env_params)  # type: ignore[arg-type]
+    train_fn = make_train(config, env=env, env_params=env_params)
     train_jit = jax.jit(train_fn)
 
     print(f"--- Training GAC on {config.ENV_NAME} (continuous wrapper) ---")

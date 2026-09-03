@@ -93,7 +93,7 @@ indent-style = "space"
 
 [tool.pyrefly]
 preset = "strict"
-replace-imports-with-any = ["flax.*", "chex.*"]
+replace-imports-with-any = ["flax.*", "chex.*", "gymnax.*"]
 search-path = [
     "libs/jax-nn/src",
     "libs/jax-replay/src",

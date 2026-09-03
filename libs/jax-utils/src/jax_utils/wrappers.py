@@ -55,4 +55,4 @@ def typed_vmap[**P, R](
     Returns:
         A vectorised callable with the same signature as *fn*.
     """
-    return jax.vmap(fn, in_axes=in_axes, out_axes=out_axes, axis_name=axis_name)  # type: ignore[return-value]
+    return jax.vmap(fn, in_axes=in_axes, out_axes=out_axes, axis_name=axis_name)
