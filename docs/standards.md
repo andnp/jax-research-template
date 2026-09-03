@@ -1,7 +1,7 @@
 # Engineering Standards
 
 ## 1. Type Checking
-We use `pyrefly` for primary type checking and `pyright` as a secondary validator.
+We use `pyrefly` for type checking.
 
 - **Zero Tolerance:** All code in `libs/` must have 100% type coverage.
 - **Modern Syntax:**

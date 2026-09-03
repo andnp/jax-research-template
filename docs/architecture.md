@@ -39,7 +39,7 @@ Do not define `__all__` lists in any module. Every public class, function, or va
 
 We enforce static typing to catch logic errors before running slow execution trials.
 
-- **Typecheck Suite:** `pyrefly` is the primary static analysis typechecker for code in `libs/`, with `pyright` as a secondary validator.
+- **Typecheck Suite:** `pyrefly` is the static analysis typechecker for code in `libs/`.
 - **Zero Type Errors:** Code merged into the core libraries must have 100% type coverage.
 - **Strict Any:** Avoid `Any` type annotations in public interfaces. Use generic parameters (using PEP 695 syntax, e.g. `def process[T](data: list[T]) -> T:`) or define explicit protocols for structural typing.
 - **Standard Type Annotations:** Use modern Python standards:

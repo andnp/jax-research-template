@@ -29,7 +29,7 @@ Ensure your system has the following installed:
    ```
    This sets the git configuration `core.hooksPath` to `.githooks`. On commit, the hooks run:
    - `ruff check .` for linting.
-   - `pyright` (or `pyrefly`) for type validation.
+   - `pyrefly check` for type validation.
 
 ---
 
