@@ -304,7 +304,8 @@ class SACAgent:
             The initial agent state.
 
         Raises:
-            ValueError: If ``spec`` does not describe a one-dimensional continuous action.
+            ValueError: If ``spec`` is not a one-dimensional continuous action space
+                normalized to ``[-1, 1]``.
         """
         action_dim = continuous_action_dim(spec)
         observation_shape = tuple(spec.observation_shape)

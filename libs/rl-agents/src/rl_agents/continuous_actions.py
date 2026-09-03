@@ -11,8 +11,9 @@ shared by all of them and live here rather than in four copies:
 The ``[-1, 1]`` range is a requirement on the environment, not a rescaling these agents
 perform. An environment with native bounds must be wrapped in
 :func:`rl_components.action_normalization.make_action_normalization_wrapper`, whose spec
-reports exactly those bounds; handing a raw spec straight to one of these agents silently
-confines the policy to the middle of the real action range.
+reports exactly those bounds. Handing a raw spec straight to one of these agents would
+otherwise confine the policy to the middle of the real action range and keep training, so
+:func:`continuous_action_dim` refuses a spec whose declared bounds are anything else.
 """
 
 from __future__ import annotations
@@ -20,11 +21,17 @@ from __future__ import annotations
 import chex
 import jax
 import jax.numpy as jnp
+from jax.errors import TracerBoolConversionError
 from rl_components.env_protocol import EnvSpec
 
 
 def continuous_action_dim(spec: EnvSpec) -> int:
     """Read the action dimension a tanh-squashed policy needs from ``spec``.
+
+    A spec that declares no bounds is accepted, because there is nothing to disagree with;
+    a spec whose bounds are traced is also accepted, since the comparison cannot be made
+    at trace time. Both mirror how :class:`~rl_components.env_protocol.EnvSpec` validates
+    its own bounds.
 
     Args:
         spec: The environment description handed to the agent's ``init``.
@@ -33,8 +40,8 @@ def continuous_action_dim(spec: EnvSpec) -> int:
         The length of the action vector.
 
     Raises:
-        ValueError: If ``spec`` describes a discrete action space, or an action of any
-            rank other than one.
+        ValueError: If ``spec`` describes a discrete action space, an action of any rank
+            other than one, or declared bounds other than ``[-1, 1]``.
     """
     if spec.num_actions is not None:
         raise ValueError(
@@ -45,6 +52,19 @@ def continuous_action_dim(spec: EnvSpec) -> int:
     if len(action_shape) != 1:
         raise ValueError(
             f"continuous control requires a one-dimensional action vector, got spec {spec.id!r} with action_shape {action_shape}"
+        )
+
+    if spec.action_low is None or spec.action_high is None:
+        return action_shape[0]
+    try:
+        is_normalized = bool(jnp.all(spec.action_low == -1.0) & jnp.all(spec.action_high == 1.0))
+    except TracerBoolConversionError:
+        return action_shape[0]
+    if not is_normalized:
+        raise ValueError(
+            f"a tanh-squashed policy requires action bounds of [-1, 1], got spec {spec.id!r} with "
+            f"low {spec.action_low} and high {spec.action_high}; wrap the environment in "
+            "rl_components.action_normalization.make_action_normalization_wrapper"
         )
     return action_shape[0]
 
