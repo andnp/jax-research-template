@@ -93,35 +93,6 @@ class TestPPOClippedObjective:
         assert jnp.allclose(policy_loss[0], -1.2)
 
 
-class TestGAEComputation:
-    def test_single_step_gae(self) -> None:
-        """GAE with a single step should equal the TD error."""
-        gamma = 0.99
-        reward = 1.0
-        value = 0.5
-        next_value = 0.3
-        done = 0.0
-
-        not_done = 1.0 - done
-        delta = reward + gamma * next_value * not_done - value
-        # Single step: GAE = delta
-        expected_delta = 1.0 + 0.99 * 0.3 * 1.0 - 0.5  # = 0.797
-        assert abs(delta - expected_delta) < 1e-6
-
-    def test_gae_terminal_state(self) -> None:
-        """At a terminal state, next_value should be zeroed out."""
-        gamma = 0.99
-        reward = 1.0
-        value = 0.5
-        next_value = 100.0  # Should not matter since done=1
-        done = 1.0
-
-        not_done = 1.0 - done
-        delta = reward + gamma * next_value * not_done - value
-        # done=1 → not_done=0 → next_value ignored
-        assert abs(delta - (1.0 - 0.5)) < 1e-6
-
-
 class TestContinuousActionReductions:
     def test_continuous_terms_reduce_last_axis(self) -> None:
         terms = jnp.array([[0.1, 0.2], [0.3, 0.4]], dtype=jnp.float32)
