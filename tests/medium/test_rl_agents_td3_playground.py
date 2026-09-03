@@ -1,5 +1,7 @@
 """Medium tests: TD3 gradient flow on MuJoCo Playground dm_control_suite envs."""
 
+from typing import Any, cast
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -63,6 +65,32 @@ class TestMujocoPlaygroundBridge:
         assert transition.observation.shape == spec.observation_shape
         assert transition.reward.shape == ()
         assert transition.terminated.shape == ()
+
+    def test_episode_wrapper_time_limit_reports_truncated_not_terminated(self) -> None:
+        from brax.envs.wrappers.training import EpisodeWrapper
+        from mujoco_playground import dm_control_suite
+        from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+
+        raw = dm_control_suite.load("CartpoleBalance", config_overrides={"impl": "jax"})
+        wrapped = EpisodeWrapper(cast(Any, raw), episode_length=1, action_repeat=1)
+        adapter = MujocoPlaygroundAdapter(cast(Any, wrapped))
+        spec = adapter.spec()
+        reset = adapter.reset(jax.random.key(0))
+        action = jnp.zeros(spec.action_shape)
+
+        transition = adapter.step(jax.random.key(1), reset.state, action)
+
+        assert bool(transition.truncated) is True
+        assert bool(transition.terminated) is False
+
+        reset_state = cast(Any, reset.state)
+        blown_up_data = reset_state.data.replace(qpos=jnp.full_like(reset_state.data.qpos, jnp.nan))
+        genuinely_terminal_state = reset_state.replace(data=blown_up_data)
+
+        genuine_transition = adapter.step(jax.random.key(2), genuinely_terminal_state, action)
+
+        assert bool(genuine_transition.terminated) is True
+        assert bool(genuine_transition.truncated) is False
 
 
 class TestTD3OnPlaygroundEnvs:
