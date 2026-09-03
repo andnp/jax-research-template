@@ -9,10 +9,11 @@ semantics without re-implementing the target rule or hand-computing a constant.
 ``rl_agents.qrc`` is already covered this way by
 ``test_rl_agents_qrc_gradient.py::test_terminal_transitions_zero_bootstrap_in_batch``.
 
-Agents that cannot be gated here, because their loss is a closure defined inside the
-function that trains them and is not reachable from outside the module: ``dqn`` and
-``sac``. Exposing them belongs to each agent's own port commit, not to a test. Until then
-their termination handling is gated only structurally, by
+``sac`` cannot be gated here, because its loss is a closure defined inside the function
+that trains it and is not reachable from outside the module; exposing it belongs to its
+own port commit, not to a test. ``dqn`` is reachable as
+:func:`rl_agents.dqn.dqn_loss` and has no case here yet, so both are gated only
+structurally for now, by
 ``test_rl_agents_learn_path.py::test_terminal_transitions_store_a_zero_discount``.
 """
 
@@ -23,7 +24,7 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, td3
+from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, td3
 from rl_agents.q_networks import make_q_network
 
 BATCH_SIZE = 8
@@ -40,7 +41,7 @@ def _next_obs_pair(shape: tuple[int, ...]) -> tuple[jax.Array, jax.Array]:
     )
 
 
-_DOUBLE_Q_NETWORKS: dict[str, Callable[[int], double_q.QNetworkModule]] = {
+_DOUBLE_Q_NETWORKS: dict[str, Callable[[int], replay_q_agent.QNetworkModule]] = {
     "double_dqn": lambda action_dim: make_q_network(
         double_dqn.DoubleDQNConfig(), action_dim, observation_shape=(OBS_DIM,)
     ),
