@@ -318,9 +318,8 @@ def _batch_qrc_loss(
     actions: jax.Array,
     rewards: jax.Array,
     next_obs: jax.Array,
-    dones: jax.Array,
+    discounts: jax.Array,
     next_actions: jax.Array,
-    gamma: jax.Array,
     reg_weight: float,
 ) -> tuple[jax.Array, QRCMetrics]:
     """Vectorised QRC loss over a batch of transitions.
@@ -328,9 +327,7 @@ def _batch_qrc_loss(
     L2 regularization is applied **only** to the h-head parameters
     (QRC paper §3.2).
     """
-    gamma_arr = gamma * (1.0 - dones)
-
-    transitions = jax.vmap(QRCTransition)(obs, actions, rewards, next_obs, gamma_arr)
+    transitions = jax.vmap(QRCTransition)(obs, actions, rewards, next_obs, discounts)
 
     losses, metrics = jax.vmap(_qrc_loss, in_axes=(None, 0, 0))(
         critic_params, transitions, next_actions,
@@ -578,7 +575,7 @@ def make_train(
                 obs, actions, rewards, next_obs, dones = buffer.sample(
                     buffer_state, sample_rng, config.BATCH_SIZE,
                 )
-                gamma = jnp.full((config.BATCH_SIZE,), config.GAMMA)
+                discounts = config.GAMMA * (1.0 - dones)
 
                 # ── Critic update ────────────────────────────────
                 batch_rngs = jax.random.split(next_rng, config.BATCH_SIZE)
@@ -590,8 +587,8 @@ def make_train(
 
                 def _critic_loss_fn(params: VariableDict) -> jax.Array:
                     loss, _ = _batch_qrc_loss(
-                        params, obs, actions, rewards, next_obs, dones,
-                        next_actions, gamma, config.H_REGULARIZATION,
+                        params, obs, actions, rewards, next_obs, discounts,
+                        next_actions, config.H_REGULARIZATION,
                     )
                     return loss
 
