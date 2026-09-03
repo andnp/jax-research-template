@@ -78,7 +78,7 @@ def _critic_loss(
     actions: jax.Array,
     rewards: jax.Array,
     next_obs: jax.Array,
-    dones: jax.Array,
+    discounts: jax.Array,
     rng: jax.Array,
     *,
     actor: Actor,
@@ -95,7 +95,7 @@ def _critic_loss(
         critic.apply,
         in_axes=(0, None, None),
     )(critic_target_params, next_obs, next_actions)
-    target_q = rewards + config.GAMMA * (1.0 - dones) * jnp.min(next_q, axis=0)
+    target_q = rewards + discounts * jnp.min(next_q, axis=0)
 
     def _single(p: VariableDict) -> jax.Array:
         q = critic.apply(p, obs, actions)
@@ -176,6 +176,7 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
         ) -> tuple[TrainState, TrainState, VariableDict, VariableDict, jax.Array, jax.Array]:
             rng, _rng, _rng_cl = jax.random.split(rng, 3)
             obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
+            discounts = config.GAMMA * (1.0 - dones)
 
             critic_loss, critic_grads = jax.value_and_grad(_bound_critic_loss)(
                 critic_state.params,
@@ -185,7 +186,7 @@ def make_train(config: TD3Config, env: GymEnv[ContinuousActionSpace], env_params
                 actions,
                 rewards,
                 next_obs,
-                dones,
+                discounts,
                 _rng_cl,
             )
             critic_state = critic_state.apply_gradients(grads=critic_grads)
