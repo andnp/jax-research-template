@@ -207,6 +207,21 @@ def test_invalidate_by_git_commit(tmp_path: Path) -> None:
     assert "Invalidated 2" in result.output
 
 
+def test_invalidate_yes_flag_skips_confirmation(tmp_path: Path) -> None:
+    db_path = tmp_path / "inv_yes.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        eid = db.add_execution(hostname="node01")
+        db.update_execution_status(eid, "COMPLETED")
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--execution", str(eid), "--yes"],
+    )
+    assert result.exit_code == 0
+    assert "Invalidated 1" in result.output
+
+
 def test_invalidate_no_args_fails(tmp_path: Path) -> None:
     db_path = tmp_path / "inv_noargs.sqlite"
     with DatabaseManager(db_path) as db:

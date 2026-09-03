@@ -213,6 +213,7 @@ def invalidate(
     db_path: Path = typer.Argument(..., help="Path to the experiment database."),
     execution: list[int] | None = typer.Option(None, "--execution", help="Execution ID(s) to invalidate."),
     git_commit: str | None = typer.Option(None, "--git-commit", help="Invalidate all executions for a git commit."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ):
     if not execution and not git_commit:
         typer.echo("Error: at least one of --execution or --git-commit must be provided.", err=True)
@@ -223,7 +224,8 @@ def invalidate(
         parts.append(f"execution ID(s): {', '.join(str(e) for e in execution)}")
     if git_commit:
         parts.append(f"git commit: {git_commit[:8]}")
-    typer.confirm(f"Invalidate executions matching {'; '.join(parts)}?", abort=True)
+    if not yes:
+        typer.confirm(f"Invalidate executions matching {'; '.join(parts)}?", abort=True)
 
     invalidated: list[int] = []
     with DatabaseManager(db_path) as db:
