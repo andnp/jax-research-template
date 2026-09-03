@@ -273,6 +273,18 @@ def _compute_pairwise_statistics(
     )
 
 
+def _plot_pairwise(
+    vals_a: np.ndarray,
+    vals_b: np.ndarray,
+    condition_a: str,
+    condition_b: str,
+    experiment_slug: str,
+) -> Path:
+    plot_path = Path("results/analysis") / experiment_slug / "ab_comparison.png"
+    plot_distributions(vals_a, vals_b, condition_a, condition_b, plot_path)
+    return plot_path
+
+
 def _load_hyperparameter_records(
     db_path: Path,
     experiment_slug: str,
@@ -346,10 +358,13 @@ def compare_pairwise(
     shapiro_a_p, shapiro_b_p = pairwise_statistics.normality_p_values
     normal_a, normal_b = pairwise_statistics.normality_flags
 
-    # 4. Distribution Plot
-    analysis_dir = Path("results/analysis") / experiment_slug
-    plot_path = analysis_dir / "ab_comparison.png"
-    plot_distributions(vals_a, vals_b, condition_a, condition_b, plot_path)
+    plot_path = _plot_pairwise(
+        vals_a,
+        vals_b,
+        condition_a,
+        condition_b,
+        experiment_slug,
+    )
 
     report = ABComparisonReport(
         experiment_name=experiment_name,
@@ -570,6 +585,19 @@ def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_
     )
 
 
+def _plot_hypers(
+    target_hyperparameter: str,
+    sorted_keys: list[Any],
+    slice_perf_sorted: list[float],
+    best_perf_sorted: list[float],
+    experiment_slug: str,
+    plot_suffix: str,
+) -> Path:
+    plot_path = Path("results/analysis") / experiment_slug / f"hyper_sensitivity{plot_suffix}.png"
+    plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
+    return plot_path
+
+
 def _analyze_hypers_group(
     records: list[dict[str, Any]],
     *,
@@ -595,9 +623,14 @@ def _analyze_hypers_group(
     best_perf_sorted = statistics.sorted_best
     ci_low, ci_high = statistics.correction_ci
 
-    analysis_dir = Path("results/analysis") / experiment_slug
-    plot_path = analysis_dir / f"hyper_sensitivity{plot_suffix}.png"
-    plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
+    plot_path = _plot_hypers(
+        target_hyperparameter,
+        sorted_keys,
+        slice_perf_sorted,
+        best_perf_sorted,
+        experiment_slug,
+        plot_suffix,
+    )
 
     report = HyperparameterSensitivityReport(
         target_hyperparameter=target_hyperparameter,
@@ -813,6 +846,17 @@ def _compute_bakeoff_statistics(
     )
 
 
+def _plot_bakeoff(
+    ecdf_curves: dict[str, tuple[list[float], list[float]]],
+    experiment_slug: str,
+) -> Path | None:
+    plot_path = Path("results/analysis") / experiment_slug / "ecdf_comparison.png"
+    if ecdf_curves:
+        plot_ecdf(ecdf_curves, plot_path)
+        return plot_path
+    return None
+
+
 def compare_bakeoff(
     db_path: Path | str,
     experiment_slug: str,
@@ -847,12 +891,7 @@ def compare_bakeoff(
     posthoc = statistics.posthoc_matrix
     ecdf_curves = statistics.ecdf_curves
 
-    analysis_dir = Path("results/analysis") / experiment_slug
-    plot_path = analysis_dir / "ecdf_comparison.png"
-    if ecdf_curves:
-        plot_ecdf(ecdf_curves, plot_path)
-    else:
-        plot_path = None
+    plot_path = _plot_bakeoff(ecdf_curves, experiment_slug)
 
     report = BenchmarkBakeoffReport(
         algorithms=algorithms,
