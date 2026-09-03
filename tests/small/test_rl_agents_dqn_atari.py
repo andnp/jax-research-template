@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 from rl_agents.dqn_atari import (
+    DQNAtariAgent,
     DQNAtariConfig,
     DQNAtariRuntimeConfig,
     build_dqn_zoo_atari_rmsprop,
@@ -18,51 +19,54 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_target_update_period_env_steps,
     dqn_zoo_atari_total_train_env_steps,
     dqn_zoo_atari_total_train_frames,
-    make_train,
 )
+from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+from rl_components.loop import run
 
-
-class _ToySpace:
-    def __init__(self, shape: tuple[int, ...], dtype: jnp.dtype) -> None:
-        self.shape = shape
-        self.dtype = dtype
-
-
-class _ToyDiscreteSpace(_ToySpace):
-    def __init__(self, n: int) -> None:
-        super().__init__((), jnp.int32)
-        self.n = n
+OBSERVATION_SHAPE = (4, 84, 84, 1)
+NUM_ACTIONS = 3
+GAMMA = 0.99
+EPISODE_LENGTH = 3
 
 
 class _ToyAtariEnv:
-    def observation_space(self, params: object | None = None) -> _ToySpace:
-        del params
-        return _ToySpace((4, 84, 84, 1), jnp.uint8)
+    """A counter environment wearing Atari's observation shape, dtype and action count."""
 
-    def action_space(self, params: object | None = None) -> _ToyDiscreteSpace:
+    def spec(self, params: None = None) -> EnvSpec:
         del params
-        return _ToyDiscreteSpace(3)
+        return EnvSpec(
+            id="toy-atari",
+            observation_shape=OBSERVATION_SHAPE,
+            action_shape=(),
+            observation_dtype=jnp.dtype(jnp.uint8),
+            action_dtype=jnp.dtype(jnp.int32),
+            num_actions=NUM_ACTIONS,
+        )
 
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
+    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, jax.Array]:
         del key, params
-        return jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8), jnp.asarray(0, dtype=jnp.int32)
+        return EnvReset(
+            observation=jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
+            state=jnp.asarray(0, dtype=jnp.int32),
+        )
 
     def step(
         self,
         key: jax.Array,
         state: jax.Array,
         action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        params: None = None,
+    ) -> EnvStep[jax.Array, jax.Array]:
         del key, action, params
-        next_state = state + 1
-        observation = jnp.full((4, 84, 84, 1), next_state % 255, dtype=jnp.uint8)
-        returned_episode = next_state % 3 == 0
-        info = {
-            "returned_episode": returned_episode,
-            "returned_episode_returns": jnp.where(returned_episode, jnp.asarray(1.0), jnp.asarray(0.0)),
-        }
-        return observation, next_state, jnp.asarray(1.0), jnp.asarray(False), info
+        next_state = state + jnp.asarray(1, dtype=jnp.int32)
+        return EnvStep(
+            observation=jnp.full(OBSERVATION_SHAPE, next_state % 255, dtype=jnp.uint8),
+            state=next_state,
+            reward=jnp.asarray(1.0, dtype=jnp.float32),
+            terminated=next_state % EPISODE_LENGTH == 0,
+            truncated=jnp.bool_(False),
+            info={},
+        )
 
 
 class TestDQNAtariConfig:
@@ -82,7 +86,6 @@ class TestDQNAtariConfig:
         assert config.EXPLORATION_EPSILON_BEGIN == 1.0
         assert config.EXPLORATION_EPSILON_END == 0.1
         assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
-        assert config.ADDITIONAL_DISCOUNT == 0.99
 
     def test_runtime_defaults_preserve_previous_training_budget(self) -> None:
         runtime_config = DQNAtariRuntimeConfig()
@@ -157,8 +160,38 @@ class TestDQNAtariLearnGating:
         assert dqn_zoo_atari_should_learn(50_004, min_replay, config) is True
 
 
-class TestDQNAtariTrainPath:
-    def test_make_train_runs_with_env_seam_and_emits_metrics(self) -> None:
+class TestDQNAtariAgent:
+    def test_init_derives_the_network_and_buffer_from_the_spec_alone(self) -> None:
+        config = DQNAtariConfig(REPLAY_CAPACITY=8)
+        agent = DQNAtariAgent(config, dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1))
+
+        state = agent.init(jax.random.key(0), _ToyAtariEnv().spec())
+
+        q_values = state.train_state.apply_fn(
+            state.train_state.params,
+            jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
+        )
+        assert q_values.shape == (NUM_ACTIONS,)
+        assert state.last_obs.shape == OBSERVATION_SHAPE
+        assert state.last_obs.dtype == jnp.uint8
+        assert state.last_action.shape == ()
+        assert int(state.num_actions) == NUM_ACTIONS
+        assert state.buffer_state.obs.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE)
+
+    def test_init_rejects_a_continuous_action_space(self) -> None:
+        config = DQNAtariConfig(REPLAY_CAPACITY=8)
+        agent = DQNAtariAgent(config, dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1))
+        spec = EnvSpec(
+            id="continuous",
+            observation_shape=OBSERVATION_SHAPE,
+            action_shape=(1,),
+            action_dtype=jnp.dtype(jnp.float32),
+        )
+
+        with pytest.raises(ValueError, match="discrete action space"):
+            agent.init(jax.random.key(0), spec)
+
+    def test_run_drives_the_agent_and_emits_a_fixed_metric_schema(self) -> None:
         config = DQNAtariConfig(
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,
@@ -171,16 +204,17 @@ class TestDQNAtariTrainPath:
             num_iterations=1,
             num_train_frames_per_iteration=32,
         )
+        steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
+        agent = DQNAtariAgent(config, runtime_config)
 
-        out = jax.jit(make_train(config, runtime_config, env=_ToyAtariEnv(), env_params=None))(jax.random.key(0))
+        final_state, metrics = jax.jit(
+            lambda key: run(agent, _ToyAtariEnv(), key, steps=steps, gamma=GAMMA)
+        )(jax.random.key(0))
 
-        metrics = out["metrics"]
-        runner_state = out["runner_state"]
-        buffer_state = runner_state[2]
-        total_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
-        assert metrics["returned_episode"].shape == (total_env_steps,)
-        assert metrics["returned_episode_returns"].shape == (total_env_steps,)
-        assert metrics["epsilon"].shape == (total_env_steps,)
-        assert metrics["loss"].shape == (total_env_steps,)
+        for key_name in ("loss", "epsilon", "loop/reward", "loop/episode_end"):
+            assert metrics[key_name].shape == (steps,), key_name
+        buffer_state = final_state.agent_state.buffer_state
         assert buffer_state.obs.dtype == jnp.uint8
         assert buffer_state.next_obs.dtype == jnp.uint8
+        assert int(buffer_state.count) == steps - 1, "the final action opens a transition that never closes"
+        assert jnp.any(metrics["loss"] != 0.0), "the replay warmup completed, so the learn path must have fired"

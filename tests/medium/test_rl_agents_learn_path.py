@@ -35,9 +35,11 @@ on. That the zero *target* also collapses to the bare reward is gated separately
 each agent's real loss, in ``test_rl_agents_terminal_bootstrap.py`` and
 ``test_rl_agents_qrc_gradient.py``.
 
-Excluded agents: ``dqn_atari`` needs the ALE construction path and its own runtime config,
-and ``rainbow`` samples from its own prioritised buffer rather than
-``rl_components.buffers.ReplayBuffer``. Both need their own gate.
+Excluded agents: ``dqn_atari`` needs image observations for its Nature CNN and gates
+learning on replay occupancy rather than on ``LEARNING_STARTS``, and ``rainbow`` samples
+from its own prioritised buffer rather than ``rl_components.buffers.ReplayBuffer``. Both
+need their own gate; ``dqn_atari`` has one in
+``tests/medium/test_rl_agents_dqn_atari_learn_path.py``.
 """
 
 from __future__ import annotations

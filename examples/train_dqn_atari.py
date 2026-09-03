@@ -1,16 +1,17 @@
 import time
-from typing import cast
 
 import jax
+import jax.numpy as jnp
 from rl_agents.dqn_atari import (
+    DQNAtariAgent,
     DQNAtariConfig,
     dqn_atari_runtime_from_dqn_zoo,
     dqn_zoo_atari_total_train_env_steps,
-    make_train,
 )
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
-from rl_components.gym_env import DiscreteActionSpace, GymEnv
-from rl_components.gymnax_bridge import make_gymnax_compat_env
+from rl_components.loop import run
+
+GAMMA = 0.99
 
 
 def main() -> None:
@@ -27,42 +28,36 @@ def main() -> None:
         num_train_frames_per_iteration=20_000,
         seed=42,
     )
+    env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
 
     rng = jax.random.key(runtime_config.SEED)
-    # The bridge reports a union action space because EnvSpec decides at runtime;
-    # an ALE env is always discrete.
-    env = cast(
-        GymEnv[DiscreteActionSpace],
-        make_gymnax_compat_env(
-            make_atari_adapter(
-                AleAtariConfig(
-                    game="Pong",
-                    frame_skip=config.NUM_ACTION_REPEATS,
-                )
-            )
-        ),
+    agent = DQNAtariAgent(config, runtime_config)
+    env = make_atari_adapter(
+        AleAtariConfig(
+            game="Pong",
+            frame_skip=config.NUM_ACTION_REPEATS,
+        )
     )
-    train_fn = make_train(config, runtime_config, env=env, env_params=None)
-    train_jit = jax.jit(train_fn)
+    train_jit = jax.jit(lambda key: run(agent, env, key, steps=env_steps, gamma=GAMMA))
 
     print("--- Training DQN on ALE Pong ---")
     print("Compiling & running quick signs-of-life probe...")
     start_time = time.time()
-    out = train_jit(rng)
-    jax.block_until_ready(out)
+    _final_state, metrics = train_jit(rng)
+    jax.block_until_ready(metrics)
     elapsed = time.time() - start_time
 
-    metrics = out["metrics"]
-    completed_mask = metrics["returned_episode"].astype(bool)
-    returns = metrics["returned_episode_returns"]
-    completed_returns = returns[completed_mask]
-    env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
+    # loop/episode_return is a sparse impulse: the completed episode's return on a
+    # boundary step and zero everywhere else, so it must be masked, never averaged.
+    completed_mask = metrics["loop/episode_end"].astype(bool)
+    completed_returns = metrics["loop/episode_return"][completed_mask]
     sps = env_steps / elapsed
 
     print(f"Elapsed Time:         {elapsed:.2f}s")
     print(f"Env Steps:            {env_steps}")
     print(f"SPS:                  {sps:.2f}")
     print(f"Completed Episodes:   {int(completed_mask.sum().item())}")
+    print(f"Mean Loss:            {float(jnp.mean(metrics['loss']).item()):.6f}")
     if completed_returns.size:
         print(f"Last Completed Return:{completed_returns[-1].item():.2f}")
         print(f"Max Completed Return: {completed_returns.max().item():.2f}")
