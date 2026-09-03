@@ -124,7 +124,7 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
 To run a hyperparameter sweep instead of a single training script, define it declaratively rather than hand-rolling a loop over `train.py`:
 
 1. **Define the sweep:**
-   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter axes with `add_parameter(name, values, is_static=...)`, declare metrics with `add_metric(name, frequency=..., kind=...)` (`kind` defaults to `"float"`), and expose a module-level, zero-argument function annotated `-> ExperimentSpec`. The CLI discovers entry points by that return annotation.
+   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter axes with `add_parameter(name, values, is_static=...)`, declare metrics with `add_metric(name, frequency=..., kind=...)` (`kind` defaults to `"float"`), and expose a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`. The CLI discovers exactly the factories registered by `@spec`.
 
 2. **Preview the run (dry run):**
    ```bash
