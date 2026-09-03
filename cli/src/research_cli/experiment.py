@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import typing
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import typer
@@ -64,6 +65,13 @@ def _load_spec_module(spec_file: Path):
     return module
 
 
+def _with_results_root(experiment_spec: ExperimentSpec, results_root: str | None) -> ExperimentSpec:
+    """Apply a results-root override, keeping the spec's derived layout authoritative."""
+    if results_root is None:
+        return experiment_spec
+    return replace(experiment_spec, results_root=Path(results_root).resolve())
+
+
 @experiment_app.command("list")
 def list_experiments(
     db_path: Path = typer.Argument(..., help="Path to the experiment database."),
@@ -114,14 +122,14 @@ def status(
 def plan(
     spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
-    db: str | None = typer.Option(None, "--db", help="Override database path."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
 ):
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
 
     for name, factory in specs.items():
-        experiment_spec = factory()
-        db_path = Path(db) if db else experiment_spec.db_path
+        experiment_spec = _with_results_root(factory(), results_root)
+        db_path = experiment_spec.db_path
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
         experiment_spec.experiment.sync(db_path)
@@ -146,8 +154,7 @@ def plan(
 def run(
     spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
-    db: str | None = typer.Option(None, "--db", help="Override database path."),
-    executions_root: str | None = typer.Option(None, "--executions-root", help="Override executions root."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     max_runs: int | None = typer.Option(None, "--max-runs", help="Override max runs per batch."),
 ):
     from research_runner import run_experiment
@@ -156,17 +163,15 @@ def run(
     specs = _discover_specs(module, spec)
 
     for name, factory in specs.items():
-        experiment_spec = factory()
-        db_path = Path(db) if db else experiment_spec.db_path
-        exec_root = Path(executions_root) if executions_root else experiment_spec.executions_root
+        experiment_spec = _with_results_root(factory(), results_root)
         max_runs_per_batch = max_runs if max_runs is not None else experiment_spec.max_runs_per_batch
 
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
-            db_path,
+            experiment_spec.db_path,
             experiment_spec.experiment,
             experiment_spec.train_fn,
-            executions_root=exec_root,
+            executions_root=experiment_spec.executions_root,
             metrics_db_path=experiment_spec.metrics_db_path,
             max_runs_per_batch=max_runs_per_batch,
             capture_git=experiment_spec.capture_git,
@@ -276,7 +281,7 @@ def execute_batch_cmd(
 def submit(
     spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
-    db: str | None = typer.Option(None, "--db", help="Override database path."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     account: str | None = typer.Option(None, "--account", help="Slurm account."),
     partition: str | None = typer.Option(None, "--partition", help="Slurm partition."),
     time: str = typer.Option("2:59:00", "--time", help="Slurm time limit."),
@@ -293,8 +298,8 @@ def submit(
     specs = _discover_specs(module, spec)
 
     for name, factory in specs.items():
-        experiment_spec = factory()
-        db_path = Path(db) if db else experiment_spec.db_path
+        experiment_spec = _with_results_root(factory(), results_root)
+        db_path = experiment_spec.db_path
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
         experiment_spec.experiment.sync(db_path)
