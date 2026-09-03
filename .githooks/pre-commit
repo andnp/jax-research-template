@@ -6,4 +6,4 @@ cd "$worktree_root"
 
 printf 'Running monorepo checks from %s\n' "$worktree_root"
 uv run ruff check .
-uv run pyright
+uv run pyrefly check

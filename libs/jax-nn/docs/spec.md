@@ -48,4 +48,4 @@
 - Medium tests cover JIT execution for the new torso.
 - Small tests cover categorical projection invariants, cross-entropy, expected-value reduction, and head output shape.
 - Medium tests cover JIT execution for the categorical helpers and head.
-- Static verification runs through `ruff`, `ty`, and `pyright` on the touched files.
+- Static verification runs through `ruff` and `pyrefly` on the touched files.

@@ -40,5 +40,5 @@ This sets the shared repo Git config to `core.hooksPath=.githooks`, so all linke
 
 ```bash
 uv run ruff check .
-uv run pyright
+uv run pyrefly check
 ```

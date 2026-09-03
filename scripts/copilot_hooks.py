@@ -96,18 +96,12 @@ def run_post_tool_hooks(ctx: HookContext) -> None:
             # Use 'uv run' to ensure we use the workspace's environment
             ruff = sh(["uv", "run", "ruff", "check", "."], sub_path)
             pyrefly = sh(["uv", "run", "pyrefly", "check"], sub_path)
-            
-            # Run pyright only on changed files in this subrepo
-            sub_files = [str(REPO_ROOT / f) for f in python_files if find_subrepo(f) == sub]
-            pyright = sh(["uv", "run", "pyright"] + sub_files, sub_path)
 
             failed = []
             if ruff.returncode != 0:
                 failed.append("ruff")
             if pyrefly.returncode != 0:
                 failed.append("pyrefly")
-            if pyright.returncode != 0:
-                failed.append("pyright")
 
             if failed:
                 has_blocking_errors = True
@@ -116,8 +110,6 @@ def run_post_tool_hooks(ctx: HookContext) -> None:
                     err += f"--- Ruff Errors ---\n{ruff.stdout}{ruff.stderr}\n"
                 if pyrefly.returncode != 0:
                     err += f"--- Pyrefly Errors ---\n{pyrefly.stdout}{pyrefly.stderr}\n"
-                if pyright.returncode != 0:
-                    err += f"--- Pyright Errors (changed files) ---\n{pyright.stdout}{pyright.stderr}"
                 messages.append(err)
 
     response = {}

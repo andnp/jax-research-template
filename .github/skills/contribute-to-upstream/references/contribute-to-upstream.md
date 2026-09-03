@@ -36,7 +36,7 @@ So the current upstream path is manual after the reusable change is in this repo
    - For harvested code, prefer one harvested library per PR.
 3. Run the relevant repo checks.
    - `CONTRIBUTING.md` currently calls out `uv sync`, `uv run pyrefly check`, and `uv run ruff check .`.
-   - This repository’s active agent instructions and CI now treat `pyright` as the authoritative type-check gate, so use the repo’s current verification expectations for the touched surface.
+   - This repository’s active agent instructions and CI treat `pyrefly` as the authoritative type-check gate, so use the repo’s current verification expectations for the touched surface.
 4. Commit with a conventional commit message.
 5. Push the branch.
 6. Open the PR manually, typically with GitHub CLI or the GitHub UI.
