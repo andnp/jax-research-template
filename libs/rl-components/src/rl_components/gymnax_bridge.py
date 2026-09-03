@@ -1,14 +1,22 @@
-"""Minimal Gymnax compatibility bridge for canonical environments."""
+"""Gymnax adapters, in both directions.
+
+:class:`GymnaxEnv` is the driven adapter: it presents a raw Gymnax environment as an
+:class:`~rl_components.env_protocol.EnvProtocol` for the shared training loop.
+
+:class:`GymnaxCompatibilityBridge` is the opposite, and is legacy: it presents an
+``EnvProtocol`` environment through the Gymnax tuple surface, for the agents that
+still own private training loops. It dies with the last of them.
+"""
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Protocol, cast
 
 import chex
 import jax
 import jax.numpy as jnp
 
-from rl_components.env_protocol import EnvProtocol, EnvSpec
+from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.structs import chex_struct
 
 
@@ -87,3 +95,128 @@ def make_gymnax_compat_env[ObservationT, StateT, ActionT, ParamsT](
     env: EnvProtocol[ObservationT, StateT, ActionT, ParamsT],
 ) -> GymnaxCompatibilityBridge[ObservationT, StateT, ActionT, ParamsT]:
     return GymnaxCompatibilityBridge(env)
+
+class _GymnaxState(Protocol):
+    time: jax.Array
+
+
+class _GymnaxParams(Protocol):
+    max_steps_in_episode: int
+
+
+class _GymnaxObservationSpace(Protocol):
+    shape: tuple[int, ...]
+    dtype: jnp.dtype
+
+
+class _GymnaxActionSpace(Protocol):
+    dtype: jnp.dtype
+
+
+class _GymnaxEnv[StateT, ParamsT](Protocol):
+    name: str
+
+    @property
+    def default_params(self) -> ParamsT: ...
+
+    def observation_space(self, params: ParamsT) -> _GymnaxObservationSpace: ...
+
+    def action_space(self, params: ParamsT) -> _GymnaxActionSpace: ...
+
+    def reset_env(self, key: chex.PRNGKey, params: ParamsT) -> tuple[jax.Array, StateT]: ...
+
+    def step_env(
+        self,
+        key: chex.PRNGKey,
+        state: StateT,
+        action: jax.Array,
+        params: ParamsT,
+    ) -> tuple[jax.Array, StateT, jax.Array, jax.Array, dict[str, jax.Array]]: ...
+
+
+class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
+    """Adapts a raw Gymnax environment to :class:`EnvProtocol`.
+
+    Two things separate this from handing the Gymnax environment to a training loop
+    directly.
+
+    **It does not auto-reset.** Gymnax's ``Environment.step`` selects between the stepped
+    state and a freshly reset one, so the observation it returns on a ``done`` step is the
+    post-reset observation and the true final state is unreachable. This adapter calls
+    ``step_env`` and ``reset_env`` -- the un-fused halves -- so the boundary belongs to the
+    loop and ``EnvStep.observation`` is always the state the transition actually reached.
+
+    **It splits ``done``.** Gymnax fuses the time limit into ``is_terminal``, so the
+    single flag cannot say whether the bootstrap should survive. The split uses the two
+    fields every Gymnax environment carries: ``EnvState.time`` and
+    ``EnvParams.max_steps_in_episode``. The limitation is that an environment reaching a
+    genuinely terminal state on exactly the step the limit fires is reported as a
+    truncation; Gymnax exposes no way to tell the two apart, and no environment in the
+    registry distinguishes them either.
+
+    Only discrete action spaces are supported, because they are the only ones with a
+    ported consumer. A continuous Gymnax environment raises rather than being silently
+    mis-specified.
+    """
+
+    _env: _GymnaxEnv[StateT, ParamsT]
+
+    def __init__(self, env: object) -> None:
+        """Wrap a Gymnax environment.
+
+        Args:
+            env: A Gymnax ``Environment``, unwrapped. ``LogWrapper`` is neither needed nor
+                wanted: it wraps the fused ``step``, and the loop already reports episode
+                returns and lengths under its own metric prefix.
+        """
+        self._env = cast(_GymnaxEnv[StateT, ParamsT], env)
+
+    def _resolve(self, params: ParamsT | None) -> ParamsT:
+        return self._env.default_params if params is None else params
+
+    def spec(self, params: ParamsT | None = None) -> EnvSpec:
+        resolved = self._resolve(params)
+        observation_space = self._env.observation_space(resolved)
+        action_space = self._env.action_space(resolved)
+        num_actions = getattr(action_space, "n", None)
+        if not isinstance(num_actions, int):
+            raise TypeError(
+                f"GymnaxEnv supports discrete action spaces only, got {type(action_space).__name__}"
+            )
+        return EnvSpec(
+            id=f"gymnax:{self._env.name}",
+            observation_shape=tuple(observation_space.shape),
+            action_shape=(),
+            observation_dtype=jnp.dtype(observation_space.dtype),
+            action_dtype=jnp.dtype(jnp.int32),
+            num_actions=num_actions,
+        )
+
+    def reset(self, key: chex.PRNGKey, params: ParamsT | None = None) -> EnvReset[jax.Array, StateT]:
+        observation, state = self._env.reset_env(key, self._resolve(params))
+        return EnvReset(observation=observation, state=state)
+
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: StateT,
+        action: jax.Array,
+        params: ParamsT | None = None,
+    ) -> EnvStep[jax.Array, StateT]:
+        resolved = self._resolve(params)
+        observation, next_state, reward, done, info = self._env.step_env(key, state, action, resolved)
+        done = jnp.asarray(done, dtype=jnp.bool_)
+        truncated = jnp.asarray(next_state.time >= resolved.max_steps_in_episode, dtype=jnp.bool_)
+        return EnvStep(
+            observation=observation,
+            state=next_state,
+            reward=jnp.asarray(reward, dtype=jnp.float32),
+            terminated=done & ~truncated,
+            truncated=truncated,
+            info={key_name: jnp.asarray(value) for key_name, value in info.items()},
+        )
+
+
+def make_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](env: object) -> GymnaxEnv[StateT, ParamsT]:
+    """Wrap a raw Gymnax environment as an :class:`EnvProtocol` environment."""
+    return GymnaxEnv(env)
