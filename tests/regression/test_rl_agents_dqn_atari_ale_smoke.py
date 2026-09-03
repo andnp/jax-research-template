@@ -1,7 +1,10 @@
 
+from typing import cast
+
 import jax
 from rl_agents.dqn_atari import DQNAtariConfig, dqn_atari_runtime_from_dqn_zoo, make_train
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
@@ -18,12 +21,14 @@ def test_dqn_atari_ale_smoke() -> None:
         num_iterations=1,
         num_train_frames_per_iteration=16,
     )
-    env = make_gymnax_compat_env(make_atari_adapter(AleAtariConfig(game="Pong")))
+    # The bridge reports a union action space because EnvSpec decides at runtime;
+    # an ALE env is always discrete.
+    env = cast(
+        GymEnv[DiscreteActionSpace],
+        make_gymnax_compat_env(make_atari_adapter(AleAtariConfig(game="Pong"))),
+    )
 
-    # GymnaxCompatibilityBridge.action_space returns GymnaxSpace | GymnaxDiscreteSpace,
-    # so it cannot satisfy GymEnv[DiscreteActionSpace] until the bridge is
-    # parameterised over its action space.
-    train = make_train(config, runtime_config, env=env, env_params=None)  # pyrefly: ignore[bad-argument-type]
+    train = make_train(config, runtime_config, env=env, env_params=None)
     out = jax.jit(train)(jax.random.key(0))
 
     metrics = out["metrics"]
