@@ -9,7 +9,7 @@ from rl_agents.dqn_atari import (
     make_train,
 )
 from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
-from rl_components.env_protocol import EnvProtocol
+from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.gymnax_bridge import make_gymnax_compat_env
 
 
@@ -29,18 +29,20 @@ def main() -> None:
     )
 
     rng = jax.random.key(runtime_config.SEED)
-    env = make_gymnax_compat_env(
-        cast(
-            EnvProtocol[jax.Array, object, jax.Array, None],
+    # The bridge reports a union action space because EnvSpec decides at runtime;
+    # an ALE env is always discrete.
+    env = cast(
+        GymEnv[DiscreteActionSpace],
+        make_gymnax_compat_env(
             make_atari_adapter(
                 AleAtariConfig(
                     game="Pong",
                     frame_skip=config.NUM_ACTION_REPEATS,
                 )
-            ),
-        )
+            )
+        ),
     )
-    train_fn = make_train(config, runtime_config, env=env, env_params=None)  # type: ignore[arg-type]
+    train_fn = make_train(config, runtime_config, env=env, env_params=None)
     train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on ALE Pong ---")
