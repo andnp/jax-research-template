@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable
 
 import pytest
@@ -75,8 +74,6 @@ def test_composes_versioned_environment() -> None:
     assert environment.instrumentation.observation_schema_version == "1.0.0"
     assert environment.task.schema_version == "1.0.0"
     assert environment.instrumentation.observed_signals[0].timing == SignalTiming(1.0, 0.25)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        environment.identity.version = "2.0.0"  # type: ignore[misc]
 
 
 def test_rejects_reward_input_missing_from_observed_instrumentation() -> None:

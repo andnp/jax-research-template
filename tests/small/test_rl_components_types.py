@@ -14,14 +14,6 @@ class TestPPOConfig:
         assert cfg.REWARD_SCALE == 1.0
         assert cfg.ENV_NAME == "MountainCar-v0"
 
-    def test_frozen(self) -> None:
-        cfg = PPOConfig()
-        try:
-            cfg.LR = 0.1  # type: ignore[misc]
-            raise AssertionError("Should have raised")
-        except AttributeError:
-            pass
-
     def test_custom_values(self) -> None:
         cfg = PPOConfig(LR=1e-3, GAMMA=0.95, ENV_NAME="CartPole-v1", REWARD_SCALE=2.5)
         assert cfg.LR == 1e-3

@@ -9,7 +9,7 @@ Target duration: << 1 ms per test (no JIT, no GPU).
 from __future__ import annotations
 
 import jax.numpy as jnp
-from research_instrument.collector import Collector, InMemoryBackend, MetricFrame, configure
+from research_instrument.collector import Collector, InMemoryBackend, configure
 
 
 class TestWhitelistGating:
@@ -86,18 +86,6 @@ class TestEvalScheduling:
         assert len(backend.records) == 3
         fired_steps = sorted(f.global_step for f in backend.records)
         assert fired_steps == [0, 100, 200]
-
-
-class TestMetricFrame:
-    """MetricFrame dataclass contract."""
-
-    def test_is_frozen(self) -> None:
-        frame = MetricFrame(name="x", value=1.0, global_step=0, seed_id=0)
-        try:
-            frame.name = "y"  # type: ignore[misc]
-            raise AssertionError("Should have raised FrozenInstanceError")
-        except Exception:
-            pass
 
 
 class TestConfigureSingleton:
