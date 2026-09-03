@@ -1,64 +1,29 @@
-"""Medium tests for DQN variants — Double DQN and Dueling DQN gradient flow."""
+"""Network construction for the two double-Q variants, which is all they differ in.
 
-from typing import Any
+Their update rule is shared and gated elsewhere: end to end for each agent by
+``test_rl_agents_learn_path.py``, and on the real loss by
+``test_rl_agents_terminal_bootstrap.py::test_double_q_loss_ignores_next_obs_on_terminal_rows``.
+What is left here is the part those two cannot separate -- the network each config selects,
+and the shapes it produces.
+
+Three gradient cases were deleted rather than migrated. Two rebuilt Double DQN's action
+selection and loss on local arrays and asserted on their own arithmetic, never calling the
+agent; the third asserted that a dueling network's parameters move under an arbitrary MSE
+against random targets, which any differentiable module satisfies. All three stayed green
+with both agents' training loops deleted. A fourth checked that a dueling forward pass
+survives ``jax.jit``, which the learn-path gate now covers by running the whole agent
+under it.
+"""
 
 import jax
 import jax.numpy as jnp
-import optax
 import pytest
-from flax.training.train_state import TrainState
 from rl_agents.double_dqn import DoubleDQNConfig
 from rl_agents.dueling_dqn import DuelingDQNConfig, DuelingQNetwork, _make_dueling_q_network
 from rl_agents.q_networks import NatureQNetwork, make_q_network
 
 
-class TestDoubleDQNGradient:
-    def test_double_dqn_target_uses_online_for_selection(self) -> None:
-        """In Double DQN, online net selects actions, target net evaluates them."""
-        net = make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
-        key = jax.random.key(0)
-        params = net.init(key, jnp.zeros((4,)))
-        target_params = net.init(jax.random.key(99), jnp.zeros((4,)))
-
-        obs = jnp.ones((8, 4))
-        # Online net selects best actions
-        next_q_online = net.apply(params, obs)
-        next_actions = jnp.argmax(next_q_online, axis=-1)
-        # Target net evaluates them
-        next_q_target = net.apply(target_params, obs)
-        next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
-        assert next_q_value.shape == (8,)
-
-    def test_double_dqn_params_change(self) -> None:
-        net = make_q_network(DoubleDQNConfig(), action_dim=2, observation_shape=(4,))
-        params = net.init(jax.random.key(0), jnp.zeros((4,)))
-        target_params = params
-
-        tx = optax.adam(3e-4)
-        state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
-
-        obs = jax.random.normal(jax.random.key(1), (16, 4))
-        actions = jax.random.randint(jax.random.key(2), (16,), 0, 2)
-        rewards = jax.random.normal(jax.random.key(3), (16,))
-        next_obs = jax.random.normal(jax.random.key(4), (16, 4))
-        dones = jnp.zeros((16,))
-
-        def loss_fn(params: Any) -> jax.Array:
-            q_values = net.apply(params, obs)
-            q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-            next_q_online = net.apply(params, next_obs)
-            next_actions = jnp.argmax(next_q_online, axis=-1)
-            next_q_target = net.apply(target_params, next_obs)
-            next_q_value = jnp.take_along_axis(next_q_target, next_actions[:, None], axis=-1).squeeze()
-            target = rewards + 0.99 * next_q_value * (1.0 - dones)
-            return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(target)))
-
-        loss, grads = jax.value_and_grad(loss_fn)(state.params)
-        new_state = state.apply_gradients(grads=grads)
-        old_flat = jax.tree_util.tree_leaves(state.params)
-        new_flat = jax.tree_util.tree_leaves(new_state.params)
-        assert any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
-
+class TestDoubleDQNNetwork:
     def test_double_dqn_can_use_nature_preset(self) -> None:
         net = make_q_network(
             DoubleDQNConfig(NETWORK_PRESET="nature_cnn"),
@@ -71,7 +36,7 @@ class TestDoubleDQNGradient:
         assert q.shape == (2, 3)
 
 
-class TestDuelingDQNGradient:
+class TestDuelingDQNNetwork:
     def test_dueling_network_output_shape(self) -> None:
         net = DuelingQNetwork(action_dim=4)
         params = net.init(jax.random.key(0), jnp.zeros((8,)))
@@ -83,37 +48,6 @@ class TestDuelingDQNGradient:
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
         q = net.apply(params, jnp.ones((10, 4)))
         assert q.shape == (10, 3)
-
-    def test_dueling_params_change_after_update(self) -> None:
-        net = DuelingQNetwork(action_dim=2)
-        params = net.init(jax.random.key(0), jnp.zeros((4,)))
-
-        tx = optax.adam(3e-4)
-        state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
-
-        obs = jax.random.normal(jax.random.key(1), (16, 4))
-        targets = jax.random.normal(jax.random.key(2), (16, 2))
-
-        def loss_fn(params: Any) -> jax.Array:
-            q = net.apply(params, obs)
-            return jnp.mean(jnp.square(q - targets))
-
-        loss, grads = jax.value_and_grad(loss_fn)(state.params)
-        new_state = state.apply_gradients(grads=grads)
-        old_flat = jax.tree_util.tree_leaves(state.params)
-        new_flat = jax.tree_util.tree_leaves(new_state.params)
-        assert any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
-
-    def test_dueling_jit(self) -> None:
-        net = DuelingQNetwork(action_dim=2)
-        params = net.init(jax.random.key(0), jnp.zeros((4,)))
-
-        @jax.jit
-        def forward(params: Any, x: jax.Array) -> jax.Array:
-            return net.apply(params, x)
-
-        q = forward(params, jnp.ones((4,)))
-        assert q.shape == (2,)
 
     def test_dueling_network_uses_mlp_by_default(self) -> None:
         net = _make_dueling_q_network(DuelingDQNConfig(), action_dim=2)
