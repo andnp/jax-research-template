@@ -62,11 +62,15 @@ class FrameStackWrapper[ObsT: jax.Array, StateT, ActionT, ParamsT]:
         episode_done = jnp.logical_or(inner_step.terminated, inner_step.truncated)
         new_frames = jax.lax.cond(episode_done, lambda: reset_frames, lambda: rolled_frames)
         new_state = FrameStackState(inner_state=inner_step.state, frames=new_frames)
+        info = dict(inner_step.info)
+        if "final_observation" in info:
+            final_observation = info["final_observation"]
+            info["final_observation"] = jnp.roll(state.frames, shift=-1, axis=0).at[-1].set(final_observation)
         return EnvStep(
             observation=new_frames,
             state=new_state,
             reward=inner_step.reward,
             terminated=inner_step.terminated,
             truncated=inner_step.truncated,
-            info=inner_step.info,
+            info=info,
         )
