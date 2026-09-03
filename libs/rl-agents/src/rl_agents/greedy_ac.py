@@ -182,7 +182,7 @@ def _actor_apply(module: GACActor, params: VariableDict, x: jax.Array) -> tuple[
     return cast(tuple[jax.Array, jax.Array], module.apply(params, x))
 
 
-def _make_dist(mean: jax.Array, log_std: jax.Array, sigma_min: float) -> TanhNormalDiag:
+def _make_dist(mean: jax.Array, log_std: jax.Array, sigma_min: float | jax.Array) -> TanhNormalDiag:
     """Build a TanhNormalDiag from actor outputs, adding sigma_min floor."""
     log_std = jnp.clip(log_std, -20.0, 2.0)
     std = jnp.exp(log_std) + sigma_min
@@ -195,7 +195,7 @@ def actor_sample(
     params: VariableDict,
     x: jax.Array,
     rng: jax.Array,
-    sigma_min: float,
+    sigma_min: float | jax.Array,
     n: int = 1,
 ) -> tuple[jax.Array, jax.Array]:
     """Sample ``n`` actions from the actor's policy (via vmap over PRNG splits)."""
@@ -212,7 +212,7 @@ def actor_mean_log_prob(
     params: VariableDict,
     x: jax.Array,
     actions: jax.Array,
-    sigma_min: float,
+    sigma_min: float | jax.Array,
 ) -> jax.Array:
     """Compute log-probability of given actions under the actor's policy."""
     mean, log_std = _actor_apply(actor, params, x)
@@ -224,7 +224,7 @@ def actor_entropy(
     actor: GACActor,
     params: VariableDict,
     x: jax.Array,
-    sigma_min: float,
+    sigma_min: float | jax.Array,
 ) -> jax.Array:
     """Compute the entropy of the actor's policy."""
     mean, log_std = _actor_apply(actor, params, x)
@@ -354,7 +354,7 @@ def gac_critic_loss(
     next_obs: jax.Array,
     discounts: jax.Array,
     next_actions: jax.Array,
-    reg_weight: float,
+    reg_weight: float | jax.Array,
     *,
     critic: GACCritic,
 ) -> tuple[jax.Array, QRCMetrics]:
@@ -393,7 +393,7 @@ def _propose_and_rank_topk(
     uniform_weight: float,
     actor_percentile: float,
     action_dim: int,
-    sigma_min: float,
+    sigma_min: float | jax.Array,
     *,
     critic: GACCritic,
     actor: GACActor,
@@ -409,6 +409,10 @@ def _propose_and_rank_topk(
         Top-k actions, shape ``(B, k, action_dim)``.
     """
     B = obs.shape[0]
+    # STATIC BY NECESSITY: n_unif sizes jax.random.uniform's array and the concatenate
+    # split point below, both of which must be Python ints at trace time. uniform_weight
+    # therefore cannot ride the hypers pytree without a redesign (e.g. a soft mask over a
+    # fixed NUM_SAMPLES) -- out of scope here, so it stays on GACConfig.
     n_unif = max(1, int(num_samples * uniform_weight))
     n_prop = num_samples - n_unif
 
@@ -432,6 +436,10 @@ def _propose_and_rank_topk(
     )(flat_obs, flat_proposals)
 
     q_values = flat_q.reshape(B, num_samples)
+    # STATIC BY NECESSITY: k is jax.lax.top_k's shape-determining argument, so it must be a
+    # Python int at trace time. actor_percentile therefore cannot ride the hypers pytree
+    # without a redesign (e.g. a soft top-k mask over a fixed NUM_SAMPLES) -- out of scope
+    # here, so it stays on GACConfig.
     k = max(1, min(int(actor_percentile * num_samples), num_samples))
     _, top_idxs = jax.lax.top_k(q_values, k)
     return jax.vmap(lambda p, idx: p[idx])(proposals, top_idxs)
@@ -444,7 +452,7 @@ def _select_best_next_action(
     rngs: jax.Array,           # (B, 2) — one PRNG per batch element
     num_rand_actions: int,
     action_dim: int,
-    sigma_min: float,
+    sigma_min: float | jax.Array,
     *,
     critic: GACCritic,
     actor: GACActor,
@@ -484,8 +492,8 @@ def _actor_loss(
     actor_params: VariableDict,
     state_features: jax.Array,
     top_actions: jax.Array,
-    entropy_weight: float,
-    sigma_min: float,
+    entropy_weight: float | jax.Array,
+    sigma_min: float | jax.Array,
     *,
     actor: GACActor,
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
@@ -501,8 +509,8 @@ def gac_actor_loss(
     actor_params: VariableDict,
     state_features: jax.Array,
     top_actions_batch: jax.Array,  # (batch, k, action_dim)
-    entropy_weight: float,
-    sigma_min: float,
+    entropy_weight: float | jax.Array,
+    sigma_min: float | jax.Array,
     *,
     actor: GACActor,
 ) -> jax.Array:
@@ -516,6 +524,56 @@ def gac_actor_loss(
 # ═══════════════════════════════════════════════════════════════
 # Agent
 # ═══════════════════════════════════════════════════════════════
+
+
+@chex_struct(frozen=True)
+class GACHypers:
+    """The hyperparameters ``GACAgent.step`` reads as traced values.
+
+    These ride the state pytree rather than the agent object so a sweep can ``vmap`` one
+    compiled kernel across a batch of arms. ``ACTOR_PERCENTILE`` and ``UNIFORM_WEIGHT`` are
+    deliberately absent: both are cast through Python ``int()`` to size an array (see the
+    call sites in ``_propose_and_rank_topk``), so sweeping them would need a redesign and
+    stays out of scope here. ``GAMMA`` and ``TOTAL_TIMESTEPS`` are absent too --
+    :class:`GACAgent` never reads either; they exist only for the legacy ``make_train``
+    path (see the module docstring).
+    """
+
+    LR: jax.Array
+    ACTOR_LR: jax.Array
+    LEARNING_STARTS: jax.Array
+    TRAIN_FREQUENCY: jax.Array
+    ENTROPY_WEIGHT: jax.Array
+    TRAINING_SIGMA_MIN: jax.Array
+    INFERENCE_SIGMA_MIN: jax.Array
+    H_REGULARIZATION: jax.Array
+
+
+def gac_hypers(config: GACConfig) -> GACHypers:
+    return GACHypers(
+        LR=jnp.asarray(config.LR, jnp.float32),
+        ACTOR_LR=jnp.asarray(config.ACTOR_LR, jnp.float32),
+        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        ENTROPY_WEIGHT=jnp.asarray(config.ENTROPY_WEIGHT, jnp.float32),
+        TRAINING_SIGMA_MIN=jnp.asarray(config.TRAINING_SIGMA_MIN, jnp.float32),
+        INFERENCE_SIGMA_MIN=jnp.asarray(config.INFERENCE_SIGMA_MIN, jnp.float32),
+        H_REGULARIZATION=jnp.asarray(config.H_REGULARIZATION, jnp.float32),
+    )
+
+
+def _inject_learning_rate(train_state: TrainState, learning_rate: jax.Array) -> TrainState:
+    """Push a traced rate into the optimizer state each learn step.
+
+    ``tx`` (an ``optax.chain`` of clip-by-global-norm and ``inject_hyperparams(adamw)``) is
+    a static field on ``TrainState``; a traced value closed over it would leak silently,
+    training every arm at one arm's rate. ``inject_hyperparams`` is the last transform in
+    the chain, so its state is the last element of the ``opt_state`` tuple.
+    """
+    opt_state = train_state.opt_state
+    inject_state = opt_state[-1]
+    updated = inject_state._replace(hyperparams={**inject_state.hyperparams, "learning_rate": learning_rate})
+    return train_state.replace(opt_state=(*opt_state[:-1], updated))
 
 
 def _networks(action_dim: int, hidden_size: int) -> tuple[GACActor, GACCritic]:
@@ -547,6 +605,7 @@ class GACAgentState:
         last_action: Action that opened the pending transition, zero-primed likewise. Its
             shape is also where ``step`` recovers the action dimension.
         key: PRNG key for sampling minibatches, proposals, actions and exploration.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
     """
 
     actor_state: TrainState
@@ -555,6 +614,7 @@ class GACAgentState:
     last_obs: jax.Array
     last_action: jax.Array
     key: chex.PRNGKey
+    hypers: GACHypers
 
 
 class GACAgent:
@@ -611,7 +671,9 @@ class GACAgent:
                 params=actor.init(actor_key, zero_obs),
                 tx=optax.chain(
                     optax.clip_by_global_norm(1.0),
-                    optax.adamw(learning_rate=self.config.ACTOR_LR, weight_decay=0.1),
+                    optax.inject_hyperparams(optax.adamw)(
+                        learning_rate=jnp.asarray(self.config.ACTOR_LR, jnp.float32), weight_decay=0.1
+                    ),
                 ),
             ),
             critic_state=TrainState.create(
@@ -619,13 +681,16 @@ class GACAgent:
                 params=critic.init(critic_key, zero_obs, zero_action),
                 tx=optax.chain(
                     optax.clip_by_global_norm(1.0),
-                    optax.adamw(learning_rate=self.config.LR, weight_decay=0.1),
+                    optax.inject_hyperparams(optax.adamw)(
+                        learning_rate=jnp.asarray(self.config.LR, jnp.float32), weight_decay=0.1
+                    ),
                 ),
             ),
             buffer_state=buffer.init(),
             last_obs=zero_obs,
             last_action=zero_action,
             key=carry_key,
+            hypers=gac_hypers(self.config),
         )
 
     def step(
@@ -672,7 +737,8 @@ class GACAgent:
             lambda: state.buffer_state,
         )
 
-        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        hypers = state.hypers
+        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         actor_state, critic_state, metrics = jax.lax.cond(
             can_train,
             lambda: self._learn(state, buffer_state, buffer, learn_key),
@@ -689,14 +755,14 @@ class GACAgent:
         )
 
         action = jax.lax.cond(
-            step_index < config.LEARNING_STARTS,
+            step_index < hypers.LEARNING_STARTS,
             lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
             lambda: actor_sample(
                 actor,
                 actor_state.params,
                 timestep.observation,
                 action_key,
-                config.INFERENCE_SIGMA_MIN,
+                hypers.INFERENCE_SIGMA_MIN,
                 n=1,
             )[0][0].astype(state.last_action.dtype),
         )
@@ -709,6 +775,7 @@ class GACAgent:
                 last_obs=timestep.observation,
                 last_action=action,
                 key=carry_key,
+                hypers=hypers,
             ),
             action=action,
             metrics=metrics,
@@ -727,6 +794,7 @@ class GACAgent:
         is what makes this a policy-improvement step rather than a fit to a stale ranking.
         """
         config = self.config
+        hypers = state.hypers
         action_dim = state.last_action.shape[0]
         actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
         sample_key, next_key, proposal_key = jax.random.split(key, 3)
@@ -739,10 +807,12 @@ class GACAgent:
             jax.random.split(next_key, config.BATCH_SIZE),
             config.NUM_RAND_ACTIONS,
             action_dim,
-            config.INFERENCE_SIGMA_MIN,
+            hypers.INFERENCE_SIGMA_MIN,
             critic=critic,
             actor=actor,
         )
+
+        critic_state = _inject_learning_rate(state.critic_state, hypers.LR)
 
         def _critic_loss_fn(params: VariableDict) -> jax.Array:
             loss, _ = gac_critic_loss(
@@ -753,13 +823,13 @@ class GACAgent:
                 next_obs,
                 discounts,
                 next_actions,
-                config.H_REGULARIZATION,
+                hypers.H_REGULARIZATION,
                 critic=critic,
             )
             return loss
 
-        critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(state.critic_state.params)
-        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+        critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(critic_state.params)
+        critic_state = critic_state.apply_gradients(grads=critic_grads)
 
         top_actions_batch = _propose_and_rank_topk(
             critic_state.params,
@@ -770,22 +840,23 @@ class GACAgent:
             config.UNIFORM_WEIGHT,
             config.ACTOR_PERCENTILE,
             action_dim,
-            config.TRAINING_SIGMA_MIN,
+            hypers.TRAINING_SIGMA_MIN,
             critic=critic,
             actor=actor,
         )
 
+        actor_state = _inject_learning_rate(state.actor_state, hypers.ACTOR_LR)
         actor_loss, actor_grads = jax.value_and_grad(
             lambda params: gac_actor_loss(
                 params,
                 obs,
                 top_actions_batch,
-                config.ENTROPY_WEIGHT,
-                config.TRAINING_SIGMA_MIN,
+                hypers.ENTROPY_WEIGHT,
+                hypers.TRAINING_SIGMA_MIN,
                 actor=actor,
             )
-        )(state.actor_state.params)
-        actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+        )(actor_state.params)
+        actor_state = actor_state.apply_gradients(grads=actor_grads)
 
         return (
             actor_state,
