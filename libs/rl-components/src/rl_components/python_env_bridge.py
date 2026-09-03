@@ -10,6 +10,9 @@ import numpy as np
 
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
+FINAL_OBSERVATION_INFO_KEY = "final_observation"
+FINAL_OBSERVATION_VALID_INFO_KEY = "final_observation_valid"
+
 
 class _ALEHandle(Protocol):
     """The slice of ale-py's ALE interface this bridge depends on."""
@@ -32,6 +35,10 @@ class PythonEnvBridge:
     Calls to reset() and step() cross the JIT boundary via jax.experimental.io_callback.
     The env's step is side-effectful; use ordered=True to guarantee sequential ordering
     when this is called inside jax.lax.scan.
+
+    One bridge instance owns one mutable host environment. Calls must be serialized;
+    JAX transformations do not make the bridge reentrant, safely batchable, or
+    independently usable under vmap.
 
     The factory callable is invoked once at construction time to produce the gym env.
     """
@@ -105,9 +112,12 @@ class PythonEnvBridge:
     def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
         del key, params
 
-        def _do_step(state_arr: np.ndarray, action_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        def _do_step(
+            state_arr: np.ndarray, action_arr: np.ndarray
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
             self._ale.restoreState(self._ale_state)
             raw_obs, reward, terminated, truncated, _ = self._env.step(int(action_arr))
+            final_obs = np.asarray(raw_obs, dtype=self._obs_dtype)
             if terminated or truncated:
                 raw_obs, _ = self._env.reset()
             obs = np.asarray(raw_obs, dtype=self._obs_dtype)
@@ -119,9 +129,10 @@ class PythonEnvBridge:
                 np.array(terminated, dtype=np.bool_),
                 np.array(truncated, dtype=np.bool_),
                 next_state,
+                final_obs,
             )
 
-        obs, reward, terminated, truncated, next_state = jax.experimental.io_callback(
+        obs, reward, terminated, truncated, next_state, final_obs = jax.experimental.io_callback(
             _do_step,
             (
                 jax.ShapeDtypeStruct(self._obs_shape, self._obs_dtype),
@@ -129,6 +140,7 @@ class PythonEnvBridge:
                 jax.ShapeDtypeStruct((), jnp.bool_),
                 jax.ShapeDtypeStruct((), jnp.bool_),
                 jax.ShapeDtypeStruct((self._state_size,), jnp.uint8),
+                jax.ShapeDtypeStruct(self._obs_shape, self._obs_dtype),
             ),
             state,
             action,
@@ -140,5 +152,8 @@ class PythonEnvBridge:
             reward=reward,
             terminated=terminated,
             truncated=truncated,
-            info={},
+            info={
+                FINAL_OBSERVATION_INFO_KEY: final_obs,
+                FINAL_OBSERVATION_VALID_INFO_KEY: jnp.logical_or(terminated, truncated),
+            },
         )
