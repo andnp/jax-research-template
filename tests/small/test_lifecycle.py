@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from research_cli.main import app
+from research_cli.workspace import resolve_workspace_root
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -194,6 +195,33 @@ def test_eject_fails_when_workspace_resolution_fails(tmp_path: Path, monkeypatch
 
     assert result.exit_code != 0
     assert "Could not find a research workspace" in result.output
+
+
+def test_workspace_resolution_accepts_standalone_core_layout(tmp_path: Path) -> None:
+    """Standalone Core layouts resolve from their own pyproject and libs markers."""
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'research-core'\n", encoding="utf-8")
+    (tmp_path / "libs").mkdir()
+
+    assert resolve_workspace_root(tmp_path) == tmp_path
+
+
+def test_lifecycle_uses_configured_core_path_for_library_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lifecycle commands resolve libraries from the configured Core checkout."""
+    workspace_root = tmp_path.resolve()
+    _create_workspace_root(workspace_root)
+    (workspace_root / "research.yaml").write_text("core_path: vendor/core\nstorage_backend: local\n", encoding="utf-8")
+    project_root = _create_project(workspace_root, "demo")
+    source_path = _create_component(project_root, "jax_utils")
+    configured_library = workspace_root / "vendor" / "core" / "libs" / "jax-utils"
+    (configured_library / "src").mkdir(parents=True)
+    (configured_library / "pyproject.toml").write_text("[project]\nname = 'jax-utils'\n", encoding="utf-8")
+    monkeypatch.chdir(project_root)
+
+    result = runner.invoke(app, ["harvest", "demo", "jax-utils", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert f"Target path: {workspace_root / 'vendor' / 'core' / 'libs' / 'jax-utils' / 'src' / 'jax_utils'}" in result.output
+    assert f"Source path: {source_path}" in result.output
 
 
 def test_eject_fails_when_project_resolution_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

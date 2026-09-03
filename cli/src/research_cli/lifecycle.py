@@ -6,6 +6,7 @@ from typing import NoReturn
 
 import typer
 
+from research_cli.config import ResearchConfigError, load_research_config
 from research_cli.workspace import WorkspaceResolutionError, resolve_workspace_root
 
 
@@ -50,14 +51,20 @@ def _resolve_workspace_root(cwd: Path | None = None) -> tuple[Path, Path]:
     except WorkspaceResolutionError as exc:
         _fail(f"Error: {exc}")
 
-    direct_libs_root = (workspace_root / "libs").resolve()
-    nested_libs_root = (workspace_root / "core" / "libs").resolve()
+    config_path = workspace_root / "research.yaml"
+    if config_path.is_file():
+        try:
+            core_path = load_research_config(config_path).core_path
+        except ResearchConfigError as exc:
+            _fail(f"Error: {exc}")
+        core_root = (core_path if core_path.is_absolute() else workspace_root / core_path).resolve()
+        libs_roots = (core_root / "libs",)
+    else:
+        libs_roots = (workspace_root / "libs", workspace_root / "core" / "libs")
 
-    if direct_libs_root.is_dir():
-        return workspace_root, direct_libs_root
-
-    if nested_libs_root.is_dir():
-        return workspace_root, nested_libs_root
+    for libs_root in libs_roots:
+        if libs_root.is_dir():
+            return workspace_root, libs_root.resolve()
 
     _fail(
         f"Error: resolved workspace root '{workspace_root}' does not contain 'libs/' or 'core/libs/' required for lifecycle commands."

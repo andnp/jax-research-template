@@ -79,6 +79,10 @@ def _find_workspace_root(start_path: Path) -> Path | None:
             return candidate
 
     for candidate in (resolved_start_path, *resolved_start_path.parents):
+        if (candidate / "pyproject.toml").is_file() and (candidate / "libs").is_dir():
+            return candidate
+
+    for candidate in (resolved_start_path, *resolved_start_path.parents):
         if (candidate / "research.yaml").exists():
             return candidate
 
