@@ -32,10 +32,13 @@ def main():
     print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "dqn" %}
 import gymnax
-import gymnax.wrappers
 import jax
 
-from rl_agents.dqn import DQNConfig, make_train
+from rl_agents.dqn import DQNAgent, DQNConfig
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
+
+GAMMA = 0.99
 
 
 def main():
@@ -44,14 +47,23 @@ def main():
         TOTAL_TIMESTEPS=200_000,
         SEED=42,
     )
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
-    train_fn = jax.jit(train_fn)
+    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    env = make_gymnax_env(raw_env)
+    agent = DQNAgent(config)
+    train_fn = jax.jit(
+        lambda key: run(
+            agent,
+            env,
+            key,
+            steps=config.TOTAL_TIMESTEPS,
+            gamma=GAMMA,
+            env_params=env_params,
+        )
+    )
 
     rng = jax.random.PRNGKey(config.SEED)
-    result = train_fn(rng)
-    returns = result["metrics"]["returned_episode_returns"]
+    _, metrics = train_fn(rng)
+    returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
     print(f"Final mean return: {returns[-1]:.2f}")
 {% elif algorithm == "double_dqn" %}
 import gymnax

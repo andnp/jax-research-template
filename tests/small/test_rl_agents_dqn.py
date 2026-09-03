@@ -1,4 +1,4 @@
-"""Small tests for rl_agents.dqn — config validation and loss function math."""
+"""Small tests for rl_agents.dqn — config validation and network selection."""
 
 import jax
 import jax.numpy as jnp
@@ -13,7 +13,6 @@ class TestDQNConfig:
         assert cfg.LR == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 64
-        assert cfg.GAMMA == 0.99
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
         assert cfg.NETWORK_PRESET == "mlp"
@@ -23,16 +22,6 @@ class TestDQNConfig:
         assert cfg.LR == 1e-3
         assert cfg.BUFFER_SIZE == 1000
         assert cfg.ENV_NAME == "CartPole-v1"
-
-    def test_epsilon_schedule_math(self) -> None:
-        """Epsilon should decay linearly from start to end over the specified fraction."""
-        cfg = DQNConfig(EPSILON_START=1.0, EPSILON_END=0.1, EPSILON_FRACTION=0.5, TOTAL_TIMESTEPS=100)
-        midpoint = int(cfg.TOTAL_TIMESTEPS * cfg.EPSILON_FRACTION)
-        epsilon_at_mid = max(
-            cfg.EPSILON_END,
-            cfg.EPSILON_START - (cfg.EPSILON_START - cfg.EPSILON_END) * (midpoint / (cfg.TOTAL_TIMESTEPS * cfg.EPSILON_FRACTION)),
-        )
-        assert abs(epsilon_at_mid - cfg.EPSILON_END) < 1e-6
 
 
 class TestQNetwork:
@@ -102,33 +91,3 @@ class TestQNetwork:
         channel_last_q = channel_last_net.apply(channel_last_params, channel_stacked)
 
         assert jnp.allclose(atari_q, channel_last_q)
-
-
-class TestDQNLoss:
-    def test_td_error_zero_when_perfect(self) -> None:
-        """TD error should be zero when Q matches the target."""
-        q_values = jnp.array([[0.0, 1.0, 0.0]])
-        actions = jnp.array([1])
-        rewards = jnp.array([0.0])
-        next_q_max = jnp.array([0.0])
-        dones = jnp.array([1.0])
-
-        q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze()
-        target = rewards + 0.99 * next_q_max * (1.0 - dones)
-        loss = jnp.mean(jnp.square(q_action - target))
-        # Q(s,a)=1.0, target=0+0.99*0*(0)=0, so loss = 1.0
-        assert jnp.allclose(loss, 1.0)
-
-    def test_td_error_with_reward(self) -> None:
-        """TD error computation with a non-zero reward."""
-        gamma = 0.99
-        reward = 1.0
-        q_action = 0.5
-        next_q_max = 2.0
-        done = 0.0
-
-        target = reward + gamma * next_q_max * (1.0 - done)
-        expected_target = 1.0 + 0.99 * 2.0 * 1.0  # = 2.98
-        assert abs(target - expected_target) < 1e-6
-        loss = (q_action - target) ** 2
-        assert loss > 0

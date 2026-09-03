@@ -1,7 +1,15 @@
+"""Behavioural gate: DQN must learn CartPole through the shared training loop."""
+
 import gymnax
-import gymnax.wrappers
 import jax
-from rl_agents.dqn import DQNConfig, make_train
+import jax.numpy as jnp
+from rl_agents.dqn import DQNAgent, DQNConfig
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
+
+GAMMA = 0.99
+LATE_FRACTION = 0.9
+"""Fraction of the horizon after which an episode counts towards the final score."""
 
 
 def test_dqn_cartpole_learns() -> None:
@@ -10,17 +18,28 @@ def test_dqn_cartpole_learns() -> None:
         TOTAL_TIMESTEPS=50_000,
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
-    train_jit = jax.jit(train_fn)
+    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    env = make_gymnax_env(raw_env)
+    agent = DQNAgent(config)
+    train_jit = jax.jit(
+        lambda key: run(
+            agent,
+            env,
+            key,
+            steps=config.TOTAL_TIMESTEPS,
+            gamma=GAMMA,
+            env_params=env_params,
+        )
+    )
 
-    out = train_jit(rng)
-    returns = out["metrics"]["returned_episode_returns"]
+    _, metrics = train_jit(jax.random.PRNGKey(config.SEED))
 
-    # Check the last 100 steps of updates (which are every 4 env steps)
-    final_return = returns[-100:].mean()
-    print(f"Final mean return: {final_return}")
+    # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
+    # on the boundary step and zero everywhere else, so it must be masked, not averaged.
+    boundaries = jnp.flatnonzero(metrics["loop/episode_end"])
+    late = boundaries[boundaries >= int(LATE_FRACTION * config.TOTAL_TIMESTEPS)]
+    final_return = metrics["loop/episode_return"][late].mean()
+    print(f"Episodes: {boundaries.size}, late episodes: {late.size}, final mean return: {final_return}")
 
+    assert late.size > 0, "no episode completed in the final tenth of the run"
     assert final_return > 100, f"DQN failed to learn CartPole. Return: {final_return}"
