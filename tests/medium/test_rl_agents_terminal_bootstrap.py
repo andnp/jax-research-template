@@ -49,8 +49,13 @@ _DOUBLE_Q_NETWORKS: dict[str, Callable[[int], double_q.QNetworkModule]] = {
 """The network each double-Q agent binds, which is the only way the two of them differ.
 
 They share one loss, so one case would gate the target rule. Both are listed anyway
-because the network is what a port of either agent can get wrong, and a dueling head
-recombining its streams along the wrong axis would break the bootstrap term here.
+because the network is what a port of either agent can get wrong: the second case fails if
+the dueling network stops producing finite per-action values for this batch.
+
+What it does not gate is the recombination inside the dueling head. This invariance is over
+``next_obs`` alone and holds for any deterministic network, so replacing the head with a
+bare linear layer satisfies it; ``tests/small/test_jax_nn_dueling_head.py`` pins the
+recombination instead.
 """
 
 

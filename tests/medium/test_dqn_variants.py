@@ -6,7 +6,7 @@ Their update rule is shared and gated elsewhere: end to end for each agent by
 and on the online-network selection that makes that target double-Q rather than vanilla by
 ``test_rl_agents_double_q_selection.py``.
 What is left here is the part none of those can separate -- the network each config selects,
-and the shapes it produces.
+the shapes it produces, and the constructor line that binds it to the agent.
 
 Three gradient cases were deleted rather than migrated. Two rebuilt Double DQN's action
 selection and loss on local arrays and asserted on their own arithmetic, never calling the
@@ -17,12 +17,37 @@ survives ``jax.jit``, which the learn-path gate now covers by running the whole 
 under it.
 """
 
+from __future__ import annotations
+
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents.double_dqn import DoubleDQNConfig
-from rl_agents.dueling_dqn import DuelingDQNConfig, DuelingQNetwork, _make_dueling_q_network
+from rl_agents.double_dqn import DoubleDQNAgent, DoubleDQNConfig
+from rl_agents.dueling_dqn import DuelingDQNAgent, DuelingDQNConfig, DuelingQNetwork, _make_dueling_q_network
 from rl_agents.q_networks import NatureQNetwork, make_q_network
+from rl_components.env_protocol import EnvSpec
+
+DUELING_MODULE = "DuelingHead_0"
+"""The name Flax gives the head inside ``DuelingQNetwork``, absent from the plain MLP."""
+
+SPEC = EnvSpec(id="toy-discrete", observation_shape=(2,), action_shape=(), num_actions=2)
+"""The smallest discrete spec ``init`` accepts; only its shapes reach the parameter tree."""
+
+
+def _module_names(agent: DoubleDQNAgent | DuelingDQNAgent) -> list[str]:
+    """Top-level parameter modules of the network ``agent`` actually builds.
+
+    Reached through ``init`` rather than through the network factory, because the binding
+    from config to network is a separate line from the factory itself.
+
+    Args:
+        agent: A double-Q agent to initialise.
+
+    Returns:
+        The module names Flax assigned, in declaration order.
+    """
+    params = agent.init(jax.random.key(0), SPEC).train_state.params
+    return list(params["params"])
 
 
 class TestDoubleDQNNetwork:
@@ -58,3 +83,26 @@ class TestDuelingDQNNetwork:
     def test_dueling_network_rejects_nature_preset_until_specified(self) -> None:
         with pytest.raises(ValueError, match="not yet supported"):
             _make_dueling_q_network(DuelingDQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=2)
+
+
+class TestAgentNetworkBinding:
+    """Which network each *agent* builds, as opposed to which one its factory returns.
+
+    ``test_dueling_network_uses_mlp_by_default`` above exercises the free function
+    ``_make_dueling_q_network``; nothing exercised the constructor that hands it to
+    :class:`~rl_agents.double_q.DoubleQAgent`. Rebinding that one line to
+    ``make_q_network`` makes ``dueling_dqn`` literally ``double_dqn`` -- the two agents
+    share everything else -- and left every test that can see either of them green, so the
+    module's own stated reason to exist was uncovered.
+
+    The initialised parameter tree names its modules, which is where the two networks are
+    separable: ``double_dqn`` reports ``['Dense_0', 'Dense_1', 'Dense_2']`` and
+    ``dueling_dqn`` reports ``['Dense_0', 'Dense_1', 'DuelingHead_0']``. Both directions
+    are asserted, so neither agent may quietly acquire the other's network.
+    """
+
+    def test_dueling_agent_builds_the_dueling_head(self) -> None:
+        assert DUELING_MODULE in _module_names(DuelingDQNAgent(DuelingDQNConfig()))
+
+    def test_double_dqn_agent_builds_no_dueling_head(self) -> None:
+        assert DUELING_MODULE not in _module_names(DoubleDQNAgent(DoubleDQNConfig()))
