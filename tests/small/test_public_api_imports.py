@@ -43,7 +43,9 @@ class TestResearchRunnerPublicApi:
             "ExperimentSpec",
             "RunPoint",
             "execute_batch",
+            "registered_specs",
             "run_experiment",
+            "spec",
         }
 
 
