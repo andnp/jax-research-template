@@ -510,10 +510,22 @@ traceable either way, and **`env.reset` must stay cheap and must be safe to call
 step**. `cond` therefore changes only whether the reset is *evaluated*; it never changes
 which value the loop selects.
 
-Under `jax.vmap(run)` across seeds — the standard mode here — the boundary predicate is
-per-seed and therefore batched, and `vmap` lawfully degrades the `cond` to a `select` that
-evaluates both branches. That is exactly the masking behaviour, so the batched path loses
-nothing.
+Under `jax.vmap(run)` across seeds the boundary predicate is per-seed and therefore
+batched, so `vmap` degrades the `cond` to a `select` that evaluates both branches. For an
+environment whose `reset` and `step` are pure — gymnax, brax, playground — that is exactly
+the masking behaviour and the batched path selects the right values, at the price of a real
+`env.reset` executed on every step for every seed. That price is why the cheap-reset
+obligation above is a live adapter requirement rather than a formality.
+
+`vmap` is *not* available for an environment whose `reset` is effectful. An ordered
+`io_callback` inside a `cond` does not vectorise: measured on `python_env_bridge`'s shape,
+two seeds raise `NotImplementedError: IO effect not supported in vmap-of-cond` at trace
+time, while the same environment under `jax.jit` runs correctly with the reset firing only
+on boundary iterations. Such an adapter — `python_env_bridge`, and therefore `atari_ale` —
+is compatible with `jax.jit` only, and its seeds must be run as separate jitted calls
+rather than vmapped. It fails at trace time, so there is no silent corruption. This is the
+same restriction §8.2 records for `atari_ale` being unbatched-only rather than a second
+problem: the error is simply raised by `vmap`-of-`cond` rather than by `io_callback` alone.
 
 On the unbatched path `cond` is load-bearing rather than an optimisation. The ALE bridge
 (`python_env_bridge.py`) holds its emulator state in Python behind an ordered
@@ -727,9 +739,10 @@ prerequisite for the *unbatched* path only: with the boundary reset guarded by `
 `python_env_bridge` needs merely to stop resetting inside `step`, and its JAX-visible
 one-byte dummy token is then sufficient. Externalising ALE and `AtariPreprocessing` state
 into the returned pytree remains a hard requirement for any `jax.vmap(run)` over seeds on
-Atari, because `io_callback` does not vectorise: `ordered=True` raises outright under
-`vmap`, and even unordered the `cond` degrades to a `select` and fires the Python-side reset
-for every seed on every step. Until that externalisation lands, `atari_ale` is an
+Atari, because `io_callback` does not vectorise: an ordered callback inside the boundary
+`cond` raises `NotImplementedError: IO effect not supported in vmap-of-cond` (§6.3), and an
+unordered one would let the `cond` degrade to a `select` and fire the Python-side reset for
+every seed on every step. Until that externalisation lands, `atari_ale` is an
 unbatched-only adapter.
 
 ## 9. Migration

@@ -61,7 +61,17 @@ closed over, and only ``key`` is traced, so callers wrap it::
     )(key)
 
 Seed parallelism composes on top of the same wrapper, ``jax.vmap`` over a batch of
-keys, per ADR 004.
+keys, per ADR 004, but only for an environment whose ``reset`` and ``step`` are pure --
+gymnax, brax and playground. Under ``vmap`` the boundary predicate is batched, so the
+boundary ``lax.cond`` becomes a select and ``env.reset`` really is executed on every step
+for every seed; that is why a cheap, always-safe ``reset`` is an adapter obligation.
+
+An environment whose ``reset`` is effectful -- an ordered ``jax.experimental.io_callback``,
+i.e. ``python_env_bridge`` and therefore ``atari_ale`` -- cannot be vmapped at all: the
+callback inside the ``cond`` raises ``NotImplementedError: IO effect not supported in
+vmap-of-cond`` at trace time. Those environments are compatible with ``jax.jit`` only, and
+their seeds must be run as separate jitted calls. The failure is loud, so there is no
+silent corruption.
 """
 
 from __future__ import annotations
