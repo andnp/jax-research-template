@@ -161,7 +161,7 @@ def test_td3_critic_loss_ignores_next_obs_on_terminal_rows() -> None:
     next_obs_a, next_obs_b = _next_obs_pair((BATCH_SIZE, OBS_DIM))
 
     def loss(next_obs: jax.Array) -> jax.Array:
-        return td3._critic_loss(
+        return td3.td3_critic_loss(
             critic_params,
             actor_params,
             critic_params,
