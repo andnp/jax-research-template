@@ -97,6 +97,7 @@ def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_pa
             action = jnp.where(chose_random, random_action, greedy_action)
 
             obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
+            discount = config.GAMMA * (1.0 - done)
 
             buffer_state = buffer.add(
                 buffer_state,
@@ -104,13 +105,12 @@ def make_train(config: DoubleDQNConfig, env: GymEnv[DiscreteActionSpace], env_pa
                 action[None, ...],
                 reward[None, ...],
                 obsv[None, ...],
-                done[None, ...],
+                discount[None, ...],
             )
 
             def _do_train(train_state: TrainState, target_params: VariableDict, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
                 rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
-                discounts = config.GAMMA * (1.0 - dones)
+                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(
                     params: VariableDict,

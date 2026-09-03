@@ -9,7 +9,7 @@ class ReplayBufferState(NamedTuple):
     actions: jnp.ndarray
     rewards: jnp.ndarray
     next_obs: jnp.ndarray
-    dones: jnp.ndarray
+    discount: jnp.ndarray
     pointer: jnp.ndarray
     count: jnp.ndarray  # pyright: ignore[reportIncompatibleMethodOverride]
 
@@ -35,12 +35,12 @@ class ReplayBuffer:
             actions=jnp.zeros((self.capacity,) + self.action_shape, dtype=self.action_dtype),
             rewards=jnp.zeros((self.capacity,)),
             next_obs=jnp.zeros((self.capacity,) + self.obs_shape, dtype=self.obs_dtype),
-            dones=jnp.zeros((self.capacity,), dtype=jnp.bool_),
+            discount=jnp.zeros((self.capacity,), dtype=jnp.float32),
             pointer=jnp.array(0),
             count=jnp.array(0),
         )
 
-    def add(self, state: ReplayBufferState, obs: jax.Array, action: jax.Array, reward: jax.Array, next_obs: jax.Array, done: jax.Array) -> ReplayBufferState:
+    def add(self, state: ReplayBufferState, obs: jax.Array, action: jax.Array, reward: jax.Array, next_obs: jax.Array, discount: jax.Array) -> ReplayBufferState:
         # Vectorized add for multiple envs
         num_to_add = obs.shape[0]
         indices = (state.pointer + jnp.arange(num_to_add)) % self.capacity
@@ -49,14 +49,14 @@ class ReplayBuffer:
         actions_new = state.actions.at[indices].set(action)
         rewards_new = state.rewards.at[indices].set(reward)
         next_obs_new = state.next_obs.at[indices].set(next_obs)
-        dones_new = state.dones.at[indices].set(done)
+        discount_new = state.discount.at[indices].set(discount)
 
         return state._replace(
             obs=obs_new,
             actions=actions_new,
             rewards=rewards_new,
             next_obs=next_obs_new,
-            dones=dones_new,
+            discount=discount_new,
             pointer=(state.pointer + num_to_add) % self.capacity,
             count=jnp.minimum(state.count + num_to_add, self.capacity),
         )
@@ -68,5 +68,5 @@ class ReplayBuffer:
             state.actions[indices],
             state.rewards[indices],
             state.next_obs[indices],
-            state.dones[indices],
+            state.discount[indices],
         )

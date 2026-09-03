@@ -247,13 +247,14 @@ def make_train_step(
         action = epsilon_greedy_action(q_values, epsilon, key=action_rng)
 
         obs, env_state, reward, done, info = env.step(step_rng, env_state, action, env_params)
+        discount = config.ADDITIONAL_DISCOUNT * (1.0 - done)
         buffer_state = buffer.add(
             buffer_state,
             last_obs[None, ...],
             action[None, ...],
             reward[None, ...],
             obs[None, ...],
-            done[None, ...],
+            discount[None, ...],
         )
 
         can_learn = (buffer_state.count >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
@@ -270,8 +271,7 @@ def make_train_step(
             actions = buffer_state.actions[indices]
             rewards = buffer_state.rewards[indices]
             next_obs = buffer_state.next_obs[indices]
-            dones = buffer_state.dones[indices]
-            discounts = config.ADDITIONAL_DISCOUNT * (1.0 - dones)
+            discounts = buffer_state.discount[indices]
             loss, grads = jax.value_and_grad(_loss)(
                 train_state.params,
                 target_params,

@@ -161,6 +161,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
             # STEP ENV
             rng, _rng = jax.random.split(rng)
             obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
+            discount = config.GAMMA * (1.0 - done)
 
             # ADD TO BUFFER
             buffer_state = buffer.add(
@@ -169,7 +170,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 action[None, ...],
                 reward[None, ...],
                 obsv[None, ...],
-                done[None, ...],
+                discount[None, ...],
             )
 
             # TRAIN
@@ -182,8 +183,7 @@ def make_train(config: SACConfig, env: GymEnv[ContinuousActionSpace], env_params
                 rng: jax.Array,
             ) -> tuple[TrainState, TrainState, VariableDict, TrainState, jax.Array, jax.Array]:
                 rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, dones = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
-                discounts = config.GAMMA * (1.0 - dones)
+                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 log_alpha_arr = cast(jax.Array, alpha_state.params["log_alpha"])
                 alpha = jnp.exp(log_alpha_arr[0])

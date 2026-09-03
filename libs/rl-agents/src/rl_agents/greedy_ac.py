@@ -552,6 +552,7 @@ def make_train(
 
             # ── Environment step ─────────────────────────────────
             obsv, env_state, reward, done, info = env.step(step_rng, env_state, action, env_params)
+            discount = config.GAMMA * (1.0 - done)
 
             # ── Add to buffer ────────────────────────────────────
             buffer_state = buffer.add(
@@ -560,7 +561,7 @@ def make_train(
                 action[None, ...],
                 reward[None, ...],
                 obsv[None, ...],
-                done[None, ...],
+                discount[None, ...],
             )
 
             # ── Training ─────────────────────────────────────────
@@ -572,10 +573,9 @@ def make_train(
             ) -> tuple[TrainState, TrainState, dict[str, jax.Array]]:
                 rng, sample_rng, next_rng, proposal_rngs = jax.random.split(rng, 4)
 
-                obs, actions, rewards, next_obs, dones = buffer.sample(
+                obs, actions, rewards, next_obs, discounts = buffer.sample(
                     buffer_state, sample_rng, config.BATCH_SIZE,
                 )
-                discounts = config.GAMMA * (1.0 - dones)
 
                 # ── Critic update ────────────────────────────────
                 batch_rngs = jax.random.split(next_rng, config.BATCH_SIZE)

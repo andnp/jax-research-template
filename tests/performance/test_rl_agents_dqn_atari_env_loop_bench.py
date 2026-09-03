@@ -265,7 +265,7 @@ def _make_fake_replay_buffer_state(capacity: int) -> ReplayBufferState:
         actions=jnp.arange(capacity, dtype=jnp.int32) % ATARI_ACTIONS,
         rewards=jnp.linspace(0.0, 1.0, capacity, dtype=jnp.float32),
         next_obs=jnp.asarray(next_obs, dtype=jnp.uint8),
-        dones=jnp.arange(capacity, dtype=jnp.int32) % 7 == 0,
+        discount=0.99 * (1.0 - (jnp.arange(capacity, dtype=jnp.int32) % 7 == 0).astype(jnp.float32)),
         pointer=jnp.asarray(0, dtype=jnp.int32),
         count=jnp.asarray(capacity, dtype=jnp.int32),
     )
@@ -278,13 +278,13 @@ def _dqn_atari_loss(
     target_params: object,
     batch: _ReplayBatch,
 ) -> jax.Array:
-    obs, actions, rewards, next_obs, dones = batch
+    obs, actions, rewards, next_obs, discounts = batch
     q_values = network.apply(params, obs)
     q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
 
     next_q_values = network.apply(target_params, next_obs)
     next_q_max = jnp.max(next_q_values, axis=-1)
-    targets = rewards + config.ADDITIONAL_DISCOUNT * next_q_max * (1.0 - dones)
+    targets = rewards + discounts * next_q_max
     td_error = q_action - jax.lax.stop_gradient(targets)
     return jnp.mean(jnp.square(td_error))
 
