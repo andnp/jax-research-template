@@ -19,6 +19,7 @@ Two design decisions carried over from the reference implementation:
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
 from rl_components.structs import chex_struct
 
@@ -69,3 +70,75 @@ class QRCNetwork(TypedApply[tuple[jax.Array, jax.Array]], nn.Module):
             name="h_head",
         )(jax.lax.stop_gradient(phi))
         return q, h
+
+
+def expected_action_value(q_next: jax.Array, epsilon: jax.Array | float) -> jax.Array:
+    """Epsilon-greedy expected next-state value, uniform over the argmax set.
+
+    The greedy distribution is stop-gradiented, so the bootstrap contributes
+    gradient only through the action values themselves.
+    """
+    n_actions = q_next.shape[-1]
+    greedy = (q_next == q_next.max()).astype(q_next.dtype)
+    pi = greedy / greedy.sum()
+    pi = (1.0 - epsilon) * pi + epsilon / n_actions
+    pi = jax.lax.stop_gradient(pi)
+    return q_next.dot(pi)
+
+
+def qrc_loss(
+    q: jax.Array,
+    h: jax.Array,
+    action: jax.Array,
+    reward: jax.Array,
+    gamma: jax.Array,
+    q_next: jax.Array,
+    epsilon: float,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Per-transition QRC loss (Ghiassian et al. 2020, eqs. 8-9).
+
+    ``gamma * sg(delta_hat) * v_next`` is the gradient-TD correction term:
+    differentiating it w.r.t. the online parameters yields
+    ``gamma * delta_hat * grad(v_next)``, which is exactly the term that
+    distinguishes gradient TD from semi-gradient TD and removes the bias
+    responsible for divergence under off-policy bootstrapping (e.g. DQN).
+    """
+    v_next = expected_action_value(q_next, epsilon)
+    target = jax.lax.stop_gradient(reward + gamma * v_next)
+
+    delta = target - q[action]
+    delta_hat = h[action]
+
+    v_loss = 0.5 * delta**2 + gamma * jax.lax.stop_gradient(delta_hat) * v_next
+    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - delta_hat) ** 2
+
+    return v_loss, h_loss, delta
+
+
+def qrc_loss_batch(
+    params: VariableDict,
+    network: QRCNetwork,
+    obs: jax.Array,
+    actions: jax.Array,
+    rewards: jax.Array,
+    next_obs: jax.Array,
+    dones: jax.Array,
+    gamma: float,
+    epsilon: float,
+    beta: float,
+) -> jax.Array:
+    """Mean QRC loss over a minibatch, plus L2 regularisation on the h-head.
+
+    Regularising only the h-head (Ghiassian et al. 2020, §3.2) keeps the
+    correction term bounded without biasing the q-head's value estimates.
+    """
+    q, h = network.apply(params, obs)
+    q_next, _ = network.apply(params, next_obs)
+    gammas = gamma * (1.0 - dones)
+
+    v_loss, h_loss, _ = jax.vmap(qrc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
+        q, h, actions, rewards, gammas, q_next, epsilon
+    )
+
+    h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
+    return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
