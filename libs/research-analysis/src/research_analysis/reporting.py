@@ -11,7 +11,7 @@ import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 import polars as pl
@@ -356,6 +356,28 @@ def compare_pairwise(
         )
 
     return report
+
+
+@overload
+def analyze_hypers(
+    db_path: Path | str,
+    experiment_slug: str,
+    target_hyperparameter: str,
+    metric_name: str,
+    group_by: None = None,
+    verbose: bool = True,
+) -> HyperparameterSensitivityReport: ...
+
+
+@overload
+def analyze_hypers(
+    db_path: Path | str,
+    experiment_slug: str,
+    target_hyperparameter: str,
+    metric_name: str,
+    group_by: list[str],
+    verbose: bool = True,
+) -> dict[tuple[Any, ...], HyperparameterSensitivityReport]: ...
 
 
 def analyze_hypers(
