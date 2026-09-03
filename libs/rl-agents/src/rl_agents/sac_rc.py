@@ -20,24 +20,51 @@ a house convention, but it scales the data terms and not ``BETA``'s
 regulariser, so a given ``BETA`` is twice as strong relative to the data as
 the same number in the published sweeps.
 
-The actor loss and the entropy-coefficient (alpha) update are unchanged from
-``rl_agents.sac``; only the critic loss and the twin-critic network gain the
-h-head and correction term.
+The entropy-coefficient (alpha) update is not merely equivalent to
+``rl_agents.sac``'s, it *is* :func:`rl_agents.sac.sac_alpha_loss`: it reads only
+the policy, which SAC-RC does not change. The actor loss needs its own function
+because this critic returns ``(q, h)`` rather than ``q``, but it is SAC's
+expression over the q-head.
+
+:class:`SACRCAgent` is the port; ``make_train`` below it is the private
+training loop it replaces. Unlike ``sac`` and ``td3`` this module has no
+out-of-repository caller, so ``make_train``, :class:`RunnerState`,
+:class:`SACRCTrainOutput` and ``SACRCConfig.GAMMA`` can go as soon as the
+in-repository callers do. **Removal condition:** the ``make_train`` drivers in
+``tests/`` are the last of them.
+
+``GAMMA`` survives only for that legacy path. The discount belongs to
+:func:`rl_components.loop.run`, which stores a per-transition coefficient in
+replay, and :class:`SACRCAgent` reads that coefficient; it never reads
+``config.GAMMA``.
+
+SAC-RC was built on the ``make_train`` path during this migration and is absent
+from the agent-port specification's ten-agent plan, so its port is scope the
+spec did not anticipate. It is here because leaving one continuous agent on the
+old path would have kept the legacy loop alive after every agent the spec does
+name had left it.
 """
+
+from __future__ import annotations
 
 from typing import Callable, NamedTuple, TypedDict, cast
 
+import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.env_protocol import EnvSpec
 from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.structs import chex_struct
+from rl_components.timestep import Timestep
 
-from rl_agents.sac import Actor
+from rl_agents.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_agents.sac import Actor, sac_alpha_loss
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -48,7 +75,7 @@ class SACRCConfig:
     TOTAL_TIMESTEPS: int = 1_000_000
     LEARNING_STARTS: int = 5_000
     TRAIN_FREQUENCY: int = 1
-    GAMMA: float = 0.99
+    GAMMA: float = 0.99  # Legacy make_train only; see the module docstring.
     ALPHA: float = 0.2
     TARGET_ENTROPY: float | None = None
     BETA: float = 1.0
@@ -158,6 +185,308 @@ def sac_rc_loss_batch(
     return jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
 
 
+def _networks(action_dim: int) -> tuple[Actor, SACRCCritic]:
+    """Build the two Flax modules, which carry no state beyond the action dimension.
+
+    ``init`` reads that dimension from the environment spec and ``step`` reads it back off
+    the shape of the action it carries, so neither has to store the modules themselves.
+    """
+    return Actor(action_dim), SACRCCritic()
+
+
+def sac_rc_actor_loss(
+    actor_params: VariableDict,
+    critic_params: VariableDict,
+    obs: jax.Array,
+    alpha: jax.Array,
+    key: chex.PRNGKey,
+    *,
+    actor: Actor,
+    critic: SACRCCritic,
+) -> jax.Array:
+    """SAC's actor loss, read off this critic's q-head.
+
+    The h-head plays no part: it corrects the critic's own bootstrap and is not a value
+    the policy should climb.
+
+    Args:
+        actor_params: Policy parameters. Differentiate with respect to this argument only.
+        critic_params: Online critic ensemble, whose q-head minimum scores the actions.
+        obs: Observations to act from.
+        alpha: Entropy temperature.
+        key: PRNG key for the action sample.
+        actor: The policy module, static because it is a Python object.
+        critic: The critic module, likewise.
+
+    Returns:
+        The scalar loss.
+    """
+    _, sample_key = jax.random.split(key)
+    new_actions, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
+        actor_params, obs, jax.random.split(sample_key, obs.shape[0])
+    )
+
+    q_values = jax.vmap(
+        lambda params, o, a: _critic_apply(critic, params, o, a)[0], in_axes=(0, None, None)
+    )(critic_params, obs, new_actions)
+    return jnp.mean(alpha * log_probs - jnp.min(q_values, axis=0))
+
+
+@chex_struct(frozen=True)
+class SACRCAgentState:
+    """Everything :class:`SACRCAgent` carries between loop iterations.
+
+    There is no ``critic_target_params`` field, and its absence is the algorithm: SAC-RC
+    is pure gradient TD, so every bootstrap reads the online critic and the ``h``-head's
+    correction term stands in for what a target network would otherwise damp.
+
+    Attributes:
+        actor_state: Policy parameters, optimizer state and the static ``apply_fn``.
+        critic_state: Twin-critic ensemble parameters, leading axis over members.
+        alpha_state: The tuned entropy temperature, held as ``log_alpha``. Its
+            ``apply_fn`` is ``None``: there is no network, only a parameter.
+        buffer_state: Replay contents, and the only record of the buffer's geometry.
+        last_obs: Observation the pending transition started from. Zero-primed at
+            ``init``; never read before the first insertion, which is guarded on
+            ``step_index > 0``.
+        last_action: Action that opened the pending transition, zero-primed likewise. Its
+            shape is also where ``step`` recovers the action dimension.
+        target_entropy: The entropy target, as a float32 leaf. It is derived from the
+            action dimension, which only ``init`` sees, so ``step`` reaches it here.
+        key: PRNG key for sampling minibatches, actions and exploration.
+    """
+
+    actor_state: TrainState
+    critic_state: TrainState
+    alpha_state: TrainState
+    buffer_state: ReplayBufferState
+    last_obs: jax.Array
+    last_action: jax.Array
+    target_entropy: jax.Array
+    key: chex.PRNGKey
+
+
+class SACRCAgent:
+    """SAC with the QRC gradient correction and no target network.
+
+    The policy is tanh-squashed, so the environment's action space must already be
+    normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
+    """
+
+    def __init__(self, config: SACRCConfig) -> None:
+        """Bind the configuration. The object is static under ``jit``.
+
+        Args:
+            config: Hyperparameters. Read at trace time only, so every field may be a
+                Python scalar. ``GAMMA`` is not read at all.
+        """
+        self.config = config
+
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> SACRCAgentState:
+        """Build networks, optimizers, replay buffer and the zero-primed pending slots.
+
+        Args:
+            key: PRNG key for parameter initialization.
+            spec: The environment description, and the only place the observation shape
+                and action dimension come from.
+
+        Returns:
+            The initial agent state.
+
+        Raises:
+            ValueError: If ``spec`` does not describe a one-dimensional continuous action.
+        """
+        action_dim = continuous_action_dim(spec)
+        observation_shape = tuple(spec.observation_shape)
+        observation_dtype = jnp.dtype(spec.observation_dtype)
+        action_dtype = jnp.dtype(spec.action_dtype)
+        actor, critic = _networks(action_dim)
+
+        actor_key, critic_key, carry_key = jax.random.split(key, 3)
+        zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
+        zero_action = jnp.zeros((action_dim,), dtype=action_dtype)
+        buffer = ReplayBuffer(
+            capacity=self.config.BUFFER_SIZE,
+            obs_shape=observation_shape,
+            action_shape=(action_dim,),
+            action_dtype=action_dtype,
+            obs_dtype=observation_dtype,
+        )
+        target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
+
+        return SACRCAgentState(
+            actor_state=TrainState.create(
+                apply_fn=actor.apply,
+                params=actor.init(actor_key, zero_obs),
+                tx=optax.adam(self.config.LR),
+            ),
+            critic_state=TrainState.create(
+                apply_fn=critic.apply,
+                params=jax.vmap(critic.init, in_axes=(0, None, None))(
+                    jax.random.split(critic_key, 2), zero_obs, zero_action
+                ),
+                tx=optax.adam(self.config.LR),
+            ),
+            alpha_state=TrainState.create(
+                apply_fn=None,
+                params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
+                tx=optax.adam(self.config.LR),
+            ),
+            buffer_state=buffer.init(),
+            last_obs=zero_obs,
+            last_action=zero_action,
+            target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),
+            key=carry_key,
+        )
+
+    def step(
+        self,
+        state: SACRCAgentState,
+        timestep: Timestep[jax.Array],
+        step_index: jax.Array,
+    ) -> AgentStep[SACRCAgentState, jax.Array]:
+        """Close the pending transition, learn from replay, then act.
+
+        The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
+        ``timestep.observation``: at an episode boundary the latter is the post-reset
+        observation, and bootstrapping from it is the defect this port removes. There is
+        no target-network synchronisation step, by design.
+
+        Args:
+            state: The agent state from the previous iteration.
+            timestep: This iteration's view of the environment.
+            step_index: Transitions closed so far. Iteration ``0`` closes none, so both
+                insertion and learning are guarded above it.
+
+        Returns:
+            The next state, the action to apply, and a fixed four-key metric schema. Each
+            loss is a zero placeholder on the iterations that do not learn, so the pytree
+            returned to ``lax.scan`` is identical on every iteration.
+        """
+        config = self.config
+        action_dim = state.last_action.shape[0]
+        actor, _ = _networks(action_dim)
+        buffer = ReplayBuffer.from_state(state.buffer_state)
+        carry_key, learn_key, action_key = jax.random.split(state.key, 3)
+
+        buffer_state = jax.lax.cond(
+            step_index > 0,
+            lambda: buffer.add(
+                state.buffer_state,
+                state.last_obs[None, ...],
+                state.last_action[None, ...],
+                timestep.reward[None, ...],
+                timestep.bootstrap_observation[None, ...],
+                timestep.discount[None, ...],
+            ),
+            lambda: state.buffer_state,
+        )
+
+        can_train = (step_index > config.LEARNING_STARTS) & (step_index % config.TRAIN_FREQUENCY == 0)
+        (
+            actor_state,
+            critic_state,
+            alpha_state,
+            critic_loss,
+            actor_loss,
+            alpha_loss,
+        ) = jax.lax.cond(
+            can_train,
+            lambda: self._learn(state, buffer_state, buffer, learn_key),
+            lambda: (
+                state.actor_state,
+                state.critic_state,
+                state.alpha_state,
+                jnp.zeros((), jnp.float32),
+                jnp.zeros((), jnp.float32),
+                jnp.zeros((), jnp.float32),
+            ),
+        )
+
+        action = jax.lax.cond(
+            step_index < config.LEARNING_STARTS,
+            lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
+            lambda: actor.sample(actor_state.params, timestep.observation, action_key)[0].astype(
+                state.last_action.dtype
+            ),
+        )
+
+        return AgentStep(
+            state=SACRCAgentState(
+                actor_state=actor_state,
+                critic_state=critic_state,
+                alpha_state=alpha_state,
+                buffer_state=buffer_state,
+                last_obs=timestep.observation,
+                last_action=action,
+                target_entropy=state.target_entropy,
+                key=carry_key,
+            ),
+            action=action,
+            metrics={
+                "critic_loss": critic_loss,
+                "actor_loss": actor_loss,
+                "alpha_loss": alpha_loss,
+                "alpha": jnp.exp(cast(jax.Array, alpha_state.params["log_alpha"])[0]).astype(jnp.float32),
+            },
+        )
+
+    def _learn(
+        self,
+        state: SACRCAgentState,
+        buffer_state: ReplayBufferState,
+        buffer: ReplayBuffer,
+        key: chex.PRNGKey,
+    ) -> tuple[TrainState, TrainState, TrainState, jax.Array, jax.Array, jax.Array]:
+        """Take one critic, actor and temperature gradient step on a replay minibatch."""
+        config = self.config
+        actor, critic = _networks(state.last_action.shape[0])
+        sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, config.BATCH_SIZE)
+        alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
+
+        critic_loss, critic_grads = jax.value_and_grad(
+            lambda params: sac_rc_loss_batch(
+                params,
+                critic,
+                state.actor_state.params,
+                actor,
+                alpha,
+                obs,
+                actions,
+                rewards,
+                next_obs,
+                discounts,
+                critic_key,
+                config.BETA,
+            )
+        )(state.critic_state.params)
+        critic_state = state.critic_state.apply_gradients(grads=critic_grads)
+
+        actor_loss, actor_grads = jax.value_and_grad(
+            lambda params: sac_rc_actor_loss(
+                params, critic_state.params, obs, alpha, actor_key, actor=actor, critic=critic
+            )
+        )(state.actor_state.params)
+        actor_state = state.actor_state.apply_gradients(grads=actor_grads)
+
+        alpha_loss, alpha_grads = jax.value_and_grad(
+            lambda params: sac_alpha_loss(
+                params, actor_state.params, obs, state.target_entropy, alpha_key, actor=actor
+            )
+        )(state.alpha_state.params)
+        alpha_state = state.alpha_state.apply_gradients(grads=alpha_grads)
+
+        return (
+            actor_state,
+            critic_state,
+            alpha_state,
+            critic_loss.astype(jnp.float32),
+            actor_loss.astype(jnp.float32),
+            alpha_loss.astype(jnp.float32),
+        )
+
+
 class RunnerState(NamedTuple):
     actor_state: TrainState
     critic_state: TrainState
@@ -180,11 +509,10 @@ def make_train(config: SACRCConfig, env: GymEnv[ContinuousActionSpace], env_para
         action_dim = env.action_space(env_params).shape[0]
         obs_dim = env.observation_space(env_params).shape
 
-        actor = Actor(action_dim)
+        actor, critic = _networks(action_dim)
         actor_params = actor.init(_rng_actor, jnp.zeros(obs_dim))
         actor_state = TrainState.create(apply_fn=actor.apply, params=actor_params, tx=optax.adam(config.LR))
 
-        critic = SACRCCritic()
         rng, _rng_critic = jax.random.split(rng)
         critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
             jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,))
@@ -278,33 +606,17 @@ def make_train(config: SACRCConfig, env: GymEnv[ContinuousActionSpace], env_para
                 critic_state = critic_state.apply_gradients(grads=critic_grads)
 
                 # ACTOR UPDATE
-                def _actor_loss_fn(actor_params: VariableDict, critic_params: VariableDict, alpha: jax.Array, obs: jax.Array, rng: jax.Array) -> jax.Array:
-                    rng, _rng = jax.random.split(rng)
-                    new_actions, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
-                        actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE)
+                actor_loss, actor_grads = jax.value_and_grad(
+                    lambda params: sac_rc_actor_loss(
+                        params, critic_state.params, obs, alpha, rng, actor=actor, critic=critic
                     )
-
-                    q_values = jax.vmap(
-                        lambda params, obs_value, action: _critic_apply(critic, params, obs_value, action)[0], in_axes=(0, None, None)
-                    )(critic_params, obs, new_actions)
-                    q_min = jnp.min(q_values, axis=0)
-
-                    loss = jnp.mean(alpha * log_probs - q_min)
-                    return loss
-
-                grad_fn = jax.value_and_grad(_actor_loss_fn)
-                actor_loss, actor_grads = grad_fn(actor_state.params, critic_state.params, alpha, obs, rng)
+                )(actor_state.params)
                 actor_state = actor_state.apply_gradients(grads=actor_grads)
 
                 # ALPHA UPDATE
-                def _alpha_loss_fn(alpha_params: VariableDict, actor_params: VariableDict, obs: jax.Array, rng: jax.Array) -> jax.Array:
-                    rng, _rng = jax.random.split(rng)
-                    _, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(actor_params, obs, jax.random.split(_rng, config.BATCH_SIZE))
-                    loss = -jnp.mean(alpha_params["log_alpha"] * (log_probs + target_entropy))
-                    return loss
-
-                grad_fn = jax.value_and_grad(_alpha_loss_fn)
-                alpha_loss, alpha_grads = grad_fn(alpha_state.params, actor_state.params, obs, rng)
+                _, alpha_grads = jax.value_and_grad(
+                    lambda params: sac_alpha_loss(params, actor_state.params, obs, target_entropy, rng, actor=actor)
+                )(alpha_state.params)
                 alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
                 return actor_state, critic_state, alpha_state, critic_loss, actor_loss
