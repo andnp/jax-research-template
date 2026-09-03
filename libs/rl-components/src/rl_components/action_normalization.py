@@ -5,7 +5,6 @@ from __future__ import annotations
 import chex
 import jax
 import jax.numpy as jnp
-from jax.errors import TracerBoolConversionError
 
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 
@@ -15,27 +14,6 @@ def _validated_continuous_spec(spec: EnvSpec) -> EnvSpec:
         raise ValueError("action normalization requires a continuous environment spec")
     if spec.action_low is None or spec.action_high is None:
         raise ValueError("action normalization requires continuous action_low and action_high bounds")
-
-    action_dtype = jnp.dtype(spec.action_dtype)
-    if not jnp.issubdtype(action_dtype, jnp.floating):
-        raise TypeError(f"action normalization requires a floating action_dtype, got {action_dtype}")
-    if spec.action_low.shape != spec.action_shape:
-        raise ValueError(f"action_low shape must match action_shape {spec.action_shape}, got {spec.action_low.shape}")
-    if spec.action_high.shape != spec.action_shape:
-        raise ValueError(f"action_high shape must match action_shape {spec.action_shape}, got {spec.action_high.shape}")
-
-    low_dtype = jnp.dtype(spec.action_low.dtype)
-    high_dtype = jnp.dtype(spec.action_high.dtype)
-    if low_dtype != action_dtype:
-        raise TypeError(f"action_low dtype must match action_dtype {action_dtype}, got {low_dtype}")
-    if high_dtype != action_dtype:
-        raise TypeError(f"action_high dtype must match action_dtype {action_dtype}, got {high_dtype}")
-    try:
-        bounds_are_ordered = bool(jnp.all(spec.action_low <= spec.action_high))
-    except TracerBoolConversionError:
-        return spec
-    if not bounds_are_ordered:
-        raise ValueError("continuous action bounds must satisfy action_low <= action_high elementwise")
     return spec
 
 
