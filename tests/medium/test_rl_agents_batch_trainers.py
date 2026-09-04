@@ -9,6 +9,8 @@ import jax
 from experiment_definition import ParameterValue
 from research_runner import ExecutionContext, RunPoint
 from rl_agents.ppo_batch import PPOBatchTrainer
+from rl_agents.sac_batch import SACBatchTrainer
+from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
 from rl_components.gymnax_bridge import make_gymnax_env
 
@@ -18,7 +20,42 @@ def _make_env(config: Mapping[str, ParameterValue]):
     assert isinstance(env_name, str)
     raw_env, env_params = gymnax.make(env_name)
     env = cast(EnvProtocol[jax.Array, object, jax.Array, object], make_gymnax_env(raw_env))
+    if env.spec(env_params).num_actions is None:
+        env = cast(EnvProtocol[jax.Array, object, jax.Array, object], make_action_normalization_wrapper(env))
     return env, env_params
+
+
+def test_sac_batch_trainer_returns_vmapped_curves(tmp_path: Path) -> None:
+    """
+    Verify the core SAC trainer handles dynamic rates through the same port.
+    """
+    static_config = {
+        "algorithm": "sac",
+        "env_name": "Pendulum-v1",
+        "total_timesteps": 8,
+        "buffer_size": 16,
+        "batch_size": 2,
+        "learning_starts": 2,
+        "gamma": 0.99,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": rate, "seed": index})
+        for index, rate in enumerate((1e-3, 1e-4))
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="sac-batch-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    result = SACBatchTrainer(_make_env)(context)
+
+    assert set(result.metric_curves) == {"reward", "critic_loss", "actor_loss"}
+    assert all(len(curve) == 8 for curve in result.metric_curves["reward"])
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:
