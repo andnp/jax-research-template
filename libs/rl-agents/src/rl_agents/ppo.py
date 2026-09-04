@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, NamedTuple, TypedDict, cast
+from typing import Any, Callable, NamedTuple, Protocol, TypedDict, cast
 
 import jax
 import jax.numpy as jnp
@@ -182,6 +182,140 @@ def ppo_gae(rollout: PPOTransition, gae_lambda: jax.Array) -> tuple[jax.Array, j
 
     _, advantages = jax.lax.scan(_advance, jnp.zeros((), jnp.float32), rollout, reverse=True)
     return advantages, advantages + rollout.value
+
+
+class PPOPolicy(Protocol):
+    """The three things PPO needs from whatever distribution its network head returns."""
+
+    def sample(self, *, seed: jax.Array) -> jax.Array: ...
+
+    def log_prob(self, value: jax.Array) -> jax.Array: ...
+
+    def entropy(self) -> jax.Array: ...
+
+
+type PPOApplyFn = Callable[..., tuple[PPOPolicy, jax.Array]]
+"""An actor-critic module's ``apply``, as reached through ``TrainState.apply_fn``."""
+
+
+def _masked_mean(values: jax.Array, valid: jax.Array) -> jax.Array:
+    """Average ``values`` over the valid slots alone.
+
+    A minibatch can hold the single invalid slot of the whole run -- global ``t = 0``, the
+    one iteration that closes no transition -- and after a shuffle it could in principle
+    hold nothing else, so the denominator is floored at one rather than trusted.
+    """
+    mask = valid.astype(values.dtype)
+    return jnp.sum(values * mask) / jnp.maximum(jnp.sum(mask), jnp.asarray(1.0, values.dtype))
+
+
+def ppo_value_loss(
+    value: jax.Array,
+    old_value: jax.Array,
+    targets: jax.Array,
+    valid: jax.Array,
+    *,
+    clip_eps: jax.Array,
+) -> jax.Array:
+    """Clipped value loss over one minibatch: the worse of the raw and clipped errors.
+
+    Args:
+        value: Values the network predicts now, under the parameters being differentiated.
+        old_value: Values stored when the actions were selected, the clip's centre.
+        targets: GAE value targets.
+        valid: Which slots close a real transition.
+        clip_eps: Trust-region half-width, shared with the policy loss.
+
+    Returns:
+        The scalar loss.
+    """
+    value_clipped = old_value + jnp.clip(value - old_value, -clip_eps, clip_eps)
+    losses = jnp.square(value - targets)
+    losses_clipped = jnp.square(value_clipped - targets)
+    return 0.5 * _masked_mean(jnp.maximum(losses, losses_clipped), valid)
+
+
+def ppo_policy_loss(
+    log_prob: jax.Array,
+    old_log_prob: jax.Array,
+    advantages: jax.Array,
+    valid: jax.Array,
+    *,
+    clip_eps: jax.Array,
+) -> jax.Array:
+    """Clipped surrogate objective over one minibatch, as a loss to minimize.
+
+    The advantages are standardized across the whole minibatch rather than across its valid
+    slots. The invalid slot's advantage is exactly zero by construction -- it closes no
+    transition, so its reward, discount and carried value are all zero-primed and its TD
+    residual and trace factor both vanish -- so it shifts the mean by one zero in one
+    minibatch of the first update and nothing after that.
+
+    Args:
+        log_prob: Log-probabilities under the parameters being differentiated.
+        old_log_prob: Log-probabilities of the behaviour policy that acted.
+        advantages: GAE advantages for the minibatch.
+        valid: Which slots close a real transition.
+        clip_eps: Trust-region half-width.
+
+    Returns:
+        The scalar loss.
+    """
+    ratio = jnp.exp(log_prob - old_log_prob)
+    standardized = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    unclipped = ratio * standardized
+    clipped = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * standardized
+    return -_masked_mean(jnp.minimum(unclipped, clipped), valid)
+
+
+def ppo_loss(
+    params: VariableDict,
+    transitions: PPOTransition,
+    advantages: jax.Array,
+    targets: jax.Array,
+    *,
+    apply_fn: PPOApplyFn,
+    is_continuous: bool,
+    clip_eps: jax.Array,
+    vf_coef: jax.Array,
+    ent_coef: jax.Array,
+) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
+    """PPO's total objective over one minibatch, with its three components as auxiliaries.
+
+    Reachable from outside the agent so the tests gate the real arithmetic rather than a
+    copy of it: while these expressions were closures inside ``make_train``, the tests that
+    covered them re-implemented every term on local arrays and so agreed only with
+    themselves.
+
+    Every component takes a masked mean, so the single invalid slot of the run contributes
+    nothing to any of the three.
+
+    Args:
+        params: Network parameters. Differentiate with respect to this argument only.
+        transitions: One minibatch of completion-indexed rollout slots.
+        advantages: GAE advantages for those slots.
+        targets: GAE value targets for those slots.
+        apply_fn: The actor-critic's ``apply``, static because it is a Python callable.
+        is_continuous: Whether the policy is a diagonal distribution over an action vector,
+            whose per-dimension log-probabilities and entropies must be summed. A static
+            Python bool, recovered from the rank of the stored action.
+        clip_eps: Trust-region half-width, shared by both clipped terms.
+        vf_coef: Weight on the value loss.
+        ent_coef: Weight on the entropy bonus, which is subtracted.
+
+    Returns:
+        The scalar total loss, and the ``(value_loss, policy_loss, entropy)`` triple. The
+        third is the entropy itself, not a loss: it enters the total negated.
+    """
+    policy, value = apply_fn(params, transitions.obs)
+    log_prob = _sum_action_event_terms(policy.log_prob(transitions.action), is_continuous=is_continuous)
+
+    value_loss = ppo_value_loss(value, transitions.value, targets, transitions.valid, clip_eps=clip_eps)
+    policy_loss = ppo_policy_loss(log_prob, transitions.log_prob, advantages, transitions.valid, clip_eps=clip_eps)
+    entropy = _masked_mean(_sum_action_event_terms(policy.entropy(), is_continuous=is_continuous), transitions.valid)
+
+    loss = policy_loss + vf_coef * value_loss - ent_coef * entropy
+    return loss, (value_loss, policy_loss, entropy)
 
 
 class PPOTrainOutput(TypedDict):

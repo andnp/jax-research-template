@@ -1,16 +1,48 @@
 """Medium tests for rl_agents.ppo — gradient flow and JIT compilation."""
 
 from dataclasses import dataclass
-from typing import Any, override
+from typing import override
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_agents.ppo import _sum_action_event_terms, make_train
+from rl_agents.ppo import PPOTransition, _sum_action_event_terms, make_train, ppo_loss
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.types import PPOConfig
+
+_CLIP_EPS = jnp.asarray(0.2, dtype=jnp.float32)
+_VF_COEF = jnp.asarray(0.5, dtype=jnp.float32)
+_ENT_COEF = jnp.asarray(0.01, dtype=jnp.float32)
+
+
+def _minibatch(
+    obs: jax.Array,
+    action: jax.Array,
+    log_prob: jax.Array,
+    value: jax.Array,
+    valid: jax.Array,
+) -> PPOTransition:
+    """Build a minibatch of rollout slots; `ppo_loss` reads only these five fields.
+
+    The reward, discount, episode_end and bootstrap_value a slot also carries are consumed
+    upstream by `ppo_gae`, so they stay zero here rather than being given decorative values
+    that a reader might mistake for inputs to the loss.
+    """
+    length = int(value.shape[0])
+    zeros = jnp.zeros((length,), dtype=jnp.float32)
+    return PPOTransition(
+        obs=obs,
+        action=action,
+        log_prob=log_prob,
+        value=value,
+        reward=zeros,
+        discount=zeros,
+        episode_end=jnp.zeros((length,), dtype=jnp.bool_),
+        bootstrap_value=zeros,
+        valid=valid,
+    )
 
 
 @dataclass(frozen=True)
@@ -187,78 +219,125 @@ class TestPPOGradientFlow:
         assert metrics["returned_episode_returns"].shape == (2,)
 
     def test_params_change_after_update(self) -> None:
-        """ActorCritic params should change after a PPO gradient step."""
+        """A gradient step on the real `ppo_loss` must move the ActorCritic parameters."""
         net = ActorCritic(action_dim=2)
-        key = jax.random.key(0)
-        params = net.init(key, jnp.zeros((4,)))
-
-        cfg = PPOConfig(CLIP_EPS=0.2, VF_COEF=0.5, ENT_COEF=0.01, MAX_GRAD_NORM=0.5)
-        tx = optax.chain(optax.clip_by_global_norm(cfg.MAX_GRAD_NORM), optax.adam(cfg.LR, eps=1e-5))
+        params = net.init(jax.random.key(0), jnp.zeros((4,)))
+        tx = optax.chain(optax.clip_by_global_norm(0.5), optax.adam(2.5e-4, eps=1e-5))
         train_state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
 
-        # Fake trajectory batch
         batch_size = 16
-        obs = jax.random.normal(jax.random.key(1), (batch_size, 4))
-        actions = jax.random.randint(jax.random.key(2), (batch_size,), 0, 2)
-        old_log_probs = -jnp.ones((batch_size,)) * 0.5
+        transitions = _minibatch(
+            obs=jax.random.normal(jax.random.key(1), (batch_size, 4)),
+            action=jax.random.randint(jax.random.key(2), (batch_size,), 0, 2),
+            log_prob=-jnp.ones((batch_size,), dtype=jnp.float32) * 0.5,
+            value=jax.random.normal(jax.random.key(5), (batch_size,)),
+            valid=jnp.ones((batch_size,), dtype=jnp.bool_),
+        )
         advantages = jax.random.normal(jax.random.key(3), (batch_size,))
         targets = jax.random.normal(jax.random.key(4), (batch_size,))
 
-        def loss_fn(params: Any) -> jax.Array:
-            probs, value = net.apply(params, obs)
-            log_prob = probs.log_prob(actions)
-
-            # Value loss
-            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
-
-            # Policy loss (clipped)
-            ratio = jnp.exp(log_prob - old_log_probs)
-            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            loss1 = ratio * gae
-            loss2 = jnp.clip(ratio, 1.0 - cfg.CLIP_EPS, 1.0 + cfg.CLIP_EPS) * gae
-            policy_loss = -jnp.minimum(loss1, loss2).mean()
-
-            # Entropy loss
-            entropy_loss = probs.entropy().mean()
-
-            return policy_loss + cfg.VF_COEF * value_loss - cfg.ENT_COEF * entropy_loss
-
-        grad_fn = jax.value_and_grad(loss_fn)
-        loss, grads = grad_fn(train_state.params)
+        (loss, components), grads = jax.value_and_grad(ppo_loss, has_aux=True)(
+            train_state.params,
+            transitions,
+            advantages,
+            targets,
+            apply_fn=net.apply,
+            is_continuous=False,
+            clip_eps=_CLIP_EPS,
+            vf_coef=_VF_COEF,
+            ent_coef=_ENT_COEF,
+        )
         new_state = train_state.apply_gradients(grads=grads)
 
+        assert loss.shape == ()
+        assert all(component.shape == () for component in components)
         old_flat = jax.tree_util.tree_leaves(train_state.params)
         new_flat = jax.tree_util.tree_leaves(new_state.params)
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert any_changed, "Parameters did not change after gradient step"
 
-    def test_ppo_loss_jit(self) -> None:
-        """PPO loss should JIT-compile without errors."""
-        net = ActorCritic(action_dim=3)
+    def test_invalid_slots_cannot_move_the_loss(self) -> None:
+        """Every component takes a masked mean, so an invalid slot's contents are inert.
+
+        The run's one invalid slot -- global `t = 0`, which closes no transition -- carries
+        zero-primed junk in every field. Replacing that junk with wildly different numbers
+        must leave all three loss components bit-identical, which fails any component that
+        reverted to a plain `.mean()`.
+        """
+        net = ActorCritic(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
 
-        @jax.jit
-        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, old_log_probs: jax.Array, advantages: jax.Array, targets: jax.Array) -> jax.Array:
-            probs, value = net.apply(params, obs)
-            log_prob = probs.log_prob(actions)
-            ratio = jnp.exp(log_prob - old_log_probs)
-            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            loss1 = ratio * gae
-            loss2 = jnp.clip(ratio, 0.8, 1.2) * gae
-            policy_loss = -jnp.minimum(loss1, loss2).mean()
-            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
-            entropy_loss = probs.entropy().mean()
-            return policy_loss + 0.5 * value_loss - 0.01 * entropy_loss
+        batch_size = 8
+        valid = jnp.arange(batch_size) != 0
+        obs = jax.random.normal(jax.random.key(1), (batch_size, 4))
+        action = jax.random.randint(jax.random.key(2), (batch_size,), 0, 2)
+        log_prob = -jnp.ones((batch_size,), dtype=jnp.float32) * 0.5
+        value = jnp.zeros((batch_size,), dtype=jnp.float32)
+        advantages = jax.random.normal(jax.random.key(3), (batch_size,))
+        targets = jax.random.normal(jax.random.key(4), (batch_size,))
 
-        loss = compute_loss(
-            params,
-            jnp.ones((8, 4)),
-            jnp.zeros((8,), dtype=jnp.int32),
-            -jnp.ones((8,)) * 0.5,
-            jnp.ones((8,)),
-            jnp.ones((8,)),
+        def loss_of(
+            transitions: PPOTransition, advantages: jax.Array, targets: jax.Array
+        ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
+            return ppo_loss(
+                params,
+                transitions,
+                advantages,
+                targets,
+                apply_fn=net.apply,
+                is_continuous=False,
+                clip_eps=_CLIP_EPS,
+                vf_coef=_VF_COEF,
+                ent_coef=_ENT_COEF,
+            )
+
+        clean, clean_components = loss_of(_minibatch(obs, action, log_prob, value, valid), advantages, targets)
+        perturbed, perturbed_components = loss_of(
+            _minibatch(
+                obs.at[0].set(400.0),
+                action.at[0].set(1 - action[0]),
+                log_prob.at[0].set(-9.0),
+                value.at[0].set(-70.0),
+                valid,
+            ),
+            advantages.at[0].set(50.0),
+            targets.at[0].set(-30.0),
         )
+
+        # The advantages are standardized across the whole minibatch, which the perturbed
+        # slot does move, so the policy term legitimately shifts. The value and entropy
+        # terms read the slot only through the mask.
+        assert jnp.array_equal(perturbed_components[0], clean_components[0]), "value loss read an invalid slot"
+        assert jnp.array_equal(perturbed_components[2], clean_components[2]), "entropy read an invalid slot"
+        # The perturbation has to reach the loss somewhere, or the assertions are vacuous.
+        assert not jnp.array_equal(perturbed, clean)
+
+    def test_ppo_loss_jit(self) -> None:
+        """The real `ppo_loss` must JIT-compile and stay finite."""
+        net = ActorCritic(action_dim=3)
+        params = net.init(jax.random.key(0), jnp.zeros((4,)))
+        transitions = _minibatch(
+            obs=jnp.ones((8, 4), dtype=jnp.float32),
+            action=jnp.zeros((8,), dtype=jnp.int32),
+            log_prob=-jnp.ones((8,), dtype=jnp.float32) * 0.5,
+            value=jnp.ones((8,), dtype=jnp.float32),
+            valid=jnp.ones((8,), dtype=jnp.bool_),
+        )
+
+        loss, components = jax.jit(ppo_loss, static_argnames=("apply_fn", "is_continuous"))(
+            params,
+            transitions,
+            jnp.ones((8,), dtype=jnp.float32),
+            jnp.ones((8,), dtype=jnp.float32),
+            apply_fn=net.apply,
+            is_continuous=False,
+            clip_eps=_CLIP_EPS,
+            vf_coef=_VF_COEF,
+            ent_coef=_ENT_COEF,
+        )
+
         assert loss.shape == ()
+        assert _tree_all_finite((loss, components))
 
     def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
         config = PPOConfig(
@@ -333,74 +412,76 @@ class TestContinuousPPOGradientFlow:
         assert metrics["returned_episode_returns"].shape == (2,)
 
     def test_params_change_after_update(self) -> None:
-        net = ContinuousActorCritic(action_dim=2)
-        key = jax.random.key(0)
-        params = net.init(key, jnp.zeros((4,)))
+        """A gradient step on the real `ppo_loss` must move the continuous head too.
 
-        cfg = PPOConfig(CLIP_EPS=0.2, VF_COEF=0.5, ENT_COEF=0.01, MAX_GRAD_NORM=0.5)
-        tx = optax.chain(optax.clip_by_global_norm(cfg.MAX_GRAD_NORM), optax.adam(cfg.LR, eps=1e-5))
+        The continuous path differs only in that `log_prob` and `entropy` come back per
+        action dimension and have to be summed, which `is_continuous=True` selects.
+        """
+        net = ContinuousActorCritic(action_dim=2)
+        params = net.init(jax.random.key(0), jnp.zeros((4,)))
+        tx = optax.chain(optax.clip_by_global_norm(0.5), optax.adam(2.5e-4, eps=1e-5))
         train_state = TrainState.create(apply_fn=net.apply, params=params, tx=tx)
 
         batch_size = 16
         obs = jax.random.normal(jax.random.key(1), (batch_size, 4))
         policy, _ = net.apply(train_state.params, obs)
         actions = policy.sample(seed=jax.random.key(2))
-        old_log_probs = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
+        transitions = _minibatch(
+            obs=obs,
+            action=actions,
+            log_prob=_sum_action_event_terms(policy.log_prob(actions), is_continuous=True),
+            value=jax.random.normal(jax.random.key(5), (batch_size,)),
+            valid=jnp.ones((batch_size,), dtype=jnp.bool_),
+        )
         advantages = jax.random.normal(jax.random.key(3), (batch_size,))
         targets = jax.random.normal(jax.random.key(4), (batch_size,))
 
-        def loss_fn(params: Any) -> jax.Array:
-            policy, value = net.apply(params, obs)
-            log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
-
-            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
-
-            ratio = jnp.exp(log_prob - old_log_probs)
-            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            loss1 = ratio * gae
-            loss2 = jnp.clip(ratio, 1.0 - cfg.CLIP_EPS, 1.0 + cfg.CLIP_EPS) * gae
-            policy_loss = -jnp.minimum(loss1, loss2).mean()
-
-            entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=True).mean()
-
-            return policy_loss + cfg.VF_COEF * value_loss - cfg.ENT_COEF * entropy_loss
-
-        grad_fn = jax.value_and_grad(loss_fn)
-        loss, grads = grad_fn(train_state.params)
+        (loss, components), grads = jax.value_and_grad(ppo_loss, has_aux=True)(
+            train_state.params,
+            transitions,
+            advantages,
+            targets,
+            apply_fn=net.apply,
+            is_continuous=True,
+            clip_eps=_CLIP_EPS,
+            vf_coef=_VF_COEF,
+            ent_coef=_ENT_COEF,
+        )
         new_state = train_state.apply_gradients(grads=grads)
 
         old_flat = jax.tree_util.tree_leaves(train_state.params)
         new_flat = jax.tree_util.tree_leaves(new_state.params)
         any_changed = any(not jnp.allclose(o, n) for o, n in zip(old_flat, new_flat, strict=True))
         assert loss.shape == ()
+        assert all(component.shape == () for component in components)
         assert any_changed, "Parameters did not change after continuous PPO gradient step"
 
     def test_continuous_ppo_loss_jit(self) -> None:
+        """The real `ppo_loss` must JIT-compile on the continuous path as well."""
         net = ContinuousActorCritic(action_dim=2)
         params = net.init(jax.random.key(0), jnp.zeros((4,)))
-
-        @jax.jit
-        def compute_loss(params: Any, obs: jax.Array, actions: jax.Array, old_log_probs: jax.Array, advantages: jax.Array, targets: jax.Array) -> jax.Array:
-            policy, value = net.apply(params, obs)
-            log_prob = _sum_action_event_terms(policy.log_prob(actions), is_continuous=True)
-            ratio = jnp.exp(log_prob - old_log_probs)
-            gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-            loss1 = ratio * gae
-            loss2 = jnp.clip(ratio, 0.8, 1.2) * gae
-            policy_loss = -jnp.minimum(loss1, loss2).mean()
-            value_loss = 0.5 * jnp.mean(jnp.square(value - targets))
-            entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=True).mean()
-            return policy_loss + 0.5 * value_loss - 0.01 * entropy_loss
-
-        loss = compute_loss(
-            params,
-            jnp.ones((8, 4)),
-            jnp.zeros((8, 2), dtype=jnp.float32),
-            -jnp.ones((8,)) * 0.5,
-            jnp.ones((8,)),
-            jnp.ones((8,)),
+        transitions = _minibatch(
+            obs=jnp.ones((8, 4), dtype=jnp.float32),
+            action=jnp.zeros((8, 2), dtype=jnp.float32),
+            log_prob=-jnp.ones((8,), dtype=jnp.float32) * 0.5,
+            value=jnp.ones((8,), dtype=jnp.float32),
+            valid=jnp.ones((8,), dtype=jnp.bool_),
         )
+
+        loss, components = jax.jit(ppo_loss, static_argnames=("apply_fn", "is_continuous"))(
+            params,
+            transitions,
+            jnp.ones((8,), dtype=jnp.float32),
+            jnp.ones((8,), dtype=jnp.float32),
+            apply_fn=net.apply,
+            is_continuous=True,
+            clip_eps=_CLIP_EPS,
+            vf_coef=_VF_COEF,
+            ent_coef=_ENT_COEF,
+        )
+
         assert loss.shape == ()
+        assert _tree_all_finite((loss, components))
 
     def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
         config = PPOConfig(
