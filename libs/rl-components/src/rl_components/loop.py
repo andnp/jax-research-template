@@ -81,7 +81,7 @@ import jax
 import jax.numpy as jnp
 
 from rl_components.agent_protocol import AgentProtocol
-from rl_components.env_protocol import EnvProtocol, TruncationPolicy
+from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, TruncationPolicy
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep, bootstrap_terms
 
@@ -205,7 +205,10 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         )
 
         def _on_boundary() -> tuple[ObsT, EnvStateT]:
-            fresh = env.reset(reset_key, env_params)
+            if isinstance(env, BoundaryResetProtocol):
+                fresh = env.reset_after_episode(reset_key, env_step.state, env_params)
+            else:
+                fresh = env.reset(reset_key, env_params)
             return fresh.observation, fresh.state
 
         def _on_continuation() -> tuple[ObsT, EnvStateT]:

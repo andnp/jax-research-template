@@ -12,7 +12,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+from rl_components.env_protocol import BoundaryResetProtocol, EnvReset, EnvSpec, EnvStep
 
 
 class _GymnaxState(Protocol):
@@ -175,6 +175,17 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         resolved = self._resolve(params)
         observation, state = self._env.reset_env(key, self._deferred_limit(resolved))
         return EnvReset(observation=observation, state=state)
+
+    def reset_after_episode(
+        self,
+        key: chex.PRNGKey,
+        previous_state: StateT,
+        params: ParamsT | None = None,
+    ) -> EnvReset[jax.Array, StateT]:
+        resolved = self._resolve(params)
+        if isinstance(self._env, BoundaryResetProtocol):
+            return self._env.reset_after_episode(key, previous_state, self._deferred_limit(resolved))
+        return self.reset(key, params)
 
     def step(
         self,

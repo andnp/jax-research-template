@@ -99,3 +99,15 @@ class EnvProtocol[ObservationT, StateT, ActionT, ParamsT](Protocol):
     def reset(self, key: chex.PRNGKey, params: ParamsT | None = None) -> EnvReset[ObservationT, StateT]: ...
 
     def step(self, key: chex.PRNGKey, state: StateT, action: ActionT, params: ParamsT | None = None) -> EnvStep[ObservationT, StateT]: ...
+
+
+@runtime_checkable
+class BoundaryResetProtocol[ObservationT, StateT, ParamsT](Protocol):
+    """Opt-in reset that can preserve state across an episode boundary."""
+
+    def reset_after_episode(
+        self,
+        key: chex.PRNGKey,
+        previous_state: StateT,
+        params: ParamsT | None = None,
+    ) -> EnvReset[ObservationT, StateT]: ...
