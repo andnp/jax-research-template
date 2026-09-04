@@ -50,6 +50,11 @@ def test_h2s_env_tracks_configured_setpoint_bounds() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([10.5, 750.0, 7.5], dtype=jnp.float32))
 
 
+def test_h2s_scenario_is_part_of_static_environment_identity() -> None:
+    """Keep the selected H2S scenario visible to batch provenance."""
+    assert make_process_control_env("h2s_scrubber", scenario="load_shift").spec().id.endswith(":load_shift")
+
+
 def test_h2s_environment_supports_normalized_reset_and_step() -> None:
     """Allow TD3-style normalized actions to reach the H2S benchmark."""
     environment = make_action_normalization_wrapper(make_process_control_env("h2s_scrubber"))

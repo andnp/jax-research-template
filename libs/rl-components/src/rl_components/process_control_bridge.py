@@ -231,12 +231,17 @@ def make_process_control_env(name: str, **config_overrides: Any) -> ProcessContr
     """
     entry, reset_fn, step_fn, action_low, action_high = _build_benchmark(name, config_overrides)
 
+    scenario = config_overrides.get("scenario")
+    env_id = f"process_control:{entry.name}"
+    if scenario is not None:
+        env_id = f"{env_id}:{scenario}"
+
     return ProcessControlEnv(
         reset_fn=reset_fn,
         step_fn=step_fn,
         obs_dim=entry.obs_dim,
         action_dim=entry.action_dim,
-        env_id=f"process_control:{entry.name}",
+        env_id=env_id,
         scalar_action=entry.scalar_action,
         action_low=action_low,
         action_high=action_high,
