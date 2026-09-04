@@ -583,6 +583,89 @@ def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseMan
     assert batches[1].static_config_json == '{"arch": "mlp"}'
 
 
+def _selector_fixture(db: DatabaseManager) -> int:
+    algo_id = db.add_component("SelectAlgo", "ALGO")
+    env_id = db.add_component("SelectEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Selector Experiment")
+
+    vmap_zone = {"static_keys": ["algorithm"], "dynamic_keys": []}
+    for algorithm in ("sac", "gi_sac"):
+        hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "lr": 1e-3}, vmap_zone=vmap_zone)
+        for seed in range(4):
+            db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed)
+    return exp_id
+
+
+def test_the_selector_keeps_only_runs_matching_every_clause(db: DatabaseManager) -> None:
+    """Clauses AND together across keys, so two clauses narrow further than either alone."""
+    exp_id = _selector_fixture(db)
+
+    both = db.list_unsatisfied_run_batches(exp_id, only={"algorithm": "gi_sac", "seed": "0"})
+    algorithm_only = db.list_unsatisfied_run_batches(exp_id, only={"algorithm": "gi_sac"})
+
+    assert [len(batch.run_ids) for batch in both] == [1]
+    assert [len(batch.run_ids) for batch in algorithm_only] == [4]
+
+
+def test_the_selector_ors_comma_separated_values_within_one_clause(db: DatabaseManager) -> None:
+    """A seed range is expressible, which repeated strict-equality clauses could not do.
+
+    Repeating a key would overwrite it in the parsed mapping rather than widen it, so the
+    comma is what makes set membership reachable at all.
+    """
+    exp_id = _selector_fixture(db)
+
+    batches = db.list_unsatisfied_run_batches(exp_id, only={"algorithm": "gi_sac", "seed": "0,1,2"})
+
+    assert [len(batch.run_ids) for batch in batches] == [3]
+
+
+def test_the_selector_narrows_a_partial_batch_rather_than_skipping_it(db: DatabaseManager) -> None:
+    """A batch is a vmap zone, so selecting some of its runs must still plan those runs.
+
+    ``find_executions_by_hyperparams`` skips partially matching batches, because
+    under-selecting is the safe failure when invalidating results. Here the failure
+    inverts: skipping would make a single-seed selector execute nothing at all.
+    """
+    exp_id = _selector_fixture(db)
+
+    unfiltered = db.list_unsatisfied_run_batches(exp_id)
+    narrowed = db.list_unsatisfied_run_batches(exp_id, only={"seed": "0"})
+
+    assert [len(batch.run_ids) for batch in unfiltered] == [4, 4]
+    assert [len(batch.run_ids) for batch in narrowed] == [1, 1]
+
+
+def test_the_selector_matches_a_seed_that_is_absent_from_the_config_blob(db: DatabaseManager) -> None:
+    """``seed`` is a Runs column, not a hyperparameter, so it needs the column to be reachable."""
+    exp_id = _selector_fixture(db)
+
+    batches = db.list_unsatisfied_run_batches(exp_id, only={"seed": "3"})
+
+    assert sum(len(batch.run_ids) for batch in batches) == 2
+
+
+def test_the_selector_selects_nothing_for_an_unknown_key(db: DatabaseManager) -> None:
+    """An unmatched key must not silently widen the selection to everything."""
+    exp_id = _selector_fixture(db)
+
+    assert db.list_unsatisfied_run_batches(exp_id, only={"nonexistent": "x"}) == []
+
+
+def test_the_selector_compares_values_as_strings_like_the_where_dialect(db: DatabaseManager) -> None:
+    """``1e-3`` does not match a stored ``0.001``, matching find_executions_by_hyperparams.
+
+    Pinned so the two dialects cannot drift apart silently; a caller who learns the rule
+    from one flag can rely on it in the other.
+    """
+    exp_id = _selector_fixture(db)
+
+    assert db.list_unsatisfied_run_batches(exp_id, only={"lr": "1e-3"}) == []
+    assert sum(len(b.run_ids) for b in db.list_unsatisfied_run_batches(exp_id, only={"lr": "0.001"})) == 8
+
+
 def test_list_unsatisfied_run_batches_respects_batch_limit(db: DatabaseManager) -> None:
     algo_id = db.add_component("ChunkAlgo", "ALGO")
     env_id = db.add_component("ChunkEnv", "ENV")
