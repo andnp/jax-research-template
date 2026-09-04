@@ -258,7 +258,7 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert dynamic_config.GAE_LAMBDA == 0.8
     default_config = _ppo_config_from(
         BoundBatch(
-            static_config={"env_name": "CartPole-v1", "total_timesteps": 8},
+            static_config={"env_name": "CartPole-v1"},
             dynamic_axes={},
             seeds=(0,),
             points=(),
@@ -266,6 +266,7 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
         {},
     )
     assert default_config.LR == PPOConfig().LR
+    assert default_config.TOTAL_TIMESTEPS == PPOConfig().TOTAL_TIMESTEPS
     assert default_config.NUM_STEPS == PPOConfig().NUM_STEPS
     assert default_config.UPDATE_EPOCHS == PPOConfig().UPDATE_EPOCHS
     assert default_config.NUM_MINIBATCHES == PPOConfig().NUM_MINIBATCHES
@@ -286,6 +287,7 @@ def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
             "learning_starts": 3,
             "train_frequency": 2,
             "tau": 0.01,
+            "target_entropy": -1.5,
         },
         dynamic_axes={},
         seeds=(0,),
@@ -307,13 +309,14 @@ def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert static_config.LEARNING_STARTS == 3
     assert static_config.TRAIN_FREQUENCY == 2
     assert static_config.TAU == 0.01
+    assert static_config.TARGET_ENTROPY == -1.5
     assert dynamic_config.LR == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
     assert dynamic_config.TRAIN_FREQUENCY == 3
     assert dynamic_config.TAU == 0.02
     default_config = _sac_config_from(
         BoundBatch(
-            static_config={"env_name": "Pendulum-v1", "total_timesteps": 8},
+            static_config={"env_name": "Pendulum-v1"},
             dynamic_axes={},
             seeds=(0,),
             points=(),
@@ -326,6 +329,8 @@ def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert default_config.LEARNING_STARTS == SACConfig().LEARNING_STARTS
     assert default_config.TRAIN_FREQUENCY == SACConfig().TRAIN_FREQUENCY
     assert default_config.TAU == SACConfig().TAU
+    assert default_config.TOTAL_TIMESTEPS == SACConfig().TOTAL_TIMESTEPS
+    assert default_config.TARGET_ENTROPY is None
 
 
 def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
@@ -388,7 +393,6 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
         BoundBatch(
             static_config={
                 "env_name": "Pendulum-v1",
-                "total_timesteps": 8,
             },
             dynamic_axes={},
             seeds=(0,),
@@ -403,6 +407,7 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert default_config.TRAIN_FREQUENCY == TD3Config().TRAIN_FREQUENCY
     assert default_config.TAU == TD3Config().TAU
     assert default_config.POLICY_DELAY == TD3Config().POLICY_DELAY
+    assert default_config.TOTAL_TIMESTEPS == TD3Config().TOTAL_TIMESTEPS
 
 
 def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None:

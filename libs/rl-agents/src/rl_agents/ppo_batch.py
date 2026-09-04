@@ -51,7 +51,7 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
         LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
         GAE_LAMBDA=cast(float, dynamic.get("gae_lambda", batch.static_or("gae_lambda", float, defaults.GAE_LAMBDA))),
         NUM_STEPS=batch.static_or("num_steps", int, defaults.NUM_STEPS),
-        TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
+        TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),
         UPDATE_EPOCHS=batch.static_or("update_epochs", int, defaults.UPDATE_EPOCHS),
         NUM_MINIBATCHES=batch.static_or("num_minibatches", int, defaults.NUM_MINIBATCHES),
         CLIP_EPS=cast(float, dynamic.get("clip_eps", batch.static_or("clip_eps", float, defaults.CLIP_EPS))),
@@ -87,7 +87,7 @@ class PPOBatchTrainer:
         batch = context.bind(self.parameter_schema)
         env, env_params = self._env_factory(batch.static_config)
         dynamic_axes = {
-            key: batch.dynamic(key, int if key == "learning_starts" else float)
+            key: batch.dynamic(key, float)
             for key in self.parameter_schema.dynamic_keys
             if key in batch.dynamic_axes
         }
