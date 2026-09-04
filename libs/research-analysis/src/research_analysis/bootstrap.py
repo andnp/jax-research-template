@@ -7,11 +7,14 @@ suitable for reporting RL learning curves across multiple seeds.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy import stats
 
 from research_analysis._kernels import bootstrap_resample_means, mean_axis0, percentile_axis0
+from research_analysis.comparison import Estimand
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
 
@@ -31,6 +34,19 @@ class BootstrapCI:
     ci_low: BootstrapStatistic
     ci_high: BootstrapStatistic
     confidence: float
+
+
+@dataclass(frozen=True)
+class DifferenceBootstrapCI:
+    """BCa interval for a scalar difference between two samples."""
+
+    estimate: float
+    ci_low: float
+    ci_high: float
+    confidence: float
+    n_resamples: int
+    pairing: Literal["paired", "independent"]
+    estimand: Estimand
 
 
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
@@ -96,3 +112,66 @@ def bootstrap_ci(
         ci_high = np.float64(ci_high[0])
 
     return BootstrapCI(mean=mean, ci_low=ci_low, ci_high=ci_high, confidence=confidence)
+
+
+def bootstrap_difference_ci(
+    values_a: NDArray[np.floating],
+    values_b: NDArray[np.floating],
+    *,
+    estimand: Estimand = "mean",
+    pairing: Literal["paired", "independent"] = "independent",
+    confidence: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    rng: np.random.Generator | None = None,
+) -> DifferenceBootstrapCI:
+    """Compute a scalar BCa confidence interval for a declared difference."""
+    a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
+    b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
+    if estimand not in ("mean", "median"):
+        raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    if n_resamples < 1:
+        raise ValueError(f"n_resamples must be positive, got {n_resamples}")
+    if min_samples < 3:
+        raise ValueError(f"min_samples must be at least 3, got {min_samples}")
+    if pairing == "paired" and len(a) != len(b):
+        raise ValueError(f"paired samples must have equal lengths, got {len(a)} and {len(b)}")
+    if len(a) < min_samples or len(b) < min_samples:
+        raise ValueError(
+            f"both samples need at least {min_samples} observations, got {len(a)} and {len(b)}"
+        )
+    if not np.isfinite(a).all() or not np.isfinite(b).all():
+        raise ValueError("bootstrap samples must contain only finite values")
+
+    statistic = np.mean if estimand == "mean" else np.median
+
+    def difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
+        return float(statistic(left) - statistic(right))
+
+    if rng is None:
+        rng = np.random.default_rng()
+    result = stats.bootstrap(
+        (a, b),
+        difference,
+        vectorized=False,
+        paired=pairing == "paired",
+        confidence_level=confidence,
+        n_resamples=n_resamples,
+        method="BCa",
+        random_state=rng,
+    )
+    low = float(result.confidence_interval.low)
+    high = float(result.confidence_interval.high)
+    if not np.isfinite(low) or not np.isfinite(high):
+        raise ValueError("BCa bootstrap interval is undefined for these samples")
+    return DifferenceBootstrapCI(
+        estimate=difference(a, b),
+        ci_low=low,
+        ci_high=high,
+        confidence=confidence,
+        n_resamples=n_resamples,
+        pairing=pairing,
+        estimand=estimand,
+    )
