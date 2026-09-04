@@ -74,6 +74,39 @@ covers matches, so a partial match is skipped rather than silently widening.
 Values are compared as strings against `str()` of the stored JSON value:
 `learning_rate=0.001` matches a stored `0.001`, but not `1e-3`.
 
+## Invalidation is deliberately optimistic
+
+Tracking is not, and is not meant to be, complete. Component hashes cover the source files
+a study declares; they do not cover the installed environment, the glue that maps
+hyperparameters onto an agent's config, or anything else outside a declared `Component`.
+That is a choice, not an oversight. Results cost GPU-hours, so the system errs toward
+keeping them and leaves the judgment call to the experimenter, who has the manual tools
+for it.
+
+Two consequences worth internalising:
+
+- **Do not add hashing to make invalidation exhaustive.** The glue module is the file most
+  often edited for reasons that change nothing — adding an arm's branch, a refactor, a
+  docstring — and hashing it would re-run an entire study on every such edit. Prefer a
+  loud check at analysis time over a conservative key: a check costs nothing, a key is
+  paid for in compute.
+- **Invalidate by hand when you know you have invalidated something.** Changed a
+  dependency, edited the glue, fixed a bug the hash cannot see? Say so with `--where` for
+  one arm, or `--all` for the study.
+
+The safety net for the optimism is a deliberate clean re-run of the critical experiments
+before results are published, so the numbers that ship are uncontaminated:
+
+```bash
+uv run research experiment invalidate <db> --experiment <slug> --all
+uv run research experiment run <spec_file.py> --spec <factory>
+```
+
+`--all` requires `--experiment` — it will not reset every study in a shared database — and
+it refuses to combine with `--where`, since the two express opposite intents. Everything
+else in this page is about avoiding waste day to day; this is the one place where
+re-running everything is the point.
+
 ## Orphan runs, and pruning them
 
 `plan` picks up every unsatisfied Run row, and a change to the definition does not remove
