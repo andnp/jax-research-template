@@ -1252,6 +1252,25 @@ class DatabaseManager:
             )
         return [int(row[0]) for row in rows]
 
+    def find_executions_for_experiment(self, experiment_id: int) -> list[ExecutionRow]:
+        """Return every COMPLETED/FAILED execution covering a run of ``experiment_id``.
+
+        The whole-experiment selector, for a deliberate clean re-run rather than a
+        targeted correction. Unlike ``find_executions_by_hyperparams`` there is no
+        per-batch filter to under-select against: the caller asked for all of them.
+        """
+        rows = self.conn.execute(
+            "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
+            "e.git_commit, e.git_diff_blob, e.jax_config_json "
+            "FROM Executions e "
+            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+            "INNER JOIN Runs r ON r.id = er.run_id "
+            "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
+            "ORDER BY e.id",
+            (experiment_id,),
+        ).fetchall()
+        return [ExecutionRow(*row) for row in rows]
+
     def find_executions_by_hyperparams(self, experiment_id: int, where: Mapping[str, str]) -> list[ExecutionRow]:
         """Return COMPLETED/FAILED executions whose covered runs all match ``where``.
 
