@@ -74,6 +74,30 @@ covers matches, so a partial match is skipped rather than silently widening.
 Values are compared as strings against `str()` of the stored JSON value:
 `learning_rate=0.001` matches a stored `0.001`, but not `1e-3`.
 
+## Orphan runs, and pruning them
+
+`plan` picks up every unsatisfied Run row, and a change to the definition does not remove
+the rows it stops wanting. Editing a component file or dropping a hyperparameter mints a
+*new* Run identity and leaves the old rows behind, still unsatisfied and still plannable.
+For a study that has already run this is harmless — the old rows have COMPLETED
+executions, so they are satisfied. For a study **planned but never run** it is not: those
+rows have no executions, so `plan` counts them and `run` executes them, recording results
+under a stale component version that analysis then filters straight back out.
+
+`invalidate` cannot reach them. It operates on executions, and orphans have none.
+
+```bash
+uv run research experiment prune <spec_file.py> --spec <factory>
+```
+
+`prune` syncs the definition, asks it which Run rows it wants, and deletes the rest. A run
+that any execution has touched is never deleted, whatever its status: COMPLETED is a
+result and PENDING or RUNNING is a live claim. It prints what it matched, grouped by
+component version, before prompting; `--yes` skips the prompt.
+
+Check `plan`'s count first. A study of 60 configs reporting 90 batches is this leak, not a
+grid you forgot about.
+
 ## Recovering a crashed sweep
 
 A runner killed without unwinding never writes a terminal status, so its execution stays
