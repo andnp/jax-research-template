@@ -785,8 +785,19 @@ class DatabaseManager:
                 deleted += cursor.rowcount
         return deleted
 
-    def list_unsatisfied_run_batches(self, experiment_id: int, max_runs_per_batch: int | None = None) -> list[RunBatch]:
-        """Group unsatisfied runs by static vmap zone for batch planning."""
+    def list_unsatisfied_run_batches(
+        self,
+        experiment_id: int,
+        max_runs_per_batch: int | None = None,
+        only: Mapping[str, str] | None = None,
+    ) -> list[RunBatch]:
+        """Group unsatisfied runs by static vmap zone for batch planning.
+
+        ``only`` narrows the runs considered, per :func:`_run_matches`. A batch keeps only
+        its selected runs rather than being skipped when the selection is partial: a batch
+        is a vmap zone, so narrowing one changes how wide it trains but not the identity of
+        the runs in it, and skipping would make a single-seed selector silently do nothing.
+        """
         rows = self.conn.execute(
             "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
             "       hc.json_blob, hc.vmap_zone_json "
@@ -807,6 +818,8 @@ class DatabaseManager:
         for row in rows:
             run = RunRow(*row[:7])
             hyper_json = str(row[7])
+            if only and not _run_matches(json.loads(hyper_json), run, only):
+                continue
             vmap_zone_json = str(row[8]) if row[8] is not None else None
             static_config_json = _static_config_json(hyper_json, vmap_zone_json)
             batch_key = (
