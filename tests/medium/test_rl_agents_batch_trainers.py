@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import pytest
 from experiment_definition import ParameterValue
 from research_runner import BoundBatch, ExecutionContext, RunPoint
+from rl_agents.batch_registry import make_algorithm_batch_trainer
 from rl_agents.dqn import DQNConfig
 from rl_agents.dqn_batch import DQNBatchTrainer, _config_from
 from rl_agents.gac_batch import GACBatchTrainer
@@ -551,3 +552,46 @@ def test_sac_rc_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path
         result.metric_curves[metric][0] != result.metric_curves[metric][1]
         for metric in result.metric_curves
     )
+
+
+def test_registry_dispatches_sac_rc_batch_trainer_deterministically(tmp_path: Path) -> None:
+    """
+    Verify registry dispatch preserves SAC-RC metrics and deterministic replay.
+
+    Dispatch must use the same shared trainer contract as direct construction.
+    """
+    static_config = {
+        "algorithm": "sac-rc",
+        "env_name": "Pendulum-v1",
+        "total_timesteps": 4,
+        "buffer_size": 8,
+        "batch_size": 2,
+        "learning_starts": 0,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": 1e-3, "seed": index})
+        for index in (0, 1)
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="sac-rc-registry-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    trainer = make_algorithm_batch_trainer(_make_env, ("sac-rc",))
+    result = trainer(context)
+    replay = trainer(context)
+
+    assert set(result.metric_curves) == {
+        "reward",
+        "critic_loss",
+        "actor_loss",
+        "alpha_loss",
+        "alpha",
+    }
+    assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
+    assert result.metric_curves == replay.metric_curves
