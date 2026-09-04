@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from typing import cast
 
 from experiment_definition.db import DatabaseManager
 from research_cli.main import app
@@ -54,6 +55,88 @@ def test_experiment_status_shows_run_counts(tmp_path: Path) -> None:
     assert "2 runs" in result.output
     assert "0 completed" in result.output
     assert "2 pending" in result.output
+    assert "algo_version" not in result.output
+
+
+def test_experiment_status_breaks_down_by_version_pair(tmp_path: Path) -> None:
+    """A single-pair experiment stays a one-liner; a multi-pair one gets a per-pair breakdown."""
+    db_path = tmp_path / "test.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment("multi-version-exp")
+        comp_id = db.add_component("test-algo", "ALGO")
+        old_ver_id = db.add_component_version(comp_id, "abc123")
+        new_ver_id = db.add_component_version(comp_id, "abc456")
+        env_id = db.add_component("test-env", "ENV")
+        env_ver_id = db.add_component_version(env_id, "def456")
+        hyper_id = db.add_hyperparam_config({"lr": 0.01})
+
+        old_run_id = db.add_run(exp_id, old_ver_id, env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, old_ver_id, env_ver_id, hyper_id, seed=1)
+        db.add_run(exp_id, new_ver_id, env_ver_id, hyper_id, seed=0)
+
+        execution = db.add_execution(hostname="n1")
+        db.link_execution_run(execution, old_run_id)
+        db.update_execution_status(execution, "COMPLETED")
+
+    result = runner.invoke(app, ["experiment", "status", str(db_path)])
+    assert result.exit_code == 0
+    assert "multi-version-exp: 3 runs (1 completed, 2 pending)" in result.output
+    assert f"algo_version={old_ver_id} env_version={env_ver_id}: 2 runs (1 completed, 1 pending)" in result.output
+    assert f"algo_version={new_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 1 pending)" in result.output
+
+
+def test_status_marks_the_newest_version_that_has_results(tmp_path: Path) -> None:
+    """The marker names the pair analysis will read, which is not always the newest pair.
+
+    A sync mints a component version and its unexecuted runs for any source edit, cosmetic
+    ones included, so the newest pair is routinely one nothing has run. Marking that pair
+    would point the reader at an empty version.
+    """
+    db_path = tmp_path / "newest_with_results.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment("refactored-exp")
+        comp_id = db.add_component("test-algo", "ALGO")
+        ran_ver_id = db.add_component_version(comp_id, "ran")
+        unrun_ver_id = db.add_component_version(comp_id, "unrun")
+        env_id = db.add_component("test-env", "ENV")
+        env_ver_id = db.add_component_version(env_id, "env")
+        hyper_id = db.add_hyperparam_config({"lr": 0.01})
+
+        ran_run_id = db.add_run(exp_id, ran_ver_id, env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, unrun_ver_id, env_ver_id, hyper_id, seed=0)
+        execution = db.add_execution(hostname="n1")
+        db.link_execution_run(execution, ran_run_id)
+        db.update_execution_status(execution, "COMPLETED")
+    assert unrun_ver_id > ran_ver_id  # the fixture premise: the empty version really is newer
+
+    result = runner.invoke(app, ["experiment", "status", str(db_path)])
+
+    assert result.exit_code == 0, result.output
+    assert f"algo_version={ran_ver_id} env_version={env_ver_id}: 1 runs (1 completed, 0 pending) (newest with results)" in result.output
+    assert f"algo_version={unrun_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 1 pending)\n" in result.output
+
+
+def test_experiment_status_renders_null_version_ids(tmp_path: Path) -> None:
+    """Runs with a NULL algo_version_id (ambiguous provenance) render as 'unknown', not crash."""
+    db_path = tmp_path / "test.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment("ambiguous-exp")
+        comp_id = db.add_component("test-algo", "ALGO")
+        ver_id = db.add_component_version(comp_id, "abc123")
+        env_id = db.add_component("test-env", "ENV")
+        env_ver_id = db.add_component_version(env_id, "def456")
+        hyper_id = db.add_hyperparam_config({"lr": 0.01})
+
+        db.add_run(exp_id, cast(int, None), env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, ver_id, env_ver_id, hyper_id, seed=1)
+
+    result = runner.invoke(app, ["experiment", "status", str(db_path)])
+    assert result.exit_code == 0
+    assert f"algo_version=unknown env_version={env_ver_id}: 1 runs" in result.output
+    assert f"algo_version={ver_id} env_version={env_ver_id}: 1 runs" in result.output
 
 
 def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:

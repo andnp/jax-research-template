@@ -64,6 +64,23 @@ def _with_results_root(experiment_spec: ExperimentSpec, results_root: str | None
     return replace(experiment_spec, results_root=Path(results_root).resolve())
 
 
+def _render_version(version_id: int | None) -> str:
+    """Render a component-version id, treating NULL as an honest 'unknown' rather than 'None'."""
+    return "unknown" if version_id is None else str(version_id)
+
+
+def _version_pair_sort_key(pair: tuple[int | None, int | None]) -> tuple[bool, int, bool, int]:
+    """Order version pairs deterministically, grouping NULL-bearing pairs after known ones."""
+    algo, env = pair
+    return (algo is None, algo or 0, env is None, env or 0)
+
+
+def _version_pair_newest_key(pair: tuple[int | None, int | None]) -> tuple[int, int]:
+    """Rank version pairs by recency; NULL never outranks a known version id."""
+    algo, env = pair
+    return (-1 if algo is None else algo, -1 if env is None else env)
+
+
 @experiment_app.command("list")
 def list_experiments(
     db_path: Path = typer.Argument(..., help="Path to the experiment database."),
@@ -108,6 +125,33 @@ def status(
             pending = len(unsatisfied)
             completed = total - pending
             typer.echo(f"{exp_row.name}: {total} runs ({completed} completed, {pending} pending)")
+
+            pairs = {(r.algo_version_id, r.env_version_id) for r in all_runs}
+            if len(pairs) > 1:
+                unsatisfied_ids = {r.id for r in unsatisfied}
+                counts = {
+                    pair: [r for r in all_runs if (r.algo_version_id, r.env_version_id) == pair]
+                    for pair in pairs
+                }
+                # The pair analysis will actually read. Not simply the newest pair: a sync
+                # mints a version and its unexecuted runs for any source edit, cosmetic
+                # ones included, so the newest pair is routinely one nothing has run.
+                with_results = [
+                    pair for pair, runs in counts.items() if any(r.id not in unsatisfied_ids for r in runs)
+                ]
+                newest_pair = max(with_results, key=_version_pair_newest_key) if with_results else None
+                for pair in sorted(pairs, key=_version_pair_sort_key):
+                    pair_runs = counts[pair]
+                    pair_total = len(pair_runs)
+                    pair_pending = sum(1 for r in pair_runs if r.id in unsatisfied_ids)
+                    pair_completed = pair_total - pair_pending
+                    marker = " (newest with results)" if pair == newest_pair else ""
+                    algo_display = _render_version(pair[0])
+                    env_display = _render_version(pair[1])
+                    typer.echo(
+                        f"  algo_version={algo_display} env_version={env_display}: "
+                        f"{pair_total} runs ({pair_completed} completed, {pair_pending} pending){marker}"
+                    )
 
 
 @experiment_app.command("plan")
