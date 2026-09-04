@@ -32,8 +32,8 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = TD3Config()
     return TD3Config(
         LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
-        BUFFER_SIZE=batch.static("buffer_size", int),
-        BATCH_SIZE=batch.static("batch_size", int),
+        BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
+        BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
         TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
         LEARNING_STARTS=cast(
             int, dynamic.get("learning_starts", batch.static_or("learning_starts", int, defaults.LEARNING_STARTS))
@@ -83,7 +83,7 @@ class TD3BatchTrainer:
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=batch.static("gamma", float),
+                gamma=batch.static_or("gamma", float, 0.99),
                 env_params=env_params,
             )
             return {

@@ -256,23 +256,21 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert static_config.OBS_NORM_CLIP == 5.0
     assert dynamic_config.LR == 4e-3
     assert dynamic_config.GAE_LAMBDA == 0.8
-    assert _ppo_config_from(
+    default_config = _ppo_config_from(
         BoundBatch(
-            static_config={
-                "env_name": "CartPole-v1",
-                "num_steps": 4,
-                "total_timesteps": 8,
-                "update_epochs": 1,
-                "num_minibatches": 1,
-                "reward_scale": 1.0,
-                "normalize_observations": False,
-            },
+            static_config={"env_name": "CartPole-v1", "total_timesteps": 8},
             dynamic_axes={},
             seeds=(0,),
             points=(),
         ),
         {},
-    ).LR == PPOConfig().LR
+    )
+    assert default_config.LR == PPOConfig().LR
+    assert default_config.NUM_STEPS == PPOConfig().NUM_STEPS
+    assert default_config.UPDATE_EPOCHS == PPOConfig().UPDATE_EPOCHS
+    assert default_config.NUM_MINIBATCHES == PPOConfig().NUM_MINIBATCHES
+    assert default_config.REWARD_SCALE == PPOConfig().REWARD_SCALE
+    assert default_config.NORMALIZE_OBSERVATIONS == PPOConfig().NORMALIZE_OBSERVATIONS
 
 
 def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
@@ -313,10 +311,21 @@ def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert dynamic_config.LEARNING_STARTS == 1
     assert dynamic_config.TRAIN_FREQUENCY == 3
     assert dynamic_config.TAU == 0.02
-    assert _sac_config_from(
-        BoundBatch(static_config={"env_name": "Pendulum-v1", "total_timesteps": 8, "gamma": 0.98}, dynamic_axes={}, seeds=(0,), points=()),
+    default_config = _sac_config_from(
+        BoundBatch(
+            static_config={"env_name": "Pendulum-v1", "total_timesteps": 8},
+            dynamic_axes={},
+            seeds=(0,),
+            points=(),
+        ),
         {},
-    ).LR == SACConfig().LR
+    )
+    assert default_config.LR == SACConfig().LR
+    assert default_config.BUFFER_SIZE == SACConfig().BUFFER_SIZE
+    assert default_config.BATCH_SIZE == SACConfig().BATCH_SIZE
+    assert default_config.LEARNING_STARTS == SACConfig().LEARNING_STARTS
+    assert default_config.TRAIN_FREQUENCY == SACConfig().TRAIN_FREQUENCY
+    assert default_config.TAU == SACConfig().TAU
 
 
 def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
@@ -375,21 +384,25 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert dynamic_config.EXPLORATION_NOISE == 0.4
     assert dynamic_config.POLICY_NOISE == 0.5
     assert dynamic_config.NOISE_CLIP == 0.6
-    assert _td3_config_from(
+    default_config = _td3_config_from(
         BoundBatch(
             static_config={
                 "env_name": "Pendulum-v1",
-                "buffer_size": 16,
-                "batch_size": 2,
                 "total_timesteps": 8,
-                "gamma": 0.98,
             },
             dynamic_axes={},
             seeds=(0,),
             points=(),
         ),
         {},
-    ).LR == TD3Config().LR
+    )
+    assert default_config.LR == TD3Config().LR
+    assert default_config.BUFFER_SIZE == TD3Config().BUFFER_SIZE
+    assert default_config.BATCH_SIZE == TD3Config().BATCH_SIZE
+    assert default_config.LEARNING_STARTS == TD3Config().LEARNING_STARTS
+    assert default_config.TRAIN_FREQUENCY == TD3Config().TRAIN_FREQUENCY
+    assert default_config.TAU == TD3Config().TAU
+    assert default_config.POLICY_DELAY == TD3Config().POLICY_DELAY
 
 
 def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None:
@@ -799,7 +812,6 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
             "update_epochs": 1,
             "num_minibatches": 1,
             "gamma": 0.98,
-            "learning_rate": 2e-3,
             "reward_scale": 1.0,
             "normalize_observations": False,
         },
@@ -809,8 +821,6 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
             "total_timesteps": 4,
             "buffer_size": 8,
             "batch_size": 2,
-            "gamma": 0.98,
-            "learning_rate": 2e-3,
             "learning_starts": 0,
             "train_frequency": 1,
             "tau": 0.01,
@@ -821,8 +831,6 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
             "total_timesteps": 4,
             "buffer_size": 8,
             "batch_size": 2,
-            "gamma": 0.98,
-            "learning_rate": 2e-3,
             "learning_starts": 0,
             "train_frequency": 1,
             "tau": 0.01,
@@ -835,16 +843,23 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
     }
 
     for algorithm, static_config in configs.items():
+        points = tuple(
+            RunPoint(index, {**static_config, "learning_rate": rate, "seed": index})
+            for index, rate in enumerate((1e-3, 2e-3))
+        )
         context = ExecutionContext(
             execution_id=1,
             experiment_id=1,
             experiment_name=f"{algorithm}-multi-dispatch-test",
             static_config=static_config,
-            points=(RunPoint(0, {**static_config, "seed": 0}),),
+            points=points,
             execution_root=tmp_path,
             metrics_db_path=tmp_path / f"{algorithm}.sqlite",
         )
         result = trainer(context)
+        replay = trainer(context)
 
         assert result.metadata["algorithm"] == algorithm
         assert set(result.metric_curves) == metric_names[algorithm]
+        assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
+        assert result.metric_curves == replay.metric_curves

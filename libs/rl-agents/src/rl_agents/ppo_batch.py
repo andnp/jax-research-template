@@ -50,18 +50,20 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     return PPOConfig(
         LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
         GAE_LAMBDA=cast(float, dynamic.get("gae_lambda", batch.static_or("gae_lambda", float, defaults.GAE_LAMBDA))),
-        NUM_STEPS=batch.static("num_steps", int),
+        NUM_STEPS=batch.static_or("num_steps", int, defaults.NUM_STEPS),
         TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-        UPDATE_EPOCHS=batch.static("update_epochs", int),
-        NUM_MINIBATCHES=batch.static("num_minibatches", int),
+        UPDATE_EPOCHS=batch.static_or("update_epochs", int, defaults.UPDATE_EPOCHS),
+        NUM_MINIBATCHES=batch.static_or("num_minibatches", int, defaults.NUM_MINIBATCHES),
         CLIP_EPS=cast(float, dynamic.get("clip_eps", batch.static_or("clip_eps", float, defaults.CLIP_EPS))),
         ENT_COEF=cast(float, dynamic.get("ent_coef", batch.static_or("ent_coef", float, defaults.ENT_COEF))),
         VF_COEF=cast(float, dynamic.get("vf_coef", batch.static_or("vf_coef", float, defaults.VF_COEF))),
         MAX_GRAD_NORM=cast(
             float, dynamic.get("max_grad_norm", batch.static_or("max_grad_norm", float, defaults.MAX_GRAD_NORM))
         ),
-        REWARD_SCALE=batch.static("reward_scale", float),
-        NORMALIZE_OBSERVATIONS=batch.static("normalize_observations", bool),
+        REWARD_SCALE=batch.static_or("reward_scale", float, defaults.REWARD_SCALE),
+        NORMALIZE_OBSERVATIONS=batch.static_or(
+            "normalize_observations", bool, defaults.NORMALIZE_OBSERVATIONS
+        ),
         OBS_NORM_EPS=cast(float, dynamic.get("obs_norm_eps", batch.static_or("obs_norm_eps", float, defaults.OBS_NORM_EPS))),
         OBS_NORM_CLIP=cast(float, dynamic.get("obs_norm_clip", batch.static_or("obs_norm_clip", float, defaults.OBS_NORM_CLIP))),
         ENV_NAME=batch.static("env_name", str),

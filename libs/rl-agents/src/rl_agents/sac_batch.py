@@ -63,7 +63,7 @@ class SACBatchTrainer:
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=batch.static("gamma", float),
+                gamma=batch.static_or("gamma", float, 0.99),
                 env_params=env_params,
             )
             return {
