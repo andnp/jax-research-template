@@ -248,10 +248,13 @@ truncation bug that the `D_t` change alone would not catch.
 
 The replay entry stores `discount = D_t` as a `float32` array and **no** boolean. This
 supersedes the earlier draft's "additionally store `last`", which cannot represent
-variable horizons. Concretely for Rainbow: delete the compile-time
-`bootstrap_discount = ADDITIONAL_DISCOUNT ** N_STEP` (`rainbow.py:399`), change
+variable horizons. Concretely for Rainbow this meant deleting the compile-time
+`bootstrap_discount = ADDITIONAL_DISCOUNT ** N_STEP`, changing
 `categorical_target_support`'s `discount: float` to a `jax.Array` broadcastable over the
-batch, and drop its `(1.0 - dones[..., None])` factor — `D_t` already carries it.
+batch, and dropping its `(1.0 - dones[..., None])` factor — `D_t` already carries it. The
+replay entry stores `discount` where it stored `done`, so `RainbowTransition` has no
+boolean left at all: `jax_replay.per` keys its storage by stringified flatten index, and
+that leaf is `float32`.
 
 Crucially, all of this stays **inside the agent**. The loop supplies
 `(reward, discount, episode_end)` per step and knows nothing about n-step.
