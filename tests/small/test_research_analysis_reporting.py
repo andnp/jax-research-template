@@ -186,7 +186,9 @@ def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: dict[str,
     assert report.mean_b == pytest.approx(151.5)
 
 
-def test_compare_pairwise_honors_confidence_level(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_honors_confidence_level(
+    temp_experiment_setup: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
     """Use the requested confidence level for significance and interval width."""
     setup = temp_experiment_setup
     differences = [-2.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
@@ -209,12 +211,16 @@ def test_compare_pairwise_honors_confidence_level(temp_experiment_setup: dict[st
             db.record_execution_artifacts(execution_id, str(setup["tmp_path"]), metadata={"metrics_db_path": str(setup["metrics_db_path"])})
             populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [0.0], execution_id=execution_id)
 
-    report_90 = compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.90, verbose=False)
+    report_90 = compare_pairwise(
+        setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.90, verbose=True
+    )
+    output_90 = capsys.readouterr().out
     report_95 = compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.95, verbose=False)
     assert report_90.test_details.is_significant is True
     assert report_95.test_details.is_significant is False
     assert report_90.difference_ci[0] >= report_95.difference_ci[0]
     assert report_90.difference_ci[1] <= report_95.difference_ci[1]
+    assert "BCa 90% CI" in output_90
 
 
 def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
@@ -338,7 +344,7 @@ def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_s
     assert report.pairing == "paired"
 
 
-def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
+def test_analyze_hypers(temp_experiment_setup: dict[str, Any], capsys: pytest.CaptureFixture[str]) -> None:
     """Return the pooled sensitivity report with every public field populated."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
@@ -380,7 +386,9 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
         target_hyperparameter="learning_rate",
         metric_name="returned_episode_returns",
         verbose=True,
+        confidence_level=0.90,
     )
+    output = capsys.readouterr().out
 
     assert isinstance(report, HyperparameterSensitivityReport)
     assert report.target_hyperparameter == "learning_rate"
@@ -389,7 +397,9 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.corrected_mean == pytest.approx(501.0)
     assert report.maximization_bias == pytest.approx(0.0)
     assert report.estimate_method == "leave_one_seed_out"
+    assert report.confidence_level == pytest.approx(0.90)
     assert report.estimate_ci[0] <= report.corrected_mean <= report.estimate_ci[1]
+    assert "leave_one_seed_out 90% CI" in output
     assert report.sensitivity_best == {
         "1e-3": pytest.approx(201.0),
         "3e-4": pytest.approx(501.0),
@@ -660,6 +670,43 @@ def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_
     assert report.posthoc_matrix["ppo"]["sac"] is not None
     assert report.posthoc_matrix["ppo"]["td3"] is None
     assert report.posthoc_matrix["sac"]["td3"] is None
+
+
+def test_compare_bakeoff_uses_reproducible_analysis_rng(temp_experiment_setup: dict[str, Any]) -> None:
+    """Repeat a bakeoff with the same specification and obtain identical inference."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [
+        (algorithm, "CartPole", seed, float(seed + index))
+        for seed in range(4)
+        for index, algorithm in enumerate(algorithms)
+    ]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+    spec = ComparisonSpec(missingness="blockwise", n_resamples=64, random_seed=17)
+    references = {"CartPole": ReferenceRange(0.0, 10.0)}
+
+    first = compare_bakeoff(
+        temp_experiment_setup["db_path"],
+        "test-exp",
+        algorithms,
+        ["CartPole"],
+        "metric",
+        verbose=False,
+        references=references,
+        spec=spec,
+    )
+    second = compare_bakeoff(
+        temp_experiment_setup["db_path"],
+        "test-exp",
+        algorithms,
+        ["CartPole"],
+        "metric",
+        verbose=False,
+        references=references,
+        spec=spec,
+    )
+
+    assert first.omnibus_details.p_value == second.omnibus_details.p_value
+    assert first.posthoc_matrix == second.posthoc_matrix
 
 
 def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:

@@ -161,6 +161,7 @@ class HyperparameterSensitivityReport:
     sensitivity_plot_path: Path | None   # Path to saved sensitivity curve PDF
     estimate_method: str
     estimate_ci: tuple[float, float]
+    confidence_level: float
 
 @dataclass(frozen=True)
 class BenchmarkBakeoffReport:

@@ -85,6 +85,7 @@ class HyperparameterSensitivityReport:
     sensitivity_plot_path: Path | None
     estimate_method: str
     estimate_ci: tuple[float, float]
+    confidence_level: float = 0.95
 
 
 @dataclass(frozen=True)
@@ -328,7 +329,8 @@ def _present_pairwise(
                 ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
                 (f"Difference {report.estimand.title()} : ", "dim"),
                 (f"{report.difference_in_estimand:.4f}\n"),
-                ("BCa CI          : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
+                (f"BCa {1.0 - report.alpha:.0%} CI       : ", "dim"),
+                (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
                 ("Pedagogical Interpretation:\n", "bold"),
                 (
                     f"There is a {report.test_details.p_value * 100:.2f}% chance that we would observe "
@@ -714,7 +716,8 @@ def _present_hypers(
                 ("Raw Winner Mean       : ", "dim"), (f"{report.raw_mean:.2f} (value: {report.winning_value})\n"),
                 ("Corrected Winner Mean : ", "bold green"), (f"{report.corrected_mean:.2f}\n"),
                 ("Maximization Bias     : ", "bold red"), (f"+{report.maximization_bias:.2f}\n"),
-                ("Bootstrap 95% CI      : ", "dim"), (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
+                (f"{report.estimate_method} {report.confidence_level:.0%} CI: ", "dim"),
+                (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
                 ("Pedagogical Interpretation:\n", "bold"),
                 (
                     "Selecting the hyperparameter configuration with the highest raw average results "
@@ -787,6 +790,7 @@ def _analyze_hypers_group(
         sensitivity_plot_path=plot_path,
         estimate_method=statistics.estimate_method,
         estimate_ci=statistics.correction_ci,
+        confidence_level=confidence_level,
     )
 
     if verbose:
@@ -915,11 +919,12 @@ def _compute_bakeoff_statistics(
     has_missing = bool(np.isnan(matrix).any())
     if has_missing and spec.missingness == "error":
         raise ValueError("bakeoff contains missing cells under missingness='error'")
+    rng = np.random.default_rng(spec.random_seed)
     block_result = block_stratified_permutation_test(
         matrix,
         n_resamples=spec.n_resamples,
         min_blocks=spec.min_samples,
-        rng=np.random.default_rng(spec.random_seed),
+        rng=rng,
     )
 
     raw_posthoc: dict[tuple[str, str], float] = {}
@@ -950,7 +955,7 @@ def _compute_bakeoff_statistics(
                 alpha=spec.alpha,
                 n_resamples=spec.n_resamples,
                 min_samples=spec.min_samples,
-                rng=np.random.default_rng(spec.random_seed),
+                rng=rng,
             )
             raw_posthoc[(algo_a, algo_b)] = result.p_value
 
