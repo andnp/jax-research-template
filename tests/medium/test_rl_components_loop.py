@@ -13,7 +13,7 @@ observation as its bootstrap sees ``0.0`` where it should see the cutoff value.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import cast
+from typing import cast, override
 
 import chex
 import jax
@@ -251,6 +251,34 @@ class LoopNamespaceAgent:
         return AgentStep(state=state, action=jnp.zeros((), jnp.int32), metrics={"loop/reward": jnp.zeros((), jnp.float32)})
 
 
+class EnvNamespaceAgent:
+    """An ill-behaved agent that writes into the adapter's reserved metric namespace."""
+
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> RecordAgentState:
+        del key, spec
+        return RecordAgentState(closed=jnp.zeros((), jnp.int32))
+
+    def step(self, state: RecordAgentState, timestep: Timestep[jax.Array], step_index: jax.Array) -> AgentStep[RecordAgentState, jax.Array]:
+        del timestep, step_index
+        return AgentStep(state=state, action=jnp.zeros((), jnp.int32), metrics={"env/reward": jnp.zeros((), jnp.float32)})
+
+
+class InfoEnv(ToyEnv):
+    """A toy environment that reports a diagnostic through ``EnvStep.info``."""
+
+    @override
+    def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
+        transition = super().step(key, state, action, params)
+        return EnvStep(
+            observation=transition.observation,
+            state=transition.state,
+            reward=transition.reward,
+            terminated=transition.terminated,
+            truncated=transition.truncated,
+            info={"diagnostic": transition.reward * jnp.asarray(10.0, jnp.float32)},
+        )
+
+
 def _metric(metrics: dict[str, jax.Array], key: str) -> np.ndarray:
     return np.asarray(metrics[key])
 
@@ -466,3 +494,20 @@ class TestValidation:
     def test_an_agent_metric_in_the_loop_namespace_is_rejected_at_trace_time(self) -> None:
         with pytest.raises(ValueError, match="loop/"):
             run(LoopNamespaceAgent(), ToyEnv(), jax.random.key(0), steps=3, gamma=GAMMA)
+
+    def test_an_agent_metric_in_the_env_namespace_is_rejected_at_trace_time(self) -> None:
+        with pytest.raises(ValueError, match="env/"):
+            run(EnvNamespaceAgent(), ToyEnv(), jax.random.key(0), steps=3, gamma=GAMMA)
+
+    def test_adapter_info_is_forwarded_under_its_own_prefix(self) -> None:
+        """An environment's diagnostics are neither the loop's nor the agent's.
+
+        Dropping ``EnvStep.info`` cost a downstream project the metric its whole research
+        question is about, with no error and no way to notice from the results. The
+        adapter keeps the schema obligation: every info key must be present on every step
+        with the same shape and dtype, or ``scan`` rejects the pytree at trace time.
+        """
+        _, metrics = run(RecordAgent(), InfoEnv(terminate_at=3), jax.random.key(0), steps=6, gamma=GAMMA)
+
+        np.testing.assert_allclose(_metric(metrics, "env/diagnostic"), [10.0] * 6, rtol=1e-6)
+        assert "diagnostic" not in metrics, "adapter info must not leak into the unprefixed namespace"

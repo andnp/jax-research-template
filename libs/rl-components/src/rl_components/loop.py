@@ -86,6 +86,16 @@ from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep, bootstrap_terms
 
 LOOP_METRIC_PREFIX = "loop/"
+
+ENV_METRIC_PREFIX = "env/"
+"""Reserved prefix for ``EnvStep.info`` forwarded verbatim from the adapter.
+
+An environment's diagnostics are not the loop's and not the agent's, so they get their own
+namespace rather than being dropped. The schema requirement is unchanged and is the
+adapter's to keep: every key in ``EnvStep.info`` must be present on every step with the same
+leaf shape and dtype, because ``lax.scan`` stacks them. An adapter that varies its info keys
+fails loudly at trace time with a pytree mismatch rather than silently losing a metric.
+"""
 """Metric-key namespace reserved for the loop; an agent using it is an error."""
 
 
@@ -226,10 +236,11 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
 
         metrics = dict(agent_step.metrics)
         for metric_key in metrics:
-            if metric_key.startswith(LOOP_METRIC_PREFIX):
-                raise ValueError(
-                    f"agent metric {metric_key!r} collides with the reserved {LOOP_METRIC_PREFIX!r} namespace"
-                )
+            for reserved in (LOOP_METRIC_PREFIX, ENV_METRIC_PREFIX):
+                if metric_key.startswith(reserved):
+                    raise ValueError(
+                        f"agent metric {metric_key!r} collides with the reserved {reserved!r} namespace"
+                    )
         terminated = jnp.asarray(env_step.terminated, jnp.bool_)
         metrics["loop/reward"] = reward
         metrics["loop/discount"] = discount
@@ -238,6 +249,8 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         metrics["loop/truncated"] = is_truncated
         metrics["loop/episode_return"] = jnp.where(episode_end, completed_return, jnp.zeros((), jnp.float32))
         metrics["loop/episode_length"] = jnp.where(episode_end, completed_length, jnp.zeros((), jnp.int32))
+        for info_key, info_value in env_step.info.items():
+            metrics[f"{ENV_METRIC_PREFIX}{info_key}"] = jnp.asarray(info_value)
         return next_state, metrics
 
     return jax.lax.scan(_body, initial, jnp.arange(steps, dtype=jnp.int32))

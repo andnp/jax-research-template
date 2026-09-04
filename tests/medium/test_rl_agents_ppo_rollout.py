@@ -208,7 +208,9 @@ class TestUpdateSchedule:
     def test_the_metric_schema_is_fixed_and_zero_before_an_update(self) -> None:
         """Every iteration reports the same four keys, as zero placeholders when idle."""
         _, metrics = _drive(_NUM_STEPS)
-        agent_metrics = {key: value for key, value in metrics.items() if not key.startswith("loop/")}
+        agent_metrics = {
+            key: value for key, value in metrics.items() if not key.startswith(("loop/", "env/"))
+        }
 
         assert set(agent_metrics) == {"total_loss", "value_loss", "policy_loss", "entropy"}
         for key, value in agent_metrics.items():
