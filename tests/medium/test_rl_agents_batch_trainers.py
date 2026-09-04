@@ -8,8 +8,9 @@ import gymnax
 import jax
 import jax.numpy as jnp
 from experiment_definition import ParameterValue
-from research_runner import ExecutionContext, RunPoint
-from rl_agents.dqn_batch import DQNBatchTrainer
+from research_runner import BoundBatch, ExecutionContext, RunPoint
+from rl_agents.dqn import DQNConfig
+from rl_agents.dqn_batch import DQNBatchTrainer, _config_from
 from rl_agents.ppo_batch import PPOBatchTrainer
 from rl_agents.sac_batch import SACBatchTrainer
 from rl_components.action_normalization import make_action_normalization_wrapper
@@ -148,10 +149,42 @@ def test_dqn_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -
         for value in metric
     )
     assert result.metric_curves == replay.metric_curves
+    assert any(value != 0.0 for value in result.metric_curves["loss"][0])
     assert any(
         result.metric_curves[metric][0] != result.metric_curves[metric][1]
         for metric in result.metric_curves
     )
+
+
+def test_dqn_batch_config_prefers_dynamic_static_and_default_values() -> None:
+    """
+    Verify DQN batch configuration precedence and static network selection.
+
+    Dynamic sweep values override static values, which override agent defaults.
+    """
+    batch = BoundBatch(
+        static_config={
+            "buffer_size": 16,
+            "batch_size": 2,
+            "total_timesteps": 8,
+            "learning_rate": 2e-3,
+            "learning_starts": 3,
+            "network_preset": "mlp",
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+
+    static_config = _config_from(batch, {})
+    dynamic_config = _config_from(batch, {"learning_rate": jnp.asarray(4e-3), "learning_starts": jnp.asarray(1)})
+
+    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_STARTS == 3
+    assert static_config.TAU == DQNConfig().TAU
+    assert static_config.NETWORK_PRESET == "mlp"
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_STARTS == 1
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:

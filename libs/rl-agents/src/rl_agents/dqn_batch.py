@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import cast
+from typing import Literal, cast
 
 import jax
 from experiment_definition import ParameterValue
@@ -30,21 +30,40 @@ DQN_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 
 
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
+    defaults = DQNConfig()
+    network_preset = batch.static_or("network_preset", str, defaults.NETWORK_PRESET)
+    if network_preset not in ("mlp", "nature_cnn"):
+        raise ValueError(f"unsupported DQN network preset: {network_preset!r}")
+
     return DQNConfig(
-        LR=cast(float, dynamic["learning_rate"]),
-        BUFFER_SIZE=batch.static("buffer_size", int),
-        BATCH_SIZE=batch.static("batch_size", int),
-        TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-        LEARNING_STARTS=cast(int, dynamic.get("learning_starts", 1_000)),
-        TRAIN_FREQUENCY=cast(int, dynamic.get("train_frequency", 1)),
-        TARGET_NETWORK_FREQUENCY=cast(int, dynamic.get("target_network_frequency", 1_000)),
-        TAU=cast(float, dynamic.get("tau", 1.0)),
-        EPSILON_START=cast(float, dynamic.get("epsilon_start", 1.0)),
-        EPSILON_END=cast(float, dynamic.get("epsilon_end", 0.05)),
-        EPSILON_FRACTION=cast(float, dynamic.get("epsilon_fraction", 0.5)),
-        ENV_NAME=batch.static("env_name", str),
-        SEED=0,
-        NETWORK_PRESET="mlp",
+        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
+        BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
+        TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),
+        LEARNING_STARTS=cast(
+            int, dynamic.get("learning_starts", batch.static_or("learning_starts", int, defaults.LEARNING_STARTS))
+        ),
+        TRAIN_FREQUENCY=cast(
+            int, dynamic.get("train_frequency", batch.static_or("train_frequency", int, defaults.TRAIN_FREQUENCY))
+        ),
+        TARGET_NETWORK_FREQUENCY=cast(
+            int,
+            dynamic.get(
+                "target_network_frequency",
+                batch.static_or("target_network_frequency", int, defaults.TARGET_NETWORK_FREQUENCY),
+            ),
+        ),
+        TAU=cast(float, dynamic.get("tau", batch.static_or("tau", float, defaults.TAU))),
+        EPSILON_START=cast(
+            float, dynamic.get("epsilon_start", batch.static_or("epsilon_start", float, defaults.EPSILON_START))
+        ),
+        EPSILON_END=cast(float, dynamic.get("epsilon_end", batch.static_or("epsilon_end", float, defaults.EPSILON_END))),
+        EPSILON_FRACTION=cast(
+            float, dynamic.get("epsilon_fraction", batch.static_or("epsilon_fraction", float, defaults.EPSILON_FRACTION))
+        ),
+        ENV_NAME=batch.static_or("env_name", str, defaults.ENV_NAME),
+        SEED=batch.static_or("seed", int, defaults.SEED),
+        NETWORK_PRESET=cast(Literal["mlp", "nature_cnn"], network_preset),
     )
 
 
@@ -74,7 +93,7 @@ class DQNBatchTrainer:
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=cast(float, dynamic.get("gamma", 0.99)),
+                gamma=cast(float, dynamic.get("gamma", batch.static_or("gamma", float, 0.99))),
                 env_params=env_params,
             )
             return {
