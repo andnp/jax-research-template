@@ -48,16 +48,31 @@ class _PlaygroundEnv(Protocol):
 
 
 def _action_bounds(mj_model: Any) -> tuple[jax.Array | None, jax.Array | None]:
+    """Read the actuator control range as trace-time constants.
+
+    ``spec`` is called from inside :func:`rl_components.loop.run`, which the caller
+    jits, so every ``jnp`` call here would otherwise be staged: the unbounded test
+    below would raise ``TracerBoolConversionError`` and the bounds would reach
+    :class:`EnvSpec` as tracers no agent can read.
+
+    Args:
+        mj_model: The MuJoCo model carrying ``actuator_ctrlrange``.
+
+    Returns:
+        The lower and upper bounds, or ``(None, None)`` when the model declares no
+        usable range.
+    """
     ctrl_range = getattr(mj_model, "actuator_ctrlrange", None)
     if ctrl_range is None:
         return None, None
-    ctrl_range_array = jnp.asarray(ctrl_range, dtype=jnp.float32)
-    if ctrl_range_array.ndim != 2 or ctrl_range_array.shape[1] != 2:
-        return None, None
-    low, high = ctrl_range_array[:, 0], ctrl_range_array[:, 1]
-    if jnp.all(low == -jnp.inf) and jnp.all(high == jnp.inf):
-        return None, None
-    return low, high
+    with jax.ensure_compile_time_eval():
+        ctrl_range_array = jnp.asarray(ctrl_range, dtype=jnp.float32)
+        if ctrl_range_array.ndim != 2 or ctrl_range_array.shape[1] != 2:
+            return None, None
+        low, high = ctrl_range_array[:, 0], ctrl_range_array[:, 1]
+        if jnp.all(low == -jnp.inf) and jnp.all(high == jnp.inf):
+            return None, None
+        return low, high
 
 
 class MujocoPlaygroundAdapter:
