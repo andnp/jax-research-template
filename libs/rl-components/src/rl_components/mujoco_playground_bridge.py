@@ -2,16 +2,16 @@
 
 Wraps ``mujoco_playground.MjxEnv`` environments into the ``EnvProtocol``
 interface, making dm_control_suite and locomotion environments available to
-any ``make_train`` function that accepts ``GymEnv``.
+:func:`rl_components.loop.run`.
 
 Usage::
 
     from mujoco_playground import dm_control_suite
+    from rl_components.loop import run
     from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
-    from rl_components.gymnax_bridge import make_gymnax_compat_env
 
-    env = make_gymnax_compat_env(MujocoPlaygroundAdapter(dm_control_suite.load("CheetahRun")))
-    train = make_train(config, env)
+    env = MujocoPlaygroundAdapter(dm_control_suite.load("CheetahRun"))
+    final_state, metrics = run(agent, env, key, steps=100_000, gamma=0.99)
 """
 
 from __future__ import annotations
