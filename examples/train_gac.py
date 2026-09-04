@@ -6,8 +6,7 @@ Usage:
 
 Supports environments with action range [-1, 1]. For environments with
 different action bounds, the ``ActionNormalizationWrapper`` from
-``rl_components.action_normalization`` can be used (requires bridging
-the gymnax env to ``EnvProtocol`` first).
+``rl_components.action_normalization`` can be used.
 """
 
 from __future__ import annotations
@@ -16,10 +15,13 @@ import sys
 import time
 
 import gymnax
-import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
-from rl_agents.greedy_ac import GACConfig, make_train
+from rl_agents.greedy_ac import GACAgent, GACConfig
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
+
+GAMMA = 0.99
 
 
 def train_gac(
@@ -44,24 +46,23 @@ def train_gac(
         ACTOR_LR=3e-4,
         ACTOR_PERCENTILE=0.1,
         ENTROPY_WEIGHT=0.01,
-        GAMMA=0.99,
         SEED=seed,
     )
 
     rng = jax.random.PRNGKey(config.SEED)
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
-    train_jit = jax.jit(train_fn)
+    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    env = make_gymnax_env(raw_env)
+    agent = GACAgent(config)
+    train_jit = jax.jit(
+        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+    )
 
     print(f"--- Training GAC on {config.ENV_NAME} ---")
     start = time.time()
-    out = train_jit(rng)
-    jax.block_until_ready(out)
+    _, metrics = jax.block_until_ready(train_jit(rng))
     elapsed = time.time() - start
 
-    metrics = out["metrics"]
-    returns = metrics["returned_episode_returns"]
+    returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
     sps = config.TOTAL_TIMESTEPS / elapsed
     print(f"Final Return:     {returns[-1].item():.2f}")
     print(f"Max Return:       {returns.max().item():.2f}")
@@ -70,7 +71,7 @@ def train_gac(
 
     plt.subplot(1, 2, 1)
     plt.plot(returns)
-    plt.xlabel("Step")
+    plt.xlabel("Episode")
     plt.ylabel("Episode Return")
     plt.title(f"GAC on {config.ENV_NAME} (SPS: {sps:.0f})")
 
