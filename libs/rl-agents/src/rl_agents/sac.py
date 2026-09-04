@@ -303,6 +303,11 @@ class SACAgent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ("ALPHA", "TARGET_ENTROPY")
+    """Config fields ``init`` reads but ``step`` never traces -- see ``SACRCAgent``'s
+    identical declaration, which this mirrors: ``init`` runs inside the vmapped region
+    exactly as ``step`` does, so a per-arm traced value works there too.
+    """
 
     def __init__(self, config: SACConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.
