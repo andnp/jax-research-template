@@ -150,6 +150,19 @@ def test_difference_bootstrap_rejects_invalid_inputs() -> None:
         )
 
 
+def test_difference_bootstrap_labels_constant_declared_statistic() -> None:
+    """Return a finite point interval only when the paired difference is constant."""
+    result = bootstrap_difference_ci(
+        np.array([2.0, 3.0, 4.0]),
+        np.array([1.0, 2.0, 3.0]),
+        pairing="paired",
+    )
+
+    assert result.method == "degenerate-point"
+    assert result.ci_low == pytest.approx(1.0)
+    assert result.ci_high == pytest.approx(1.0)
+
+
 def test_scalar_bootstrap_returns_bca_interval() -> None:
     """Scalar estimates expose a finite BCa interval with explicit settings."""
     result = bootstrap_scalar_ci(
@@ -163,3 +176,12 @@ def test_scalar_bootstrap_returns_bca_interval() -> None:
     assert result.estimate == pytest.approx(4.6)
     assert result.ci_low <= result.estimate <= result.ci_high
     assert result.confidence == 0.90
+
+
+def test_scalar_bootstrap_labels_constant_declared_statistic() -> None:
+    """Return a finite point interval for an exactly constant scalar sample."""
+    result = bootstrap_scalar_ci(np.array([4.0, 4.0, 4.0]))
+
+    assert result.method == "degenerate-point"
+    assert result.ci_low == pytest.approx(4.0)
+    assert result.ci_high == pytest.approx(4.0)

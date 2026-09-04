@@ -17,6 +17,7 @@ from research_analysis._kernels import bootstrap_resample_means, mean_axis0, per
 from research_analysis.comparison import Estimand
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
+type ScalarBootstrapMethod = Literal["BCa", "degenerate-point"]
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class DifferenceBootstrapCI:
     n_resamples: int
     pairing: Literal["paired", "independent"]
     estimand: Estimand
+    method: ScalarBootstrapMethod = "BCa"
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,7 @@ class ScalarBootstrapCI:
     confidence: float
     n_resamples: int
     estimand: Estimand
+    method: ScalarBootstrapMethod = "BCa"
 
 
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
@@ -137,7 +140,7 @@ def bootstrap_difference_ci(
     min_samples: int = 3,
     rng: np.random.Generator | None = None,
 ) -> DifferenceBootstrapCI:
-    """Compute a scalar BCa confidence interval for a declared difference."""
+    """Compute a BCa interval or label an exact constant-statistic point interval."""
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
@@ -162,6 +165,23 @@ def bootstrap_difference_ci(
     def difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
         return float(statistic(left) - statistic(right))
 
+    estimate = difference(a, b)
+    is_constant = (
+        (pairing == "paired" and np.all((a - b) == (a - b)[0]))
+        or (pairing == "independent" and np.all(a == a[0]) and np.all(b == b[0]))
+    )
+    if is_constant:
+        return DifferenceBootstrapCI(
+            estimate=estimate,
+            ci_low=estimate,
+            ci_high=estimate,
+            confidence=confidence,
+            n_resamples=n_resamples,
+            pairing=pairing,
+            estimand=estimand,
+            method="degenerate-point",
+        )
+
     if rng is None:
         rng = np.random.default_rng()
     result = stats.bootstrap(
@@ -179,13 +199,14 @@ def bootstrap_difference_ci(
     if not np.isfinite(low) or not np.isfinite(high):
         raise ValueError("BCa bootstrap interval is undefined for these samples")
     return DifferenceBootstrapCI(
-        estimate=difference(a, b),
+        estimate=estimate,
         ci_low=low,
         ci_high=high,
         confidence=confidence,
         n_resamples=n_resamples,
         pairing=pairing,
         estimand=estimand,
+        method="BCa",
     )
 
 
@@ -198,7 +219,7 @@ def bootstrap_scalar_ci(
     min_samples: int = 3,
     rng: np.random.Generator | None = None,
 ) -> ScalarBootstrapCI:
-    """Compute a scalar BCa confidence interval for one sample."""
+    """Compute a BCa interval or label an exact constant-statistic point interval."""
     data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
         raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
@@ -216,6 +237,18 @@ def bootstrap_scalar_ci(
     def estimate(sample: NDArray[np.float64]) -> float:
         return float(statistic(sample))
 
+    point_estimate = estimate(data)
+    if np.all(data == data[0]):
+        return ScalarBootstrapCI(
+            estimate=point_estimate,
+            ci_low=point_estimate,
+            ci_high=point_estimate,
+            confidence=confidence,
+            n_resamples=n_resamples,
+            estimand=estimand,
+            method="degenerate-point",
+        )
+
     if rng is None:
         rng = np.random.default_rng()
     result = stats.bootstrap(
@@ -232,10 +265,11 @@ def bootstrap_scalar_ci(
     if not np.isfinite(low) or not np.isfinite(high):
         raise ValueError("BCa bootstrap interval is undefined for these samples")
     return ScalarBootstrapCI(
-        estimate=estimate(data),
+        estimate=point_estimate,
         ci_low=low,
         ci_high=high,
         confidence=confidence,
         n_resamples=n_resamples,
         estimand=estimand,
+        method="BCa",
     )

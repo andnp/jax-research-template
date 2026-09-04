@@ -178,6 +178,11 @@ class BenchmarkBakeoffReport:
     aggregate_plot_path: Path | None
 ```
 
+Bootstrap primitives report `method="BCa"` for ordinary intervals or
+`method="degenerate-point"` for a finite point interval whose declared
+statistic is exactly constant. Non-degenerate undefined BCa intervals remain
+errors.
+
 ---
 
 ## 5. Pedagogical Console Output Design
