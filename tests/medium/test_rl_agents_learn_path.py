@@ -31,10 +31,11 @@ reward is gated separately, through each agent's real loss, in
 ``test_rl_agents_terminal_bootstrap.py`` and ``test_rl_agents_qrc_gradient.py``.
 
 Excluded agents: ``dqn_atari`` needs image observations for its Nature CNN and gates
-learning on replay occupancy rather than on ``LEARNING_STARTS``, and ``rainbow`` samples
-from its own prioritised buffer rather than ``rl_components.buffers.ReplayBuffer``. Both
-need their own gate; ``dqn_atari`` has one in
-``tests/medium/test_rl_agents_dqn_atari_learn_path.py``.
+learning on replay occupancy rather than on ``LEARNING_STARTS``, and ``rainbow`` needs both
+of those plus its own prioritised buffer, whose leaves are keyed by flatten index rather
+than by name. Each has an equivalent gate of its own, asserting the same properties against
+its own shapes: ``tests/medium/test_rl_agents_dqn_atari_learn_path.py`` and
+``tests/medium/test_rl_agents_rainbow_learn_path.py``.
 """
 
 from __future__ import annotations
