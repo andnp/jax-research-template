@@ -11,7 +11,7 @@ from process_control.environments.chlorine import (
     make_chlorine_environment,
 )
 from process_control.instrumentation import InstrumentationChannel, InstrumentationProfile
-from process_control.scenarios import (
+from process_control.scenarios.scenario_pack import (
     EventKind,
     EventSeverity,
     InitialCondition,

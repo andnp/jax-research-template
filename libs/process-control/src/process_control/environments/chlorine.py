@@ -52,7 +52,7 @@ from process_control.instrumentation import (
     InstrumentationProfile,
     ObservedSignals,
 )
-from process_control.scenarios import (
+from process_control.scenarios.scenario_pack import (
     EventKind,
     InitialCondition,
     InitialValue,

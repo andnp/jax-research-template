@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from jax import random
 from process_control.environment_specs import ScenarioSpec, SignalSpec, SpecIdentity
-from process_control.scenarios import (
+from process_control.scenarios.scenario_pack import (
     EventKind,
     EventSeverity,
     ForecastTrajectory,

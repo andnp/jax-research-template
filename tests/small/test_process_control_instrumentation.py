@@ -5,7 +5,7 @@ import pytest
 from jax import numpy as jnp
 from process_control.environment_specs import SignalSource, SignalSpec, SignalTiming
 from process_control.instrumentation import InstrumentationChannel, InstrumentationProfile
-from process_control.scenarios import EventKind, EventSeverity, SeedBundle, TimedEvent
+from process_control.scenarios.scenario_pack import EventKind, EventSeverity, SeedBundle, TimedEvent
 
 LEVEL = SignalSpec("level", "m")
 
