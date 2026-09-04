@@ -10,10 +10,27 @@ import polars as pl
 import pytest
 from experiment_definition.db import DatabaseManager
 from research_analysis.experiment import load_experiment_metrics, resolve_run_artifacts
+from research_analysis.schema import AnalysisSchema
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
+
+def test_analysis_schema_maps_named_dimensions() -> None:
+    """Map project metadata keys onto canonical analysis dimensions."""
+    schema = AnalysisSchema(condition_key="algorithm", environment_key="benchmark")
+
+    assert schema.condition_name({"algorithm": "td3", "benchmark": "chlorine"}) == "td3"
+    assert schema.environment_name({"algorithm": "td3", "benchmark": "chlorine"}) == "chlorine"
+
+
+def test_analysis_schema_rejects_missing_dimension() -> None:
+    """Reject incomplete metadata instead of creating an empty condition."""
+    schema = AnalysisSchema(condition_key="algorithm", environment_key="benchmark")
+
+    with pytest.raises(ValueError, match="Missing condition metadata key 'algorithm'"):
+        schema.condition_name({"benchmark": "chlorine"})
 
 
 @dataclass
