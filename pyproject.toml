@@ -103,6 +103,7 @@ search-path = [
     "libs/research-cluster/src",
     "libs/research-instrument/src",
     "libs/research-plot/src",
+    "libs/research-runner/src",
     "libs/research-store/src",
     "libs/rl-agents/src",
     "libs/rl-components/src",
