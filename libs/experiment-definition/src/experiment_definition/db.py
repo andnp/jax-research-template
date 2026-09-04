@@ -1376,6 +1376,26 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     return _json_stable(static_params)
 
 
+def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: Mapping[str, str]) -> bool:
+    """Whether one run satisfies every clause in ``only``.
+
+    Clauses AND together; a clause's comma-separated values OR within it, so
+    ``seed=0,1,2`` selects a range that repeated strict-equality clauses could not
+    express. Values compare as strings against ``str()`` of the stored value, as
+    ``find_executions_by_hyperparams`` does, so ``learning_rate=1e-3`` does not match a
+    stored ``0.001``.
+
+    ``seed`` and ``ablation`` live on ``Runs`` rather than in the hyperparameter config,
+    and shadow a config key of the same name -- the column is the identity the run was
+    planned under.
+    """
+    fields: dict[str, object] = {**hyperparams, "seed": run.seed, "ablation": run.ablation}
+    return all(
+        key in fields and str(fields[key]) in set(value.split(","))
+        for key, value in only.items()
+    )
+
+
 def _vmap_zone_for_hyper_config(
     state: "_ExperimentState",
     hyper_config: dict[str, ParameterValue],
