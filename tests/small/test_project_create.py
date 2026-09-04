@@ -53,6 +53,7 @@ def test_unported_project_template_train_uses_explicit_env_api(algorithm: str, e
         ("dqn", "DQNAgent", "CartPole-v1"),
         ("double_dqn", "DoubleDQNAgent", "CartPole-v1"),
         ("dueling_dqn", "DuelingDQNAgent", "CartPole-v1"),
+        ("td3", "TD3Agent", "MountainCarContinuous-v0"),
     ],
 )
 def test_ported_project_template_train_drives_the_shared_loop(algorithm: str, agent: str, env_name: str) -> None:
@@ -189,7 +190,7 @@ def test_project_create_fails_if_project_already_exists(tmp_path: Path, monkeypa
     assert str(project_root) in result.output
 
 
-@pytest.mark.parametrize("algorithm", ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac"])
+@pytest.mark.parametrize("algorithm", ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac", "td3"])
 def test_project_template_pyproject_declares_truthful_runtime_dependencies(algorithm: str) -> None:
     """The generated project must declare the runtime packages its starter imports require."""
     rendered = _render_project_template(
@@ -214,7 +215,7 @@ def test_project_template_pyproject_declares_truthful_runtime_dependencies(algor
         assert '"matplotlib>=3.9"' not in rendered
 
     # The ported starters import rl_components directly, for the loop and the Gymnax adapter.
-    if algorithm in ("ppo", "dqn", "double_dqn", "dueling_dqn"):
+    if algorithm in ("ppo", "dqn", "double_dqn", "dueling_dqn", "td3"):
         assert '"rl-components"' in rendered
         assert "rl-components = { workspace = true }" in rendered
     else:
