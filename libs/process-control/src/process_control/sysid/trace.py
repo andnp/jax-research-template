@@ -100,6 +100,13 @@ class SignalSeries:
         object.__setattr__(self, "values", values)
         object.__setattr__(self, "valid", valid)
 
+    @property
+    def validity(self) -> jax.Array:
+        """Return the validated boolean mask for this signal."""
+        if self.valid is None:
+            raise RuntimeError("signal validity was not initialized")
+        return self.valid
+
 
 @jax_dataclass
 class UniformTraceArrays:
@@ -111,6 +118,7 @@ class UniformTraceArrays:
     measurements: jax.Array
     actuators: jax.Array
     valid: jax.Array
+    source_count: jax.Array
     segment_id: jax.Array
 
 
@@ -130,7 +138,16 @@ class UniformTrace:
             raise ValueError("uniform trace time must be a non-empty vector")
         if not bool(jnp.all(jnp.isfinite(arrays.time))):
             raise ValueError("uniform trace timestamps must be finite")
-        if not bool(jnp.all(jnp.diff(arrays.time) == self.sample_period)):
+        if not bool(
+            jnp.all(
+                jnp.isclose(
+                    jnp.diff(arrays.time),
+                    self.sample_period,
+                    rtol=0.0,
+                    atol=self.sample_period * 1e-9,
+                )
+            )
+        ):
             raise ValueError("uniform trace timestamps must use sample_period spacing")
         steps = arrays.time.shape[0]
         groups = (
@@ -146,6 +163,10 @@ class UniformTrace:
             raise ValueError("valid must have one column per schema signal")
         if arrays.valid.dtype != jnp.bool_:
             raise ValueError("valid must be a boolean matrix")
+        if arrays.source_count.shape != (steps, self.schema.width):
+            raise ValueError("source_count must have one column per schema signal")
+        if arrays.source_count.dtype.kind not in "iu" or bool(jnp.any(arrays.source_count < 0)):
+            raise ValueError("source_count must be a non-negative integer matrix")
         if arrays.segment_id.shape != (steps,) or arrays.segment_id.dtype.kind not in "iu":
             raise ValueError("segment_id must be an integer vector matching time")
 
