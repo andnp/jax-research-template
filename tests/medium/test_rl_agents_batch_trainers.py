@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 from experiment_definition import ParameterValue
 from research_runner import ExecutionContext, RunPoint
+from rl_agents.dqn_batch import DQNBatchTrainer
 from rl_agents.ppo_batch import PPOBatchTrainer
 from rl_agents.sac_batch import SACBatchTrainer
 from rl_components.action_normalization import make_action_normalization_wrapper
@@ -103,6 +104,54 @@ def test_sac_batch_trainer_returns_vmapped_curves(tmp_path: Path) -> None:
     assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
     assert all(jnp.isfinite(jnp.asarray(value)).all() for curve in result.metric_curves.values() for value in curve)
     assert result.metric_curves == replay.metric_curves
+
+
+def test_dqn_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -> None:
+    """
+    Verify DQN uses the shared batch boundary with stable metrics and seeds.
+
+    Distinct seeds must remain independent while repeating the same execution is
+    deterministic.
+    """
+    static_config = {
+        "algorithm": "dqn",
+        "env_name": "CartPole-v1",
+        "total_timesteps": 8,
+        "buffer_size": 16,
+        "batch_size": 2,
+        "learning_starts": 2,
+        "gamma": 0.99,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": 1e-3, "seed": index})
+        for index in (0, 1)
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="dqn-batch-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    trainer = DQNBatchTrainer(_make_env)
+    result = trainer(context)
+    replay = trainer(context)
+
+    assert set(result.metric_curves) == {"reward", "loss", "epsilon", "q_max"}
+    assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+    assert all(
+        jnp.isfinite(jnp.asarray(value)).all()
+        for metric in result.metric_curves.values()
+        for value in metric
+    )
+    assert result.metric_curves == replay.metric_curves
+    assert any(
+        result.metric_curves[metric][0] != result.metric_curves[metric][1]
+        for metric in result.metric_curves
+    )
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:
