@@ -1,31 +1,35 @@
-"""Medium tests: TD3 gradient flow on MuJoCo Playground dm_control_suite envs."""
+"""Medium tests: TD3 learning on MuJoCo Playground dm_control_suite envs."""
 
 from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents.td3 import TD3Config, make_train
-from rl_components.gymnax_bridge import make_gymnax_compat_env
+from rl_agents.td3 import TD3Agent, TD3Config
+from rl_components.loop import run
 from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
+STEPS = 200
+GAMMA = 0.99
 
-def _make_env(env_name: str):
+
+def _make_env(env_name: str) -> MujocoPlaygroundAdapter:
     from mujoco_playground import dm_control_suite
 
-    raw = dm_control_suite.load(env_name, config_overrides={"impl": "jax"})
-    return make_gymnax_compat_env(MujocoPlaygroundAdapter(raw))
+    return MujocoPlaygroundAdapter(dm_control_suite.load(env_name, config_overrides={"impl": "jax"}))
 
 
-def _short_config(env_name: str) -> TD3Config:
-    return TD3Config(
-        ENV_NAME=env_name,
-        TOTAL_TIMESTEPS=200,
-        LEARNING_STARTS=50,
-        BUFFER_SIZE=64,
-        BATCH_SIZE=16,
-        TRAIN_FREQUENCY=1,
-        POLICY_DELAY=2,
+def _short_agent(env_name: str) -> TD3Agent:
+    return TD3Agent(
+        TD3Config(
+            ENV_NAME=env_name,
+            TOTAL_TIMESTEPS=STEPS,
+            LEARNING_STARTS=50,
+            BUFFER_SIZE=64,
+            BATCH_SIZE=16,
+            TRAIN_FREQUENCY=1,
+            POLICY_DELAY=2,
+        )
     )
 
 
@@ -94,27 +98,22 @@ class TestMujocoPlaygroundBridge:
 
 
 class TestTD3OnPlaygroundEnvs:
+    """``run`` is entered eagerly here rather than under an outer ``jax.jit``.
+
+    :meth:`MujocoPlaygroundAdapter.spec` performs JAX operations, and ``run`` calls it
+    before the scan, so an enclosing trace turns the adapter's action bounds into
+    tracers and its ``jnp.all`` guard raises. The scan body still compiles.
+    """
+
     @pytest.mark.parametrize("env_name", ["CheetahRun", "HopperHop"])
     def test_critic_params_change_after_update(self, env_name: str) -> None:
         env = _make_env(env_name)
-        config = _short_config(env_name)
-        train = make_train(config, env=env)
-
+        agent = _short_agent(env_name)
         key = jax.random.key(0)
-        init_state = make_train(
-            TD3Config(
-                ENV_NAME=env_name,
-                TOTAL_TIMESTEPS=1,
-                LEARNING_STARTS=100,
-                BUFFER_SIZE=64,
-                BATCH_SIZE=16,
-            ),
-            env=env,
-        )(key)["runner_state"]
-        params_before = init_state.critic_state.params
+        params_before = agent.init(key, env.spec()).critic_state.params
 
-        out = jax.jit(train)(key)
-        params_after = out["runner_state"].critic_state.params
+        final_state, _ = run(agent, env, key, steps=STEPS, gamma=GAMMA)
+        params_after = final_state.agent_state.critic_state.params
 
         flat_before = jax.tree_util.tree_leaves(params_before)
         flat_after = jax.tree_util.tree_leaves(params_after)
@@ -122,11 +121,12 @@ class TestTD3OnPlaygroundEnvs:
         assert any_changed, f"Critic params did not change on {env_name}"
 
     @pytest.mark.parametrize("env_name", ["CheetahRun", "HopperHop"])
-    def test_train_jit_compiles(self, env_name: str) -> None:
+    def test_run_reports_finite_agent_metrics_every_step(self, env_name: str) -> None:
         env = _make_env(env_name)
-        config = _short_config(env_name)
-        train = jax.jit(make_train(config, env=env))
+        agent = _short_agent(env_name)
 
-        out = train(jax.random.key(42))
-        assert "runner_state" in out
-        assert "metrics" in out
+        _, metrics = run(agent, env, jax.random.key(42), steps=STEPS, gamma=GAMMA)
+
+        for key_name in ("critic_loss", "actor_loss", "loop/reward", "loop/episode_end"):
+            assert metrics[key_name].shape == (STEPS,), key_name
+        assert bool(jnp.all(jnp.isfinite(metrics["critic_loss"])))
