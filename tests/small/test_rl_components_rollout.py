@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 import jax
 import jax.numpy as jnp
+import pytest
 from rl_components.env_protocol import EnvReset, EnvStep
 from rl_components.rollout import (
     BatchedRolloutCarry,
@@ -338,4 +339,66 @@ def test_rollout_preserves_scalar_and_multidimensional_action_shapes() -> None:
         assert jnp.array_equal(
             result.metrics["action_delta_norm"],
             jnp.full((1, 2), expected_norm),
+        )
+
+
+def test_auto_reset_is_explicit_and_resets_environment_and_controller() -> None:
+    """
+    Reset completed batch rows only when episodic policy is selected.
+
+    The terminating transition remains in the result while the next action sees reset state.
+    """
+    environment = _AlwaysDoneEnvironment()
+    seed_keys = jnp.stack([jax.random.PRNGKey(0), jax.random.PRNGKey(1)])
+    initial = make_fresh_batched_carry(
+        environment,
+        seed_keys,
+        previous_action=jnp.zeros((2, 1), dtype=jnp.float32),
+        controller_state=jnp.zeros((2,), dtype=jnp.float32),
+        action_shape=(1,),
+    )
+
+    def action_step(
+        observations: jax.Array,
+        controller_state: jax.Array,
+        previous_action: jax.Array,
+        step_index: jax.Array,
+        action_key: jax.Array | None,
+    ) -> tuple[jax.Array, jax.Array]:
+        del observations, previous_action, step_index, action_key
+        return controller_state[:, None], controller_state + 1.0
+
+    result = jax.jit(
+        lambda carry: run_batched_rollout(
+            environment,
+            carry,
+            steps=2,
+            action_step=action_step,
+            rng_mode="two-way",
+            capture_action=True,
+            mask_step_zero_delta=False,
+            action_shape=(1,),
+            step_offset=0,
+            reset_policy="auto_reset",
+            controller_reset=lambda key: jnp.array(10.0),
+        )
+    )(initial)
+
+    assert jnp.array_equal(result.metrics["action"], jnp.array([[0.0, 0.0], [10.0, 10.0]]))
+    assert jnp.array_equal(result.info["state"], jnp.ones((2, 2)))
+    assert jnp.array_equal(result.final_carry.environment_state, jnp.array([0.0, 0.0]))
+    assert jnp.array_equal(result.final_carry.controller_state, jnp.array([10.0, 10.0]))
+
+    with pytest.raises(ValueError, match="auto_reset requires controller_reset"):
+        run_batched_rollout(
+            environment,
+            initial,
+            steps=1,
+            action_step=action_step,
+            rng_mode="two-way",
+            capture_action=False,
+            mask_step_zero_delta=False,
+            action_shape=(1,),
+            step_offset=0,
+            reset_policy="auto_reset",
         )
