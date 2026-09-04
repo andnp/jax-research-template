@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import pytest
 from experiment_definition import ParameterValue
 from research_runner import BoundBatch, ExecutionContext, RunPoint
-from rl_agents.batch_registry import make_algorithm_batch_trainer
+from rl_agents.batch_registry import ALGORITHM_TRAINERS, make_algorithm_batch_trainer
 from rl_agents.dqn import DQNConfig
 from rl_agents.dqn_batch import DQNBatchTrainer, _config_from
 from rl_agents.gac_batch import GACBatchTrainer
@@ -26,6 +26,7 @@ from rl_agents.sac_rc import SACRCConfig
 from rl_agents.sac_rc_batch import SACRCBatchTrainer
 from rl_agents.sac_rc_batch import _config_from as _sac_rc_config_from
 from rl_agents.td3 import TD3Config
+from rl_agents.td3_batch import TD3BatchTrainer
 from rl_agents.td3_batch import _config_from as _td3_config_from
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
@@ -331,6 +332,16 @@ def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert default_config.TAU == SACConfig().TAU
     assert default_config.TOTAL_TIMESTEPS == SACConfig().TOTAL_TIMESTEPS
     assert default_config.TARGET_ENTROPY is None
+    explicit_none_config = _sac_config_from(
+        BoundBatch(
+            static_config={"env_name": "Pendulum-v1", "target_entropy": None},
+            dynamic_axes={},
+            seeds=(0,),
+            points=(),
+        ),
+        {},
+    )
+    assert explicit_none_config.TARGET_ENTROPY is None
 
 
 def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
@@ -451,6 +462,16 @@ def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None
     assert default_config.LR == SACRCConfig().LR
     assert default_config.LEARNING_STARTS == SACRCConfig().LEARNING_STARTS
     assert default_config.TARGET_ENTROPY is None
+    explicit_none_config = _sac_rc_config_from(
+        BoundBatch(
+            static_config={"env_name": "Pendulum-v1", "target_entropy": None},
+            dynamic_axes={},
+            seeds=(0,),
+            points=(),
+        ),
+        {},
+    )
+    assert explicit_none_config.TARGET_ENTROPY is None
 
 
 def test_sac_rc_batch_config_requires_environment_name() -> None:
@@ -561,6 +582,53 @@ def test_qrc_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -
         for sample in curve
     )
     assert any(value != 0.0 for value in result.metric_curves["loss"][0])
+    assert result.metric_curves == replay.metric_curves
+    assert any(
+        result.metric_curves[metric][0] != result.metric_curves[metric][1]
+        for metric in result.metric_curves
+    )
+
+
+def test_td3_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -> None:
+    """
+    Verify TD3 executes two seeded arms with finite metrics and exact replay.
+
+    Distinct seeds must remain independent while repeated execution is deterministic.
+    """
+    static_config = {
+        "algorithm": "td3",
+        "env_name": "Pendulum-v1",
+        "total_timesteps": 8,
+        "buffer_size": 16,
+        "batch_size": 2,
+        "learning_starts": 0,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": 1e-3, "seed": index})
+        for index in (0, 1)
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="td3-batch-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    trainer = TD3BatchTrainer(_make_env)
+    result = trainer(context)
+    replay = trainer(context)
+
+    assert set(result.metric_curves) == {"reward", "critic_loss", "actor_loss"}
+    assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+    assert all(
+        jnp.isfinite(jnp.asarray(sample)).all()
+        for metric in result.metric_curves.values()
+        for curve in metric
+        for sample in curve
+    )
     assert result.metric_curves == replay.metric_curves
     assert any(
         result.metric_curves[metric][0] != result.metric_curves[metric][1]
@@ -868,3 +936,148 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
         assert set(result.metric_curves) == metric_names[algorithm]
         assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
         assert result.metric_curves == replay.metric_curves
+
+
+def test_registry_dispatches_all_registered_algorithms(tmp_path: Path) -> None:
+    """
+    Verify every registered algorithm has a real deterministic smoke path.
+
+    Each result must retain its algorithm-specific metric contract and shape.
+    """
+    algorithms = ("dqn", "gac", "ppo", "qrc", "sac", "sac-rc", "td3")
+    assert set(ALGORITHM_TRAINERS) == set(algorithms)
+    trainer = make_algorithm_batch_trainer(_make_env, algorithms)
+    configs: Mapping[str, Mapping[str, ParameterValue]] = {
+        "dqn": {
+            "algorithm": "dqn",
+            "env_name": "CartPole-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "learning_rate": 1e-3,
+        },
+        "gac": {
+            "algorithm": "gac",
+            "env_name": "MountainCarContinuous-v0",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "num_samples": 2,
+            "num_rand_actions": 1,
+            "hidden_size": 8,
+            "learning_rate": 1e-3,
+        },
+        "ppo": {
+            "algorithm": "ppo",
+            "env_name": "CartPole-v1",
+            "num_steps": 2,
+            "total_timesteps": 4,
+            "update_epochs": 1,
+            "num_minibatches": 1,
+            "learning_rate": 1e-3,
+        },
+        "qrc": {
+            "algorithm": "qrc",
+            "env_name": "CartPole-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "hidden_width": 8,
+            "learning_rate": 1e-3,
+        },
+        "sac": {
+            "algorithm": "sac",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "learning_rate": 1e-3,
+        },
+        "sac-rc": {
+            "algorithm": "sac-rc",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "learning_rate": 1e-3,
+        },
+        "td3": {
+            "algorithm": "td3",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "learning_rate": 1e-3,
+        },
+    }
+    metric_names = {
+        "dqn": {"reward", "loss", "epsilon", "q_max"},
+        "gac": {"reward", "critic_loss", "actor_loss", "critic_grad_norm", "actor_grad_norm"},
+        "ppo": {"returned_episode_returns"},
+        "qrc": {"reward", "loss", "epsilon", "q_max"},
+        "sac": {"reward", "critic_loss", "actor_loss", "alpha_loss", "alpha"},
+        "sac-rc": {"reward", "critic_loss", "actor_loss", "alpha_loss", "alpha"},
+        "td3": {"reward", "critic_loss", "actor_loss"},
+    }
+
+    for algorithm in algorithms:
+        static_config = configs[algorithm]
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name=f"{algorithm}-registry-test",
+            static_config=static_config,
+            points=(RunPoint(0, {**static_config, "seed": 0}),),
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / f"{algorithm}.sqlite",
+        )
+        result = trainer(context)
+
+        assert result.metadata["algorithm"] == algorithm
+        assert set(result.metric_curves) == metric_names[algorithm]
+        assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
+        assert all(
+            jnp.isfinite(jnp.asarray(sample)).all()
+            for metric in result.metric_curves.values()
+            for curve in metric
+            for sample in curve
+        )
+
+
+def test_algorithm_batch_trainer_rejects_invalid_configuration() -> None:
+    """
+    Verify empty and unknown algorithm selections fail at construction.
+    """
+    with pytest.raises(ValueError, match="at least one algorithm"):
+        make_algorithm_batch_trainer(_make_env, ())
+    with pytest.raises(ValueError, match="no batch trainer registered"):
+        make_algorithm_batch_trainer(_make_env, ("unknown",))
+
+
+@pytest.mark.parametrize("static_config", [{}, {"algorithm": 1}])
+def test_algorithm_batch_trainer_rejects_invalid_runtime_algorithm(
+    tmp_path: Path,
+    static_config: Mapping[str, ParameterValue],
+) -> None:
+    """
+    Verify missing and non-string runtime algorithm values fail before dispatch.
+    """
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="invalid-algorithm-test",
+        static_config=static_config,
+        points=(),
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+    trainer = make_algorithm_batch_trainer(_make_env, ("sac",))
+
+    with pytest.raises(ValueError, match="'algorithm' must be text"):
+        trainer(context)

@@ -31,8 +31,8 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = SACRCConfig()
     if "target_entropy" in dynamic:
         target_entropy = cast(float, dynamic["target_entropy"])
-    elif "target_entropy" in batch.static_config:
-        target_entropy = batch.static_or("target_entropy", float, 0.0)
+    elif batch.static_config.get("target_entropy") is not None:
+        target_entropy = batch.static("target_entropy", float)
     else:
         target_entropy = defaults.TARGET_ENTROPY
 

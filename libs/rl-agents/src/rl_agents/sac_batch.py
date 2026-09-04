@@ -19,14 +19,17 @@ SAC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = SACConfig()
+    target_entropy = (
+        None
+        if batch.static_config.get("target_entropy") is None
+        else batch.static("target_entropy", float)
+    )
     return SACConfig(
         LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
         BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
         BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
         TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),
-        TARGET_ENTROPY=(
-            batch.static("target_entropy", float) if "target_entropy" in batch.static_config else None
-        ),
+        TARGET_ENTROPY=target_entropy,
         LEARNING_STARTS=cast(
             int, dynamic.get("learning_starts", batch.static_or("learning_starts", int, defaults.LEARNING_STARTS))
         ),
