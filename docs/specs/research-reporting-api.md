@@ -13,7 +13,8 @@ This API lives in a new module: [reporting.py](file:///home/andy/Projects/resear
 ## 2. Goals
 
 - **Pedagogical Value:** Explain the *why* and *how* behind statistical test selections to guide researchers through correct empirical interpretation.
-- **Automated Decision-Making:** Automatically inspect database schemas and data properties to pick correct tests (e.g., paired vs. unpaired, parametric vs. non-parametric, handling missing data).
+- **Explicit Design:** Require callers to declare the estimand, pairing, alpha,
+  resampling, minimum sample size, and missingness policy.
 - **Statistical Rigor:** Directly integrate monorepo primitives such as non-parametric tolerance intervals, bootstrapped confidence intervals, and two-stage tuning.
 - **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](file:///home/andy/Projects/research/research-monorepo/core/docs/adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
 
@@ -41,13 +42,9 @@ Used to compare exactly two experimental arms (e.g., a baseline and a proposed m
   ```
 - **Analysis Steps:**
   1. Detect if random seeds are shared across the two arms.
-  2. Perform Shapiro-Wilk normality tests on both arms' distributions.
-  3. Select the test:
-     - **Paired & Non-Normal:** Wilcoxon Signed-Rank test.
-     - **Paired & Normal:** Paired t-test.
-     - **Unpaired & Non-Normal:** Mann-Whitney U-test (via [mann_whitney_u_test](file:///home/andy/Projects/research/research-monorepo/core/libs/research-analysis/src/research_analysis/hypothesis.py#L95)).
-     - **Unpaired & Normal:** Welch's t-test (via [welch_ttest](file:///home/andy/Projects/research/research-monorepo/core/libs/research-analysis/src/research_analysis/hypothesis.py#L148)).
-  4. Compute bootstrapped confidence intervals of the difference in means (via [bootstrap_ci](file:///home/andy/Projects/research/research-monorepo/core/libs/research-analysis/src/research_analysis/bootstrap.py#L45)).
+  2. Use a paired or independent permutation test for the declared estimand.
+  3. Compute a scalar BCa bootstrap interval with explicit confidence and
+     resample settings.
 
 ### 3.2 Hyperparameter Sweep Analysis: `analyze_hypers`
 
@@ -89,8 +86,10 @@ Used to compare multiple algorithms ($K \ge 3$) across a benchmark suite of seve
   1. Retrieve curves across all tasks and algorithms.
   2. Apply ECDF-based (Empirical Cumulative Distribution Function) normalization to scale returns across environments with different return boundaries.
   3. Detect missing run data (e.g., if certain seeds/tasks failed or are incomplete).
-  4. Perform the **Friedman test** as an omnibus check, applying listwise deletion to missing environment-seed rows. Require at least three complete rows; otherwise fail clearly rather than reporting a placeholder result.
-  5. If the omnibus test is significant, run post-hoc pairwise Wilcoxon tests with Bonferroni-Holm family-wise error rate corrections.
+  4. Perform Skillings–Mack when environment-seed blocks are incomplete, or
+     Friedman when they are complete. Require explicit minimum data.
+  5. Run paired permutation post-hoc tests with true Holm step-down correction.
+  6. Normalize with fixed caller-supplied environment references.
 
 ---
 
@@ -108,7 +107,7 @@ class StatisticalTestDetails:
     is_significant: bool
     assumptions: dict[str, Any]
     justification: str
-    intermediate_tests: dict[str, StatisticalTestDetails]  # e.g., "normality_a", "normality_b"
+    intermediate_tests: dict[str, StatisticalTestDetails]
 
 @dataclass(frozen=True)
 class ABComparisonReport:
@@ -138,10 +137,10 @@ class HyperparameterSensitivityReport:
 class BenchmarkBakeoffReport:
     algorithms: list[str]
     environments: list[str]
-    ecdf_scores: dict[str, dict[str, float]]  # Algo -> Env -> ECDF
+    normalized_scores: dict[str, dict[str, float]]  # Algo -> Env -> score
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]  # Algo A -> Algo B -> Adjusted P-value
-    ecdf_plot_path: Path | None          # Path to saved ECDF curve PDF
+    aggregate_plot_path: Path | None
 ```
 
 ---

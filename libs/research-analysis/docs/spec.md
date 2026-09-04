@@ -7,7 +7,9 @@
 - **Statistical Rigor:** Provide tools to identify and quantify sources of variation in RL experiments.
 - **Robust Comparisons:** Facilitate proper hypothesis testing and policy comparison with sound statistical assumptions.
 - **Reproducible Evidence:** Ensure that results reported in papers are backed by strong statistical evidence.
-- **NO IQM:** Explicitly avoid Inter-Quantile Mean (IQM) and other metrics that mask performance variation or stability issues.
+- **Supplementary IQM:** IQM may be reported as a supplementary aggregate, never
+  as the sole result. Reports must also include dispersion, lower-tail, and
+  relevant constraint or safety metrics.
 
 ## 2. Core Features
 
@@ -17,7 +19,8 @@
 
 ### 2.2 Policy Comparison & Hypothesis Testing
 - Implementation of statistical tests with appropriate assumptions for RL data (e.g., handling non-normality and autocorrelation).
-- Support for Friedman tests with listwise deletion when comparing multiple agents across different tasks; at least three complete environment-seed rows are required.
+- Support Skillings–Mack tests for incomplete repeated-block comparisons and
+  Friedman tests only for complete blocks. Insufficient data must fail clearly.
 - Automated confidence interval (CI) generation using appropriate bootstrapping techniques.
 
 ### 2.3 Experimental Design Primitives
@@ -41,7 +44,8 @@
 - **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.
 - **Data Engine:** **Polars** is the exclusive first-class citizen for data management. All data ingestion from SQLite must go through Polars DataFrames. No Pandas support will be implemented.
 - **Database:** Must interface directly with the relational SQLite schema defined in ADR 008.
-- **Exclusion Policy:** No implementation or support for Inter-Quantile Mean (IQM) shall be included in this library.
+- **Normalization Policy:** Benchmark normalization must use caller-supplied
+  fixed reference anchors or ranges, never a comparison-set-derived pool.
 
 
 ## 4. Proposed Usage

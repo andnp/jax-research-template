@@ -51,9 +51,9 @@ We use an Empirical Cumulative Distribution Function (ECDF) to map any raw score
 
 $$N(x, e) = \frac{1}{|\mathcal{P}_e|} \sum_{g \in \mathcal{P}_e} \mathbb{1}(g < x)$$
 
-Where $\mathcal{P}_e$ is the **pool** of all scores observed in environment $e$ across **all** algorithms and **all** hyperparameter settings tested in the study.
-- A value of $0.5$ means the agent outperformed 50% of all other tested configurations on that task.
-- This accounts for task difficulty and highlights relative algorithmic improvement.
+Normalization must instead use fixed, predeclared reference anchors or ranges for
+each environment. The references must not be recalculated when algorithms or
+hyperparameter settings are added to a comparison.
 
 ---
 
@@ -81,8 +81,16 @@ We do not assume performance is Gaussian. All Confidence Intervals (CIs) must be
 3.  Repeat 10,000 times.
 4.  CI is the $(\frac{\alpha}{2}, 1-\frac{\alpha}{2})$ percentiles of the bootstrap distribution.
 
-### Friedman Test in the Reporting API
-The reporting API compares $K$ algorithms across environment-seed rows with the Friedman test. Missing rows are handled by listwise deletion, so at least three complete rows are required; insufficient data must fail rather than produce a placeholder statistic or p-value.
+### Repeated-Block Tests in the Reporting API
+The reporting API uses Friedman for complete environment-seed blocks and
+Skillings–Mack when blocks contain missing algorithm observations. Missingness is
+reported explicitly; insufficient data must fail rather than produce a
+placeholder statistic or p-value.
+
+### Supplementary Robust Aggregates
+IQM may be shown as one supplementary center summary. It must appear alongside
+dispersion, lower-tail, and constraint or safety metrics, and must never replace
+the underlying task-level distributions.
 
 ### Non-Parametric Tolerance Intervals
 To show performance coverage, use Tolerance Intervals.
