@@ -12,7 +12,8 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from rl_components.env_protocol import BoundaryResetProtocol, EnvReset, EnvSpec, EnvStep
+from rl_components.action_normalization import make_action_normalization_wrapper
+from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, EnvReset, EnvSpec, EnvStep
 
 
 class _GymnaxState(Protocol):
@@ -222,3 +223,20 @@ def make_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](env: object) -
     if isinstance(env, BoundaryResetProtocol):
         return _BoundaryResetGymnaxEnv(env)
     return GymnaxEnv(env)
+
+
+def make_normalized_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](
+    env: object,
+) -> EnvProtocol[jax.Array, StateT, jax.Array, ParamsT]:
+    """Wrap a raw Gymnax environment, normalizing a continuous action space to ``[-1, 1]``.
+
+    For the common case of a sweep mixing discrete and continuous-action environments:
+    a discrete environment is returned exactly as :func:`make_gymnax_env` would return
+    it. A continuous environment is additionally wrapped in
+    :func:`rl_components.action_normalization.make_action_normalization_wrapper`, since
+    every continuous-action agent in this workspace is tanh-squashed and requires it.
+    """
+    bridged = make_gymnax_env(env)
+    if bridged.spec().num_actions is None:
+        return make_action_normalization_wrapper(bridged)
+    return bridged
