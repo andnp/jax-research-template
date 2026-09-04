@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
@@ -28,7 +28,9 @@ def run_experiment(
     reclaim_stale_after_seconds: float | None = None,
     static_parameter_names: frozenset[str] | None = None,
     metric_subsample_factor: int = 1,
+    only: Mapping[str, str] | None = None,
 ):
+    """``only`` restricts which pending runs execute, per ``experiment_definition.db._run_matches``."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     static_parameter_names = _resolve_static_parameter_names(
         experiment,
@@ -60,6 +62,7 @@ def run_experiment(
                 max_runs_per_batch=max_runs_per_batch,
                 git_commit=git_commit,
                 git_diff_blob=git_diff,
+                only=only,
             )
         if planned is None:
             break
