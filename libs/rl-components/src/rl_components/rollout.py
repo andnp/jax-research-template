@@ -42,6 +42,12 @@ class ActionStep[ObservationT, ControllerStateT, ActionT](Protocol):
     ) -> tuple[ActionT, ControllerStateT]: ...
 
 
+class ControllerReset[ControllerStateT](Protocol):
+    """Reset callback used by explicit episodic auto-reset."""
+
+    def __call__(self, key: jax.Array) -> ControllerStateT: ...
+
+
 class TelemetryHook(Protocol):
     """Callback for adding static-key traced telemetry."""
 
@@ -179,14 +185,22 @@ def run_batched_rollout(
     action_shape: tuple[int, ...],
     step_offset: int | jax.Array,
     reset_policy: ResetPolicy = "ignore",
+    controller_reset: ControllerReset | None = None,
 ) -> BatchedRolloutResult:
     """Scan a fixed horizon while preserving boundary and info sidecars."""
     if steps < 0:
         raise ValueError("steps must not be negative")
     if rng_mode not in ("two-way", "three-way"):
         raise ValueError(f"unsupported RNG mode: {rng_mode}")
-    if reset_policy != "ignore":
-        raise NotImplementedError("auto_reset is not implemented yet")
+    if reset_policy not in ("ignore", "auto_reset"):
+        raise ValueError(f"unsupported reset policy: {reset_policy}")
+    if reset_policy == "auto_reset" and controller_reset is None:
+        raise ValueError("auto_reset requires controller_reset")
+
+    def reset_controller_state(key: jax.Array):
+        if controller_reset is None:
+            raise ValueError("auto_reset requires controller_reset")
+        return controller_reset(key)
 
     batch_size = initial_carry.observations.shape[0]
     initial_carry = initial_carry._replace(
@@ -213,15 +227,19 @@ def run_batched_rollout(
             action_shape,
         )
         if rng_mode == "three-way":
-            split_keys = jax.vmap(lambda key: jax.random.split(key, 3))(rng)
+            split_count = 4 if reset_policy == "auto_reset" else 3
+            split_keys = jax.vmap(lambda key: jax.random.split(key, split_count))(rng)
             action_keys = split_keys[:, 0]
             environment_keys = split_keys[:, 1]
-            next_rng = split_keys[:, 2]
+            reset_keys = split_keys[:, 2] if reset_policy == "auto_reset" else None
+            next_rng = split_keys[:, -1]
         else:
-            split_keys = jax.vmap(lambda key: jax.random.split(key, 2))(rng)
+            split_count = 3 if reset_policy == "auto_reset" else 2
+            split_keys = jax.vmap(lambda key: jax.random.split(key, split_count))(rng)
             action_keys = None
             environment_keys = split_keys[:, 0]
-            next_rng = split_keys[:, 1]
+            reset_keys = split_keys[:, 1] if reset_policy == "auto_reset" else None
+            next_rng = split_keys[:, -1]
 
         actions, next_controller_state = action_step(
             observations,
@@ -236,6 +254,37 @@ def run_batched_rollout(
             environment_state,
             actions,
         )
+        if reset_policy == "auto_reset":
+            assert reset_keys is not None
+            reset_split_keys = jax.vmap(lambda key: jax.random.split(key, 2))(reset_keys)
+            reset_results = jax.vmap(environment.reset)(reset_split_keys[:, 0])
+            reset_states = jax.vmap(reset_controller_state)(reset_split_keys[:, 1])
+            done = env_step.terminated | env_step.truncated
+
+            def select_rows(
+                reset_value: jax.Array,
+                continuation_value: jax.Array,
+            ) -> jax.Array:
+                mask = done.reshape((batch_size, *([1] * (reset_value.ndim - 1))))
+                return jax.numpy.where(mask, reset_value, continuation_value)
+
+            next_observations = select_rows(
+                reset_results.observation,
+                env_step.observation,
+            )
+            next_environment_state = jax.tree_util.tree_map(
+                select_rows,
+                reset_results.state,
+                env_step.state,
+            )
+            next_controller_state = jax.tree_util.tree_map(
+                select_rows,
+                reset_states,
+                next_controller_state,
+            )
+        else:
+            next_observations = env_step.observation
+            next_environment_state = env_step.state
         action_delta = actions - previous_environment_action
         action_delta_norm = (
             jax.numpy.abs(action_delta)
@@ -278,8 +327,8 @@ def run_batched_rollout(
         metrics.update(telemetry)
         return (
             BatchedRolloutCarry(
-                env_step.observation,
-                env_step.state,
+                next_observations,
+                next_environment_state,
                 next_controller_state,
                 next_rng,
                 _normalize_callback_previous_action(actions, batch_size, action_shape),
