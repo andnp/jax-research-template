@@ -129,16 +129,14 @@ class TestRainbowVmapZone:
     def test_batched_discounts_train_independent_arms(self) -> None:
         """Two ``ADDITIONAL_DISCOUNT`` arms sharing a key must diverge too.
 
-        Uses ``N_STEP=1`` so the n-step reward-shaping matrix (which also
-        reads the discount, and would mask the bug below on its own) cannot
-        contribute any divergence -- ``discount ** reward_offsets`` is always
-        ``discount ** 0 == 1`` at that width. The only remaining place
-        ``ADDITIONAL_DISCOUNT`` can reach the trained weights is
-        ``bootstrap_discount = hypers.ADDITIONAL_DISCOUNT ** N_STEP`` inside
-        the categorical loss, which is exponentiated by the static ``N_STEP``
-        at trace-setup time -- the one place a sweep could silently share one
-        arm's discount if that exponentiation were computed from the
-        closed-over config instead of from ``hypers``.
+        Uses ``N_STEP=1`` so the n-step reward accumulation cannot contribute
+        any divergence of its own: at that width a window holds one reward,
+        which carries weight ``1`` whatever the discount is. What is left is
+        the cumulative coefficient the window stores, which at ``N_STEP=1`` is
+        the arm's own per-step discount, and which the categorical loss reads
+        per sampled row. A sweep that shared one arm's discount -- as it would
+        if the coefficient came from the closed-over config rather than from
+        ``hypers`` -- collapses these two arms onto identical weights.
         """
         config = dataclasses.replace(_config(), N_STEP=1)
         base_hypers = rainbow_hypers(config)

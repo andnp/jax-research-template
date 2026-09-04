@@ -76,11 +76,18 @@ def rainbow_hypers(config: RainbowConfig) -> RainbowHypers:
 
 
 class RainbowTransition(NamedTuple):
+    """One replay entry: an n-step transition and the bootstrap coefficient it earned.
+
+    ``discount`` replaces the boolean ``done`` this entry used to store. A boolean says
+    only whether the window ended, which is enough to mask a termination and nothing
+    else; the coefficient says how far the window actually reached, which is what a
+    window cut short by a truncation needs.
+    """
+
     obs: jax.Array
     action: jax.Array
     reward: jax.Array
     next_obs: jax.Array
-    done: jax.Array
     discount: jax.Array
 
 
@@ -255,23 +262,38 @@ def rainbow_select_actions(logits: jax.Array, support: jax.Array) -> jax.Array:
 
 def categorical_target_support(
     rewards: jax.Array,
-    dones: jax.Array,
     support: jax.Array,
-    discount: jax.Array | float,
+    discounts: jax.Array,
 ) -> jax.Array:
+    """Shift and scale the atom support into the target distribution's support.
+
+    ``discounts`` is the per-transition bootstrap coefficient stored in replay, which is
+    ``prod_{j<m} d`` over the n-step window that transition actually spanned. It carries
+    termination on its own -- a terminal window ends in ``d = 0`` and the whole product
+    collapses -- so there is no separate ``done`` mask to apply, and a truncated window
+    keeps the shortened bootstrap a mask would have destroyed.
+
+    Args:
+        rewards: The transitions' accumulated n-step rewards, shaped ``(batch,)``.
+        support: The fixed atom locations, shaped ``(num_atoms,)``.
+        discounts: Per-transition bootstrap coefficients, broadcastable against
+            ``rewards``.
+
+    Returns:
+        The target support, shaped ``(batch, num_atoms)``.
+    """
     rewards = jnp.asarray(rewards, dtype=support.dtype)
-    dones = jnp.asarray(dones, dtype=support.dtype)
-    return rewards[..., None] + discount * support * (1.0 - dones[..., None])
+    discounts = jnp.asarray(discounts, dtype=support.dtype)
+    return rewards[..., None] + discounts[..., None] * support
 
 
 def categorical_target_probabilities(
     rewards: jax.Array,
-    dones: jax.Array,
     next_probabilities: jax.Array,
     support: jax.Array,
-    discount: jax.Array | float,
+    discounts: jax.Array,
 ) -> jax.Array:
-    target_support = categorical_target_support(rewards, dones, support, discount)
+    target_support = categorical_target_support(rewards, support, discounts)
     return categorical_l2_project(target_support, next_probabilities, support)
 
 
@@ -342,7 +364,6 @@ def _materialize_n_step_transitions(
     config: RainbowConfig,
     accumulator: _NStepAccumulatorState,
     next_obs: jax.Array,
-    episode_end: jax.Array,
 ) -> RainbowTransition:
     """Read the pending window out as replay entries, one per row.
 
@@ -355,7 +376,6 @@ def _materialize_n_step_transitions(
         action=accumulator.action,
         reward=accumulator.reward,
         next_obs=jnp.broadcast_to(next_obs, (config.N_STEP, *next_obs.shape)),
-        done=jnp.broadcast_to(jnp.asarray(episode_end, dtype=jnp.bool_), (config.N_STEP,)),
         discount=accumulator.discount,
     )
 
@@ -394,7 +414,7 @@ def _advance_n_step_accumulator(
     """
     discount = jnp.asarray(discount, dtype=accumulator.discount.dtype)
     appended = _accumulate_n_step_step(accumulator, obs, action, reward, discount)
-    transitions = _materialize_n_step_transitions(config, appended, next_obs, episode_end)
+    transitions = _materialize_n_step_transitions(config, appended, next_obs)
 
     indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
     appended_is_full = appended.size == jnp.asarray(config.N_STEP, dtype=appended.size.dtype)
@@ -458,7 +478,6 @@ def initialize_train_state(
         action=jnp.zeros((), dtype=jnp.int32),
         reward=jnp.zeros((), dtype=jnp.float32),
         next_obs=jnp.zeros(observation_shape, dtype=observation_space.dtype),
-        done=jnp.zeros((), dtype=jnp.bool_),
         discount=jnp.zeros((), dtype=jnp.float32),
     )
     buffer_state = init_per_buffer(replay_prototype, config.REPLAY_CAPACITY)
@@ -489,10 +508,10 @@ def make_train_step(
 ) -> Callable[["RunnerState", jax.Array], tuple["RunnerState", dict[str, jax.Array]]]:
     del runtime_config
     # Derived from the traced `hypers` (not the static `config`) so a
-    # `jax.vmap` sweep over `ADDITIONAL_DISCOUNT`/`V_MIN`/`V_MAX` recomputes
-    # both quantities per arm instead of baking one arm's value in here.
+    # `jax.vmap` sweep over `V_MIN`/`V_MAX` recomputes the support per arm
+    # instead of baking one arm's value in here.
     support = _rainbow_support_from_hypers(hypers, config.NUM_ATOMS)
-    bootstrap_discount = hypers.ADDITIONAL_DISCOUNT**config.N_STEP
+
     def _loss(
         params: VariableDict,
         target_params: VariableDict,
@@ -500,7 +519,7 @@ def make_train_step(
         actions: jax.Array,
         rewards: jax.Array,
         next_obs: jax.Array,
-        dones: jax.Array,
+        discounts: jax.Array,
         online_next_noise_rng: jax.Array,
         target_next_noise_rng: jax.Array,
         online_obs_noise_rng: jax.Array,
@@ -516,10 +535,9 @@ def make_train_step(
         next_target_probabilities = rainbow_probabilities(next_target_selected_logits)
         target_probabilities = categorical_target_probabilities(
             rewards,
-            dones,
             next_target_probabilities,
             support,
-            bootstrap_discount,
+            discounts,
         )
         per_example_loss = categorical_losses(chosen_logits, jax.lax.stop_gradient(target_probabilities))
         weighted_loss = per_example_loss * jax.lax.stop_gradient(importance_weights)
@@ -585,7 +603,7 @@ def make_train_step(
                     sampled_batch.action,
                     sampled_batch.reward,
                     sampled_batch.next_obs,
-                    sampled_batch.done,
+                    sampled_batch.discount,
                     online_next_noise_rng,
                     target_next_noise_rng,
                     online_obs_noise_rng,

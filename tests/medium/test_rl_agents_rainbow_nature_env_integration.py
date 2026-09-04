@@ -127,8 +127,14 @@ class TestRainbowNatureEnvIntegration:
         buffer_state = out["runner_state"][2]
 
         expected_rewards = jnp.array([1.75, 1.75, 1.5, 1.0, 1.75, 1.75, 1.5, 1.0], dtype=jnp.float32)
-        expected_dones = jnp.array([False, True, True, True, False, True, True, True])
+        # Leaf "4" is the replay entry's fifth field, which is now the cumulative
+        # bootstrap coefficient rather than a boolean ``done``. The dtype flip is the
+        # contract change, not a buffer defect: `0.5 ** 3` for the one full-length window
+        # each episode contributes, and an exact `0.0` for the three rows its termination
+        # flushes -- a horizon a boolean could only report as "ended".
+        expected_discounts = jnp.array([0.125, 0.0, 0.0, 0.0, 0.125, 0.0, 0.0, 0.0], dtype=jnp.float32)
 
         assert int(buffer_state.count) == 8
-        assert jnp.array_equal(buffer_state.data["4"][:8], expected_dones)
+        assert buffer_state.data["4"].dtype == jnp.float32
+        assert jnp.allclose(buffer_state.data["4"][:8], expected_discounts)
         assert jnp.allclose(buffer_state.data["2"][:8], expected_rewards)

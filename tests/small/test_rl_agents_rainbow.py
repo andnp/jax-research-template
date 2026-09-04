@@ -190,9 +190,9 @@ class TestRainbowNetworkAndLoss:
             dtype=jnp.float32,
         )
         rewards = jnp.array([1.0, -1.0], dtype=jnp.float32)
-        dones = jnp.array([0.0, 1.0], dtype=jnp.float32)
+        discounts = jnp.array([0.99, 0.0], dtype=jnp.float32)
 
-        targets = categorical_target_probabilities(rewards, dones, next_probabilities, support, 0.99)
+        targets = categorical_target_probabilities(rewards, next_probabilities, support, discounts)
         loss = categorical_loss(jnp.log(jnp.clip(targets, 1e-6, 1.0)), targets)
 
         assert targets.shape == (2, 3)
@@ -261,21 +261,19 @@ class TestRainbowNetworkAndLoss:
 
         double_q_target_probabilities = categorical_target_probabilities(
             rewards=jnp.zeros((2,), dtype=jnp.float32),
-            dones=jnp.zeros((2,), dtype=jnp.float32),
             next_probabilities=rainbow_probabilities(
                 _gather_action_logits(target_next_logits, online_selected_actions)
             ),
             support=support,
-            discount=1.0,
+            discounts=jnp.ones((2,), dtype=jnp.float32),
         )
         target_greedy_probabilities = categorical_target_probabilities(
             rewards=jnp.zeros((2,), dtype=jnp.float32),
-            dones=jnp.zeros((2,), dtype=jnp.float32),
             next_probabilities=rainbow_probabilities(
                 _gather_action_logits(target_next_logits, target_greedy_actions)
             ),
             support=support,
-            discount=1.0,
+            discounts=jnp.ones((2,), dtype=jnp.float32),
         )
 
         npt.assert_allclose(
@@ -291,14 +289,22 @@ class TestRainbowNetworkAndLoss:
         )
         assert not jnp.allclose(double_q_target_probabilities, target_greedy_probabilities)
 
-    def test_categorical_target_support_masks_terminals_and_applies_n_step_discount(self) -> None:
+    def test_categorical_target_support_scales_each_row_by_its_own_discount(self) -> None:
+        """One batch, three horizons: the shift must be per row, not per compiled kernel.
+
+        Row 0 is a full-length window, row 1 ended in a termination, and row 2 is a window
+        a truncation cut short. The terminal row collapses onto its own reward with no
+        ``done`` mask anywhere in sight -- its stored coefficient is already ``0`` -- while
+        the truncated row keeps a *different* nonzero coefficient from row 0. A single
+        scalar discount cannot produce these three rows at once, which is exactly what the
+        deleted ``ADDITIONAL_DISCOUNT ** N_STEP`` was.
+        """
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
 
         target_support = categorical_target_support(
-            rewards=jnp.array([0.5, 0.5], dtype=jnp.float32),
-            dones=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            rewards=jnp.array([0.5, 0.5, 0.5], dtype=jnp.float32),
             support=support,
-            discount=0.25,
+            discounts=jnp.array([0.25, 0.0, 0.5], dtype=jnp.float32),
         )
 
         npt.assert_allclose(
@@ -307,6 +313,7 @@ class TestRainbowNetworkAndLoss:
                 [
                     [0.25, 0.5, 0.75],
                     [0.5, 0.5, 0.5],
+                    [0.0, 0.5, 1.0],
                 ],
                 dtype=jnp.float32,
             ),
@@ -317,24 +324,21 @@ class TestRainbowNetworkAndLoss:
         support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
         n_step_projected = categorical_target_probabilities(
             rewards=jnp.array([0.5], dtype=jnp.float32),
-            dones=jnp.array([0.0], dtype=jnp.float32),
             next_probabilities=jnp.array([[0.0, 0.0, 1.0]], dtype=jnp.float32),
             support=support,
-            discount=0.25,
+            discounts=jnp.array([0.25], dtype=jnp.float32),
         )
         terminal_projected = categorical_target_probabilities(
             rewards=jnp.array([0.5], dtype=jnp.float32),
-            dones=jnp.array([1.0], dtype=jnp.float32),
             next_probabilities=jnp.array([[0.1, 0.2, 0.7]], dtype=jnp.float32),
             support=support,
-            discount=0.25,
+            discounts=jnp.array([0.0], dtype=jnp.float32),
         )
         clipped_projected = categorical_target_probabilities(
             rewards=jnp.array([0.5], dtype=jnp.float32),
-            dones=jnp.array([0.0], dtype=jnp.float32),
             next_probabilities=jnp.array([[0.0, 0.0, 1.0]], dtype=jnp.float32),
             support=support,
-            discount=1.0,
+            discounts=jnp.array([1.0], dtype=jnp.float32),
         )
 
         projected = jnp.concatenate(
@@ -444,23 +448,7 @@ def _toy_n_step_prototype() -> RainbowTransition:
         action=jnp.zeros((), dtype=jnp.int32),
         reward=jnp.zeros((), dtype=jnp.float32),
         next_obs=jnp.zeros((1,), dtype=jnp.float32),
-        done=jnp.zeros((), dtype=jnp.bool_),
         discount=jnp.zeros((), dtype=jnp.float32),
-    )
-
-
-def _fused_bootstrap_discount(config: RainbowConfig, transitions: RainbowTransition) -> jax.Array:
-    """The bootstrap coefficient the learner's compile-time constant amounts to.
-
-    ``make_train_step`` still multiplies every sampled row by
-    ``ADDITIONAL_DISCOUNT ** N_STEP`` and masks it with the stored ``done``, so the
-    per-transition ``D_t`` this accumulator now materialises must agree with that
-    constant everywhere the fused entry could express the transition at all: a
-    full-length window, and a window flushed by a termination. Truncation is the case
-    the constant cannot express, and it is the only case where the two differ.
-    """
-    return jnp.asarray(config.ADDITIONAL_DISCOUNT**config.N_STEP, jnp.float32) * (
-        1.0 - transitions.done.astype(jnp.float32)
     )
 
 
@@ -499,9 +487,7 @@ class TestRainbowNStepAccumulator:
             transitions.reward[0],
             jnp.asarray(1.0 + 0.5 * 2.0 + 0.25 * 3.0, dtype=jnp.float32),
         )
-        assert bool(transitions.done[0]) is False
         npt.assert_allclose(transitions.discount[0], jnp.asarray(0.125, dtype=jnp.float32))
-        npt.assert_allclose(transitions.discount[insert_mask], _fused_bootstrap_discount(config, transitions)[insert_mask])
         npt.assert_allclose(transitions.next_obs[0], jnp.array([4.0], dtype=jnp.float32))
         assert int(accumulator.size) == 2
         npt.assert_allclose(accumulator.obs[:, 0], jnp.array([2.0, 3.0, 0.0], dtype=jnp.float32))
@@ -537,9 +523,7 @@ class TestRainbowNStepAccumulator:
 
         assert jnp.array_equal(insert_mask, jnp.array([True, True, True]))
         npt.assert_allclose(transitions.reward, jnp.array([2.75, 3.5, 3.0], dtype=jnp.float32))
-        assert jnp.array_equal(transitions.done, jnp.array([True, True, True]))
         npt.assert_allclose(transitions.discount, jnp.zeros((3,), dtype=jnp.float32))
-        npt.assert_allclose(transitions.discount, _fused_bootstrap_discount(config, transitions))
         npt.assert_allclose(transitions.next_obs[:, 0], jnp.array([4.0, 4.0, 4.0], dtype=jnp.float32))
         assert int(accumulator.size) == 0
 
