@@ -164,19 +164,29 @@ def _load_pairwise_data(
     missing_keys = [key for key in spec.pairing_keys if key not in all_metrics.columns]
     if missing_keys:
         raise ValueError(f"Pairing keys are absent from loaded metrics: {missing_keys}")
+    if spec.missingness == "blockwise":
+        raise ValueError("pairwise comparisons do not support missingness='blockwise'")
+    keys = list(spec.pairing_keys)
     final_per_run = all_metrics.group_by(["condition_name", *spec.pairing_keys]).agg(pl.col("value").last())
-    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort("seed")
-    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort("seed")
+    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort(keys)
+    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort(keys)
     if rows_a.is_empty() or rows_b.is_empty():
         raise ValueError(
             f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
         )
 
-    keys = list(spec.pairing_keys)
     key_a = rows_a.select(keys)
     key_b = rows_b.select(keys)
-    same_keys = set(key_a.rows()) == set(key_b.rows())
-    is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and same_keys)
+    keys_a = set(key_a.rows())
+    keys_b = set(key_b.rows())
+    same_keys = keys_a == keys_b
+    partial_overlap = bool(keys_a & keys_b) and not same_keys
+    if spec.pairing == "auto" and partial_overlap and spec.missingness == "error":
+        raise ValueError(
+            "automatic pairing found partially overlapping pairing keys; "
+            "use missingness='complete_case' to pair the overlap explicitly"
+        )
+    is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and (same_keys or partial_overlap))
     if not is_paired:
         return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
     if not same_keys and spec.missingness != "complete_case":

@@ -174,6 +174,7 @@ def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: dict[str,
         "metric",
         verbose=False,
         schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
+        spec=ComparisonSpec(pairing_keys=("env_name", "seed"), n_resamples=64),
     )
 
     assert report.condition_a == "td3"
@@ -277,7 +278,7 @@ def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: d
                     execution_id=execution_id,
                 )
 
-    with pytest.raises(ValueError, match="missingness='complete_case'"):
+    with pytest.raises(ValueError, match="do not support missingness='blockwise'"):
         compare_pairwise(
             setup["db_path"],
             "test-exp",
@@ -287,6 +288,46 @@ def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: d
             verbose=False,
             spec=ComparisonSpec(pairing="paired", missingness="blockwise"),
         )
+
+
+def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_setup: dict[str, Any]) -> None:
+    """Reject partial automatic pairing unless complete-case semantics are explicit."""
+    setup = temp_experiment_setup
+    with DatabaseManager(setup["db_path"]) as db:
+        for condition, seeds in (("a", (0, 1, 2, 3)), ("b", (0, 1, 2, 4))):
+            for seed in seeds:
+                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
+                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+                execution_id = db.add_execution()
+                db.update_execution_status(execution_id, "COMPLETED")
+                db.link_execution_run(execution_id, run_id)
+                db.record_execution_artifacts(
+                    execution_id,
+                    str(setup["tmp_path"]),
+                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
+                )
+                value = float(seed if condition == "a" else seed * 2)
+                populate_metrics_db(
+                    setup["metrics_db_path"],
+                    run_id,
+                    "metric",
+                    [value],
+                    execution_id=execution_id,
+                )
+
+    with pytest.raises(ValueError, match="partially overlapping"):
+        compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", verbose=False)
+
+    report = compare_pairwise(
+        setup["db_path"],
+        "test-exp",
+        "a",
+        "b",
+        "metric",
+        verbose=False,
+        spec=ComparisonSpec(missingness="complete_case", n_resamples=64),
+    )
+    assert report.pairing == "paired"
 
 
 def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
