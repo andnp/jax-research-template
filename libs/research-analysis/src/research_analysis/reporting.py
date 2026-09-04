@@ -846,6 +846,10 @@ def _compute_bakeoff_statistics(
         for seed in seed_map:
             normalized.setdefault((algo, env), {})[seed] = float(values[list(seed_map).index(seed)])
 
+    for env in environments:
+        if not any(normalized.get((algo, env)) for algo in algorithms):
+            raise ValueError(f"bakeoff environment {env!r} has no observed data")
+
     normalized_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
     for algo in algorithms:
         for env in environments:

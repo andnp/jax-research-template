@@ -580,6 +580,24 @@ def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setu
         )
 
 
+def test_compare_bakeoff_rejects_empty_environment(temp_experiment_setup: dict[str, Any]) -> None:
+    """Reject a requested environment with no observations instead of omitting its block."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [(algorithm, "CartPole", seed, float(seed + index)) for seed in range(3) for index, algorithm in enumerate(algorithms)]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+
+    with pytest.raises(ValueError, match="MountainCar.*no observed data"):
+        compare_bakeoff(
+            temp_experiment_setup["db_path"],
+            "test-exp",
+            algorithms,
+            ["CartPole", "MountainCar"],
+            "metric",
+            verbose=False,
+            references={env: ReferenceRange(0.0, 10.0) for env in ("CartPole", "MountainCar")},
+        )
+
+
 def test_compare_bakeoff_rejects_fewer_than_three_algorithms() -> None:
     """Fail with an actionable message instead of an opaque scipy error below the Friedman minimum."""
     with pytest.raises(ValueError, match="compare_pairwise") as exc_info:
