@@ -441,6 +441,8 @@ class PPOAgent:
     """
 
     REPORTED_METRICS = ("total_loss", "value_loss", "policy_loss", "entropy")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ()
+    """Config fields ``init`` reads that ``step`` never traces. None here."""
 
     def __init__(self, config: PPOConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.

@@ -601,6 +601,8 @@ class GACAgent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "critic_grad_norm", "actor_grad_norm")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ()
+    """Config fields ``init`` reads that ``step`` never traces. None here."""
 
     def __init__(self, config: GACConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.

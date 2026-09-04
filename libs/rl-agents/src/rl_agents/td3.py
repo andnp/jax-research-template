@@ -263,6 +263,8 @@ class TD3Agent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ()
+    """Config fields ``init`` reads that ``step`` never traces. None here."""
 
     def __init__(self, config: TD3Config) -> None:
         """Bind the configuration. The object is static under ``jit``.

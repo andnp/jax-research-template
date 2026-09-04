@@ -172,19 +172,20 @@ class TestDynamicKeyDerivation:
         assert "actor_lr" in derived
         assert derived == (hand - {"actor_learning_rate"}) | {"actor_lr"}
 
-    def test_sac_rc_loses_alpha_and_target_entropy(self) -> None:
-        """SACRCConfig.ALPHA and TARGET_ENTROPY are resolved once at ``init``, never traced.
+    def test_sac_rc_matches_its_hand_written_schema(self) -> None:
+        """SACRCAgent.INIT_SWEPT_FIELDS restores ALPHA and TARGET_ENTROPY to the derivation.
 
-        Neither field rides SACRCHypers (the docstring on that struct explains ALPHA's
-        absence; TARGET_ENTROPY is resolved through a Python ``is None`` check in ``init``,
-        which a traced value would silently defeat). So the derivation is not a superset of
-        the hand-written schema here: it is missing two keys the hand-written trainer
-        allowed to be swept.
+        Neither field rides SACRCHypers: ALPHA is never traced by ``step`` (see that
+        struct's own docstring), and TARGET_ENTROPY is resolved through a Python ``is
+        None`` check in ``init``. But ``init`` runs inside the vmapped region exactly as
+        ``step`` does, so a per-arm traced value works there too -- these are genuinely
+        sweepable, just never through the hypers struct. ``INIT_SWEPT_FIELDS`` names that
+        fact directly, so the derivation now reproduces the hand-written schema exactly.
         """
         derived = SAC_RC_SPEC.parameter_schema.dynamic_keys
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["sac-rc"]
-        assert derived < hand
-        assert hand - derived == {"alpha", "target_entropy"}
+        assert "gamma" in hand
+        assert derived == hand
 
     def test_gac_never_sweeps_actor_percentile_or_uniform_weight(self) -> None:
         """The two array-sizing fields stay out of the derived schema.

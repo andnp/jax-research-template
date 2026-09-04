@@ -307,6 +307,17 @@ class SACRCAgent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ("ALPHA", "TARGET_ENTROPY")
+    """Config fields ``init`` reads but ``step`` never traces, so they ride neither
+    ``SACRCHypers`` nor a per-step tracer -- yet ``init`` itself runs inside the vmapped
+    region exactly as ``step`` does, so a per-arm traced value works there too, making
+    both genuinely sweepable despite never appearing on the hypers struct.
+
+    ``TARGET_ENTROPY`` is ``float | None``: ``None`` means "derive ``-action_dim`` in
+    ``init``". A sweep must supply a numeric value for every arm -- it cannot mix ``None``
+    with numbers in one vmapped batch -- so sweeping this field forgoes the default-entropy
+    behavior for the arms in that sweep. That limitation is not solved here.
+    """
 
     def __init__(self, config: SACRCConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.

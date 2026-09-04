@@ -89,6 +89,8 @@ class DQNAgent(ReplayQAgent):
     """Deep Q-learning with a target network and epsilon-greedy exploration."""
 
     REPORTED_METRICS = ("loss", "epsilon", "q_max")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ()
+    """Config fields ``init`` reads that ``step`` never traces. None here."""
 
     def __init__(self, config: DQNConfig) -> None:
         """Bind the configuration, the preset-selected Q-network and the vanilla target.

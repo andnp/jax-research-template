@@ -9,6 +9,11 @@ because a prior rename made every ``Config`` field the upcase of its experiment 
 name, with GAC's ``ACTOR_LR`` the one field this module's own dynamic-key derivation
 (below) resolves consistently as ``actor_lr``, not the hand-written ``actor_learning_rate``.
 
+Some fields are swept without ever being traced by ``step``: they are read once, by
+``init``, which runs inside the vmapped region just as much as ``step`` does, so a
+per-arm value works there too. An algorithm declares these via ``INIT_SWEPT_FIELDS``,
+alongside ``REPORTED_METRICS``, and :attr:`AlgorithmSpec.parameter_schema` unions them in.
+
 ``gamma`` never appears on a ``Config`` or a ``Hypers`` struct: it is a parameter of
 :func:`rl_components.loop.run` alone, so every spec's dynamic keys add it by hand.
 
@@ -75,7 +80,8 @@ class AlgorithmSpec:
     def parameter_schema(self) -> ParameterSchema:
         fields = get_type_hints(self.hypers_cls)
         dynamic_keys = frozenset(name.lower() for name in fields) - _NEVER_DYNAMIC
-        return ParameterSchema(dynamic_keys=dynamic_keys | {GAMMA})
+        init_swept = frozenset(name.lower() for name in self.agent_cls.INIT_SWEPT_FIELDS)
+        return ParameterSchema(dynamic_keys=dynamic_keys | init_swept | {GAMMA})
 
 
 def _scalar_type(hint: object) -> type | None:

@@ -305,6 +305,8 @@ class QRCAgent:
     """Q-learning with Regularized Corrections over a discrete action space."""
 
     REPORTED_METRICS = ("loss", "epsilon", "q_max")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ()
+    """Config fields ``init`` reads that ``step`` never traces. None here."""
 
     def __init__(self, config: QRCConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.
