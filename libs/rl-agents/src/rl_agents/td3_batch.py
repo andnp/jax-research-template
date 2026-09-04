@@ -31,7 +31,7 @@ TD3_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = TD3Config()
     return TD3Config(
-        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        LEARNING_RATE=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LEARNING_RATE))),
         BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
         BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
         TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),

@@ -10,7 +10,7 @@ from rl_agents.q_networks import NatureQNetwork, QNetwork, make_q_network
 class TestDQNConfig:
     def test_defaults(self) -> None:
         cfg = DQNConfig()
-        assert cfg.LR == 3e-4
+        assert cfg.LEARNING_RATE == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 64
         assert cfg.EPSILON_START == 1.0
@@ -18,8 +18,8 @@ class TestDQNConfig:
         assert cfg.NETWORK_PRESET == "mlp"
 
     def test_custom_config(self) -> None:
-        cfg = DQNConfig(LR=1e-3, BUFFER_SIZE=1000, ENV_NAME="CartPole-v1")
-        assert cfg.LR == 1e-3
+        cfg = DQNConfig(LEARNING_RATE=1e-3, BUFFER_SIZE=1000, ENV_NAME="CartPole-v1")
+        assert cfg.LEARNING_RATE == 1e-3
         assert cfg.BUFFER_SIZE == 1000
         assert cfg.ENV_NAME == "CartPole-v1"
 

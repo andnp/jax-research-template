@@ -26,7 +26,7 @@ _AGENT_NUM_STEPS = 4
 
 
 def _run_agent_arm(agent: PPOAgent, base_hypers: PPOHypers, learning_rate: jax.Array, key: jax.Array):
-    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
     state = dataclasses.replace(agent.init(key, _AGENT_SPEC), hypers=hypers)
 
     def one_step(state: PPOAgentState, step_index: jax.Array):

@@ -8,15 +8,15 @@ from rl_agents.sac_rc import SACRCConfig, SACRCCritic
 class TestSACRCConfig:
     def test_defaults(self) -> None:
         cfg = SACRCConfig()
-        assert cfg.LR == 3e-4
+        assert cfg.LEARNING_RATE == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 256
         assert cfg.ALPHA == 0.2
         assert cfg.BETA == 1.0
 
     def test_custom_config(self) -> None:
-        cfg = SACRCConfig(LR=1e-3, BUFFER_SIZE=1000, ENV_NAME="Pendulum-v1", BETA=0.5)
-        assert cfg.LR == 1e-3
+        cfg = SACRCConfig(LEARNING_RATE=1e-3, BUFFER_SIZE=1000, ENV_NAME="Pendulum-v1", BETA=0.5)
+        assert cfg.LEARNING_RATE == 1e-3
         assert cfg.BUFFER_SIZE == 1000
         assert cfg.ENV_NAME == "Pendulum-v1"
         assert cfg.BETA == 0.5

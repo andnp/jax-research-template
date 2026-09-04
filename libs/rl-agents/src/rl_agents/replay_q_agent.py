@@ -102,7 +102,7 @@ class ReplayQConfig(Protocol):
     """
 
     @property
-    def LR(self) -> float: ...
+    def LEARNING_RATE(self) -> float: ...
 
     @property
     def BUFFER_SIZE(self) -> int: ...
@@ -145,7 +145,7 @@ class ReplayQHypers:
     or take a Python branch -- those stay on the config.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     TARGET_NETWORK_FREQUENCY: jax.Array
@@ -158,7 +158,7 @@ class ReplayQHypers:
 
 def replay_q_hypers(config: ReplayQConfig):
     return ReplayQHypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
@@ -262,7 +262,7 @@ class ReplayQAgent:
             train_state=TrainState.create(
                 apply_fn=network.apply,
                 params=params,
-                tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LR, jnp.float32)),
+                tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32)),
             ),
             target_params=params,
             buffer_state=buffer.init(),
@@ -316,7 +316,7 @@ class ReplayQAgent:
         can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
             can_train,
-            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key, hypers.LR),
+            lambda: self._learn(state.train_state, state.target_params, buffer_state, buffer, sample_key, hypers.LEARNING_RATE),
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 

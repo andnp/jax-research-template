@@ -196,11 +196,11 @@ def test_dqn_batch_config_prefers_dynamic_static_and_default_values() -> None:
     static_config = _config_from(batch, {})
     dynamic_config = _config_from(batch, {"learning_rate": jnp.asarray(4e-3), "learning_starts": jnp.asarray(1)})
 
-    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_RATE == 2e-3
     assert static_config.LEARNING_STARTS == 3
     assert static_config.TAU == DQNConfig().TAU
     assert static_config.NETWORK_PRESET == "mlp"
-    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_RATE == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
 
 
@@ -247,7 +247,7 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
         {"learning_rate": jnp.asarray(4e-3), "gae_lambda": jnp.asarray(0.8)},
     )
 
-    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_RATE == 2e-3
     assert static_config.GAE_LAMBDA == 0.9
     assert static_config.CLIP_EPS == 0.3
     assert static_config.ENT_COEF == 0.02
@@ -255,7 +255,7 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert static_config.MAX_GRAD_NORM == 0.8
     assert static_config.OBS_NORM_EPS == 1e-7
     assert static_config.OBS_NORM_CLIP == 5.0
-    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_RATE == 4e-3
     assert dynamic_config.GAE_LAMBDA == 0.8
     default_config = _ppo_config_from(
         BoundBatch(
@@ -266,7 +266,7 @@ def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
         ),
         {},
     )
-    assert default_config.LR == PPOConfig().LR
+    assert default_config.LEARNING_RATE == PPOConfig().LEARNING_RATE
     assert default_config.TOTAL_TIMESTEPS == PPOConfig().TOTAL_TIMESTEPS
     assert default_config.NUM_STEPS == PPOConfig().NUM_STEPS
     assert default_config.UPDATE_EPOCHS == PPOConfig().UPDATE_EPOCHS
@@ -384,7 +384,7 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
         },
     )
 
-    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_RATE == 2e-3
     assert static_config.LEARNING_STARTS == 3
     assert static_config.TRAIN_FREQUENCY == 2
     assert static_config.TAU == 0.01
@@ -392,7 +392,7 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
     assert static_config.EXPLORATION_NOISE == 0.2
     assert static_config.POLICY_NOISE == 0.3
     assert static_config.NOISE_CLIP == 0.4
-    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_RATE == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
     assert dynamic_config.TRAIN_FREQUENCY == 3
     assert dynamic_config.TAU == 0.02
@@ -411,7 +411,7 @@ def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
         ),
         {},
     )
-    assert default_config.LR == TD3Config().LR
+    assert default_config.LEARNING_RATE == TD3Config().LEARNING_RATE
     assert default_config.BUFFER_SIZE == TD3Config().BUFFER_SIZE
     assert default_config.BATCH_SIZE == TD3Config().BATCH_SIZE
     assert default_config.LEARNING_STARTS == TD3Config().LEARNING_STARTS
@@ -453,13 +453,13 @@ def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None
     default_batch = BoundBatch(static_config={"env_name": "Pendulum-v1"}, dynamic_axes={}, seeds=(0,), points=())
     default_config = _sac_rc_config_from(default_batch, {})
 
-    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_RATE == 2e-3
     assert static_config.LEARNING_STARTS == 3
     assert static_config.TARGET_ENTROPY == -1.5
-    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_RATE == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
     assert dynamic_config.TARGET_ENTROPY == -0.5
-    assert default_config.LR == SACRCConfig().LR
+    assert default_config.LEARNING_RATE == SACRCConfig().LEARNING_RATE
     assert default_config.LEARNING_STARTS == SACRCConfig().LEARNING_STARTS
     assert default_config.TARGET_ENTROPY is None
     explicit_none_config = _sac_rc_config_from(
@@ -661,11 +661,11 @@ def test_qrc_batch_config_prefers_dynamic_static_and_default_values() -> None:
     static_config = _qrc_config_from(batch, {})
     dynamic_config = _qrc_config_from(batch, {"learning_rate": jnp.asarray(4e-3), "learning_starts": jnp.asarray(1)})
 
-    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_RATE == 2e-3
     assert static_config.LEARNING_STARTS == 3
     assert static_config.BETA == QRCConfig().BETA
     assert static_config.H_REGULARIZATION == "l2"
-    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_RATE == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
 
 

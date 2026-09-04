@@ -12,7 +12,7 @@ SPEC = EnvSpec(id="toy-discrete", observation_shape=(2,), action_shape=(), num_a
 
 
 def _run_arm(agent: QRCAgent, base_hypers: QRCHypers, learning_rate: jax.Array, key: jax.Array):
-    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
     state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
 
     def one_step(state: QRCAgentState, step_index: jax.Array):

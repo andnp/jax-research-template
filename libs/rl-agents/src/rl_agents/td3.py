@@ -35,7 +35,7 @@ from rl_agents.continuous_actions import continuous_action_dim, uniform_explorat
 
 @chex_struct(frozen=True, kw_only=True)
 class TD3Config:
-    LR: float = 3e-4
+    LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
@@ -61,7 +61,7 @@ class TD3Hypers:
     regardless of its value.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     TAU: jax.Array
@@ -73,7 +73,7 @@ class TD3Hypers:
 
 def td3_hypers(config: TD3Config) -> TD3Hypers:
     return TD3Hypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
@@ -307,7 +307,7 @@ class TD3Agent:
             obs_dtype=observation_dtype,
         )
 
-        lr = jnp.asarray(self.config.LR, jnp.float32)
+        lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
         return TD3AgentState(
             actor_state=TrainState.create(
                 apply_fn=actor.apply, params=actor_params, tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr)
@@ -432,7 +432,7 @@ class TD3Agent:
         def _with_lr(train_state: TrainState) -> TrainState:
             opt_state = train_state.opt_state
             return train_state.replace(
-                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR})
+                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LEARNING_RATE})
             )
 
         critic_state = _with_lr(state.critic_state)

@@ -22,7 +22,7 @@ def main() -> None:
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,
-        LR=3e-4,
+        LEARNING_RATE=3e-4,
         ENV_NAME="CartPole-v1",
     )
 

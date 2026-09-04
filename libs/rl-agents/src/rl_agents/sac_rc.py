@@ -62,7 +62,7 @@ from rl_agents.sac import Actor, sac_alpha_loss
 
 @chex_struct(frozen=True, kw_only=True)
 class SACRCConfig:
-    LR: float = 3e-4
+    LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
@@ -87,7 +87,7 @@ class SACRCHypers:
     on the same name.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     BETA: jax.Array
@@ -95,7 +95,7 @@ class SACRCHypers:
 
 def sac_rc_hypers(config: SACRCConfig) -> SACRCHypers:
     return SACRCHypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         BETA=jnp.asarray(config.BETA, jnp.float32),
@@ -348,7 +348,7 @@ class SACRCAgent:
         )
         target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
 
-        lr = jnp.asarray(self.config.LR, jnp.float32)
+        lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
         return SACRCAgentState(
             actor_state=TrainState.create(
                 apply_fn=actor.apply,
@@ -486,9 +486,9 @@ class SACRCAgent:
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
 
-        critic_state = _with_learning_rate(state.critic_state, hypers.LR)
-        actor_state = _with_learning_rate(state.actor_state, hypers.LR)
-        alpha_state = _with_learning_rate(state.alpha_state, hypers.LR)
+        critic_state = _with_learning_rate(state.critic_state, hypers.LEARNING_RATE)
+        actor_state = _with_learning_rate(state.actor_state, hypers.LEARNING_RATE)
+        alpha_state = _with_learning_rate(state.alpha_state, hypers.LEARNING_RATE)
 
         critic_loss, critic_grads = jax.value_and_grad(
             lambda params: sac_rc_loss_batch(

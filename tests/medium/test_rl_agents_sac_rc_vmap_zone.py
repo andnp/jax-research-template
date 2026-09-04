@@ -19,7 +19,7 @@ SPEC = EnvSpec(
 
 
 def _run_arm(agent: SACRCAgent, base_hypers: SACRCHypers, learning_rate: jax.Array, key: jax.Array):
-    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
     state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
 
     def one_step(state: SACRCAgentState, step_index: jax.Array):

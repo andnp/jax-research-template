@@ -61,7 +61,7 @@ which a prior run reported outperforming AdamW for QRC's h-head)."""
 
 @chex_struct(frozen=True, kw_only=True)
 class QRCConfig:
-    LR: float = 3e-4
+    LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
@@ -89,7 +89,7 @@ class QRCHypers:
     it left the scan-owning closure style.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     EPSILON_START: jax.Array
@@ -101,7 +101,7 @@ class QRCHypers:
 
 def qrc_hypers(config: QRCConfig) -> QRCHypers:
     return QRCHypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
@@ -350,7 +350,7 @@ class QRCAgent:
         tx = optax.inject_hyperparams(
             lambda learning_rate, weight_decay: _make_tx(params, learning_rate, weight_decay, h_regularization)
         )(
-            learning_rate=jnp.asarray(self.config.LR, jnp.float32),
+            learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32),
             weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
         )
 
@@ -419,7 +419,7 @@ class QRCAgent:
         can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
             can_train,
-            lambda: self._learn(state.train_state, buffer_state, buffer, sample_key, epsilon, hypers.LR, hypers.BETA),
+            lambda: self._learn(state.train_state, buffer_state, buffer, sample_key, epsilon, hypers.LEARNING_RATE, hypers.BETA),
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 

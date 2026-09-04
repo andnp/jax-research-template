@@ -24,7 +24,7 @@ def _config() -> GACConfig:
 
 
 def _run_arm(agent: GACAgent, base_hypers: GACHypers, learning_rate: jax.Array, key: jax.Array):
-    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
     state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
 
     def one_step(state: GACAgentState, step_index: jax.Array):

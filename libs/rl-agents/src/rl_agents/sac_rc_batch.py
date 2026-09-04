@@ -37,7 +37,7 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
         target_entropy = defaults.TARGET_ENTROPY
 
     return SACRCConfig(
-        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        LEARNING_RATE=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LEARNING_RATE))),
         BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
         BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
         TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),

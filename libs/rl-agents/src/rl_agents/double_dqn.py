@@ -18,7 +18,7 @@ from rl_agents.q_networks import make_q_network
 
 @chex_struct(frozen=True, kw_only=True)
 class DoubleDQNConfig:
-    LR: float = 3e-4
+    LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000

@@ -14,7 +14,7 @@ SPEC = EnvSpec(
 
 
 def _run_arm(agent: TD3Agent, base_hypers: TD3Hypers, learning_rate: jax.Array, key: jax.Array):
-    hypers = dataclasses.replace(base_hypers, LR=learning_rate)
+    hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
     state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
 
     def one_step(state: TD3AgentState, step_index: jax.Array):

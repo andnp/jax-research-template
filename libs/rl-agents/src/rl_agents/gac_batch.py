@@ -32,7 +32,7 @@ GAC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = GACConfig()
     return GACConfig(
-        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        LEARNING_RATE=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LEARNING_RATE))),
         ACTOR_LR=cast(
             float, dynamic.get("actor_learning_rate", batch.static_or("actor_learning_rate", float, defaults.ACTOR_LR))
         ),

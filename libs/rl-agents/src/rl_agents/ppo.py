@@ -333,7 +333,7 @@ class PPOHypers:
     those stay on ``config``.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     GAE_LAMBDA: jax.Array
     CLIP_EPS: jax.Array
     ENT_COEF: jax.Array
@@ -346,7 +346,7 @@ class PPOHypers:
 
 def ppo_hypers(config: PPOConfig) -> PPOHypers:
     return PPOHypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         GAE_LAMBDA=jnp.asarray(config.GAE_LAMBDA, jnp.float32),
         CLIP_EPS=jnp.asarray(config.CLIP_EPS, jnp.float32),
         ENT_COEF=jnp.asarray(config.ENT_COEF, jnp.float32),
@@ -489,7 +489,7 @@ class PPOAgent:
             train_state=TrainState.create(
                 apply_fn=network.apply,
                 params=network.init(params_key, zero_obs),
-                tx=optax.inject_hyperparams(_ppo_tx)(learning_rate=hypers.LR, max_grad_norm=hypers.MAX_GRAD_NORM),
+                tx=optax.inject_hyperparams(_ppo_tx)(learning_rate=hypers.LEARNING_RATE, max_grad_norm=hypers.MAX_GRAD_NORM),
             ),
             obs_norm_state=_empty_observation_norm_state(zero_obs),
             rollout=PPOTransition(
@@ -656,7 +656,7 @@ class PPOAgent:
                 opt_state=opt_state._replace(
                     hyperparams={
                         **opt_state.hyperparams,
-                        "learning_rate": hypers.LR,
+                        "learning_rate": hypers.LEARNING_RATE,
                         "max_grad_norm": hypers.MAX_GRAD_NORM,
                     }
                 ),

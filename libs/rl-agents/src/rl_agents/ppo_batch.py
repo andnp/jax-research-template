@@ -48,7 +48,7 @@ def _held_episode_returns(metrics: Mapping[str, jax.Array]):
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = PPOConfig()
     return PPOConfig(
-        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        LEARNING_RATE=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LEARNING_RATE))),
         GAE_LAMBDA=cast(float, dynamic.get("gae_lambda", batch.static_or("gae_lambda", float, defaults.GAE_LAMBDA))),
         NUM_STEPS=batch.static_or("num_steps", int, defaults.NUM_STEPS),
         TOTAL_TIMESTEPS=batch.static_or("total_timesteps", int, defaults.TOTAL_TIMESTEPS),

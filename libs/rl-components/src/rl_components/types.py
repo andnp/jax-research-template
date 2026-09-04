@@ -4,7 +4,7 @@ from rl_components.structs import chex_struct
 @chex_struct(frozen=True)
 class PPOConfig:
     # Training Hyperparameters
-    LR: float = 2.5e-4
+    LEARNING_RATE: float = 2.5e-4
     NUM_STEPS: int = 128
     TOTAL_TIMESTEPS: int = 500_000
     UPDATE_EPOCHS: int = 4
