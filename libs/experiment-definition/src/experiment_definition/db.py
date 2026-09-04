@@ -141,7 +141,12 @@ def _upsert_parameter_spec(
     )
 
 
-def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
+def sync_to_db(
+    db_path: Path | str,
+    state: "_ExperimentState",
+    *,
+    static_parameter_names: frozenset[str] | None = None,
+) -> None:
     """Materialise the experiment definition into a SQLite file.
 
     Creates the database if it does not exist and applies the ADR 008 schema.
@@ -179,7 +184,7 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
                     experiment_id=exp_id,
                     name=p.name,
                     values_json=_json_stable(p.values),
-                    is_static=p.is_static,
+                    is_static=p.is_static if static_parameter_names is None else p.name in static_parameter_names,
                     component_id=cid,
                     conditions_json=_json_stable(p.conditions),
                 )
@@ -193,7 +198,14 @@ def sync_to_db(db_path: Path | str, state: "_ExperimentState") -> None:
 
             # ── Generate runs ─────────────────────────────────────────────────
             configs = _generate_configs(state)
-            _insert_runs(cur, exp_id, comp_version_ids, configs, state)
+            _insert_runs(
+                cur,
+                exp_id,
+                comp_version_ids,
+                configs,
+                state,
+                static_parameter_names=static_parameter_names,
+            )
     finally:
         con.close()
 
@@ -262,6 +274,8 @@ def _insert_runs(
     comp_version_ids: dict[str, int],
     configs: list[dict[str, ParameterValue]],
     state: "_ExperimentState",
+    *,
+    static_parameter_names: frozenset[str] | None = None,
 ) -> None:
     """Insert Run rows for each (config × ablation) combination.
 
@@ -297,7 +311,15 @@ def _insert_runs(
 
         for abl_name, abl_overrides in ablation_list:
             final_hyper = {**hyper_config, **abl_overrides}
-            hyper_id = _upsert_hyperparam_config(cur, final_hyper, _vmap_zone_for_hyper_config(state, final_hyper))
+            hyper_id = _upsert_hyperparam_config(
+                cur,
+                final_hyper,
+                _vmap_zone_for_hyper_config(
+                    state,
+                    final_hyper,
+                    static_parameter_names=static_parameter_names,
+                ),
+            )
 
             existing = cur.execute(
                 "SELECT id FROM Runs "
@@ -1285,7 +1307,19 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     return _json_stable(static_params)
 
 
-def _vmap_zone_for_hyper_config(state: "_ExperimentState", hyper_config: dict[str, ParameterValue]) -> dict[str, list[str]]:
-    static_keys = sorted({param.name for param in state.parameters if param.is_static and param.name in hyper_config})
+def _vmap_zone_for_hyper_config(
+    state: "_ExperimentState",
+    hyper_config: dict[str, ParameterValue],
+    *,
+    static_parameter_names: frozenset[str] | None = None,
+) -> dict[str, list[str]]:
+    static_keys = sorted(
+        {
+            param.name
+            for param in state.parameters
+            if (param.is_static if static_parameter_names is None else param.name in static_parameter_names)
+            and param.name in hyper_config
+        }
+    )
     dynamic_keys = sorted(key for key in hyper_config if key not in static_keys)
     return {"static_keys": static_keys, "dynamic_keys": dynamic_keys}

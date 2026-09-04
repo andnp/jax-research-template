@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from experiment_definition import Experiment, ParameterValue
 
@@ -59,6 +59,7 @@ class ParameterSchema:
             raise ValueError(f"parameter schema classifies keys as both static and dynamic: {sorted(overlap)}")
 
 
+@runtime_checkable
 class BatchTrainer(Protocol):
     @property
     def parameter_schema(self) -> ParameterSchema: ...
@@ -83,6 +84,20 @@ class ExperimentSpec:
                 "A relative path resolves against the caller's working directory, "
                 "which silently moves the results tree.",
             )
+
+    @property
+    def parameter_schema(self) -> ParameterSchema | None:
+        if isinstance(self.train_fn, BatchTrainer):
+            return self.train_fn.parameter_schema
+        return None
+
+    @property
+    def static_parameter_names(self) -> frozenset[str] | None:
+        schema = self.parameter_schema
+        return None if schema is None else schema.static_keys
+
+    def sync(self, db_path: Path | str) -> None:
+        self.experiment.sync(db_path, static_parameter_names=self.static_parameter_names)
 
     @property
     def db_path(self) -> Path:

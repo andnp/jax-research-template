@@ -23,9 +23,10 @@ def run_experiment(
     capture_git: bool = True,
     on_batch_complete: Callable[[Path], None] | None = None,
     reclaim_stale_after_seconds: float | None = None,
+    static_parameter_names: frozenset[str] | None = None,
 ):
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    experiment.sync(db_path)
+    experiment.sync(db_path, static_parameter_names=static_parameter_names)
 
     git_commit, git_diff = capture_git_metadata() if capture_git else (None, None)
 

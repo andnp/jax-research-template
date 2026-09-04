@@ -124,7 +124,7 @@ def plan(
         db_path = experiment_spec.db_path
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        experiment_spec.experiment.sync(db_path)
+        experiment_spec.sync(db_path)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -173,6 +173,7 @@ def run(
             max_runs_per_batch=max_runs_per_batch,
             capture_git=experiment_spec.capture_git,
             reclaim_stale_after_seconds=reclaim_stale_after,
+            static_parameter_names=experiment_spec.static_parameter_names,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
@@ -346,7 +347,7 @@ def submit(
         db_path = experiment_spec.db_path
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        experiment_spec.experiment.sync(db_path)
+        experiment_spec.sync(db_path)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
