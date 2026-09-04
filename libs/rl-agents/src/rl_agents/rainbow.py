@@ -81,13 +81,29 @@ class RainbowTransition(NamedTuple):
     reward: jax.Array
     next_obs: jax.Array
     done: jax.Array
+    discount: jax.Array
 
 
 @chex_struct(frozen=True, kw_only=True)
 class _NStepAccumulatorState:
+    """The pending window of transitions whose n-step return is still incomplete.
+
+    Attributes:
+        obs: Observation each pending transition started from.
+        action: Action each pending transition took.
+        reward: Partially accumulated discounted reward of each pending transition,
+            ``sum_{k<m} (prod_{j<k} d) r``, where ``m`` counts the steps folded in so far.
+        discount: Cumulative bootstrap coefficient of each pending transition,
+            ``prod_{j<m} d``. A boolean cannot stand in for it: a window cut by an episode
+            boundary flushes every pending row at a different horizon, so each row leaves
+            with a different product.
+        size: Number of pending rows.
+    """
+
     obs: jax.Array
     action: jax.Array
     reward: jax.Array
+    discount: jax.Array
     size: jax.Array
 
 
@@ -278,22 +294,37 @@ def _init_n_step_accumulator(config: RainbowConfig, prototype: RainbowTransition
         obs=jnp.zeros((config.N_STEP, *prototype.obs.shape), dtype=prototype.obs.dtype),
         action=jnp.zeros((config.N_STEP, *prototype.action.shape), dtype=prototype.action.dtype),
         reward=jnp.zeros((config.N_STEP, *prototype.reward.shape), dtype=prototype.reward.dtype),
+        discount=jnp.zeros((config.N_STEP, *prototype.discount.shape), dtype=prototype.discount.dtype),
         size=jnp.zeros((), dtype=jnp.int32),
     )
 
 
-def _append_n_step_raw_transition(
+def _accumulate_n_step_step(
     accumulator: _NStepAccumulatorState,
     obs: jax.Array,
     action: jax.Array,
     reward: jax.Array,
+    discount: jax.Array,
 ) -> _NStepAccumulatorState:
-    insert_index = accumulator.size.astype(jnp.int32)
+    """Open a pending transition at this step and fold the step into every pending one.
+
+    The fold is the recursion behind the n-step target: a row that has already consumed
+    ``m`` steps holds ``reward = sum_{k<m} (prod_{j<k} d) r`` and ``discount = prod_{j<m} d``,
+    so consuming one more step is ``reward += discount * r`` followed by ``discount *= d``.
+    Applying it to the row opened at this step -- primed with ``reward = 0`` and
+    ``discount = 1`` -- gives that row its own first term with no special case.
+    """
+    slot = accumulator.size.astype(jnp.int32)
+    size = accumulator.size + jnp.asarray(1, dtype=accumulator.size.dtype)
+    pending = jnp.arange(accumulator.reward.shape[0], dtype=jnp.int32) < size
+    opened_reward = accumulator.reward.at[slot].set(jnp.zeros_like(reward))
+    opened_discount = accumulator.discount.at[slot].set(jnp.ones_like(discount))
     return _NStepAccumulatorState(
-        obs=accumulator.obs.at[insert_index].set(obs),
-        action=accumulator.action.at[insert_index].set(action),
-        reward=accumulator.reward.at[insert_index].set(reward),
-        size=accumulator.size + jnp.asarray(1, dtype=accumulator.size.dtype),
+        obs=accumulator.obs.at[slot].set(obs),
+        action=accumulator.action.at[slot].set(action),
+        reward=jnp.where(pending, opened_reward + opened_discount * reward, opened_reward),
+        discount=jnp.where(pending, opened_discount * discount, opened_discount),
+        size=size,
     )
 
 
@@ -302,66 +333,75 @@ def _shift_n_step_accumulator_left(accumulator: _NStepAccumulatorState) -> _NSte
         obs=jnp.concatenate([accumulator.obs[1:], jnp.zeros_like(accumulator.obs[:1])], axis=0),
         action=jnp.concatenate([accumulator.action[1:], jnp.zeros_like(accumulator.action[:1])], axis=0),
         reward=jnp.concatenate([accumulator.reward[1:], jnp.zeros_like(accumulator.reward[:1])], axis=0),
+        discount=jnp.concatenate([accumulator.discount[1:], jnp.zeros_like(accumulator.discount[:1])], axis=0),
         size=accumulator.size - jnp.asarray(1, dtype=accumulator.size.dtype),
     )
 
 
 def _materialize_n_step_transitions(
     config: RainbowConfig,
-    prototype: RainbowTransition,
     accumulator: _NStepAccumulatorState,
     next_obs: jax.Array,
-    done: jax.Array,
-    *,
-    discount: jax.Array | float | None = None,
+    episode_end: jax.Array,
 ) -> RainbowTransition:
-    indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
-    reward_offsets = indices[None, :] - indices[:, None]
-    future_reward_mask = reward_offsets >= 0
-    resolved_discount = config.ADDITIONAL_DISCOUNT if discount is None else discount
-    discount = jnp.asarray(resolved_discount, dtype=prototype.reward.dtype)
-    discount_matrix = jnp.where(
-        future_reward_mask,
-        discount ** reward_offsets.astype(prototype.reward.dtype),
-        jnp.zeros((config.N_STEP, config.N_STEP), dtype=prototype.reward.dtype),
-    )
-    valid_rows = indices[:, None] < accumulator.size
-    valid_columns = indices[None, :] < accumulator.size
-    reward_weights = discount_matrix * jnp.asarray(
-        future_reward_mask & valid_rows & valid_columns,
-        dtype=prototype.reward.dtype,
-    )
-    rewards = reward_weights @ accumulator.reward
+    """Read the pending window out as replay entries, one per row.
+
+    ``next_obs`` is the bootstrap observation this step reached, and it is the right
+    bootstrap state for *every* row: a flush happens at one step, so the rows leave with
+    different horizons ``m_t`` but with the same ``t + m_t``.
+    """
     return RainbowTransition(
         obs=accumulator.obs,
         action=accumulator.action,
-        reward=rewards.astype(prototype.reward.dtype),
-        next_obs=jnp.broadcast_to(next_obs, (config.N_STEP, *prototype.next_obs.shape)),
-        done=jnp.broadcast_to(jnp.asarray(done, dtype=prototype.done.dtype), (config.N_STEP,)),
+        reward=accumulator.reward,
+        next_obs=jnp.broadcast_to(next_obs, (config.N_STEP, *next_obs.shape)),
+        done=jnp.broadcast_to(jnp.asarray(episode_end, dtype=jnp.bool_), (config.N_STEP,)),
+        discount=accumulator.discount,
     )
 
 
 def _advance_n_step_accumulator(
     config: RainbowConfig,
-    prototype: RainbowTransition,
     accumulator: _NStepAccumulatorState,
     obs: jax.Array,
     action: jax.Array,
     reward: jax.Array,
     next_obs: jax.Array,
-    done: jax.Array,
-    *,
-    discount: jax.Array | float | None = None,
+    discount: jax.Array,
+    episode_end: jax.Array,
 ) -> tuple[_NStepAccumulatorState, RainbowTransition, jax.Array]:
-    appended = _append_n_step_raw_transition(accumulator, obs, action, reward)
-    transitions = _materialize_n_step_transitions(config, prototype, appended, next_obs, done, discount=discount)
+    """Fold one step in, then report which pending rows this step completes.
+
+    Two separate boundary quantities arrive per step, and they disagree exactly on a
+    truncation. ``discount`` is the bootstrap coefficient, which is ``0`` only on
+    termination and therefore erases the tail of the return by itself. ``episode_end``
+    is the trajectory break, which is true on truncation too, and it is the only thing
+    that cuts a window whose discount is still nonzero.
+
+    Args:
+        config: Static hyperparameters; only ``N_STEP`` is read.
+        accumulator: The pending window before this step.
+        obs: Observation the transition this step opens started from.
+        action: Action the transition this step opens took.
+        reward: Reward this step earned.
+        discount: Bootstrap coefficient for this step, ``0`` on termination.
+        next_obs: True observation this step reached, never a post-reset one.
+        episode_end: Whether this step broke the trajectory.
+
+    Returns:
+        The window after this step, the replay entries for every row of the window as it
+        stood *before* the flush, and the mask selecting the rows to insert.
+    """
+    discount = jnp.asarray(discount, dtype=accumulator.discount.dtype)
+    appended = _accumulate_n_step_step(accumulator, obs, action, reward, discount)
+    transitions = _materialize_n_step_transitions(config, appended, next_obs, episode_end)
 
     indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
     appended_is_full = appended.size == jnp.asarray(config.N_STEP, dtype=appended.size.dtype)
-    insert_mask = jnp.where(done, indices < appended.size, jnp.logical_and(appended_is_full, indices == 0))
+    insert_mask = jnp.where(episode_end, indices < appended.size, jnp.logical_and(appended_is_full, indices == 0))
 
     next_accumulator = jax.lax.cond(
-        done,
+        episode_end,
         lambda value: jax.tree_util.tree_map(jnp.zeros_like, value),
         lambda value: jax.lax.cond(appended_is_full, _shift_n_step_accumulator_left, lambda inner: inner, value),
         appended,
@@ -419,6 +459,7 @@ def initialize_train_state(
         reward=jnp.zeros((), dtype=jnp.float32),
         next_obs=jnp.zeros(observation_shape, dtype=observation_space.dtype),
         done=jnp.zeros((), dtype=jnp.bool_),
+        discount=jnp.zeros((), dtype=jnp.float32),
     )
     buffer_state = init_per_buffer(replay_prototype, config.REPLAY_CAPACITY)
     n_step_accumulator = _init_n_step_accumulator(config, replay_prototype)
@@ -495,14 +536,13 @@ def make_train_step(
         obs, env_state, reward, done, info = env.step(step_rng, env_state, action, env_params)
         n_step_accumulator, finalized_transitions, insert_mask = _advance_n_step_accumulator(
             config,
-            replay_prototype,
             n_step_accumulator,
             last_obs,
             action,
             reward,
             obs,
+            jnp.where(done, jnp.zeros((), jnp.float32), hypers.ADDITIONAL_DISCOUNT),
             done,
-            discount=hypers.ADDITIONAL_DISCOUNT,
         )
         buffer_state = _per_add_batched_transitions(buffer_state, finalized_transitions, insert_mask)
 

@@ -438,50 +438,59 @@ class TestRainbowTrainPath:
         assert int(buffer_state.storage_capacity) == 32
 
 
+def _toy_n_step_prototype() -> RainbowTransition:
+    return RainbowTransition(
+        obs=jnp.zeros((1,), dtype=jnp.float32),
+        action=jnp.zeros((), dtype=jnp.int32),
+        reward=jnp.zeros((), dtype=jnp.float32),
+        next_obs=jnp.zeros((1,), dtype=jnp.float32),
+        done=jnp.zeros((), dtype=jnp.bool_),
+        discount=jnp.zeros((), dtype=jnp.float32),
+    )
+
+
+def _fused_bootstrap_discount(config: RainbowConfig, transitions: RainbowTransition) -> jax.Array:
+    """The bootstrap coefficient the learner's compile-time constant amounts to.
+
+    ``make_train_step`` still multiplies every sampled row by
+    ``ADDITIONAL_DISCOUNT ** N_STEP`` and masks it with the stored ``done``, so the
+    per-transition ``D_t`` this accumulator now materialises must agree with that
+    constant everywhere the fused entry could express the transition at all: a
+    full-length window, and a window flushed by a termination. Truncation is the case
+    the constant cannot express, and it is the only case where the two differ.
+    """
+    return jnp.asarray(config.ADDITIONAL_DISCOUNT**config.N_STEP, jnp.float32) * (
+        1.0 - transitions.done.astype(jnp.float32)
+    )
+
+
 class TestRainbowNStepAccumulator:
     def test_nonterminal_insert_waits_for_exact_n_step_rewards(self) -> None:
         config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
-        prototype = RainbowTransition(
-            obs=jnp.zeros((1,), dtype=jnp.float32),
-            action=jnp.zeros((), dtype=jnp.int32),
-            reward=jnp.zeros((), dtype=jnp.float32),
-            next_obs=jnp.zeros((1,), dtype=jnp.float32),
-            done=jnp.zeros((), dtype=jnp.bool_),
-        )
+        prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
-        accumulator, _transitions, insert_mask = _advance_n_step_accumulator(
-            config,
-            prototype,
-            accumulator,
-            jnp.array([1.0], dtype=jnp.float32),
-            jnp.asarray(1, dtype=jnp.int32),
-            jnp.asarray(1.0, dtype=jnp.float32),
-            jnp.array([2.0], dtype=jnp.float32),
-            jnp.asarray(False),
-        )
-        assert not bool(jnp.any(insert_mask))
-
-        accumulator, _transitions, insert_mask = _advance_n_step_accumulator(
-            config,
-            prototype,
-            accumulator,
-            jnp.array([2.0], dtype=jnp.float32),
-            jnp.asarray(2, dtype=jnp.int32),
-            jnp.asarray(2.0, dtype=jnp.float32),
-            jnp.array([3.0], dtype=jnp.float32),
-            jnp.asarray(False),
-        )
-        assert not bool(jnp.any(insert_mask))
+        for value in (1.0, 2.0):
+            accumulator, _transitions, insert_mask = _advance_n_step_accumulator(
+                config,
+                accumulator,
+                jnp.array([value], dtype=jnp.float32),
+                jnp.asarray(int(value), dtype=jnp.int32),
+                jnp.asarray(value, dtype=jnp.float32),
+                jnp.array([value + 1.0], dtype=jnp.float32),
+                jnp.asarray(0.5, dtype=jnp.float32),
+                jnp.asarray(False),
+            )
+            assert not bool(jnp.any(insert_mask))
 
         accumulator, transitions, insert_mask = _advance_n_step_accumulator(
             config,
-            prototype,
             accumulator,
             jnp.array([3.0], dtype=jnp.float32),
             jnp.asarray(3, dtype=jnp.int32),
             jnp.asarray(3.0, dtype=jnp.float32),
             jnp.array([4.0], dtype=jnp.float32),
+            jnp.asarray(0.5, dtype=jnp.float32),
             jnp.asarray(False),
         )
 
@@ -491,47 +500,92 @@ class TestRainbowNStepAccumulator:
             jnp.asarray(1.0 + 0.5 * 2.0 + 0.25 * 3.0, dtype=jnp.float32),
         )
         assert bool(transitions.done[0]) is False
+        npt.assert_allclose(transitions.discount[0], jnp.asarray(0.125, dtype=jnp.float32))
+        npt.assert_allclose(transitions.discount[insert_mask], _fused_bootstrap_discount(config, transitions)[insert_mask])
         npt.assert_allclose(transitions.next_obs[0], jnp.array([4.0], dtype=jnp.float32))
         assert int(accumulator.size) == 2
         npt.assert_allclose(accumulator.obs[:, 0], jnp.array([2.0, 3.0, 0.0], dtype=jnp.float32))
 
     def test_terminal_step_flushes_all_pending_transitions(self) -> None:
         config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
-        prototype = RainbowTransition(
-            obs=jnp.zeros((1,), dtype=jnp.float32),
-            action=jnp.zeros((), dtype=jnp.int32),
-            reward=jnp.zeros((), dtype=jnp.float32),
-            next_obs=jnp.zeros((1,), dtype=jnp.float32),
-            done=jnp.zeros((), dtype=jnp.bool_),
-        )
+        prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
         for value in (1.0, 2.0):
             accumulator, _transitions, insert_mask = _advance_n_step_accumulator(
                 config,
-                prototype,
                 accumulator,
                 jnp.array([value], dtype=jnp.float32),
                 jnp.asarray(int(value), dtype=jnp.int32),
                 jnp.asarray(value, dtype=jnp.float32),
                 jnp.array([value + 1.0], dtype=jnp.float32),
+                jnp.asarray(0.5, dtype=jnp.float32),
                 jnp.asarray(False),
             )
             assert not bool(jnp.any(insert_mask))
 
         accumulator, transitions, insert_mask = _advance_n_step_accumulator(
             config,
-            prototype,
             accumulator,
             jnp.array([3.0], dtype=jnp.float32),
             jnp.asarray(3, dtype=jnp.int32),
             jnp.asarray(3.0, dtype=jnp.float32),
             jnp.array([4.0], dtype=jnp.float32),
+            jnp.asarray(0.0, dtype=jnp.float32),
             jnp.asarray(True),
         )
 
         assert jnp.array_equal(insert_mask, jnp.array([True, True, True]))
         npt.assert_allclose(transitions.reward, jnp.array([2.75, 3.5, 3.0], dtype=jnp.float32))
         assert jnp.array_equal(transitions.done, jnp.array([True, True, True]))
+        npt.assert_allclose(transitions.discount, jnp.zeros((3,), dtype=jnp.float32))
+        npt.assert_allclose(transitions.discount, _fused_bootstrap_discount(config, transitions))
+        npt.assert_allclose(transitions.next_obs[:, 0], jnp.array([4.0, 4.0, 4.0], dtype=jnp.float32))
+        assert int(accumulator.size) == 0
+
+    def test_truncation_gives_every_flushed_row_its_own_horizon_discount(self) -> None:
+        """A boundary that keeps its bootstrap flushes the window at three horizons at once.
+
+        Termination is the easy half: ``discount = 0`` erases the tail of the return by
+        itself, and one shared value is right for every flushed row. Truncation is the
+        half a boolean cannot encode -- the trajectory breaks while ``discount = gamma``
+        survives -- so the row flushed at offset ``i`` bootstraps over ``m - i`` steps and
+        must leave with ``gamma ** (m - i)``. A single ``gamma ** N_STEP`` is correct for
+        at most the oldest row, and the assertion below pins all three apart.
+        """
+        config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
+        accumulator = _init_n_step_accumulator(config, _toy_n_step_prototype())
+        gamma = jnp.asarray(0.5, dtype=jnp.float32)
+
+        for value in (1.0, 2.0):
+            accumulator, _transitions, insert_mask = _advance_n_step_accumulator(
+                config,
+                accumulator,
+                jnp.array([value], dtype=jnp.float32),
+                jnp.asarray(int(value), dtype=jnp.int32),
+                jnp.asarray(value, dtype=jnp.float32),
+                jnp.array([value + 1.0], dtype=jnp.float32),
+                gamma,
+                jnp.asarray(False),
+            )
+            assert not bool(jnp.any(insert_mask))
+
+        accumulator, transitions, insert_mask = _advance_n_step_accumulator(
+            config,
+            accumulator,
+            jnp.array([3.0], dtype=jnp.float32),
+            jnp.asarray(3, dtype=jnp.int32),
+            jnp.asarray(3.0, dtype=jnp.float32),
+            jnp.array([4.0], dtype=jnp.float32),
+            gamma,
+            jnp.asarray(True),
+        )
+
+        assert jnp.array_equal(insert_mask, jnp.array([True, True, True]))
+        npt.assert_allclose(transitions.discount, jnp.array([0.125, 0.25, 0.5], dtype=jnp.float32))
+        assert not bool(jnp.all(transitions.discount == transitions.discount[0])), (
+            "a truncation flushed three horizons with one shared discount"
+        )
+        npt.assert_allclose(transitions.reward, jnp.array([2.75, 3.5, 3.0], dtype=jnp.float32))
         npt.assert_allclose(transitions.next_obs[:, 0], jnp.array([4.0, 4.0, 4.0], dtype=jnp.float32))
         assert int(accumulator.size) == 0
