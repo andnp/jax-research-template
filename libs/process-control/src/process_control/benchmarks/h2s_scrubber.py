@@ -45,7 +45,12 @@ from process_control.actuators.dosing_system import (
 )
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
-from process_control.scenarios.gas_source import GasSourceParams, GasSourceState
+from process_control.scenarios.gas_source import (
+    GasSourceParams,
+    GasSourceState,
+    GasSourceTrajectory,
+    trajectory_step,
+)
 from process_control.scenarios.gas_source import reset as gas_reset
 from process_control.scenarios.gas_source import step as gas_step
 from process_control.units.gas_liquid_contactor import (
@@ -194,6 +199,7 @@ class H2SScrubberState:
 
 def make_h2s_scrubber_benchmark(
     config: H2SScrubberConfig,
+    gas_trajectory: GasSourceTrajectory | None = None,
 ) -> tuple[
     Callable[[jax.Array], tuple[H2SScrubberState, jax.Array]],
     Callable[[H2SScrubberState, jax.Array, jax.Array], tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
@@ -351,12 +357,16 @@ def make_h2s_scrubber_benchmark(
         ph_sp, orp_sp, makeup_flow_sp = action
 
         # ── 2. Gas source ─────────────────────────────────────────
-        new_gas, gas_flow, h2s_ppm = gas_step(
-            state.gas_source,
-            state.step_count,
-            gas_params,
-            k_gas,
-        )
+        if gas_trajectory is None:
+            new_gas, gas_flow, h2s_ppm = gas_step(
+                state.gas_source,
+                state.step_count,
+                gas_params,
+                k_gas,
+            )
+        else:
+            new_gas = state.gas_source
+            gas_flow, h2s_ppm = trajectory_step(gas_trajectory, state.step_count)
 
         # ── 3. Contactor: removal based on current sump chemistry ─
         gas_inlet = GasInlet(

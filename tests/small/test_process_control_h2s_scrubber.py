@@ -13,6 +13,7 @@ from process_control.benchmarks.h2s_scrubber import (
     H2SScrubberState,
     make_h2s_scrubber_benchmark,
 )
+from process_control.scenarios.gas_source import GasSourceTrajectory
 
 _H2SResetFn = Callable[[jax.Array], tuple[H2SScrubberState, jax.Array]]
 _H2SStepFn = Callable[
@@ -141,6 +142,34 @@ class TestActions:
 
         assert float(high_flow["makeup_pump"]) > float(low_flow["makeup_pump"])
         assert jnp.isfinite(high_flow["true_level"])
+
+
+def test_gas_trajectory_replay_replaces_generated_influent() -> None:
+    """Replay supplied gas inputs and hold the final sample after exhaustion."""
+    trajectory = GasSourceTrajectory(
+        gas_flow=jnp.array([101.0, 202.0]),
+        h2s_ppm=jnp.array([11.0, 22.0]),
+    )
+    reset_fn, step_fn = make_h2s_scrubber_benchmark(
+        H2SScrubberConfig(
+            caustic_sensor_noise=0.0,
+            bleach_sensor_noise=0.0,
+            makeup_sensor_noise=0.0,
+        ),
+        gas_trajectory=trajectory,
+    )
+    state, _ = reset_fn(jax.random.key(0))
+
+    state, _, _, _, first_info = step_fn(state, jnp.zeros(3), jax.random.key(1))
+    state, _, _, _, second_info = step_fn(state, jnp.zeros(3), jax.random.key(2))
+    _, _, _, _, final_info = step_fn(state, jnp.zeros(3), jax.random.key(3))
+
+    assert first_info["gas_flow"] == 101.0
+    assert first_info["inlet_h2s_ppm"] == 11.0
+    assert second_info["gas_flow"] == 202.0
+    assert second_info["inlet_h2s_ppm"] == 22.0
+    assert final_info["gas_flow"] == 202.0
+    assert final_info["inlet_h2s_ppm"] == 22.0
 
 
 def test_load_shift_scenario_is_selected_at_construction() -> None:

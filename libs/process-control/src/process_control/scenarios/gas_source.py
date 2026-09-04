@@ -46,11 +46,40 @@ class GasSourceState:
     h2s_drift: jax.Array
 
 
+@dataclass(frozen=True, slots=True)
+class GasSourceTrajectory:
+    """Exogenous gas inputs for deterministic scenario replay."""
+
+    gas_flow: jax.Array
+    h2s_ppm: jax.Array
+
+    def __post_init__(self) -> None:
+        gas_flow = jnp.asarray(self.gas_flow)
+        h2s_ppm = jnp.asarray(self.h2s_ppm)
+        if gas_flow.ndim != 1 or h2s_ppm.ndim != 1:
+            raise ValueError("gas replay trajectories must be one-dimensional")
+        if gas_flow.shape != h2s_ppm.shape:
+            raise ValueError("gas replay trajectories must have equal lengths")
+        if gas_flow.shape[0] == 0:
+            raise ValueError("gas replay trajectories must not be empty")
+        object.__setattr__(self, "gas_flow", gas_flow)
+        object.__setattr__(self, "h2s_ppm", h2s_ppm)
+
+
 def reset(rng_key: jax.Array) -> GasSourceState:
     return GasSourceState(
         gas_flow_drift=jnp.array(0.0),
         h2s_drift=jnp.array(0.0),
     )
+
+
+def trajectory_step(
+    trajectory: GasSourceTrajectory,
+    step_count: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Return replay inputs, holding the final sample after exhaustion."""
+    index = jnp.minimum(step_count, trajectory.gas_flow.shape[0] - 1)
+    return trajectory.gas_flow[index], trajectory.h2s_ppm[index]
 
 
 def step(
