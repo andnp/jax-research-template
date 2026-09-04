@@ -14,6 +14,9 @@ from rl_agents.dqn import DQNConfig
 from rl_agents.dqn_batch import DQNBatchTrainer, _config_from
 from rl_agents.gac_batch import GACBatchTrainer
 from rl_agents.ppo_batch import PPOBatchTrainer
+from rl_agents.qrc import QRCConfig
+from rl_agents.qrc_batch import QRCBatchTrainer
+from rl_agents.qrc_batch import _config_from as _qrc_config_from
 from rl_agents.sac_batch import SACBatchTrainer
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
@@ -254,6 +257,88 @@ def test_gac_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -
         result.metric_curves[metric][0] != result.metric_curves[metric][1]
         for metric in result.metric_curves
     )
+
+
+def test_qrc_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -> None:
+    """
+    Verify QRC uses the shared batch boundary with a real replay update.
+
+    Repeated seeds must replay exactly while distinct seeds remain independent.
+    """
+    static_config = {
+        "algorithm": "qrc",
+        "env_name": "CartPole-v1",
+        "total_timesteps": 8,
+        "buffer_size": 16,
+        "batch_size": 2,
+        "learning_starts": 0,
+        "hidden_width": 8,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": 1e-3, "seed": index})
+        for index in (0, 1)
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="qrc-batch-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    trainer = QRCBatchTrainer(_make_env)
+    result = trainer(context)
+    replay = trainer(context)
+
+    assert set(result.metric_curves) == {"reward", "loss", "epsilon", "q_max"}
+    assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+    assert all(
+        jnp.isfinite(jnp.asarray(sample)).all()
+        for metric in result.metric_curves.values()
+        for curve in metric
+        for sample in curve
+    )
+    assert any(value != 0.0 for value in result.metric_curves["loss"][0])
+    assert result.metric_curves == replay.metric_curves
+    assert any(
+        result.metric_curves[metric][0] != result.metric_curves[metric][1]
+        for metric in result.metric_curves
+    )
+
+
+def test_qrc_batch_config_prefers_dynamic_static_and_default_values() -> None:
+    """
+    Verify QRC batch configuration precedence and static algorithm selection.
+
+    Dynamic sweep values override static values, which override agent defaults.
+    """
+    batch = BoundBatch(
+        static_config={
+            "env_name": "CartPole-v1",
+            "buffer_size": 16,
+            "batch_size": 2,
+            "total_timesteps": 8,
+            "learning_rate": 2e-3,
+            "learning_starts": 3,
+            "h_regularization": "l2",
+            "hidden_width": 8,
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+
+    static_config = _qrc_config_from(batch, {})
+    dynamic_config = _qrc_config_from(batch, {"learning_rate": jnp.asarray(4e-3), "learning_starts": jnp.asarray(1)})
+
+    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_STARTS == 3
+    assert static_config.BETA == QRCConfig().BETA
+    assert static_config.H_REGULARIZATION == "l2"
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_STARTS == 1
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:
