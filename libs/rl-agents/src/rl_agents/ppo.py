@@ -1,15 +1,20 @@
 """PPO as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
 
 :class:`PPOAgent` is the port. ``make_train`` below it is the private training loop the
-port replaces, and it is still here because three independent repositories call it:
-``projects/generative-replay/train.py``, ``projects/learning-dynamics/train.py`` and the
-``missingness-rl`` submodule, whose ``experiment_execution.py`` reads
-``out["metrics"]["returned_episode_returns"]`` plus its own env-info metrics out of the
-result. All three resolve ``rl-agents`` as ``{ workspace = true }`` from this worktree, so
-they break the instant either symbol disappears -- not at some later merge.
-**Removal condition:** once all three drive :class:`PPOAgent` through
-:func:`rl_components.loop.run`. The ``missingness-rl`` half additionally needs a metrics
-path for the environment ``info`` its wrapper emits, which ``run`` does not forward today.
+port replaces, and it is still here because ``projects/missingness-rl`` calls it from an
+independent repository: ``missingness_rl/experiment_execution.py`` reads
+``out["metrics"]["returned_episode_returns"]`` and its own environment-``info`` metrics, and
+``experiment_evaluation.py`` reads ``out["runner_state"][0].params``, out of the result. That
+repository resolves ``rl-agents`` as ``{ workspace = true }`` from this worktree, so it
+breaks the instant either symbol disappears -- not at some later merge.
+``projects/generative-replay`` and ``projects/learning-dynamics`` no longer call it; both
+already drive :class:`PPOAgent` through :func:`rl_components.loop.run`.
+
+**Removal condition:** once ``missingness-rl`` ports too. That port needs a metrics path for
+the environment ``info`` its observation wrapper emits, which
+:func:`rl_components.loop.run` does not forward today, so it is a loop change rather than a
+project-side rewrite. Five ``examples/`` scripts and two ``tests/performance`` benches inside
+this repository also still call ``make_train`` and must be re-seated in the same change.
 
 ``PPOConfig.GAMMA`` and ``PPOHypers.GAMMA`` survive only for that legacy path. The discount
 belongs to :func:`rl_components.loop.run`, which puts a per-transition coefficient on
