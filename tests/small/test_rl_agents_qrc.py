@@ -12,7 +12,6 @@ class TestQRCConfig:
         assert cfg.LR == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 64
-        assert cfg.GAMMA == 0.99
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
         assert cfg.BETA == 1.0

@@ -23,26 +23,18 @@ which no target rule in that family takes. It also has no eligibility trace to
 reset at an episode boundary -- the ``h``-head is an ordinary ``nn.Dense``
 living in ``TrainState.params`` and is persistent by design.
 
-:class:`QRCAgent` is the port; ``make_train`` below it is the private training
-loop it replaces. It is still here because ``projects/iterated-gtd`` calls it from an independent repository:
-``iterated_gtd/sweep_train.py`` imports ``rl_agents.qrc.make_train`` and ``**``-unpacks a ``GAMMA``
-key into ``QRCConfig`` (``sweep_train.py:17, :41``), directly and through the
-``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
-``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
-either symbol disappears -- not at some later merge. **Removal condition:** once
-``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
-:func:`rl_components.loop.run` (migration step 11).
-
-``GAMMA`` survives only for that legacy path. The discount belongs to
-:func:`rl_components.loop.run`, which stores a per-transition coefficient in
-replay, and :func:`qrc_loss_batch` reads that coefficient straight through as
-its per-transition ``gamma``; :class:`QRCAgent` never reads ``config.GAMMA``.
+:class:`QRCAgent` is the only training path here. The ``make_train`` closure that ran
+beside it through the port is gone, and so is ``QRCConfig.GAMMA``: no discount is
+configurable on this agent any more. The discount belongs to
+:func:`rl_components.loop.run`, which stores a per-transition coefficient in replay that
+:func:`qrc_loss_batch` reads straight through as its per-transition ``gamma``;
+:class:`QRCAgent` never reads ``config.GAMMA``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal, NamedTuple, TypedDict
+from typing import Literal
 
 import chex
 import flax.linen as nn
@@ -55,7 +47,6 @@ from jax_nn.typed_module import TypedApply
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
-from rl_components.gym_env import DiscreteActionSpace, GymEnv
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -76,7 +67,6 @@ class QRCConfig:
     TOTAL_TIMESTEPS: int = 200_000
     LEARNING_STARTS: int = 1_000
     TRAIN_FREQUENCY: int = 1
-    GAMMA: float = 0.99  # Legacy make_train only; see the module docstring.
     EPSILON_START: float = 1.0
     EPSILON_END: float = 0.05
     EPSILON_FRACTION: float = 0.5
@@ -93,11 +83,10 @@ class QRCHypers:
 
     These ride the state pytree rather than the agent object so a sweep can
     ``vmap`` one compiled kernel across a batch of arms. ``TOTAL_TIMESTEPS`` is
-    here and not on ``QRCConfig`` alone because, unlike in the legacy
-    ``make_train`` closure below (where it sizes the ``lax.scan``), the Agent
-    path never scans -- it only appears as a divisor in the epsilon schedule,
-    which makes it DYNAMIC for this path, matching ``dqn.py``'s classification
-    of the same field once it left the scan-owning closure style.
+    here and not on ``QRCConfig`` alone because the Agent path never scans -- it
+    only appears as a divisor in the epsilon schedule, which makes it DYNAMIC
+    for this path, matching ``dqn.py``'s classification of the same field once
+    it left the scan-owning closure style.
     """
 
     LR: jax.Array
@@ -320,7 +309,7 @@ class QRCAgent:
 
         Args:
             config: Hyperparameters. Read at trace time only, so every field may be a
-                Python scalar. ``GAMMA`` is not read at all.
+                Python scalar.
         """
         self.config = config
 
@@ -497,103 +486,3 @@ class QRCAgent:
         )(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
 
-
-class RunnerState(NamedTuple):
-    train_state: TrainState
-    buffer_state: ReplayBufferState
-    env_state: object
-    last_obs: jax.Array
-    rng: jax.Array
-
-
-class QRCTrainOutput(TypedDict):
-    runner_state: RunnerState
-    metrics: dict[str, jax.Array]
-
-
-def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: object | None = None) -> Callable[[jax.Array], QRCTrainOutput]:
-    def train(rng: jax.Array) -> QRCTrainOutput:
-        # INIT NETWORK
-        observation_shape = tuple(env.observation_space(env_params).shape)
-        action_dim = env.action_space(env_params).n
-        network = QRCNetwork(action_dim, hidden_width=config.HIDDEN_WIDTH)
-        rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
-        params = network.init(_rng, init_x)
-
-        tx = _make_tx(params, config.LR, config.BETA, config.H_REGULARIZATION)
-        train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
-
-        # INIT BUFFER
-        buffer = ReplayBuffer(config.BUFFER_SIZE, observation_shape, (), jnp.int32)
-        buffer_state = buffer.init()
-
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
-
-        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
-            train_state, buffer_state, env_state, last_obs, rng = runner_state
-
-            # EPSILON GREEDY
-            epsilon = jnp.maximum(
-                config.EPSILON_END,
-                config.EPSILON_START
-                - (config.EPSILON_START - config.EPSILON_END)
-                * (t / (config.TOTAL_TIMESTEPS * config.EPSILON_FRACTION)),
-            )
-
-            rng, _rng_action, _rng_step = jax.random.split(rng, 3)
-            q_values, _ = network.apply(train_state.params, last_obs)
-            greedy_action = jnp.argmax(q_values)
-            random_action = jax.random.randint(_rng_action, (), 0, action_dim)
-            chose_random = jax.random.uniform(_rng_action, ()) < epsilon
-            action = jnp.where(chose_random, random_action, greedy_action)
-
-            # STEP ENV
-            obsv, env_state, reward, done, info = env.step(_rng_step, env_state, action, env_params)
-            discount = config.GAMMA * (1.0 - done)
-
-            # ADD TO BUFFER
-            buffer_state = buffer.add(
-                buffer_state,
-                last_obs[None, ...],
-                action[None, ...],
-                reward[None, ...],
-                obsv[None, ...],
-                discount[None, ...],
-            )
-
-            # TRAIN
-            def _do_train(train_state: TrainState, buffer_state: ReplayBufferState, rng: jax.Array) -> tuple[TrainState, jax.Array]:
-                rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
-
-                def _loss_fn(params: VariableDict) -> jax.Array:
-                    return qrc_loss_batch(
-                        params, obs, actions, rewards, next_obs, discounts, epsilon,
-                        apply_fn=network.apply, h_regularization=config.H_REGULARIZATION, beta=config.BETA,
-                    )
-
-                loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
-                train_state = train_state.apply_gradients(grads=grads)
-                return train_state, loss
-
-            can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
-            train_state, loss = jax.lax.cond(
-                can_train,
-                lambda: _do_train(train_state, buffer_state, rng),
-                lambda: (train_state, 0.0),
-            )
-
-            runner_state = RunnerState(train_state=train_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
-            return runner_state, info
-
-        # RUNNER
-        runner_state = RunnerState(train_state=train_state, buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng)
-        runner_state, metrics = jax.lax.scan(
-            _update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS)
-        )
-        return {"runner_state": runner_state, "metrics": metrics}
-
-    return train
