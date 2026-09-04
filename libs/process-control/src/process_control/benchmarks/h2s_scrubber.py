@@ -300,11 +300,8 @@ def make_h2s_scrubber_benchmark(
     ) -> tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
         k_gas, k_caustic, k_bleach, k_makeup = jax.random.split(rng_key, 4)
 
-        # ── 1. Scale actions to setpoint ranges ───────────────────
-        # Actions arrive in [-1, 1] → scale to physical setpoint ranges
-        ph_sp = _scale_action(action[0], config.ph_sp_min, config.ph_sp_max)
-        orp_sp = _scale_action(action[1], config.orp_sp_min, config.orp_sp_max)
-        level_sp = _scale_action(action[2], config.level_sp_min, config.level_sp_max)
+        # The public action-normalization wrapper converts [-1, 1] to setpoints.
+        ph_sp, orp_sp, level_sp = action
 
         # ── 2. Gas source ─────────────────────────────────────────
         new_gas, gas_flow, h2s_ppm = gas_step(
@@ -449,8 +446,3 @@ def make_h2s_scrubber_benchmark(
 
     return reset, step
 
-
-def _scale_action(action: jax.Array, low: float, high: float) -> jax.Array:
-    """Scale action from [-1, 1] to [low, high]."""
-    clamped = jnp.clip(action, -1.0, 1.0)
-    return jnp.array(low) + (clamped + 1.0) * 0.5 * jnp.array(high - low)

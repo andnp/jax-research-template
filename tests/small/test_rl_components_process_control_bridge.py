@@ -65,6 +65,23 @@ def test_h2s_environment_supports_normalized_reset_and_step() -> None:
     assert jnp.isfinite(step.reward)
 
 
+def test_h2s_normalized_extremes_reach_distinct_physical_controls() -> None:
+    """Map normalized action extremes to distinct setpoints through the public bridge.
+
+    The benchmark consumes physical setpoints, so double normalization would
+    collapse both extremes near the lower end of each actuator range.
+    """
+    environment = make_action_normalization_wrapper(make_process_control_env("h2s_scrubber"))
+    reset = environment.reset(jax.random.PRNGKey(0))
+    low = environment.step(jax.random.PRNGKey(1), reset.state, -jnp.ones((3,)))
+    high = environment.step(jax.random.PRNGKey(1), reset.state, jnp.ones((3,)))
+
+    assert not jnp.allclose(low.observation, high.observation)
+    assert not jnp.allclose(low.reward, high.reward)
+    for name in ("caustic_pump", "bleach_pump", "makeup_pump"):
+        assert not jnp.allclose(low.info[name], high.info[name])
+
+
 def test_unbounded_benchmark_preserves_missing_action_bounds() -> None:
     action_space = make_adapter("bsm1").action_space()
 

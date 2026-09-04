@@ -90,13 +90,17 @@ class TestStep:
 
 
 class TestActions:
-    def test_action_scaling_bounds(self, config: H2SScrubberConfig) -> None:
-        """Actions at -1 and +1 should map to min/max setpoints."""
-        from process_control.benchmarks.h2s_scrubber import _scale_action
+    def test_benchmark_consumes_physical_setpoints(self, config: H2SScrubberConfig, rng: jax.Array) -> None:
+        """Accept physical setpoints because normalization belongs to the bridge."""
+        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+        state, _ = reset_fn(rng)
+        _, _, _, _, info = step_fn(
+            state,
+            jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_max]),
+            rng,
+        )
 
-        assert jnp.isclose(_scale_action(jnp.array(-1.0), config.ph_sp_min, config.ph_sp_max), config.ph_sp_min)
-        assert jnp.isclose(_scale_action(jnp.array(1.0), config.ph_sp_min, config.ph_sp_max), config.ph_sp_max)
-        assert jnp.isclose(_scale_action(jnp.array(0.0), config.ph_sp_min, config.ph_sp_max), (config.ph_sp_min + config.ph_sp_max) / 2)
+        assert jnp.all(jnp.isfinite(jnp.array(tuple(info.values()))))
 
     def test_high_setpoints_increase_dosing(self, rng: jax.Array) -> None:
         """Setting all setpoints high should increase pump outputs over time."""
@@ -104,8 +108,7 @@ class TestActions:
         reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
         state, _ = reset_fn(rng)
 
-        # Run with high setpoints (+1 = max)
-        high_action = jnp.ones(3)
+        high_action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_max])
         for i in range(50):
             k = jax.random.fold_in(rng, i)
             state, _, _, _, info = step_fn(state, high_action, k)
