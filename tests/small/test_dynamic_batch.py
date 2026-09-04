@@ -6,8 +6,9 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import pytest
 from experiment_definition import Experiment
-from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema
+from research_runner import BoundBatch, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
 from rl_components.batch import run_batch
 
 
@@ -33,6 +34,49 @@ def test_run_batch_maps_dynamic_values_with_seed_keys() -> None:
 
     assert values.shape == (2,)
     assert jnp.allclose(values, jnp.array([1e-4, 1e-3]))
+
+
+def test_context_binds_typed_static_and_dynamic_values() -> None:
+    """
+    Verify trainers receive validated native values and ordered dynamic axes.
+    """
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="schema-test",
+        static_config={"env_name": "cartpole"},
+        points=(
+            RunPoint(1, {"env_name": "cartpole", "learning_rate": 1e-4, "seed": 3}),
+            RunPoint(2, {"env_name": "cartpole", "learning_rate": 1e-3, "seed": 4}),
+        ),
+        execution_root=Path("/tmp/execution"),
+        metrics_db_path=Path("/tmp/metrics.sqlite"),
+    )
+
+    batch = context.bind(_Trainer.parameter_schema)
+
+    assert isinstance(batch, BoundBatch)
+    assert batch.static("env_name", str) == "cartpole"
+    assert batch.dynamic("learning_rate", float) == (1e-4, 1e-3)
+    assert batch.seeds == (3, 4)
+
+
+def test_context_rejects_unregistered_dynamic_values() -> None:
+    """
+    Verify a trainer cannot silently ignore an unsupported dynamic parameter.
+    """
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="schema-test",
+        static_config={"env_name": "cartpole"},
+        points=(RunPoint(1, {"env_name": "cartpole", "momentum": 0.9, "seed": 3}),),
+        execution_root=Path("/tmp/execution"),
+        metrics_db_path=Path("/tmp/metrics.sqlite"),
+    )
+
+    with pytest.raises(ValueError, match="momentum"):
+        context.bind(_Trainer.parameter_schema)
 
 
 def test_experiment_spec_applies_trainer_schema(tmp_path: Path) -> None:
