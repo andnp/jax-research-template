@@ -18,7 +18,9 @@ from rl_agents.qrc import QRCConfig
 from rl_agents.qrc_batch import QRCBatchTrainer
 from rl_agents.qrc_batch import _config_from as _qrc_config_from
 from rl_agents.sac_batch import SACBatchTrainer
+from rl_agents.sac_rc import SACRCConfig
 from rl_agents.sac_rc_batch import SACRCBatchTrainer
+from rl_agents.sac_rc_batch import _config_from as _sac_rc_config_from
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_env
@@ -202,6 +204,59 @@ def test_dqn_batch_config_requires_environment_name() -> None:
 
     with pytest.raises(ValueError, match="missing static parameter 'env_name'"):
         _config_from(batch, {})
+
+
+def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None:
+    """
+    Verify SAC-RC resolves dynamic, static, then agent-default configuration.
+
+    The optional target entropy follows the same precedence as numeric fields.
+    """
+    batch = BoundBatch(
+        static_config={
+            "env_name": "Pendulum-v1",
+            "buffer_size": 16,
+            "batch_size": 2,
+            "total_timesteps": 8,
+            "learning_rate": 2e-3,
+            "learning_starts": 3,
+            "target_entropy": -1.5,
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+    static_config = _sac_rc_config_from(batch, {})
+    dynamic_config = _sac_rc_config_from(
+        batch,
+        {
+            "learning_rate": jnp.asarray(4e-3),
+            "learning_starts": jnp.asarray(1),
+            "target_entropy": jnp.asarray(-0.5),
+        },
+    )
+    default_batch = BoundBatch(static_config={"env_name": "Pendulum-v1"}, dynamic_axes={}, seeds=(0,), points=())
+    default_config = _sac_rc_config_from(default_batch, {})
+
+    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_STARTS == 3
+    assert static_config.TARGET_ENTROPY == -1.5
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_STARTS == 1
+    assert dynamic_config.TARGET_ENTROPY == -0.5
+    assert default_config.LR == SACRCConfig().LR
+    assert default_config.LEARNING_STARTS == SACRCConfig().LEARNING_STARTS
+    assert default_config.TARGET_ENTROPY is None
+
+
+def test_sac_rc_batch_config_requires_environment_name() -> None:
+    """
+    Verify SAC-RC configuration requires the environment metadata key.
+    """
+    batch = BoundBatch(static_config={}, dynamic_axes={}, seeds=(0,), points=())
+
+    with pytest.raises(ValueError, match="missing static parameter 'env_name'"):
+        _sac_rc_config_from(batch, {})
 
 
 def test_gac_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -> None:

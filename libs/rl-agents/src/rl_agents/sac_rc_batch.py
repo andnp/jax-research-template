@@ -29,7 +29,12 @@ SAC_RC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 
 def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = SACRCConfig()
-    target_entropy = dynamic.get("target_entropy", batch.static_config.get("target_entropy", defaults.TARGET_ENTROPY))
+    if "target_entropy" in dynamic:
+        target_entropy = cast(float, dynamic["target_entropy"])
+    elif "target_entropy" in batch.static_config:
+        target_entropy = batch.static_or("target_entropy", float, 0.0)
+    else:
+        target_entropy = defaults.TARGET_ENTROPY
 
     return SACRCConfig(
         LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
@@ -43,7 +48,7 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
             int, dynamic.get("train_frequency", batch.static_or("train_frequency", int, defaults.TRAIN_FREQUENCY))
         ),
         ALPHA=cast(float, dynamic.get("alpha", batch.static_or("alpha", float, defaults.ALPHA))),
-        TARGET_ENTROPY=cast(float | None, target_entropy),
+        TARGET_ENTROPY=target_entropy,
         BETA=cast(float, dynamic.get("beta", batch.static_or("beta", float, defaults.BETA))),
         ENV_NAME=batch.static("env_name", str),
         SEED=batch.static_or("seed", int, defaults.SEED),
