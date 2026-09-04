@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 import jax
@@ -78,14 +78,14 @@ class PPOBatchTrainer:
 
     def __init__(
         self,
-        env: EnvProtocol[jax.Array, object, jax.Array, object],
-        env_params: object,
+        env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
     ) -> None:
-        self._env = env
-        self._env_params = env_params
+        self._env_factory = env_factory
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         static_config = dict(context.static_config)
+        env_name = cast(str, static_config["env_name"])
+        env, env_params = self._env_factory(env_name)
         axes = context.axes()
         seeds = tuple(_seed_of(point.hyperparameters["seed"], point.run_id) for point in context.points)
         dynamic_axes = {
@@ -103,11 +103,11 @@ class PPOBatchTrainer:
             agent: AgentProtocol = PPOAgent(config)
             _, metrics = run(
                 agent,
-                self._env,
+                env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
                 gamma=cast(float, hyperparameters["gamma"]),
-                env_params=self._env_params,
+                env_params=env_params,
             )
             return _held_episode_returns(cast(Mapping[str, jax.Array], metrics))
 
@@ -129,7 +129,6 @@ def _seed_of(value: ParameterValue, run_id: int) -> int:
 
 
 def make_ppo_batch_trainer(
-    env: EnvProtocol[jax.Array, object, jax.Array, object],
-    env_params: object,
+    env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
 ) -> BatchTrainer:
-    return PPOBatchTrainer(env, env_params)
+    return PPOBatchTrainer(env_factory)
