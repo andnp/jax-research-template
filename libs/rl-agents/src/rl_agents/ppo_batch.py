@@ -101,7 +101,7 @@ class PPOBatchTrainer:
             hyperparameters: dict[str, object] = {**static_config, **dynamic}
             config = _config_from(hyperparameters)
             agent: AgentProtocol = PPOAgent(config)
-            _, metrics = run(
+            final_state, metrics = run(
                 agent,
                 env,
                 key,
@@ -109,9 +109,11 @@ class PPOBatchTrainer:
                 gamma=cast(float, hyperparameters["gamma"]),
                 env_params=env_params,
             )
-            return _held_episode_returns(cast(Mapping[str, jax.Array], metrics))
+            return final_state.agent_state.train_state.params, _held_episode_returns(
+                cast(Mapping[str, jax.Array], metrics)
+            )
 
-        curves = run_batch(train_one, dynamic_axes, seeds)
+        final_params, curves = run_batch(train_one, dynamic_axes, seeds)
         return ExecutionResult(
             metadata={
                 "algorithm": "ppo",
@@ -119,6 +121,7 @@ class PPOBatchTrainer:
                 "seed_values": list(seeds),
             },
             metric_curves={"returned_episode_returns": curves.tolist()},
+            artifacts={"final_policy_params": final_params},
         )
 
 

@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "experiment-definition",
     "research-instrument",
+    "research-store",
 ]
 
 [build-system]

@@ -4,10 +4,12 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 from experiment_definition import Experiment, ParameterValue
 from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
 from research_instrument.seed_batch import write_seed_batch_curve
+from research_store.store import Store
 
 from .git import capture_git_metadata
 from .types import ExecutionContext, ExecutionResult, RunPoint
@@ -113,6 +115,8 @@ def execute_batch(
         execution_root.mkdir(parents=True, exist_ok=True)
         result = train_fn(context)
         _write_metric_curves(context, result, metric_subsample_factor)
+        artifact_uris = _write_artifacts(context, result)
+        metadata = {**result.metadata, "artifacts": artifact_uris}
 
         manifest = {
             "experiment_slug": experiment_row.name,
@@ -120,7 +124,7 @@ def execute_batch(
             "root_path": str(execution_root),
             "metrics_db_path": str(resolved_metrics_db),
             "run_ids": [point.run_id for point in points],
-            "metadata": result.metadata,
+            "metadata": metadata,
         }
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -133,7 +137,7 @@ def execute_batch(
                 planned.execution_id,
                 str(execution_root),
                 manifest_path=str(manifest_path),
-                metadata={**result.metadata, "metrics_db_path": str(resolved_metrics_db)},
+                metadata={**metadata, "metrics_db_path": str(resolved_metrics_db)},
             )
             database.update_execution_status(
                 planned.execution_id, "COMPLETED", end_time=_utc_now(),
@@ -147,6 +151,19 @@ def execute_batch(
         raise
 
     return execution_root
+
+
+def _write_artifacts(context: ExecutionContext, result: ExecutionResult) -> dict[str, str]:
+    if not result.artifacts:
+        return {}
+    execution_id = uuid5(NAMESPACE_URL, f"{context.experiment_name}/{context.execution_id}")
+    store = Store(root=context.execution_root / "artifacts", experiment_id=context.experiment_name)
+    uris = {
+        name: str(store.put(blob, name=name, execution_id=execution_id))
+        for name, blob in result.artifacts.items()
+    }
+    store.sync()
+    return uris
 
 
 def _write_metric_curves(
