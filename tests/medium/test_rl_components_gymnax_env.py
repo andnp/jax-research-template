@@ -113,6 +113,42 @@ class TestGymnaxEnvBoundaries:
         assert not bool(step.truncated)
         assert int(step.state.time) < params.max_steps_in_episode
 
+    def test_a_termination_on_the_limit_step_dominates_the_limit(self) -> None:
+        """The collision case: a real terminal state reached exactly at the cutoff.
+
+        Gymnax folds its own step limit into ``is_terminal``, so at the cutoff ``done`` is
+        true for two possible reasons. The adapter defers Gymnax's limit by one step, which
+        makes ``done`` a pure terminal signal, and termination then dominates the limit.
+        Reporting this as a truncation would keep the bootstrap under the default
+        ``truncation_policy="bootstrap"`` and bias the target upward on exactly the
+        transitions that must have no bootstrap.
+
+        Defends against: masking ``terminated`` by ``~truncated``, and against removing the
+        deferred limit.
+        """
+        raw, unlimited = _cartpole(10_000)
+        env = make_gymnax_env(raw)
+        key = jax.random.key(0)
+
+        state = env.reset(key, unlimited).state
+        horizon = 0
+        step = jax.jit(env.step)(key, state, jnp.int32(0), unlimited)
+        while not (step.terminated | step.truncated):
+            step = jax.jit(env.step)(key, step.state, jnp.int32(0), unlimited)
+            horizon += 1
+        horizon += 1
+        assert bool(step.terminated), "the unlimited run must end in a real termination"
+
+        _, collided = _cartpole(horizon)
+        state = env.reset(key, collided).state
+        for _ in range(horizon):
+            step = jax.jit(env.step)(key, state, jnp.int32(0), collided)
+            state = step.state
+
+        assert int(step.state.time) == horizon
+        assert bool(step.terminated)
+        assert not bool(step.truncated)
+
 
 _FULL_THROTTLE = jnp.array([1.0], dtype=jnp.float32)
 

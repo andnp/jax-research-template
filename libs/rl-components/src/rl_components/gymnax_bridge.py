@@ -103,6 +103,8 @@ class _GymnaxState(Protocol):
 class _GymnaxParams(Protocol):
     max_steps_in_episode: int
 
+    def replace(self, **changes: object) -> "_GymnaxParams": ...
+
 
 class _GymnaxObservationSpace(Protocol):
     shape: tuple[int, ...]
@@ -178,10 +180,20 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
     **It splits ``done``.** Gymnax fuses the time limit into ``is_terminal``, so the
     single flag cannot say whether the bootstrap should survive. The split uses the two
     fields every Gymnax environment carries: ``EnvState.time`` and
-    ``EnvParams.max_steps_in_episode``. The limitation is that an environment reaching a
-    genuinely terminal state on exactly the step the limit fires is reported as a
-    truncation; Gymnax exposes no way to tell the two apart, and no environment in the
-    registry distinguishes them either.
+    ``EnvParams.max_steps_in_episode``.
+
+    The collision case -- an environment reaching a genuinely terminal state on exactly
+    the step the limit fires -- is resolved rather than conceded. The adapter hands Gymnax
+    a limit one step higher than the real one, so Gymnax's own cutoff cannot contribute to
+    ``done`` on the final step, and ``done`` there is purely the environment's terminal
+    signal. The truncation comes from this adapter's own ``time >= limit`` instead. Without
+    the offset a real termination landing on the limit step reads as a truncation and keeps
+    its bootstrap under ``truncation_policy="bootstrap"``, biasing the target upward on
+    exactly the transitions that should have no bootstrap at all.
+
+    Raising the limit shifts Gymnax's ``info["discount"]`` at the boundary, which is inert
+    here: nothing in ``rl_agents`` or :mod:`rl_components.loop` reads it, and the loop
+    derives its own coefficient in :func:`rl_components.timestep.bootstrap_terms`.
 
     Both action-space kinds are specified. A space exposing an integer ``n`` is discrete;
     any other space is continuous and is described by its own ``shape`` plus, when it
@@ -229,8 +241,13 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
             action_high=action_high,
         )
 
+    def _deferred_limit(self, resolved: ParamsT) -> ParamsT:
+        """Return ``resolved`` with Gymnax's own cutoff moved one step out of reach."""
+        return cast(ParamsT, resolved.replace(max_steps_in_episode=resolved.max_steps_in_episode + 1))
+
     def reset(self, key: chex.PRNGKey, params: ParamsT | None = None) -> EnvReset[jax.Array, StateT]:
-        observation, state = self._env.reset_env(key, self._resolve(params))
+        resolved = self._resolve(params)
+        observation, state = self._env.reset_env(key, self._deferred_limit(resolved))
         return EnvReset(observation=observation, state=state)
 
     def step(
@@ -241,15 +258,22 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         params: ParamsT | None = None,
     ) -> EnvStep[jax.Array, StateT]:
         resolved = self._resolve(params)
-        observation, next_state, reward, done, info = self._env.step_env(key, state, action, resolved)
+        limit = resolved.max_steps_in_episode
+        observation, next_state, reward, done, info = self._env.step_env(
+            key, state, action, self._deferred_limit(resolved)
+        )
         done = jnp.asarray(done, dtype=jnp.bool_)
-        truncated = jnp.asarray(next_state.time >= resolved.max_steps_in_episode, dtype=jnp.bool_)
+        # ``done`` is a pure terminal signal because ``_deferred_limit`` put Gymnax's own
+        # cutoff out of reach, so termination dominates the limit rather than yielding to
+        # it. Masking ``done`` by ``~truncated`` here would reintroduce the collision the
+        # deferred limit exists to resolve.
+        reached_limit = jnp.asarray(next_state.time >= limit, dtype=jnp.bool_)
         return EnvStep(
             observation=observation,
             state=next_state,
             reward=jnp.asarray(reward, dtype=jnp.float32),
-            terminated=done & ~truncated,
-            truncated=truncated,
+            terminated=done,
+            truncated=reached_limit & ~done,
             info={key_name: jnp.asarray(value) for key_name, value in info.items()},
         )
 
