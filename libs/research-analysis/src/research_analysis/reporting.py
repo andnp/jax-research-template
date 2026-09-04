@@ -746,6 +746,7 @@ def _load_bakeoff_data(
     algorithms: list[str],
     environments: list[str],
     metric_name: str,
+    schema: AnalysisSchema | None,
 ) -> tuple[dict[tuple[str, str], dict[int, float]], dict[str, list[float]]]:
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -766,8 +767,16 @@ def _load_bakeoff_data(
             if hyper_config is None:
                 continue
             hypers = json.loads(hyper_config.json_blob)
-            algo = str(hypers.get("algorithm", ""))
-            env = str(hypers.get("env_name", ""))
+            algo = (
+                schema.condition_name(hypers)
+                if schema is not None
+                else str(hypers.get("algorithm", ""))
+            )
+            env = (
+                schema.environment_name(hypers)
+                if schema is not None
+                else str(hypers.get("env_name", ""))
+            )
             if algo not in algorithms or env not in environments:
                 continue
             metrics_db = _resolve_metrics_db_path(latest_art.root_path)
@@ -968,6 +977,7 @@ def compare_bakeoff(
     environments: list[str],
     metric_name: str,
     verbose: bool = True,
+    schema: AnalysisSchema | None = None,
 ) -> BenchmarkBakeoffReport:
     """Compare algorithms with ECDF normalization and a listwise-deleted Friedman test."""
     if len(algorithms) < 3:
@@ -982,6 +992,7 @@ def compare_bakeoff(
         algorithms,
         environments,
         metric_name,
+        schema,
     )
 
     statistics = _compute_bakeoff_statistics(
