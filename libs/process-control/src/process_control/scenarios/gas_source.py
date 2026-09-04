@@ -36,6 +36,8 @@ class GasSourceParams:
     # ── Diurnal timing ────────────────────────────────────────────
     steps_per_day: int = 288  # 5-min steps → 288/day
     h2s_phase_shift: float = 0.0  # phase offset (0–1) for H₂S vs gas flow
+    load_shift_step: int | None = None
+    load_shift_multiplier: float = 1.0
 
 
 @jax_dataclass
@@ -98,6 +100,10 @@ def step(
         h2s_channel,
         k2,
     )
+    if params.load_shift_step is not None:
+        load_multiplier = jnp.where(step_count >= params.load_shift_step, params.load_shift_multiplier, 1.0)
+        gas_flow *= load_multiplier
+        h2s_ppm *= load_multiplier
 
     new_state = GasSourceState(
         gas_flow_drift=new_flow_drift,

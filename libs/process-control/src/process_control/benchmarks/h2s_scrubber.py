@@ -31,6 +31,8 @@ Reward: minimize OPEX subject to removal efficiency ≥ target.
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
 
 import jax
 import jax.numpy as jnp
@@ -64,9 +66,30 @@ from process_control.units.scrubber_sump import step as sump_step
 # ── Configuration ─────────────────────────────────────────────────────
 
 
+class H2SScenario(StrEnum):
+    NOMINAL = "nominal"
+    LOAD_SHIFT = "load_shift"
+
+
+@dataclass(frozen=True, slots=True)
+class H2SScenarioContract:
+    """Immutable construction-time contract for a named H₂S evaluation regime."""
+
+    name: H2SScenario
+    load_shift_step: int | None
+    load_shift_multiplier: float
+
+
+H2S_SCENARIO_CONTRACTS = MappingProxyType({
+    H2SScenario.NOMINAL: H2SScenarioContract(H2SScenario.NOMINAL, None, 1.0),
+    H2SScenario.LOAD_SHIFT: H2SScenarioContract(H2SScenario.LOAD_SHIFT, 2_000, 2.0),
+})
+
+
 @dataclass(frozen=True)
 class H2SScrubberConfig:
     dt: float = 1.0 / 12.0  # hours (5-min steps)
+    scenario: H2SScenario = H2SScenario.NOMINAL
 
     # ── Action ranges (setpoint bounds) ───────────────────────────
     ph_sp_min: float = 8.0
@@ -168,6 +191,7 @@ def make_h2s_scrubber_benchmark(
     Callable[[jax.Array], tuple[H2SScrubberState, jax.Array]],
     Callable[[H2SScrubberState, jax.Array, jax.Array], tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
+    scenario = H2S_SCENARIO_CONTRACTS[config.scenario]
     dt = jnp.array(config.dt)
     recirc_flow = jnp.array(config.recirc_flow)
     target_eff = jnp.array(config.target_efficiency)
@@ -181,6 +205,8 @@ def make_h2s_scrubber_benchmark(
         mean_h2s_ppm=config.mean_h2s_ppm,
         h2s_amplitude=config.h2s_amplitude,
         steps_per_day=config.steps_per_day,
+        load_shift_step=scenario.load_shift_step,
+        load_shift_multiplier=scenario.load_shift_multiplier,
     )
 
     sump_params = ScrubberSumpParams(
@@ -445,4 +471,3 @@ def make_h2s_scrubber_benchmark(
         )
 
     return reset, step
-

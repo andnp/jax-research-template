@@ -1,12 +1,14 @@
 """Tests for the H₂S scrubber benchmark."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import DIRECT, FEEDFORWARD
 from process_control.benchmarks.h2s_scrubber import (
+    H2SScenario,
     H2SScrubberConfig,
     H2SScrubberState,
     make_h2s_scrubber_benchmark,
@@ -115,6 +117,21 @@ class TestActions:
 
         # At least caustic or bleach pump should be elevated
         assert float(info["caustic_pump"]) > config.caustic_ff * 0.5 or float(info["bleach_pump"]) > config.bleach_ff * 0.5
+
+
+def test_load_shift_scenario_is_selected_at_construction() -> None:
+    """Apply the named twofold gas-load shift without changing environment shape."""
+    nominal_reset, nominal_step = make_h2s_scrubber_benchmark(H2SScrubberConfig())
+    shifted_reset, shifted_step = make_h2s_scrubber_benchmark(H2SScrubberConfig(scenario=H2SScenario.LOAD_SHIFT))
+    nominal_state, _ = nominal_reset(jax.random.PRNGKey(0))
+    shifted_state, _ = shifted_reset(jax.random.PRNGKey(0))
+    nominal_state = replace(nominal_state, step_count=jnp.array(2_000))
+    shifted_state = replace(shifted_state, step_count=jnp.array(2_000))
+
+    _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.zeros(3), jax.random.PRNGKey(1))
+    _, _, _, _, shifted_info = shifted_step(shifted_state, jnp.zeros(3), jax.random.PRNGKey(1))
+
+    assert float(shifted_info["inlet_h2s_ppm"]) > float(nominal_info["inlet_h2s_ppm"])
 
 
 class TestReward:
