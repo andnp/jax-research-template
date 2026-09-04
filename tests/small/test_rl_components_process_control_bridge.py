@@ -18,7 +18,7 @@ def test_chlorine_adapter_exposes_native_action_bounds() -> None:
 
 
 def test_h2s_adapter_exposes_per_setpoint_action_bounds() -> None:
-    """Expose physical pH, ORP, and level limits for the H2S action vector.
+    """Expose physical pH, ORP, and flow limits for the H2S action vector.
 
     Continuous-control consumers need these bounds to normalize each setpoint
     without collapsing the three physical ranges into one scalar interval.
@@ -28,8 +28,8 @@ def test_h2s_adapter_exposes_per_setpoint_action_bounds() -> None:
     assert action_space.shape == (3,)
     assert action_space.action_low is not None
     assert action_space.action_high is not None
-    assert jnp.array_equal(action_space.action_low, jnp.array([8.0, 400.0, 3.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([9.8, 800.0, 8.0], dtype=jnp.float32))
+    assert jnp.array_equal(action_space.action_low, jnp.array([8.0, 400.0, 10.0], dtype=jnp.float32))
+    assert jnp.array_equal(action_space.action_high, jnp.array([9.8, 800.0, 30.0], dtype=jnp.float32))
 
 
 def test_h2s_env_tracks_configured_setpoint_bounds() -> None:
@@ -40,14 +40,14 @@ def test_h2s_env_tracks_configured_setpoint_bounds() -> None:
         ph_sp_max=10.5,
         orp_sp_min=450.0,
         orp_sp_max=750.0,
-        level_sp_min=3.5,
-        level_sp_max=7.5,
+        makeup_flow_sp_min=12.0,
+        makeup_flow_sp_max=28.0,
     ).spec()
 
     assert spec.action_low is not None
     assert spec.action_high is not None
-    assert jnp.array_equal(spec.action_low, jnp.array([8.5, 450.0, 3.5], dtype=jnp.float32))
-    assert jnp.array_equal(spec.action_high, jnp.array([10.5, 750.0, 7.5], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_low, jnp.array([8.5, 450.0, 12.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([10.5, 750.0, 28.0], dtype=jnp.float32))
 
 
 def test_h2s_scenario_is_part_of_static_environment_identity() -> None:

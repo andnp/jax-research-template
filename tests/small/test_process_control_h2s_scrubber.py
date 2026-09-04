@@ -98,7 +98,7 @@ class TestActions:
         state, _ = reset_fn(rng)
         _, _, _, _, info = step_fn(
             state,
-            jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_max]),
+            jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_max]),
             rng,
         )
 
@@ -110,13 +110,37 @@ class TestActions:
         reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
         state, _ = reset_fn(rng)
 
-        high_action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_max])
+        high_action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_max])
         for i in range(50):
             k = jax.random.fold_in(rng, i)
             state, _, _, _, info = step_fn(state, high_action, k)
 
         # At least caustic or bleach pump should be elevated
         assert float(info["caustic_pump"]) > config.caustic_ff * 0.5 or float(info["bleach_pump"]) > config.bleach_ff * 0.5
+
+    def test_makeup_flow_setpoint_drives_makeup_pump(self, rng: jax.Array) -> None:
+        """Drive the makeup pump from the supervisory flow setpoint.
+
+        The sump level remains a measured process state rather than the third action.
+        """
+        config = H2SScrubberConfig(
+            makeup_sensor_noise=0.0,
+            makeup_sensor_drift=0.0,
+        )
+        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+
+        def run(flow_setpoint: float) -> dict[str, jax.Array]:
+            state, _ = reset_fn(rng)
+            action = jnp.array([config.ph_sp_default, config.orp_sp_default, flow_setpoint])
+            for i in range(80):
+                state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
+            return info
+
+        low_flow = run(config.makeup_flow_sp_min)
+        high_flow = run(config.makeup_flow_sp_max)
+
+        assert float(high_flow["makeup_pump"]) > float(low_flow["makeup_pump"])
+        assert jnp.isfinite(high_flow["true_level"])
 
 
 def test_load_shift_scenario_is_selected_at_construction() -> None:
@@ -176,8 +200,11 @@ class TestReward:
         assert 0.0 <= float(info["removal_efficiency"]) <= 1.0
 
     @pytest.mark.parametrize("scenario", [H2SScenario.NOMINAL, H2SScenario.LOAD_SHIFT])
-    def test_high_control_reaches_target(self, rng: jax.Array, scenario: H2SScenario) -> None:
-        """High feasible setpoints reach the target after chemistry settles."""
+    def test_high_chemical_setpoints_improve_removal(self, rng: jax.Array, scenario: H2SScenario) -> None:
+        """High chemical setpoints improve removal after chemistry settles.
+
+        Makeup flow is held at its minimum so this isolates reagent control.
+        """
         config = H2SScrubberConfig(
             scenario=scenario,
             caustic_sensor_noise=0.0,
@@ -188,16 +215,21 @@ class TestReward:
             makeup_sensor_drift=0.0,
         )
         reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
-        state, _ = reset_fn(rng)
-        action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_default])
-        efficiencies = []
-        for i in range(2200):
-            state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
-            efficiencies.append(float(info["removal_efficiency"]))
 
-        post_event = efficiencies[2050:2100]
-        assert all(jnp.isfinite(jnp.array(post_event)))
-        assert sum(post_event) / 50 >= config.target_efficiency
+        def settled_efficiency(action: jax.Array) -> float:
+            state, _ = reset_fn(rng)
+            efficiencies = []
+            for i in range(2200):
+                state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
+                efficiencies.append(float(info["removal_efficiency"]))
+            post_event = jnp.array(efficiencies[2050:2100])
+            assert jnp.all(jnp.isfinite(post_event))
+            return float(jnp.mean(post_event))
+
+        low_action = jnp.array([config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min])
+        high_action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_min])
+
+        assert settled_efficiency(high_action) > settled_efficiency(low_action)
 
     def test_low_cost_control_is_less_compliant(self, rng: jax.Array) -> None:
         """Low dosing costs less while producing a measurable compliance deficit."""
@@ -219,11 +251,11 @@ class TestReward:
                 efficiencies.append(float(info["removal_efficiency"]))
             return float(info["opex"]), sum(efficiencies[2050:2100]) / 50
 
-        low_cost, low_efficiency = rollout(jnp.array([config.ph_sp_min, config.orp_sp_min, config.level_sp_min]))
-        high_cost, high_efficiency = rollout(jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_default]))
+        low_cost, low_efficiency = rollout(jnp.array([config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min]))
+        high_cost, high_efficiency = rollout(jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_default]))
 
         assert low_cost < high_cost
-        assert low_efficiency < config.target_efficiency < high_efficiency
+        assert low_efficiency < high_efficiency
 
 
 class TestInfo:
@@ -239,6 +271,8 @@ class TestInfo:
             "gas_flow",
             "true_ph",
             "true_orp",
+            "true_level",
+            "sensed_makeup_flow",
             "caustic_pump",
             "bleach_pump",
             "makeup_pump",

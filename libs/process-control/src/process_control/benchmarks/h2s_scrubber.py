@@ -7,12 +7,12 @@ controllers chase those setpoints with realistic imperfections.
 Action space (3D):
   action[0]: pH setpoint for caustic dosing loop
   action[1]: ORP setpoint for bleach dosing loop (mV)
-  action[2]: sump level setpoint for makeup flow (m³)
+  action[2]: softened-water makeup flow setpoint (L/min)
 
 Observation space (12D):
   [0]  sensed pH           (from caustic loop sensor)
   [1]  sensed ORP          (from bleach loop sensor, mV)
-  [2]  sensed sump level   (from makeup loop sensor, m³)
+  [2]  sump level           (m³)
   [3]  inlet H₂S           (ppmv, direct measurement)
   [4]  outlet H₂S          (ppmv, direct measurement)
   [5]  gas flow             (m³/h, direct measurement)
@@ -99,9 +99,9 @@ class H2SScrubberConfig:
     orp_sp_max: float = 800.0
     orp_sp_default: float = 650.0
 
-    level_sp_min: float = 3.0  # m³
-    level_sp_max: float = 8.0
-    level_sp_default: float = 5.0
+    makeup_flow_sp_min: float = 10.0  # L/min
+    makeup_flow_sp_max: float = 30.0
+    makeup_flow_sp_default: float = 20.0
 
     # ── Caustic dosing loop (pH control) ──────────────────────────
     caustic_control_mode: int = SUPERVISORY
@@ -267,7 +267,7 @@ def make_h2s_scrubber_benchmark(
 
     makeup_params = DosingSystemParams(
         control_mode=config.makeup_control_mode,
-        base_setpoint=config.level_sp_default,
+        base_setpoint=config.makeup_flow_sp_default,
         sensor_noise_std=config.makeup_sensor_noise,
         sensor_lag=config.makeup_sensor_lag,
         sensor_drift_rate=config.makeup_sensor_drift,
@@ -289,7 +289,7 @@ def make_h2s_scrubber_benchmark(
     # Observation normalization constants
     ph_scale = jnp.array(config.ph_sp_max - config.ph_sp_min)
     orp_scale = jnp.array(config.orp_sp_max - config.orp_sp_min)
-    level_scale = jnp.array(config.level_sp_max - config.level_sp_min)
+    level_scale = jnp.array(config.sump_volume_max)
     h2s_scale = jnp.array(config.mean_h2s_ppm * 2.0)
     flow_scale = jnp.array(config.mean_gas_flow)
     steps_per_day = jnp.array(config.steps_per_day, dtype=jnp.float32)
@@ -323,7 +323,7 @@ def make_h2s_scrubber_benchmark(
             k4,
         )
         makeup_state = dosing_reset(
-            config.sump_nominal_volume,
+            config.makeup_ff,
             config.makeup_ff,
             k5,
         )
@@ -348,7 +348,7 @@ def make_h2s_scrubber_benchmark(
         k_gas, k_caustic, k_bleach, k_makeup = jax.random.split(rng_key, 4)
 
         # The public action-normalization wrapper converts [-1, 1] to setpoints.
-        ph_sp, orp_sp, level_sp = action
+        ph_sp, orp_sp, makeup_flow_sp = action
 
         # ── 2. Gas source ─────────────────────────────────────────
         new_gas, gas_flow, h2s_ppm = gas_step(
@@ -376,6 +376,7 @@ def make_h2s_scrubber_benchmark(
         true_ph = compute_ph(state.sump)
         true_orp = compute_orp(state.sump)
         true_level = state.sump.volume
+        true_makeup_flow = state.makeup_loop.pump_output
 
         new_caustic, sensed_ph, caustic_pump, caustic_pi = dosing_step(
             state.caustic_loop,
@@ -393,10 +394,10 @@ def make_h2s_scrubber_benchmark(
             dt,
             k_bleach,
         )
-        new_makeup, sensed_level, makeup_pump, makeup_pi = dosing_step(
+        new_makeup, sensed_makeup_flow, makeup_pump, makeup_pi = dosing_step(
             state.makeup_loop,
-            level_sp,
-            true_level,
+            makeup_flow_sp,
+            true_makeup_flow,
             makeup_params,
             dt,
             k_makeup,
@@ -454,6 +455,8 @@ def make_h2s_scrubber_benchmark(
             "gas_flow": gas_flow,
             "true_ph": true_ph,
             "true_orp": true_orp,
+            "true_level": true_level,
+            "sensed_makeup_flow": sensed_makeup_flow,
             "caustic_pump": caustic_pump,
             "bleach_pump": bleach_pump,
             "makeup_pump": makeup_pump,
@@ -478,7 +481,7 @@ def make_h2s_scrubber_benchmark(
             [
                 plant.caustic_loop.sensor_value / ph_scale,  # sensed pH (normalised)
                 plant.bleach_loop.sensor_value / orp_scale,  # sensed ORP (normalised)
-                plant.makeup_loop.sensor_value / level_scale,  # sensed level (normalised)
+                plant.sump.volume / level_scale,  # sump level (normalised)
                 inlet_h2s / h2s_scale,  # inlet H₂S
                 outlet_h2s / h2s_scale,  # outlet H₂S
                 gas_flow / flow_scale,  # gas flow
