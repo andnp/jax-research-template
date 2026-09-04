@@ -508,3 +508,85 @@ def test_prune_keeps_an_orphan_that_an_execution_touched(tmp_path: Path) -> None
     assert result.exit_code == 0, result.output
     assert "no orphan runs" in result.output
     assert _run_count(db_path) == 2
+
+
+def test_invalidate_all_unsatisfies_every_arm(tmp_path: Path) -> None:
+    """``--all`` is the clean-re-run reset: every arm becomes unsatisfied, not just one.
+
+    The complement of the ``--where`` case above, which deliberately leaves the unmatched
+    arm satisfied.
+    """
+    db_path = tmp_path / "inv_all.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id, changed_run_id, stable_run_id = _seed_two_arm_experiment(db)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--all"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Invalidated 2" in result.output
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        unsatisfied = {run.id for run in db.list_unsatisfied_runs(exp_id)}
+    assert unsatisfied == {changed_run_id, stable_run_id}
+
+
+def test_invalidate_all_leaves_other_experiments_alone(tmp_path: Path) -> None:
+    """Scoped to ``--experiment``: a shared database must not lose an unrelated study."""
+    db_path = tmp_path / "inv_all_scope.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        _seed_two_arm_experiment(db)
+        other_exp = db.add_experiment("other-study")
+        algo = db.get_component("algo")
+        env = db.get_component("env")
+        assert algo is not None and env is not None
+        algo_ver = db.get_latest_version(algo.id)
+        env_ver = db.get_latest_version(env.id)
+        assert algo_ver is not None and env_ver is not None
+        other_run = db.add_run(other_exp, algo_ver.id, env_ver.id, db.add_hyperparam_config({"algorithm": "other"}), seed=0)
+        other_execution = db.add_execution(hostname="n3")
+        db.link_execution_run(other_execution, other_run)
+        db.update_execution_status(other_execution, "COMPLETED")
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--all", "--yes"],
+    )
+    assert result.exit_code == 0, result.output
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        assert db.list_unsatisfied_runs(other_exp) == []
+
+
+def test_invalidate_all_requires_an_experiment(tmp_path: Path) -> None:
+    """Without a slug ``--all`` would mean every experiment in the database, so it refuses."""
+    db_path = tmp_path / "inv_all_noexp.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+
+    result = runner.invoke(app, ["experiment", "invalidate", str(db_path), "--all"])
+
+    assert result.exit_code == 1
+    assert "--all requires --experiment" in result.output
+
+
+def test_invalidate_all_rejects_a_where_clause(tmp_path: Path) -> None:
+    """The two selectors express opposite intents, so combining them is an error, not a merge."""
+    db_path = tmp_path / "inv_all_where.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        _seed_two_arm_experiment(db)
+
+    result = runner.invoke(
+        app,
+        ["experiment", "invalidate", str(db_path), "--experiment", "bakeoff", "--all", "--where", "algorithm=gi_qrc"],
+    )
+
+    assert result.exit_code == 1
+    assert "contradictory" in result.output
