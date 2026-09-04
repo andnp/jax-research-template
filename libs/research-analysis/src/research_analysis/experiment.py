@@ -83,7 +83,14 @@ def resolve_run_artifacts(
 
     By default (``latest_component_versions=True``) only runs whose
     ``algo_version_id`` and ``env_version_id`` both equal the maximum values
-    present for this experiment are returned. Without this restriction, an
+    among runs *with completed executions* are returned — i.e. the newest
+    version that actually has results, not merely the newest version that
+    exists. ``sync`` mints a new ComponentVersion and inserts unexecuted Run
+    rows for it the moment a component's source hash changes, including for
+    a behaviour-preserving refactor; if the max were taken over all runs,
+    the newest version would routinely have zero completed runs and this
+    function would silently return an empty frame for a study that is in
+    fact complete at the prior version. Without this restriction at all, an
     experiment re-run after an agent or environment fix silently pools runs
     from every prior code version into one result, averaging broken and fixed
     behaviour together with no error or warning. ``algo_version_id`` is
@@ -100,7 +107,7 @@ def resolve_run_artifacts(
     Raises:
         ValueError: If the experiment slug is not found in the database.
     """
-    from experiment_definition.db import DatabaseManager
+    from experiment_definition.db import DatabaseManager, ExecutionArtifactRow, ExecutionRow, RunRow
 
     rows: list[dict[str, object]] = []
 
@@ -110,22 +117,24 @@ def resolve_run_artifacts(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        runs = db.list_runs(experiment.id)
-        if latest_component_versions and runs:
-            max_algo = _max_component_version([r.algo_version_id for r in runs])
-            max_env = _max_component_version([r.env_version_id for r in runs])
-            runs = [
-                r
-                for r in runs
-                if r.algo_version_id == max_algo and r.env_version_id == max_env
-            ]
-
-        for run in runs:
+        completed: list[tuple[RunRow, ExecutionRow, ExecutionArtifactRow]] = []
+        for run in db.list_runs(experiment.id):
             latest_exec = db.get_latest_completed_execution_for_run(run.id)
             latest_artifacts = db.get_latest_completed_artifacts_for_run(run.id)
             if latest_exec is None or latest_artifacts is None:
                 continue
+            completed.append((run, latest_exec, latest_artifacts))
 
+        if latest_component_versions and completed:
+            max_algo = _max_component_version([r.algo_version_id for r, _, _ in completed])
+            max_env = _max_component_version([r.env_version_id for r, _, _ in completed])
+            completed = [
+                (r, e, a)
+                for r, e, a in completed
+                if r.algo_version_id == max_algo and r.env_version_id == max_env
+            ]
+
+        for run, latest_exec, latest_artifacts in completed:
             hyper_config = db.get_hyperparam_config(run.hyper_id)
             if hyper_config is None:
                 continue

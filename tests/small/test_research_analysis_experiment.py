@@ -288,6 +288,42 @@ class TestLatestComponentVersions:
 
         assert df["run_id"].to_list() == [run_id]
 
+    def test_unexecuted_newer_version_does_not_hide_completed_results(self, tmp_path: Path) -> None:
+        """A sync that mints a new version for a cosmetic change must not blank out a completed study.
+
+        ``sync`` inserts unexecuted Run rows for a new ComponentVersion the moment a
+        component's source hash changes, including for a behaviour-preserving
+        refactor. The newest version existing is not the same as the newest version
+        having results; the default must resolve to completed runs at the prior
+        version rather than returning an empty frame.
+        """
+        db_path = tmp_path / "experiments.sqlite"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with DatabaseManager(db_path) as db:
+            db.initialize()
+            algo_comp = db.add_component("ppo", "ALGO")
+            completed_algo_ver = db.add_component_version(algo_comp, "commit-v13")
+            unexecuted_algo_ver = db.add_component_version(algo_comp, "commit-v14-cosmetic")
+            env_comp = db.add_component("cartpole", "ENV")
+            env_ver = db.add_component_version(env_comp, "def456")
+            exp_id = db.add_experiment("resync-experiment")
+            assert unexecuted_algo_ver > completed_algo_ver  # fixture premise: v14 really is the max
+
+            completed_hyper = db.add_hyperparam_config({"condition_name": "oracle", "seed": 0})
+            completed_run = db.add_run(exp_id, completed_algo_ver, env_ver, completed_hyper, 0)
+            exec_id = db.add_execution()
+            db.link_execution_run(exec_id, completed_run)
+            db.record_execution_artifacts(exec_id, str(db_path.parent / "executions" / str(exec_id)))
+            db.update_execution_status(exec_id, "COMPLETED")
+
+            unexecuted_hyper = db.add_hyperparam_config({"condition_name": "oracle", "seed": 0})
+            db.add_run(exp_id, unexecuted_algo_ver, env_ver, unexecuted_hyper, 0)
+
+        df = resolve_run_artifacts(db_path, "resync-experiment")
+
+        assert df["run_id"].to_list() == [completed_run]
+
 
 # ---------------------------------------------------------------------------
 # load_experiment_metrics
