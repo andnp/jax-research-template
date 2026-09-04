@@ -14,7 +14,7 @@ import gymnax
 import jax
 import jax.numpy as jnp
 from rl_components.env_protocol import EnvSpec
-from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.gymnax_bridge import make_gymnax_env, make_normalized_gymnax_env
 
 
 class _CartPoleState(Protocol):
@@ -215,3 +215,24 @@ class TestGymnaxEnvContinuousBoundaries:
         assert bool(step.terminated)
         assert not bool(step.truncated)
         assert int(step.state.time) < params.max_steps_in_episode
+
+
+class TestMakeNormalizedGymnaxEnv:
+    def test_a_continuous_environment_is_normalized_to_unit_bounds(self) -> None:
+        raw, params = gymnax.make("Pendulum-v1")
+
+        env = make_normalized_gymnax_env(raw)
+        spec = env.spec(params)
+
+        assert spec.num_actions is None
+        assert spec.action_low is not None and spec.action_high is not None
+        assert jnp.array_equal(spec.action_low, jnp.array([-1.0], dtype=jnp.float32))
+        assert jnp.array_equal(spec.action_high, jnp.array([1.0], dtype=jnp.float32))
+
+    def test_a_discrete_environment_is_returned_unwrapped(self) -> None:
+        raw, params = _cartpole()
+
+        env = make_normalized_gymnax_env(raw)
+        spec = env.spec(params)
+
+        assert spec.num_actions == 2
