@@ -154,12 +154,22 @@ def status(
                     )
 
 
+_ONLY_HELP = (
+    "Restrict to runs matching key=value. Repeatable and AND-ed; comma-separated values OR "
+    "within one clause, so seed=0,1,2 selects a range. Matches hyperparameters plus the "
+    "seed and ablation columns."
+)
+
+
 @experiment_app.command("plan")
 def plan(
     spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
+    only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
 ):
+    only_clauses = _parse_key_value_options(only, "--only") if only else None
+
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
 
@@ -179,6 +189,7 @@ def plan(
             batches = database.list_unsatisfied_run_batches(
                 exp_row.id,
                 max_runs_per_batch=experiment_spec.max_runs_per_batch,
+                only=only_clauses,
             )
 
         typer.echo(f"Spec '{name}': {len(batches)} batch(es) planned")
@@ -248,8 +259,11 @@ def run(
         "--reclaim-stale-after",
         help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
     ),
+    only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
 ):
     from research_runner import run_experiment
+
+    only_clauses = _parse_key_value_options(only, "--only") if only else None
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
@@ -270,6 +284,7 @@ def run(
             reclaim_stale_after_seconds=reclaim_stale_after,
             static_parameter_names=experiment_spec.static_parameter_names,
             metric_subsample_factor=experiment_spec.metric_subsample_factor,
+            only=only_clauses,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
@@ -303,15 +318,15 @@ def executions(
         typer.echo(f"{row.id:<6} {row.status:<12} {hostname_display:<20} {start_display:<22} {commit_display:<10}")
 
 
-def _parse_where_clauses(where: list[str]) -> dict[str, str]:
-    clauses: dict[str, str] = {}
-    for clause in where:
+def _parse_key_value_options(clauses: list[str], flag: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for clause in clauses:
         if "=" not in clause:
-            typer.echo(f"Error: --where clause '{clause}' must be key=value.", err=True)
+            typer.echo(f"Error: {flag} clause '{clause}' must be key=value.", err=True)
             raise typer.Exit(code=1)
         key, _, value = clause.partition("=")
-        clauses[key] = value
-    return clauses
+        parsed[key] = value
+    return parsed
 
 
 @experiment_app.command("invalidate")
@@ -345,7 +360,7 @@ def invalidate(
         typer.echo("Error: --all and --where are contradictory; pass one or the other.", err=True)
         raise typer.Exit(code=1)
 
-    where_clauses = _parse_where_clauses(where) if where else {}
+    where_clauses = _parse_key_value_options(where, "--where") if where else {}
     where_display = ", ".join(f"{k}={v}" for k, v in where_clauses.items())
 
     matched_where_ids: list[int] = []
