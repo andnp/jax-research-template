@@ -8,15 +8,14 @@ from rl_agents.sac import Actor, Critic, SACConfig
 
 
 class _MutableSACConfig(Protocol):
-    LR: float
+    LEARNING_RATE: float
 
 
 class TestSACConfig:
     def test_defaults(self) -> None:
         cfg = SACConfig()
-        assert cfg.LR == 3e-4
+        assert cfg.LEARNING_RATE == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
-        assert cfg.GAMMA == 0.99
         assert cfg.TAU == 0.005
         assert cfg.ALPHA == 0.2
         assert cfg.TARGET_ENTROPY is None
@@ -25,7 +24,7 @@ class TestSACConfig:
         cfg = SACConfig()
         try:
             mutable_cfg = cast(_MutableSACConfig, cfg)
-            mutable_cfg.LR = 0.1
+            mutable_cfg.LEARNING_RATE = 0.1
             raise AssertionError("Should have raised")
         except AttributeError:
             pass

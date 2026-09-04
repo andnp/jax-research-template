@@ -37,7 +37,7 @@ from rl_agents.continuous_actions import continuous_action_dim, uniform_explorat
 
 @chex_struct(frozen=True, kw_only=True)
 class SACConfig:
-    LR: float = 3e-4
+    LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
@@ -61,7 +61,7 @@ class SACHypers:
     per-state leaf derived once in ``init`` rather than a swept hyper.
     """
 
-    LR: jax.Array
+    LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     TAU: jax.Array
@@ -69,7 +69,7 @@ class SACHypers:
 
 def sac_hypers(config: SACConfig) -> SACHypers:
     return SACHypers(
-        LR=jnp.asarray(config.LR, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
@@ -349,7 +349,7 @@ class SACAgent:
         )
         target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
 
-        lr = jnp.asarray(self.config.LR, jnp.float32)
+        lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
         return SACAgentState(
             actor_state=TrainState.create(
                 apply_fn=actor.apply,
@@ -494,7 +494,7 @@ class SACAgent:
         def _with_lr(train_state: TrainState) -> TrainState:
             opt_state = train_state.opt_state
             return train_state.replace(
-                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR})
+                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LEARNING_RATE})
             )
 
         critic_state = _with_lr(state.critic_state)
