@@ -131,6 +131,56 @@ class TestRunExperiment:
         assert second == []
 
 
+    def test_only_restricts_which_runs_execute(self, db_path: Path, executions_root: Path) -> None:
+        """A selector confines the loop to matching runs, leaving the rest plannable.
+
+        The unselected runs must stay executable afterwards: ``--only`` narrows one
+        invocation, it does not retire what it skipped.
+        """
+        exp = _make_experiment()
+
+        selected = run_experiment(
+            db_path,
+            exp,
+            _trivial_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+            only={"seed": "0"},
+        )
+        assert len(selected) == 1
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            runs = database.list_execution_runs(
+                database.list_executions()[0].id,
+            )
+        assert [run.seed for run in runs] == [0]
+
+        remaining = run_experiment(
+            db_path,
+            exp,
+            _trivial_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+        )
+        assert len(remaining) == 1
+
+    def test_only_matching_nothing_executes_nothing(self, db_path: Path, executions_root: Path) -> None:
+        """An unmatched selector is a no-op rather than a fallback to running everything."""
+        exp = _make_experiment()
+
+        roots = run_experiment(
+            db_path,
+            exp,
+            _trivial_train_fn,
+            executions_root=executions_root,
+            capture_git=False,
+            only={"seed": "99"},
+        )
+
+        assert roots == []
+
+
 # ── execute_batch ─────────────────────────────────────────────────────────────
 
 
