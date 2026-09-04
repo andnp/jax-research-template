@@ -752,6 +752,17 @@ Each step is independently valid and bisect-safe. Per repository policy the old 
 deleted in the same commit as its replacement; equivalence tests against previous
 behaviour are scaffolding inside that commit, not surviving parallel paths.
 
+**One exception, forced by the repository layout and used in steps 6, 8 and 11.** When a
+contract change has a consumer in ANOTHER repository, no commit can carry both halves, and
+deleting the old path first breaks that consumer the instant the worktree changes —
+`projects/iterated-gtd` in particular has no submodule pointer and resolves `rl-agents`
+from this worktree via `workspace = true`. Those steps therefore land additively first, then
+update the out-of-repo consumer in its own repository, then delete. The parallel path is
+real but bounded, and each module's docstring carries the removal condition naming the exact
+file that holds it open. Those conditions must be corrected as consumers port: three of them
+were stale within a day of being written, and a stale one is a trap, since the next reader
+deletes on its authority.
+
 1. Fix the two immediately-fixable adapter defects in §8.2 — the `brax` `terminated`
    mapping and the `mujoco_playground_bridge` `truncated` mapping — each with the test that
    pins it. Independent of everything else.
@@ -768,9 +779,12 @@ behaviour are scaffolding inside that commit, not surviving parallel paths.
    other.
 4. Port `DQN` to `DQNAgent`; delete `dqn.make_train`; update callers and tests.
 5. `double_dqn`, `dueling_dqn` — near-identical to DQN, should be close to free.
-6. `sac`, `td3`, `qrc`, `greedy_ac`. `sac` and `td3` must migrate together with
-   `projects/process-control-baselines` (`rl_comparison.py:156-158`,
-   `declarative.py:304,317`), which calls their `make_train` directly.
+6. `sac`, `td3`, `qrc`, `greedy_ac`, and `sac_rc` — the last of which did not exist when
+   this plan was written and was built on the `make_train` path *during* the migration, so
+   it needed porting alongside the agents it was modelled on. `sac` and `td3` must migrate
+   together with `projects/process-control-baselines`, which calls their `make_train`
+   directly. Per the exception above this is three commits, not one: add the agents, port
+   the project, then delete.
 7. `dqn_atari` — already half-split via `init_runner_state` / `make_train_step`. Removes
    `python_env_bridge`'s fused reset and `frame_stack`'s in the same commit as the port,
    since until this step they are the ALE path's only reset (§8.2).
@@ -780,11 +794,27 @@ behaviour are scaffolding inside that commit, not surviving parallel paths.
    `categorical_target_support`, deletion of the compile-time `bootstrap_discount`. It uses
    `jax_replay.per`, not `ReplayBuffer`, so it is untouched by step 2 and carries the fused
    flag until here.
-10. Delete `rl_components.gym_env.GymEnv`. By now the loop is the only consumer of `env`,
-    so this drops from a twelve-file change to a one-file change, and `EnvProtocol` finally
-    becomes the real port.
-11. Migrate the project agents that copy the skeleton (`iterated-gtd`,
-    `gac-gradient-refinement`), including `comparison.py` and `discrete_comparison.py`.
+10. Migrate the project agents that copy the skeleton — `iterated-gtd`,
+    `gac-gradient-refinement` — and the remaining project consumers of a library
+    `make_train` (`missingness-rl`, a submodule, calls `ppo.make_train`). This step moved
+    BEFORE the `gym_env` deletion: as originally ordered it deleted a symbol that step 11's
+    code still imported at 25 sites across three projects, 17 of them in `iterated-gtd`
+    including its own env factory `tasks.py`. `comparison.py` and `discrete_comparison.py`
+    are no longer in scope; `iterated-gtd` deleted both along with its hand-rolled sweep
+    runner before this step reached them.
+11. Delete `rl_components.gym_env.GymEnv` and the legacy `GymnaxCompatibilityBridge`. Only
+    now is the loop the only consumer of `env`. The modern `GymnaxEnv` adapter in the same
+    module stays: it is what the loop consumes.
+
+**A prerequisite this plan did not anticipate.** Nothing converted a gymnax environment
+*into* an `EnvProtocol`; `gymnax_bridge` only converted the other way, so `loop.run` was
+unreachable from every real consumer and step 4 could not begin. `GymnaxEnv` was written to
+close that gap. It must call `step_env`/`reset_env` rather than `step`, because gymnax's
+base `Environment.step` IS a fused autoreset (`lax.select(done, reset_state, step_state)`)
+and returns the post-reset observation on the terminal step — the same defect as §8.2's
+adapters, in the library rather than in this repository. It must also hand gymnax a step
+limit one higher than the real one, so that gymnax's own cutoff cannot contribute to `done`
+and a genuine termination landing exactly on the limit is not misread as a truncation.
 
 PPO's per-step restructuring shifts the RNG consumption pattern, so it will not reproduce
 bitwise against current baselines. Gate step 8 on metric-level equivalence, not exact
@@ -811,10 +841,14 @@ environment. Per `AGENTS.md` tiers:
 - The n-step accumulator flushing on a truncation inside its window, asserting that each
   of the `n` flushed items receives its **own** `D_t` for horizon `m - i`, not a shared
   `gamma ** n`.
-- **The §5 ordering rule, for every eligibility-trace agent** (`qrc`, `greedy_ac`): the
-  update at an episode's final transition must use the trace accumulated *before* the
-  boundary. Nothing in the type system prevents an agent from zeroing the trace first, so
-  this is the only guard.
+- **The §5 ordering rule.** ~~For every eligibility-trace agent (`qrc`, `greedy_ac`)~~ —
+  **struck: neither agent has one.** A grep for trace or eligibility state over both files
+  returns nothing; their `h`-heads are ordinary `nn.Dense` parameters living in
+  `TrainState.params`, persistent by design and never zeroed, and `GACConfig.TAU` documents
+  a target network that does not exist. There is no trace to accumulate or zero, so this
+  test has no instance to be written against. The ordering rule of §5 still holds
+  generically — complete the pending transition before selecting the next action — and is
+  covered by the loop tests and by each agent's boundary-property tests.
 - Rollout index alignment for PPO: the first rollout has `NUM_STEPS - 1` valid slots and
   every subsequent rollout has `NUM_STEPS`, since `valid` is false only at global `t = 0`.
 
