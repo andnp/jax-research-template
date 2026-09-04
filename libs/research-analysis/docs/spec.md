@@ -27,6 +27,16 @@
 ### 2.4 Baseline Construction
 - Utilities for creating and managing statistically sound baselines for comparative studies.
 
+### 2.5 Experiment Metadata Mapping
+- Analysis loaders use `condition_name` and `env_name` as canonical dimensions.
+- Callers with different stored keys may pass an `AnalysisSchema` mapping, such as
+  `condition_key="algorithm"` and `environment_key="benchmark"`.
+- Mapped loading preserves the canonical output names while retaining the stored
+  seed, step, metric, and value fields.
+- Omitting the schema preserves the legacy loader output and default key behavior.
+- Explicit mappings fail when a required dimension is absent instead of silently
+  collapsing runs into an empty condition.
+
 ## 3. Technical Constraints
 - **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.
 - **Data Engine:** **Polars** is the exclusive first-class citizen for data management. All data ingestion from SQLite must go through Polars DataFrames. No Pandas support will be implemented.
