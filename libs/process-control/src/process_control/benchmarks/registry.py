@@ -7,6 +7,9 @@ from typing import cast
 
 from process_control.actuators.dosing_system import DIRECT
 
+type ActionBound = float | tuple[float, ...]
+type ConfigBound = str | tuple[str, ...]
+
 
 @dataclass(frozen=True)
 class BenchmarkEntry:
@@ -18,10 +21,10 @@ class BenchmarkEntry:
     action_dim: int
     description: str
     scalar_action: bool = False
-    action_low: float | None = None
-    action_high: float | None = None
-    action_low_config: str | None = None
-    action_high_config: str | None = None
+    action_low: ActionBound | None = None
+    action_high: ActionBound | None = None
+    action_low_config: ConfigBound | None = None
+    action_high_config: ConfigBound | None = None
     action_control_mode_config: str | None = None
     action_control_mode: int | None = None
 
@@ -126,6 +129,10 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         12,
         3,
         "H₂S scrubber control",
+        action_low=(8.0, 400.0, 3.0),
+        action_high=(11.0, 800.0, 8.0),
+        action_low_config=("ph_sp_min", "orp_sp_min", "level_sp_min"),
+        action_high_config=("ph_sp_max", "orp_sp_max", "level_sp_max"),
     ),
     BenchmarkEntry(
         "sludge_blanket",
@@ -231,15 +238,28 @@ def get_benchmark_entry(name: str) -> BenchmarkEntry:
 def get_action_bounds(
     entry: BenchmarkEntry,
     config: object,
-) -> tuple[float | None, float | None]:
+) -> tuple[ActionBound | None, ActionBound | None]:
     if entry.action_control_mode is not None:
         mode_config = entry.action_control_mode_config
-        if mode_config is not None and cast(int, getattr(config, mode_config)) != entry.action_control_mode:
+        if mode_config is not None and cast(int, object.__getattribute__(config, mode_config)) != entry.action_control_mode:
             return None, None
     low = entry.action_low
     if entry.action_low_config is not None:
-        low = cast(float, getattr(config, entry.action_low_config))
+        low = _configured_bound(config, entry.action_low_config)
     high = entry.action_high
     if entry.action_high_config is not None:
-        high = cast(float, getattr(config, entry.action_high_config))
+        high = _configured_bound(config, entry.action_high_config)
     return low, high
+
+
+def _configured_bound(config: object, fields: ConfigBound) -> ActionBound:
+    if isinstance(fields, str):
+        return _config_float(config, fields)
+    return tuple(_config_float(config, field) for field in fields)
+
+
+def _config_float(config: object, field: str) -> float:
+    value = object.__getattribute__(config, field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"configured action bound {field!r} must be numeric, got {value!r}")
+    return float(value)

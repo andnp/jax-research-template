@@ -29,8 +29,8 @@ from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 
 def _broadcast_action_bounds(
-    action_low: jax.Array | float | None,
-    action_high: jax.Array | float | None,
+    action_low: jax.Array | float | tuple[float, ...] | None,
+    action_high: jax.Array | float | tuple[float, ...] | None,
     action_dim: int,
 ) -> tuple[jax.Array | None, jax.Array | None]:
     """Broadcast optional scalar or vector action bounds to ``(action_dim,)``."""
@@ -77,8 +77,8 @@ class ProcessControlAdapter:
         env_id: str = "process_control",
         max_steps: int = 10000,
         scalar_action: bool = False,
-        action_low: jax.Array | float | None = None,
-        action_high: jax.Array | float | None = None,
+        action_low: jax.Array | float | tuple[float, ...] | None = None,
+        action_high: jax.Array | float | tuple[float, ...] | None = None,
     ):
         normalized_low, normalized_high = _broadcast_action_bounds(action_low, action_high, action_dim)
         self._reset_fn = reset_fn
@@ -151,8 +151,8 @@ class ProcessControlEnv[StateT]:
         action_dim: int,
         env_id: str = "process_control",
         scalar_action: bool = False,
-        action_low: jax.Array | float | None = None,
-        action_high: jax.Array | float | None = None,
+        action_low: jax.Array | float | tuple[float, ...] | None = None,
+        action_high: jax.Array | float | tuple[float, ...] | None = None,
     ) -> None:
         self._reset_fn = reset_fn
         self._step_fn = step_fn
@@ -204,7 +204,7 @@ class ProcessControlEnv[StateT]:
 def _build_benchmark(
     name: str,
     config_overrides: dict[str, Any],
-) -> tuple[BenchmarkEntry, Callable, Callable, float | None, float | None]:
+) -> tuple[BenchmarkEntry, Callable, Callable, jax.Array | float | tuple[float, ...] | None, jax.Array | float | tuple[float, ...] | None]:
     """Resolve a registry entry into its ``(reset, step)`` pair and action bounds."""
     import importlib
 
