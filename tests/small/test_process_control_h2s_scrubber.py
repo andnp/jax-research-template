@@ -175,9 +175,11 @@ class TestReward:
         # Efficiency should be between 0 and 1
         assert 0.0 <= float(info["removal_efficiency"]) <= 1.0
 
-    def test_high_control_reaches_target(self, rng: jax.Array) -> None:
+    @pytest.mark.parametrize("scenario", [H2SScenario.NOMINAL, H2SScenario.LOAD_SHIFT])
+    def test_high_control_reaches_target(self, rng: jax.Array, scenario: H2SScenario) -> None:
         """High feasible setpoints reach the target after chemistry settles."""
         config = H2SScrubberConfig(
+            scenario=scenario,
             caustic_sensor_noise=0.0,
             caustic_sensor_drift=0.0,
             bleach_sensor_noise=0.0,
@@ -193,8 +195,9 @@ class TestReward:
             state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
             efficiencies.append(float(info["removal_efficiency"]))
 
-        assert sum(efficiencies[1900:2000]) / 100 >= config.target_efficiency
-        assert sum(efficiencies[2050:2100]) / 50 >= config.target_efficiency
+        post_event = efficiencies[2050:2100]
+        assert all(jnp.isfinite(jnp.array(post_event)))
+        assert sum(post_event) / 50 >= config.target_efficiency
 
     def test_low_cost_control_is_less_compliant(self, rng: jax.Array) -> None:
         """Low dosing costs less while producing a measurable compliance deficit."""

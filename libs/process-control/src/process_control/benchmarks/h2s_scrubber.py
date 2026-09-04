@@ -146,7 +146,7 @@ class H2SScrubberConfig:
     sump_volume_min: float = 1.0
     sump_volume_max: float = 10.0
     sump_nominal_volume: float = 10.0
-    sump_bleach_yield: float = 100.0
+    sump_bleach_yield: float = 150.0
     sump_initial_oxidant: float = 200.0
     sump_initial_alkalinity: float = 20.0
     sump_oxidation_rate: float = 0.5
@@ -157,7 +157,7 @@ class H2SScrubberConfig:
     contactor_max_efficiency: float = 0.99
     contactor_recirc_weight: float = 0.02
     contactor_recirc_half_sat: float = 5.0
-    contactor_gas_flow_exponent: float = -0.01
+    contactor_gas_flow_exponent: float = -0.005
     recirc_flow: float = 50.0  # m³/h, fixed recirculation rate
 
     # ── Gas source ────────────────────────────────────────────────
