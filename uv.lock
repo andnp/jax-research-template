@@ -1734,10 +1734,16 @@ version = "0.1.0"
 source = { editable = "libs/research-runner" }
 dependencies = [
     { name = "experiment-definition" },
+    { name = "research-instrument" },
+    { name = "research-store" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "experiment-definition", editable = "libs/experiment-definition" }]
+requires-dist = [
+    { name = "experiment-definition", editable = "libs/experiment-definition" },
+    { name = "research-instrument", editable = "libs/research-instrument" },
+    { name = "research-store", editable = "libs/research-store" },
+]
 
 [[package]]
 name = "research-store"
@@ -1776,6 +1782,7 @@ dependencies = [
     { name = "gymnax" },
     { name = "jax" },
     { name = "jax-nn" },
+    { name = "research-runner" },
     { name = "rl-components" },
 ]
 
@@ -1785,6 +1792,7 @@ requires-dist = [
     { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
+    { name = "research-runner", editable = "libs/research-runner" },
     { name = "rl-components", editable = "libs/rl-components" },
 ]
 
