@@ -135,6 +135,23 @@ def test_load_shift_scenario_is_selected_at_construction() -> None:
 
 
 class TestReward:
+    def test_efficiency_penalty_is_linear_one_sided_hinge(self, rng: jax.Array) -> None:
+        """Penalize each unit of deficit linearly, but never reward compliance."""
+        config = H2SScrubberConfig(efficiency_penalty_weight=100.0)
+        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+        state, _ = reset_fn(rng)
+        _, _, reward, _, info = step_fn(state, jnp.zeros(3), rng)
+
+        expected = -100.0 * max(0.95 - float(info["removal_efficiency"]), 0.0)
+        expected -= 0.01 * float(info["opex"])
+        assert jnp.isclose(reward, expected)
+
+        compliant_config = H2SScrubberConfig(target_efficiency=0.0)
+        compliant_reset, compliant_step = make_h2s_scrubber_benchmark(compliant_config)
+        compliant_state, _ = compliant_reset(rng)
+        _, _, compliant_reward, _, compliant_info = compliant_step(compliant_state, jnp.zeros(3), rng)
+        assert jnp.isclose(compliant_reward, -0.01 * compliant_info["opex"])
+
     def test_reward_is_negative(self, scrubber_benchmark: tuple[_H2SResetFn, _H2SStepFn], rng: jax.Array) -> None:
         """Reward should be negative (minimizing cost + penalty)."""
         reset_fn, step_fn = scrubber_benchmark
@@ -157,6 +174,53 @@ class TestReward:
 
         # Efficiency should be between 0 and 1
         assert 0.0 <= float(info["removal_efficiency"]) <= 1.0
+
+    def test_high_control_reaches_target(self, rng: jax.Array) -> None:
+        """High feasible setpoints reach the target after chemistry settles."""
+        config = H2SScrubberConfig(
+            caustic_sensor_noise=0.0,
+            caustic_sensor_drift=0.0,
+            bleach_sensor_noise=0.0,
+            bleach_sensor_drift=0.0,
+            makeup_sensor_noise=0.0,
+            makeup_sensor_drift=0.0,
+        )
+        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+        state, _ = reset_fn(rng)
+        action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_default])
+        efficiencies = []
+        for i in range(2200):
+            state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
+            efficiencies.append(float(info["removal_efficiency"]))
+
+        assert sum(efficiencies[1900:2000]) / 100 >= config.target_efficiency
+        assert sum(efficiencies[2050:2100]) / 50 >= config.target_efficiency
+
+    def test_low_cost_control_is_less_compliant(self, rng: jax.Array) -> None:
+        """Low dosing costs less while producing a measurable compliance deficit."""
+        config = H2SScrubberConfig(
+            caustic_sensor_noise=0.0,
+            caustic_sensor_drift=0.0,
+            bleach_sensor_noise=0.0,
+            bleach_sensor_drift=0.0,
+            makeup_sensor_noise=0.0,
+            makeup_sensor_drift=0.0,
+        )
+        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+
+        def rollout(action: jax.Array) -> tuple[float, float]:
+            state, _ = reset_fn(rng)
+            efficiencies = []
+            for i in range(2200):
+                state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
+                efficiencies.append(float(info["removal_efficiency"]))
+            return float(info["opex"]), sum(efficiencies[2050:2100]) / 50
+
+        low_cost, low_efficiency = rollout(jnp.array([config.ph_sp_min, config.orp_sp_min, config.level_sp_min]))
+        high_cost, high_efficiency = rollout(jnp.array([config.ph_sp_max, config.orp_sp_max, config.level_sp_default]))
+
+        assert low_cost < high_cost
+        assert low_efficiency < config.target_efficiency < high_efficiency
 
 
 class TestInfo:

@@ -60,7 +60,6 @@ from process_control.units.scrubber_sump import (
     compute_orp,
     compute_ph,
 )
-from process_control.units.scrubber_sump import reset as sump_reset
 from process_control.units.scrubber_sump import step as sump_step
 
 # ── Configuration ─────────────────────────────────────────────────────
@@ -93,7 +92,7 @@ class H2SScrubberConfig:
 
     # ── Action ranges (setpoint bounds) ───────────────────────────
     ph_sp_min: float = 8.0
-    ph_sp_max: float = 11.0
+    ph_sp_max: float = 9.8
     ph_sp_default: float = 9.5
 
     orp_sp_min: float = 400.0  # mV
@@ -146,11 +145,19 @@ class H2SScrubberConfig:
     # ── Sump chemistry ────────────────────────────────────────────
     sump_volume_min: float = 1.0
     sump_volume_max: float = 10.0
-    sump_nominal_volume: float = 5.0
+    sump_nominal_volume: float = 10.0
+    sump_bleach_yield: float = 100.0
+    sump_initial_oxidant: float = 200.0
+    sump_initial_alkalinity: float = 20.0
+    sump_oxidation_rate: float = 0.5
+    sump_alkalinity_consumption: float = 1.0
 
     # ── Contactor ─────────────────────────────────────────────────
-    contactor_base_efficiency: float = 0.90
+    contactor_base_efficiency: float = 0.99
     contactor_max_efficiency: float = 0.99
+    contactor_recirc_weight: float = 0.02
+    contactor_recirc_half_sat: float = 5.0
+    contactor_gas_flow_exponent: float = -0.01
     recirc_flow: float = 50.0  # m³/h, fixed recirculation rate
 
     # ── Gas source ────────────────────────────────────────────────
@@ -213,11 +220,17 @@ def make_h2s_scrubber_benchmark(
         volume_min=config.sump_volume_min,
         volume_max=config.sump_volume_max,
         nominal_volume=config.sump_nominal_volume,
+        bleach_yield=config.sump_bleach_yield,
+        oxidation_rate=config.sump_oxidation_rate,
+        alkalinity_consumption=config.sump_alkalinity_consumption,
     )
 
     contactor_params = ContactorParams(
         base_efficiency=config.contactor_base_efficiency,
         max_efficiency=config.contactor_max_efficiency,
+        recirc_weight=config.contactor_recirc_weight,
+        recirc_half_sat=config.contactor_recirc_half_sat,
+        gas_flow_exponent=config.contactor_gas_flow_exponent,
     )
 
     caustic_params = DosingSystemParams(
@@ -282,15 +295,23 @@ def make_h2s_scrubber_benchmark(
     steps_per_day = jnp.array(config.steps_per_day, dtype=jnp.float32)
 
     # Pre-compute initial sensor values from default sump state (outside JIT)
-    _init_sump = ScrubberSumpState.create(volume=config.sump_nominal_volume)
+    _init_sump = ScrubberSumpState.create(
+        oxidant=config.sump_initial_oxidant * scenario.load_shift_multiplier,
+        alkalinity=config.sump_initial_alkalinity,
+        volume=config.sump_nominal_volume,
+    )
     _init_ph = float(compute_ph(_init_sump))
     _init_orp = float(compute_orp(_init_sump))
 
     def reset(rng_key: jax.Array) -> tuple[H2SScrubberState, jax.Array]:
-        k1, k2, k3, k4, k5 = jax.random.split(rng_key, 5)
+        k1, k3, k4, k5 = jax.random.split(rng_key, 4)
 
         gas_state = gas_reset(k1)
-        sump_state = sump_reset(k2, sump_params)
+        sump_state = ScrubberSumpState.create(
+            oxidant=config.sump_initial_oxidant * scenario.load_shift_multiplier,
+            alkalinity=config.sump_initial_alkalinity,
+            volume=config.sump_nominal_volume,
+        )
         caustic_state = dosing_reset(
             _init_ph,
             config.caustic_ff,
@@ -409,7 +430,7 @@ def make_h2s_scrubber_benchmark(
         # ── 7. Reward ─────────────────────────────────────────────
         # Efficiency penalty (soft constraint)
         eff_deficit = jnp.maximum(target_eff - contactor_result.removal_efficiency, 0.0)
-        eff_penalty = eff_penalty_w * eff_deficit**2
+        eff_penalty = eff_penalty_w * eff_deficit
 
         # OPEX cost (per-step, proportional to pump outputs)
         opex = caustic_cost * caustic_pump + bleach_cost * bleach_pump + makeup_cost * makeup_pump
