@@ -5,7 +5,7 @@ from typing import cast
 
 import jax
 from experiment_definition import ParameterValue
-from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
+from research_runner import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run
@@ -15,6 +15,26 @@ from rl_agents.sac import SACAgent, SACConfig
 SAC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
     dynamic_keys=frozenset({"learning_rate", "learning_starts", "train_frequency", "tau"}),
 )
+
+
+def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
+    defaults = SACConfig()
+    return SACConfig(
+        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
+        BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),
+        TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
+        LEARNING_STARTS=cast(
+            int, dynamic.get("learning_starts", batch.static_or("learning_starts", int, defaults.LEARNING_STARTS))
+        ),
+        TRAIN_FREQUENCY=cast(
+            int, dynamic.get("train_frequency", batch.static_or("train_frequency", int, defaults.TRAIN_FREQUENCY))
+        ),
+        TAU=cast(float, dynamic.get("tau", batch.static_or("tau", float, defaults.TAU))),
+        ALPHA=batch.static_or("alpha", float, defaults.ALPHA),
+        ENV_NAME=batch.static("env_name", str),
+        SEED=0,
+    )
 
 
 class SACBatchTrainer:
@@ -36,18 +56,7 @@ class SACBatchTrainer:
         }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
-            config = SACConfig(
-                LR=cast(float, dynamic["learning_rate"]),
-                BUFFER_SIZE=batch.static_or("buffer_size", int, 100_000),
-                BATCH_SIZE=batch.static_or("batch_size", int, 256),
-                TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-                LEARNING_STARTS=cast(int, dynamic.get("learning_starts", 5_000)),
-                TRAIN_FREQUENCY=cast(int, dynamic.get("train_frequency", 1)),
-                TAU=cast(float, dynamic.get("tau", 0.005)),
-                ALPHA=batch.static_or("alpha", float, 0.2),
-                ENV_NAME=batch.static("env_name", str),
-                SEED=0,
-            )
+            config = _config_from(batch, dynamic)
             agent = SACAgent(config)
             _, metrics = run(
                 agent,

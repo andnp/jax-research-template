@@ -5,7 +5,7 @@ from typing import cast
 
 import jax
 from experiment_definition import ParameterValue
-from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
+from research_runner import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run
@@ -28,6 +28,35 @@ TD3_BATCH_PARAMETER_SCHEMA = ParameterSchema(
 )
 
 
+def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
+    defaults = TD3Config()
+    return TD3Config(
+        LR=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LR))),
+        BUFFER_SIZE=batch.static("buffer_size", int),
+        BATCH_SIZE=batch.static("batch_size", int),
+        TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
+        LEARNING_STARTS=cast(
+            int, dynamic.get("learning_starts", batch.static_or("learning_starts", int, defaults.LEARNING_STARTS))
+        ),
+        TRAIN_FREQUENCY=cast(
+            int, dynamic.get("train_frequency", batch.static_or("train_frequency", int, defaults.TRAIN_FREQUENCY))
+        ),
+        TAU=cast(float, dynamic.get("tau", batch.static_or("tau", float, defaults.TAU))),
+        POLICY_DELAY=cast(int, dynamic.get("policy_delay", batch.static_or("policy_delay", int, defaults.POLICY_DELAY))),
+        EXPLORATION_NOISE=cast(
+            float,
+            dynamic.get(
+                "exploration_noise",
+                batch.static_or("exploration_noise", float, defaults.EXPLORATION_NOISE),
+            ),
+        ),
+        POLICY_NOISE=cast(float, dynamic.get("policy_noise", batch.static_or("policy_noise", float, defaults.POLICY_NOISE))),
+        NOISE_CLIP=cast(float, dynamic.get("noise_clip", batch.static_or("noise_clip", float, defaults.NOISE_CLIP))),
+        ENV_NAME=batch.static("env_name", str),
+        SEED=0,
+    )
+
+
 class TD3BatchTrainer:
     parameter_schema = TD3_BATCH_PARAMETER_SCHEMA
 
@@ -47,21 +76,7 @@ class TD3BatchTrainer:
         }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
-            config = TD3Config(
-                LR=cast(float, dynamic["learning_rate"]),
-                BUFFER_SIZE=batch.static("buffer_size", int),
-                BATCH_SIZE=batch.static("batch_size", int),
-                TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-                LEARNING_STARTS=cast(int, dynamic.get("learning_starts", 25_000)),
-                TRAIN_FREQUENCY=cast(int, dynamic.get("train_frequency", 1)),
-                TAU=cast(float, dynamic.get("tau", 0.005)),
-                POLICY_DELAY=cast(int, dynamic.get("policy_delay", 2)),
-                EXPLORATION_NOISE=cast(float, dynamic.get("exploration_noise", 0.1)),
-                POLICY_NOISE=cast(float, dynamic.get("policy_noise", 0.2)),
-                NOISE_CLIP=cast(float, dynamic.get("noise_clip", 0.5)),
-                ENV_NAME=batch.static("env_name", str),
-                SEED=0,
-            )
+            config = _config_from(batch, dynamic)
             agent = TD3Agent(config)
             _, metrics = run(
                 agent,

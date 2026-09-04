@@ -15,16 +15,22 @@ from rl_agents.dqn import DQNConfig
 from rl_agents.dqn_batch import DQNBatchTrainer, _config_from
 from rl_agents.gac_batch import GACBatchTrainer
 from rl_agents.ppo_batch import PPOBatchTrainer
+from rl_agents.ppo_batch import _config_from as _ppo_config_from
 from rl_agents.qrc import QRCConfig
 from rl_agents.qrc_batch import QRCBatchTrainer
 from rl_agents.qrc_batch import _config_from as _qrc_config_from
+from rl_agents.sac import SACConfig
 from rl_agents.sac_batch import SACBatchTrainer
+from rl_agents.sac_batch import _config_from as _sac_config_from
 from rl_agents.sac_rc import SACRCConfig
 from rl_agents.sac_rc_batch import SACRCBatchTrainer
 from rl_agents.sac_rc_batch import _config_from as _sac_rc_config_from
+from rl_agents.td3 import TD3Config
+from rl_agents.td3_batch import _config_from as _td3_config_from
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.types import PPOConfig
 
 
 def _make_env(config: Mapping[str, ParameterValue]):
@@ -205,6 +211,185 @@ def test_dqn_batch_config_requires_environment_name() -> None:
 
     with pytest.raises(ValueError, match="missing static parameter 'env_name'"):
         _config_from(batch, {})
+
+
+def test_ppo_batch_config_resolves_dynamic_static_and_default_values() -> None:
+    """
+    Verify PPO dynamic values override static values and PPO defaults.
+    """
+    batch = BoundBatch(
+        static_config={
+            "env_name": "CartPole-v1",
+            "num_steps": 4,
+            "total_timesteps": 8,
+            "update_epochs": 1,
+            "num_minibatches": 1,
+            "reward_scale": 1.0,
+            "normalize_observations": False,
+            "learning_rate": 2e-3,
+            "gae_lambda": 0.9,
+            "clip_eps": 0.3,
+            "ent_coef": 0.02,
+            "vf_coef": 0.7,
+            "max_grad_norm": 0.8,
+            "obs_norm_eps": 1e-7,
+            "obs_norm_clip": 5.0,
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+
+    static_config = _ppo_config_from(batch, {})
+    dynamic_config = _ppo_config_from(
+        batch,
+        {"learning_rate": jnp.asarray(4e-3), "gae_lambda": jnp.asarray(0.8)},
+    )
+
+    assert static_config.LR == 2e-3
+    assert static_config.GAE_LAMBDA == 0.9
+    assert static_config.CLIP_EPS == 0.3
+    assert static_config.ENT_COEF == 0.02
+    assert static_config.VF_COEF == 0.7
+    assert static_config.MAX_GRAD_NORM == 0.8
+    assert static_config.OBS_NORM_EPS == 1e-7
+    assert static_config.OBS_NORM_CLIP == 5.0
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.GAE_LAMBDA == 0.8
+    assert _ppo_config_from(
+        BoundBatch(
+            static_config={
+                "env_name": "CartPole-v1",
+                "num_steps": 4,
+                "total_timesteps": 8,
+                "update_epochs": 1,
+                "num_minibatches": 1,
+                "reward_scale": 1.0,
+                "normalize_observations": False,
+            },
+            dynamic_axes={},
+            seeds=(0,),
+            points=(),
+        ),
+        {},
+    ).LR == PPOConfig().LR
+
+
+def test_sac_batch_config_resolves_dynamic_static_and_default_values() -> None:
+    """
+    Verify SAC dynamic values override static values and SAC defaults.
+    """
+    batch = BoundBatch(
+        static_config={
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 8,
+            "gamma": 0.98,
+            "learning_rate": 2e-3,
+            "learning_starts": 3,
+            "train_frequency": 2,
+            "tau": 0.01,
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+
+    static_config = _sac_config_from(batch, {})
+    dynamic_config = _sac_config_from(
+        batch,
+        {
+            "learning_rate": jnp.asarray(4e-3),
+            "learning_starts": jnp.asarray(1),
+            "train_frequency": jnp.asarray(3),
+            "tau": jnp.asarray(0.02),
+        },
+    )
+
+    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_STARTS == 3
+    assert static_config.TRAIN_FREQUENCY == 2
+    assert static_config.TAU == 0.01
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_STARTS == 1
+    assert dynamic_config.TRAIN_FREQUENCY == 3
+    assert dynamic_config.TAU == 0.02
+    assert _sac_config_from(
+        BoundBatch(static_config={"env_name": "Pendulum-v1", "total_timesteps": 8, "gamma": 0.98}, dynamic_axes={}, seeds=(0,), points=()),
+        {},
+    ).LR == SACConfig().LR
+
+
+def test_td3_batch_config_resolves_dynamic_static_and_default_values() -> None:
+    """
+    Verify TD3 dynamic values override static values and TD3 defaults.
+    """
+    batch = BoundBatch(
+        static_config={
+            "env_name": "Pendulum-v1",
+            "buffer_size": 16,
+            "batch_size": 2,
+            "total_timesteps": 8,
+            "gamma": 0.98,
+            "learning_rate": 2e-3,
+            "learning_starts": 3,
+            "train_frequency": 2,
+            "tau": 0.01,
+            "policy_delay": 3,
+            "exploration_noise": 0.2,
+            "policy_noise": 0.3,
+            "noise_clip": 0.4,
+        },
+        dynamic_axes={},
+        seeds=(0,),
+        points=(),
+    )
+
+    static_config = _td3_config_from(batch, {})
+    dynamic_config = _td3_config_from(
+        batch,
+        {
+            "learning_rate": jnp.asarray(4e-3),
+            "learning_starts": jnp.asarray(1),
+            "train_frequency": jnp.asarray(3),
+            "tau": jnp.asarray(0.02),
+            "policy_delay": jnp.asarray(4),
+            "exploration_noise": jnp.asarray(0.4),
+            "policy_noise": jnp.asarray(0.5),
+            "noise_clip": jnp.asarray(0.6),
+        },
+    )
+
+    assert static_config.LR == 2e-3
+    assert static_config.LEARNING_STARTS == 3
+    assert static_config.TRAIN_FREQUENCY == 2
+    assert static_config.TAU == 0.01
+    assert static_config.POLICY_DELAY == 3
+    assert static_config.EXPLORATION_NOISE == 0.2
+    assert static_config.POLICY_NOISE == 0.3
+    assert static_config.NOISE_CLIP == 0.4
+    assert dynamic_config.LR == 4e-3
+    assert dynamic_config.LEARNING_STARTS == 1
+    assert dynamic_config.TRAIN_FREQUENCY == 3
+    assert dynamic_config.TAU == 0.02
+    assert dynamic_config.POLICY_DELAY == 4
+    assert dynamic_config.EXPLORATION_NOISE == 0.4
+    assert dynamic_config.POLICY_NOISE == 0.5
+    assert dynamic_config.NOISE_CLIP == 0.6
+    assert _td3_config_from(
+        BoundBatch(
+            static_config={
+                "env_name": "Pendulum-v1",
+                "buffer_size": 16,
+                "batch_size": 2,
+                "total_timesteps": 8,
+                "gamma": 0.98,
+            },
+            dynamic_axes={},
+            seeds=(0,),
+            points=(),
+        ),
+        {},
+    ).LR == TD3Config().LR
 
 
 def test_sac_rc_batch_config_prefers_dynamic_static_and_default_values() -> None:
@@ -595,3 +780,71 @@ def test_registry_dispatches_sac_rc_batch_trainer_deterministically(tmp_path: Pa
     }
     assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
     assert result.metric_curves == replay.metric_curves
+
+
+def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) -> None:
+    """
+    Verify multi-algorithm dispatch preserves static values demoted by intersection.
+
+    Each selected trainer must run when only its static configuration is supplied.
+    """
+    trainer = make_algorithm_batch_trainer(_make_env, ("ppo", "sac", "td3"))
+    assert trainer.parameter_schema.dynamic_keys == frozenset({"learning_rate"})
+    configs = {
+        "ppo": {
+            "algorithm": "ppo",
+            "env_name": "CartPole-v1",
+            "num_steps": 2,
+            "total_timesteps": 4,
+            "update_epochs": 1,
+            "num_minibatches": 1,
+            "gamma": 0.98,
+            "learning_rate": 2e-3,
+            "reward_scale": 1.0,
+            "normalize_observations": False,
+        },
+        "sac": {
+            "algorithm": "sac",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "gamma": 0.98,
+            "learning_rate": 2e-3,
+            "learning_starts": 0,
+            "train_frequency": 1,
+            "tau": 0.01,
+        },
+        "td3": {
+            "algorithm": "td3",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "gamma": 0.98,
+            "learning_rate": 2e-3,
+            "learning_starts": 0,
+            "train_frequency": 1,
+            "tau": 0.01,
+        },
+    }
+    metric_names = {
+        "ppo": {"returned_episode_returns"},
+        "sac": {"reward", "critic_loss", "actor_loss", "alpha_loss", "alpha"},
+        "td3": {"reward", "critic_loss", "actor_loss"},
+    }
+
+    for algorithm, static_config in configs.items():
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name=f"{algorithm}-multi-dispatch-test",
+            static_config=static_config,
+            points=(RunPoint(0, {**static_config, "seed": 0}),),
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / f"{algorithm}.sqlite",
+        )
+        result = trainer(context)
+
+        assert result.metadata["algorithm"] == algorithm
+        assert set(result.metric_curves) == metric_names[algorithm]
