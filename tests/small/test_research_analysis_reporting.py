@@ -447,6 +447,8 @@ def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.aggregate_plot_path is not None
     assert report.aggregate_plot_path.exists()
     assert set(report.supplementary_iqm) == set(algos)
+    assert set(report.dispersion) == set(algos)
+    assert set(report.lower_tail) == set(algos)
 
 
 def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:

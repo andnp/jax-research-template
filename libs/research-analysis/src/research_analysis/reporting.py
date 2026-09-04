@@ -90,6 +90,8 @@ class BenchmarkBakeoffReport:
     performance_profiles: dict[str, dict[float, float]]
     probability_of_improvement: dict[str, dict[str, float]]
     optimality_gaps: dict[str, float]
+    dispersion: dict[str, float]
+    lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]
@@ -808,6 +810,8 @@ class _BakeoffStatistics:
     performance_profiles: dict[str, dict[float, float]]
     probability_of_improvement: dict[str, dict[str, float]]
     optimality_gaps: dict[str, float]
+    dispersion: dict[str, float]
+    lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]
@@ -904,6 +908,8 @@ def _compute_bakeoff_statistics(
     threshold_values = (0.0, 0.25, 0.5, 0.75, 1.0)
     profiles: dict[str, dict[float, float]] = {}
     gaps: dict[str, float] = {}
+    dispersions: dict[str, float] = {}
+    lower_tails: dict[str, float] = {}
     iqms: dict[str, float] = {}
     score_curves = {}
     for algo in algorithms:
@@ -918,6 +924,8 @@ def _compute_bakeoff_statistics(
                 np.array(all_vals)[:, np.newaxis], threshold_values, [algo]
             )[algo]
             gaps[algo] = optimality_gap(np.array(all_vals))
+            dispersions[algo] = float(np.std(all_vals, ddof=1)) if len(all_vals) > 1 else 0.0
+            lower_tails[algo] = float(np.quantile(all_vals, 0.1))
             iqms[algo] = interquartile_mean(np.array(all_vals))
 
     return _BakeoffStatistics(
@@ -943,6 +951,8 @@ def _compute_bakeoff_statistics(
             for algo_a in algorithms
         },
         optimality_gaps=gaps,
+        dispersion=dispersions,
+        lower_tail=lower_tails,
         supplementary_iqm=iqms,
         omnibus_details=StatisticalTestDetails(
             test_name="Block-stratified permutation omnibus test",
@@ -999,6 +1009,20 @@ def _present_bakeoff(
             row.append(f"{report.normalized_scores[algo][env]:.2f}")
         table.add_row(*row)
     console.print(table)
+
+    summary = Table(title="Aggregate Context", show_header=True, header_style="bold magenta")
+    summary.add_column("Algorithm")
+    summary.add_column("Dispersion", justify="right")
+    summary.add_column("Lower tail (10%)", justify="right")
+    summary.add_column("IQM (supplementary)", justify="right")
+    for algo in report.algorithms:
+        summary.add_row(
+            algo,
+            f"{report.dispersion[algo]:.2f}",
+            f"{report.lower_tail[algo]:.2f}",
+            f"{report.supplementary_iqm[algo]:.2f}",
+        )
+    console.print(summary)
 
     omnibus_details = report.omnibus_details
     console.print(
@@ -1082,6 +1106,8 @@ def compare_bakeoff(
         performance_profiles=statistics.performance_profiles,
         probability_of_improvement=statistics.probability_of_improvement,
         optimality_gaps=statistics.optimality_gaps,
+        dispersion=statistics.dispersion,
+        lower_tail=statistics.lower_tail,
         supplementary_iqm=statistics.supplementary_iqm,
         omnibus_details=omnibus_details,
         posthoc_matrix=posthoc,
