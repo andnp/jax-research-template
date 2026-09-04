@@ -147,6 +147,35 @@ class QRCNetwork(TypedApply[tuple[jax.Array, jax.Array]], nn.Module):
         return q, h
 
 
+def _param_labels(params: VariableDict) -> VariableDict:
+    """"h" for every ``h_head`` leaf, "q" for everything else.
+
+    Selects each parameter's optimizer transform in ``_make_tx``'s
+    ``optax.multi_transform``: the h-head gets decoupled weight decay
+    (``optax.adamw``), the trunk and q-head do not (Deviation 1). Because
+    the h-head reads ``stop_gradient``-ed trunk features and the q-head's
+    loss never touches ``h_head`` (Deviation 2 -- see
+    ``test_h_head_gradient_does_not_reach_trunk`` and its converse), a
+    single gradient of the combined loss already carries, at each leaf,
+    exactly that leaf's own term; partitioning the OPTIMIZER is what gives
+    the h-head its own (decoupled) update rule without splitting the
+    single shared-trunk parameter tree into two.
+    """
+    labeled = {
+        key: jax.tree.map(lambda _, label=("h" if key == "h_head" else "q"): label, subtree)
+        for key, subtree in params["params"].items()
+    }
+    return {**params, "params": labeled}
+
+
+def _make_tx(params: VariableDict, learning_rate: jax.Array | float, weight_decay: jax.Array | float) -> optax.GradientTransformation:
+    """Adam for the trunk/q-head, AdamW (decoupled weight decay) for the h-head."""
+    return optax.multi_transform(
+        {"q": optax.adam(learning_rate), "h": optax.adamw(learning_rate, weight_decay=weight_decay)},
+        _param_labels(params),
+    )
+
+
 def expected_action_value(q_next: jax.Array, epsilon: jax.Array | float) -> jax.Array:
     """Epsilon-greedy expected next-state value, uniform over the argmax set.
 
@@ -198,14 +227,17 @@ def qrc_loss_batch(
     next_obs: jax.Array,
     discounts: jax.Array,
     epsilon: jax.Array | float,
-    beta: jax.Array | float,
     *,
     apply_fn: QRCApplyFn,
 ) -> jax.Array:
-    """Mean QRC loss over a minibatch, plus L2 regularisation on the h-head.
+    """Mean QRC loss over a minibatch.
 
-    Regularising only the h-head (Ghiassian et al. 2020, §3.2) keeps the
-    correction term bounded without biasing the q-head's value estimates.
+    Regularising the h-head (Ghiassian et al. 2020, §3.2) is the caller's
+    optimizer's job, not this loss's: ``h_head`` params get decoupled weight
+    decay via their own ``optax.adamw`` (see ``_param_labels``/``BETA``),
+    not an L2 term added in here. An in-loss L2 term would have its gradient
+    rescaled per-parameter by Adam's ``1/sqrt(v_hat)``, which is not the same
+    regulariser as AdamW's decoupled decay.
 
     ``discounts`` is the per-transition bootstrap coefficient the loop computed
     and is passed straight through as each transition's ``gamma``, so a terminal
@@ -223,8 +255,7 @@ def qrc_loss_batch(
         q, h, actions, rewards, discounts, q_next, epsilon
     )
 
-    h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
-    return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
+    return jnp.mean(v_loss) + jnp.mean(h_loss)
 
 
 @chex_struct(frozen=True)
@@ -303,12 +334,14 @@ class QRCAgent:
             obs_dtype=observation_dtype,
         )
 
+        params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
+        tx = optax.inject_hyperparams(lambda learning_rate, weight_decay: _make_tx(params, learning_rate, weight_decay))(
+            learning_rate=jnp.asarray(self.config.LR, jnp.float32),
+            weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
+        )
+
         return QRCAgentState(
-            train_state=TrainState.create(
-                apply_fn=network.apply,
-                params=network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype)),
-                tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LR, jnp.float32)),
-            ),
+            train_state=TrainState.create(apply_fn=network.apply, params=params, tx=tx),
             buffer_state=buffer.init(),
             last_obs=jnp.zeros(observation_shape, dtype=observation_dtype),
             last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
@@ -407,16 +440,19 @@ class QRCAgent:
         key: chex.PRNGKey,
         epsilon: jax.Array,
         learning_rate: jax.Array,
-        beta: jax.Array,
+        weight_decay: jax.Array,
     ) -> tuple[TrainState, jax.Array]:
         """Take one gradient step on a replay minibatch.
 
-        The rate is pushed into the optimizer state each step because the
-        transformation itself is a static field and cannot hold a traced value.
+        The rate and the h-head's weight decay are pushed into the optimizer
+        state each step because the transformation itself is a static field
+        and cannot hold a traced value.
         """
         opt_state = train_state.opt_state
         train_state = train_state.replace(
-            opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
+            opt_state=opt_state._replace(
+                hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate, "weight_decay": weight_decay},
+            ),
         )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
@@ -429,7 +465,6 @@ class QRCAgent:
                 next_obs,
                 discounts,
                 epsilon,
-                beta,
                 apply_fn=train_state.apply_fn,
             )
         )(train_state.params)
@@ -459,7 +494,7 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
         init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)
 
-        tx = optax.adam(config.LR)
+        tx = _make_tx(params, config.LR, config.BETA)
         train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
 
         # INIT BUFFER
@@ -508,9 +543,7 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
                 obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params: VariableDict) -> jax.Array:
-                    return qrc_loss_batch(
-                        params, obs, actions, rewards, next_obs, discounts, epsilon, config.BETA, apply_fn=network.apply
-                    )
+                    return qrc_loss_batch(params, obs, actions, rewards, next_obs, discounts, epsilon, apply_fn=network.apply)
 
                 loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
                 train_state = train_state.apply_gradients(grads=grads)
