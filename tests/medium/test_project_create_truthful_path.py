@@ -122,14 +122,9 @@ def _write_fake_workspace_packages(workspace_root: Path) -> None:
         modules={
             "rl_agents/__init__.py": "",
             "rl_agents/ppo.py": (
-                "def make_train(config, env: object, env_params: object):\n"
-                "    _ = config\n"
-                "    _ = env\n"
-                "    _ = env_params\n\n"
-                "    def train(rng: int) -> dict[str, dict[str, list[float]]]:\n"
-                "        _ = rng\n"
-                "        return {\"metrics\": {\"returned_episode_returns\": [0.0, 1.0]}}\n\n"
-                "    return train\n"
+                "class PPOAgent:\n"
+                "    def __init__(self, config: object) -> None:\n"
+                "        self.config = config\n"
             ),
         },
     )
@@ -139,6 +134,28 @@ def _write_fake_workspace_packages(workspace_root: Path) -> None:
         version="0.0.0",
         modules={
             "rl_components/__init__.py": "",
+            "rl_components/gymnax_bridge.py": (
+                "def make_gymnax_env(raw_env: object) -> object:\n"
+                "    return raw_env\n"
+            ),
+            "rl_components/loop.py": (
+                "class _Metric(list):\n"
+                "    def __getitem__(self, index: object) -> object:\n"
+                "        if isinstance(index, list):\n"
+                "            return _Metric(value for value, keep in zip(self, index) if keep)\n"
+                "        return list.__getitem__(self, index)\n\n\n"
+                "def run(agent: object, env: object, key: object, *, steps: int, gamma: float, env_params: object = None) -> tuple[None, dict[str, object]]:\n"
+                "    _ = agent\n"
+                "    _ = env\n"
+                "    _ = key\n"
+                "    _ = steps\n"
+                "    _ = gamma\n"
+                "    _ = env_params\n"
+                "    return None, {\n"
+                "        \"loop/episode_return\": _Metric([0.0, 1.0]),\n"
+                "        \"loop/episode_end\": [False, True],\n"
+                "    }\n"
+            ),
             "rl_components/types.py": (
                 "from dataclasses import dataclass\n\n\n"
                 "@dataclass(frozen=True, slots=True)\n"
