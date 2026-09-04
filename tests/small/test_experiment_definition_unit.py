@@ -202,3 +202,68 @@ class TestComponentProvenance:
             runs = database.list_runs(experiment_row.id)
             assert len(runs) == 1
             assert runs[0].algo_version_id is None
+
+
+class TestSyncedRunIdentity:
+    def _experiment(self, name: str, learning_rates: list[float]) -> Experiment:
+        algo = Component(name="PPO", path=Path("/nonexistent/ppo.py"), type=ComponentType.ALGO)
+        env = Component(name="Env", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
+        exp = Experiment(name)
+        exp.add_parameter("seed", [0, 1])
+        with exp.for_component(algo):
+            exp.add_parameter("lr", learning_rates)
+        with exp.for_component(env):
+            exp.add_parameter("gamma", [0.99])
+        return exp
+
+    def test_sync_returns_every_run_it_wants(self, tmp_path: Path) -> None:
+        """The returned ids cover the rows in the table, whether inserted now or already there."""
+        db_path = tmp_path / "experiments.sqlite"
+        exp = self._experiment("Wanted", [1e-3, 1e-4])
+
+        wanted = exp.sync(db_path)
+        wanted_again = exp.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("Wanted")
+            assert experiment_row is not None
+            run_ids = {run.id for run in database.list_runs(experiment_row.id)}
+        assert wanted == run_ids
+        assert wanted_again == wanted
+
+    def test_a_narrowed_definition_leaves_its_dropped_runs_as_orphans(self, tmp_path: Path) -> None:
+        """Dropping a swept value does not remove its rows, so they stay plannable forever.
+
+        This is the leak ``prune`` exists to close: the ``Runs`` UNIQUE identity has no
+        notion of a row the definition has stopped wanting.
+        """
+        db_path = tmp_path / "experiments.sqlite"
+        self._experiment("Narrowed", [1e-3, 1e-4]).sync(db_path)
+
+        wanted = self._experiment("Narrowed", [1e-3]).sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("Narrowed")
+            assert experiment_row is not None
+            assert len(database.list_runs(experiment_row.id)) == 4
+            orphans = database.list_orphan_runs(experiment_row.id, wanted)
+            assert len(orphans) == 2
+            assert database.delete_runs([run.id for run in orphans]) == 2
+            assert len(database.list_runs(experiment_row.id)) == 2
+
+    def test_delete_runs_refuses_a_run_an_execution_touched(self, tmp_path: Path) -> None:
+        """The guard is inside the delete, so a stale id list cannot remove a result."""
+        db_path = tmp_path / "experiments.sqlite"
+        wanted = self._experiment("Guarded", [1e-3]).sync(db_path)
+        protected = sorted(wanted)[0]
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            database.link_execution_run(database.add_execution(hostname="somewhere"), protected)
+
+            assert database.delete_runs([protected]) == 0
+            experiment_row = database.get_experiment("Guarded")
+            assert experiment_row is not None
+            assert protected in {run.id for run in database.list_runs(experiment_row.id)}

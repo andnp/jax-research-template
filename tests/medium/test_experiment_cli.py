@@ -425,3 +425,86 @@ def test_submit_dry_run(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "dry-run" in result.output.lower()
     assert script_path.exists()
+
+
+# ── prune ────────────────────────────────────────────────────────────────────────
+
+
+def _orphan_run(db_path: Path) -> int:
+    """Add a run for a hyperparameter value the current definition does not generate.
+
+    Keeps the definition's own component versions so that adding this row cannot change
+    which version counts as latest, which would make the definition's own run the orphan.
+    """
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_row = db.get_experiment("test-experiment")
+        assert exp_row is not None
+        algo = db.get_component("test-algo")
+        env = db.get_component("test-env")
+        assert algo is not None and env is not None
+        algo_ver = db.get_latest_version(algo.id)
+        env_ver = db.get_latest_version(env.id)
+        assert algo_ver is not None and env_ver is not None
+        hyper_id = db.add_hyperparam_config({"learning_rate": 0.99})
+        return db.add_run(exp_row.id, algo_ver.id, env_ver.id, hyper_id, seed=0)
+
+
+def _run_count(db_path: Path) -> int:
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_row = db.get_experiment("test-experiment")
+        assert exp_row is not None
+        return len(db.list_runs(exp_row.id))
+
+
+def test_prune_reports_nothing_for_a_clean_definition(tmp_path: Path) -> None:
+    """A study whose rows all come from the current definition has no orphans."""
+    results_root = tmp_path / "prune_clean"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    runner.invoke(app, ["experiment", "plan", str(spec_file)])
+
+    result = runner.invoke(app, ["experiment", "prune", str(spec_file), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "no orphan runs" in result.output
+    assert _run_count(results_root / "experiments.sqlite") == 1
+
+
+def test_prune_deletes_runs_a_superseded_definition_left_behind(tmp_path: Path) -> None:
+    """A row the current definition does not generate is deleted.
+
+    This is the shape a component-file edit or a dropped hyperparameter produces: the new
+    identity mints new rows and the old ones stay plannable, so ``run`` would execute them
+    and record results the analysis then filters out.
+    """
+    results_root = tmp_path / "prune_orphan"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    db_path = results_root / "experiments.sqlite"
+    _orphan_run(db_path)
+    assert _run_count(db_path) == 2
+
+    result = runner.invoke(app, ["experiment", "prune", str(spec_file), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "deleted 1 orphan run(s)" in result.output
+    assert _run_count(db_path) == 1
+
+
+def test_prune_keeps_an_orphan_that_an_execution_touched(tmp_path: Path) -> None:
+    """Results and live claims are not garbage, so a run with any execution survives."""
+    results_root = tmp_path / "prune_executed"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    db_path = results_root / "experiments.sqlite"
+    run_id = _orphan_run(db_path)
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        db.link_execution_run(db.add_execution(hostname="somewhere"), run_id)
+
+    result = runner.invoke(app, ["experiment", "prune", str(spec_file), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "no orphan runs" in result.output
+    assert _run_count(db_path) == 2
