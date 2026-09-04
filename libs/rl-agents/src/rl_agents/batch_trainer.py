@@ -5,9 +5,7 @@ which fields are traceable (its ``*Hypers`` struct), whether each is ``int`` or 
 (its ``Config`` dataclass's annotation), and each field's default (``Config()``). An
 :class:`AlgorithmSpec` names the three classes and this module derives the rest, including
 ``Config(**{name.upper(): value})`` construction -- viable with no per-algorithm mapper
-because a prior rename made every ``Config`` field the upcase of its experiment parameter
-name, with GAC's ``ACTOR_LR`` the one field this module's own dynamic-key derivation
-(below) resolves consistently as ``actor_lr``, not the hand-written ``actor_learning_rate``.
+because every ``Config`` field is the upcase of its experiment parameter name.
 
 Some fields are swept without ever being traced by ``step``: they are read once, by
 ``init``, which runs inside the vmapped region just as much as ``step`` does, so a

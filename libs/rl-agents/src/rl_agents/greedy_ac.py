@@ -66,7 +66,7 @@ class GACConfig:
 
     Attributes:
         LEARNING_RATE: Critic learning rate.
-        ACTOR_LR: Actor learning rate.
+        ACTOR_LEARNING_RATE: Actor learning rate.
         BUFFER_SIZE: Capacity of the uniform replay buffer.
         BATCH_SIZE: Minibatch size for both actor and critic updates.
         TOTAL_TIMESTEPS: Total environment steps per training run.
@@ -88,7 +88,7 @@ class GACConfig:
     """
 
     LEARNING_RATE: float = 3e-4
-    ACTOR_LR: float = 3e-4
+    ACTOR_LEARNING_RATE: float = 3e-4
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
@@ -516,7 +516,7 @@ class GACHypers:
     """
 
     LEARNING_RATE: jax.Array
-    ACTOR_LR: jax.Array
+    ACTOR_LEARNING_RATE: jax.Array
     LEARNING_STARTS: jax.Array
     TRAIN_FREQUENCY: jax.Array
     ENTROPY_WEIGHT: jax.Array
@@ -528,7 +528,7 @@ class GACHypers:
 def gac_hypers(config: GACConfig) -> GACHypers:
     return GACHypers(
         LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
-        ACTOR_LR=jnp.asarray(config.ACTOR_LR, jnp.float32),
+        ACTOR_LEARNING_RATE=jnp.asarray(config.ACTOR_LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         ENTROPY_WEIGHT=jnp.asarray(config.ENTROPY_WEIGHT, jnp.float32),
@@ -652,7 +652,7 @@ class GACAgent:
                 tx=optax.chain(
                     optax.clip_by_global_norm(1.0),
                     optax.inject_hyperparams(optax.adamw)(
-                        learning_rate=jnp.asarray(self.config.ACTOR_LR, jnp.float32), weight_decay=0.1
+                        learning_rate=jnp.asarray(self.config.ACTOR_LEARNING_RATE, jnp.float32), weight_decay=0.1
                     ),
                 ),
             ),
@@ -825,7 +825,7 @@ class GACAgent:
             actor=actor,
         )
 
-        actor_state = _inject_learning_rate(state.actor_state, hypers.ACTOR_LR)
+        actor_state = _inject_learning_rate(state.actor_state, hypers.ACTOR_LEARNING_RATE)
         actor_loss, actor_grads = jax.value_and_grad(
             lambda params: gac_actor_loss(
                 params,

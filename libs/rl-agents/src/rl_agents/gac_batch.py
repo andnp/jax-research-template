@@ -33,8 +33,8 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     defaults = GACConfig()
     return GACConfig(
         LEARNING_RATE=cast(float, dynamic.get("learning_rate", batch.static_or("learning_rate", float, defaults.LEARNING_RATE))),
-        ACTOR_LR=cast(
-            float, dynamic.get("actor_learning_rate", batch.static_or("actor_learning_rate", float, defaults.ACTOR_LR))
+        ACTOR_LEARNING_RATE=cast(
+            float, dynamic.get("actor_learning_rate", batch.static_or("actor_learning_rate", float, defaults.ACTOR_LEARNING_RATE))
         ),
         BUFFER_SIZE=batch.static_or("buffer_size", int, defaults.BUFFER_SIZE),
         BATCH_SIZE=batch.static_or("batch_size", int, defaults.BATCH_SIZE),

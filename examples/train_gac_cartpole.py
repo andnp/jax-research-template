@@ -61,7 +61,7 @@ def main() -> None:
         BATCH_SIZE=32,
         LEARNING_STARTS=1,
         LEARNING_RATE=3e-4,
-        ACTOR_LR=3e-4,
+        ACTOR_LEARNING_RATE=3e-4,
         NUM_SAMPLES=32,
         ACTOR_PERCENTILE=0.1,
         UNIFORM_WEIGHT=0.2,

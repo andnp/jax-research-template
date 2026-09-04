@@ -158,19 +158,18 @@ class TestDynamicKeyDerivation:
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["ppo"]
         assert derived == hand | {"reward_scale"}
 
-    def test_gac_actor_learning_rate_renames_to_actor_lr(self) -> None:
-        """GACConfig's field is ACTOR_LR, not ACTOR_LEARNING_RATE.
+    def test_gac_matches_its_hand_written_schema(self) -> None:
+        """GACConfig.ACTOR_LR was renamed to ACTOR_LEARNING_RATE, so the upcase rule holds.
 
-        The derivation names this key from the Hypers field (actor_lr), so it is not a
-        strict superset of the hand-written schema: it drops "actor_learning_rate" and
-        adds "actor_lr" in its place. A caller sweeping the old key would need to rename it.
+        The derivation names this key from the Hypers field, lowercased -- now
+        "actor_learning_rate", matching the hand-written schema exactly instead of
+        diverging into "actor_lr".
         """
         derived = GAC_SPEC.parameter_schema.dynamic_keys
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["gac"]
         assert "actor_learning_rate" in hand
-        assert "actor_learning_rate" not in derived
-        assert "actor_lr" in derived
-        assert derived == (hand - {"actor_learning_rate"}) | {"actor_lr"}
+        assert "gamma" in hand
+        assert derived == hand
 
     def test_sac_rc_matches_its_hand_written_schema(self) -> None:
         """SACRCAgent.INIT_SWEPT_FIELDS restores ALPHA and TARGET_ENTROPY to the derivation.
@@ -262,7 +261,7 @@ class TestGenericBatchTrainerExecution:
         assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
 
     def test_gac_trainer_runs_and_reports_declared_metrics(self, tmp_path: Path) -> None:
-        """The generic trainer trains GAC with its actor_lr-named dynamic key."""
+        """The generic trainer trains GAC with its actor_learning_rate-named dynamic key."""
         static_config = {
             "algorithm": "gac",
             "env_name": "MountainCarContinuous-v0",
@@ -275,7 +274,7 @@ class TestGenericBatchTrainerExecution:
             "hidden_size": 8,
         }
         points = tuple(
-            RunPoint(index, {**static_config, "learning_rate": 1e-3, "actor_lr": 1e-3, "seed": index})
+            RunPoint(index, {**static_config, "learning_rate": 1e-3, "actor_learning_rate": 1e-3, "seed": index})
             for index in (0, 1)
         )
         context = ExecutionContext(
