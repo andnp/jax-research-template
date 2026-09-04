@@ -19,6 +19,15 @@
 > as the tree having moved, not as an error in this document. This is a
 > read-only analysis; no source files were modified to produce it.
 
+### Mixed-dispatch constraint: `h_regularization`
+
+GAC and QRC both expose `h_regularization`, but the fields are incompatible:
+GAC uses a numeric regularization weight, while QRC uses the categorical
+`"adamw"`/`"l2"` choice that selects its h-head optimizer and loss behavior.
+Therefore a mixed-algorithm dispatch suite must omit this shared override or
+keep the algorithms in separate suites until a deliberately namespaced
+parameter migration is planned.
+
 Directory confirmed (`libs/rl-agents/src/rl_agents/`): `dqn.py`, `double_dqn.py`, `double_q.py`, `dueling_dqn.py`, `dqn_atari.py`, `rainbow.py`, `qrc.py`, `ppo.py`, `sac.py`, `sac_rc.py`, `td3.py`, `greedy_ac.py`, plus the shared `q_networks.py` (no config, network builders only). No file looked mid-edit at read time (no conflict markers, no truncated syntax), but another session is active in this tree — treat this as a snapshot.
 
 **Structural split first**: the DQN family (`dqn`, `double_dqn`/`double_q`, `dueling_dqn`, `dqn_atari`) already implements the new `AgentProtocol` (`init`/`step`, config bound in `__init__`, state is a `chex_struct` pytree). `rainbow`, `qrc`, `ppo`, `sac`, `sac_rc`, `td3`, `greedy_ac` are all still the older `make_train(config, env, env_params) -> train(rng)` closure style — a single monolithic `lax.scan`, not the two-method port. This matters for the "does `make_train` close over config" question below: for the still-migrating half, the entire config is closed over the outer `train` closure at trace time, by construction — a hypers split there requires either threading hypers through the scan carry or rewriting them onto `AgentProtocol` first.
