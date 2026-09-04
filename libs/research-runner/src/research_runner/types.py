@@ -102,6 +102,11 @@ class BoundBatch:
             raise ValueError(f"missing static parameter {name!r}") from error
         return _coerce(value, expected_type, name)
 
+    def static_or(self, name: str, expected_type: type[_T], default: _T) -> _T:
+        if name not in self.static_config:
+            return default
+        return self.static(name, expected_type)
+
     def dynamic(self, name: str, expected_type: type[_T]) -> tuple[_T, ...]:
         try:
             values = self.dynamic_axes[name]

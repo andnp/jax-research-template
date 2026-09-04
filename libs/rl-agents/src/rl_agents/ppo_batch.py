@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import jax
 import jax.numpy as jnp
-from experiment_definition import ParameterValue
-from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
-from rl_components.agent_protocol import AgentProtocol
-from rl_components.batch import DynamicValue, run_batch
+from research_runner import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
+from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run
 from rl_components.types import PPOConfig
@@ -53,22 +51,22 @@ def _held_episode_returns(metrics: Mapping[str, jax.Array]):
     return returns
 
 
-def _config_from(hyperparameters: Mapping[str, object]):
+def _config_from(batch: BoundBatch, learning_rate: float | jax.Array):
     return PPOConfig(
-        LR=cast(float, hyperparameters["learning_rate"]),
-        NUM_STEPS=cast(int, hyperparameters["num_steps"]),
-        TOTAL_TIMESTEPS=cast(int, hyperparameters["total_timesteps"]),
-        UPDATE_EPOCHS=cast(int, hyperparameters["update_epochs"]),
-        NUM_MINIBATCHES=cast(int, hyperparameters["num_minibatches"]),
-        CLIP_EPS=cast(float, hyperparameters["clip_eps"]),
-        ENT_COEF=cast(float, hyperparameters["ent_coef"]),
-        VF_COEF=cast(float, hyperparameters["vf_coef"]),
-        MAX_GRAD_NORM=cast(float, hyperparameters["max_grad_norm"]),
-        REWARD_SCALE=cast(float, hyperparameters["reward_scale"]),
-        NORMALIZE_OBSERVATIONS=cast(bool, hyperparameters["normalize_observations"]),
-        OBS_NORM_EPS=cast(float, hyperparameters["obs_norm_eps"]),
-        OBS_NORM_CLIP=cast(float, hyperparameters["obs_norm_clip"]),
-        ENV_NAME=cast(str, hyperparameters["env_name"]),
+        LR=cast(float, learning_rate),
+        NUM_STEPS=batch.static("num_steps", int),
+        TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
+        UPDATE_EPOCHS=batch.static("update_epochs", int),
+        NUM_MINIBATCHES=batch.static("num_minibatches", int),
+        CLIP_EPS=batch.static("clip_eps", float),
+        ENT_COEF=batch.static("ent_coef", float),
+        VF_COEF=batch.static("vf_coef", float),
+        MAX_GRAD_NORM=batch.static("max_grad_norm", float),
+        REWARD_SCALE=batch.static("reward_scale", float),
+        NORMALIZE_OBSERVATIONS=batch.static("normalize_observations", bool),
+        OBS_NORM_EPS=batch.static("obs_norm_eps", float),
+        OBS_NORM_CLIP=batch.static("obs_norm_clip", float),
+        ENV_NAME=batch.static("env_name", str),
         SEED=0,
     )
 
@@ -83,52 +81,35 @@ class PPOBatchTrainer:
         self._env_factory = env_factory
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
-        static_config = dict(context.static_config)
-        env_name = cast(str, static_config["env_name"])
-        env, env_params = self._env_factory(env_name)
-        axes = context.axes()
-        seeds = tuple(_seed_of(point.hyperparameters["seed"], point.run_id) for point in context.points)
-        dynamic_axes = {
-            key: cast(Sequence[DynamicValue], values)
-            for key, values in axes.items()
-            if key != "seed"
-        }
-        unexpected = set(dynamic_axes) - self.parameter_schema.dynamic_keys
-        if unexpected:
-            raise ValueError(f"unsupported dynamic PPO axes: {sorted(unexpected)}")
+        batch = context.bind(self.parameter_schema)
+        env, env_params = self._env_factory(batch.static("env_name", str))
+        dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
-            hyperparameters: dict[str, object] = {**static_config, **dynamic}
-            config = _config_from(hyperparameters)
-            agent: AgentProtocol = PPOAgent(config)
+            config = _config_from(batch, dynamic["learning_rate"])
+            agent = PPOAgent(config)
             final_state, metrics = run(
                 agent,
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=cast(float, hyperparameters["gamma"]),
+                gamma=batch.static("gamma", float),
                 env_params=env_params,
             )
             return final_state.agent_state.train_state.params, _held_episode_returns(
                 cast(Mapping[str, jax.Array], metrics)
             )
 
-        final_params, curves = run_batch(train_one, dynamic_axes, seeds)
+        final_params, curves = run_batch(train_one, dynamic_axes, batch.seeds)
         return ExecutionResult(
             metadata={
                 "algorithm": "ppo",
-                "env_name": static_config["env_name"],
-                "seed_values": list(seeds),
+                "env_name": batch.static("env_name", str),
+                "seed_values": list(batch.seeds),
             },
             metric_curves={"returned_episode_returns": curves.tolist()},
             artifacts={"final_policy_params": final_params},
         )
-
-
-def _seed_of(value: ParameterValue, run_id: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"Run {run_id} seed must be an int, got {value!r}.")
-    return value
 
 
 def make_ppo_batch_trainer(

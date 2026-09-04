@@ -4,9 +4,8 @@ from collections.abc import Callable, Mapping
 from typing import cast
 
 import jax
-from experiment_definition import ParameterValue
 from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
-from rl_components.batch import DynamicValue, run_batch
+from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run
 
@@ -44,34 +43,24 @@ class TD3BatchTrainer:
         self._env_factory = env_factory
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
-        static_config = dict(context.static_config)
-        env_name = cast(str, static_config["env_name"])
-        env, env_params = self._env_factory(env_name)
-        axes = context.axes()
-        seeds = tuple(_seed_of(point.hyperparameters["seed"], point.run_id) for point in context.points)
-        dynamic_axes = {
-            key: cast(list[DynamicValue], values)
-            for key, values in axes.items()
-            if key != "seed"
-        }
-        unexpected = set(dynamic_axes) - self.parameter_schema.dynamic_keys
-        if unexpected:
-            raise ValueError(f"unsupported dynamic TD3 axes: {sorted(unexpected)}")
+        batch = context.bind(self.parameter_schema)
+        env, env_params = self._env_factory(batch.static("env_name", str))
+        dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
             config = TD3Config(
                 LR=cast(float, dynamic["learning_rate"]),
-                BUFFER_SIZE=cast(int, static_config["buffer_size"]),
-                BATCH_SIZE=cast(int, static_config["batch_size"]),
-                TOTAL_TIMESTEPS=cast(int, static_config["total_timesteps"]),
-                LEARNING_STARTS=cast(int, static_config["learning_starts"]),
-                TRAIN_FREQUENCY=cast(int, static_config["train_frequency"]),
-                TAU=cast(float, static_config["tau"]),
-                POLICY_DELAY=cast(int, static_config["policy_delay"]),
-                EXPLORATION_NOISE=cast(float, static_config["exploration_noise"]),
-                POLICY_NOISE=cast(float, static_config["policy_noise"]),
-                NOISE_CLIP=cast(float, static_config["noise_clip"]),
-                ENV_NAME=cast(str, static_config["env_name"]),
+                BUFFER_SIZE=batch.static("buffer_size", int),
+                BATCH_SIZE=batch.static("batch_size", int),
+                TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
+                LEARNING_STARTS=batch.static("learning_starts", int),
+                TRAIN_FREQUENCY=batch.static_or("train_frequency", int, 1),
+                TAU=batch.static_or("tau", float, 0.005),
+                POLICY_DELAY=batch.static_or("policy_delay", int, 2),
+                EXPLORATION_NOISE=batch.static_or("exploration_noise", float, 0.1),
+                POLICY_NOISE=batch.static_or("policy_noise", float, 0.2),
+                NOISE_CLIP=batch.static_or("noise_clip", float, 0.5),
+                ENV_NAME=batch.static("env_name", str),
                 SEED=0,
             )
             agent = TD3Agent(config)
@@ -80,7 +69,7 @@ class TD3BatchTrainer:
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=cast(float, static_config["gamma"]),
+                gamma=batch.static("gamma", float),
                 env_params=env_params,
             )
             return {
@@ -89,22 +78,15 @@ class TD3BatchTrainer:
                 "actor_loss": metrics["actor_loss"],
             }
 
-        metrics = run_batch(train_one, dynamic_axes, seeds)
+        metrics = run_batch(train_one, dynamic_axes, batch.seeds)
         return ExecutionResult(
             metadata={
                 "algorithm": "td3",
-                "env_name": static_config["env_name"],
-                "seed_values": list(seeds),
+                "env_name": batch.static("env_name", str),
+                "seed_values": list(batch.seeds),
             },
             metric_curves={name: values.tolist() for name, values in metrics.items()},
         )
-
-
-def _seed_of(value: ParameterValue, run_id: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"Run {run_id} seed must be an int, got {value!r}.")
-    return value
-
 
 def make_td3_batch_trainer(
     env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
