@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from rl_agents.ppo import (
+    PPOAgent,
     Transition,
     _init_observation_norm_state,
     _normalize_observation,
@@ -72,6 +73,12 @@ class TestRewardScaleValidation:
 
         with pytest.raises(ValueError, match="REWARD_SCALE"):
             make_train(config, env=_ValidationEnv(), env_params=None)
+
+    @pytest.mark.parametrize("reward_scale", [0.0, -1.0, float("inf"), float("nan")])
+    def test_agent_rejects_non_positive_or_non_finite_reward_scale(self, reward_scale: float) -> None:
+        """The scale multiplies every stored reward, so a zero or NaN must not reach a rollout."""
+        with pytest.raises(ValueError, match="REWARD_SCALE"):
+            PPOAgent(PPOConfig(REWARD_SCALE=reward_scale))
 
 
 class TestPPOClippedObjective:

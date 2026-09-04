@@ -1,15 +1,58 @@
+"""PPO as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
+
+:class:`PPOAgent` is the port. ``make_train`` below it is the private training loop the
+port replaces, and it is still here because three independent repositories call it:
+``projects/generative-replay/train.py``, ``projects/learning-dynamics/train.py`` and the
+``missingness-rl`` submodule, whose ``experiment_execution.py`` reads
+``out["metrics"]["returned_episode_returns"]`` plus its own env-info metrics out of the
+result. All three resolve ``rl-agents`` as ``{ workspace = true }`` from this worktree, so
+they break the instant either symbol disappears -- not at some later merge.
+**Removal condition:** once all three drive :class:`PPOAgent` through
+:func:`rl_components.loop.run`. The ``missingness-rl`` half additionally needs a metrics
+path for the environment ``info`` its wrapper emits, which ``run`` does not forward today.
+
+``PPOConfig.GAMMA`` and ``PPOHypers.GAMMA`` survive only for that legacy path. The discount
+belongs to :func:`rl_components.loop.run`, which puts a per-transition coefficient on
+``Timestep.discount``; :class:`PPOAgent` reads that coefficient and never reads ``GAMMA``.
+Two sources of truth for the discount is how the bootstrap defect this port exists to fix
+recurs.
+
+Two things separate this port from a re-seating, and both are recorded in §4.5 of
+``docs/specs/agent-port-and-training-loop.md``:
+
+- **Rollout slots are completion-indexed.** See :class:`PPOTransition`. The pre-port layout
+  put reward and done in the slot the action was chosen in, which a single forward
+  ``lax.scan`` pass cannot produce once the loop delivers them with the observation that
+  follows the action.
+- **The bootstrap coefficient and the trajectory break are separate quantities.** The
+  pre-port ``_calculate_gae`` drove both from one fused ``not_done``, so a truncation either
+  lost the bootstrap it was entitled to or leaked a trace across the boundary. See
+  :func:`ppo_gae`.
+
+The losses are module-level functions rather than closures inside ``make_train``, so the
+tests gate the real arithmetic instead of a copy of it.
+"""
+
+from __future__ import annotations
+
 import math
 from typing import Any, Callable, NamedTuple, Protocol, TypedDict, cast
 
+import chex
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from rl_components.agent_protocol import AgentStep
+from rl_components.env_protocol import EnvSpec
 from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.structs import chex_struct
+from rl_components.timestep import Timestep
 from rl_components.types import PPOConfig
+
+from rl_agents.continuous_actions import continuous_action_dim
 
 
 class Transition(NamedTuple):
@@ -365,6 +408,329 @@ def _ppo_tx(learning_rate: jax.Array, max_grad_norm: jax.Array) -> optax.Gradien
         optax.clip_by_global_norm(max_grad_norm),
         optax.adam(learning_rate, eps=1e-5),
     )
+
+
+@chex_struct(frozen=True)
+class PPOAgentState:
+    """Everything :class:`PPOAgent` carries between loop iterations.
+
+    Attributes:
+        train_state: Actor-critic parameters, optimizer state, and the static ``apply_fn``
+            through which ``step`` reaches the network.
+        obs_norm_state: Running observation statistics. Present, and inert, when
+            normalization is off, so the scan carry does not change shape with the flag.
+        rollout: The rollout window under construction, leading axis ``NUM_STEPS``. Slot
+            ``step_index % NUM_STEPS`` is written every iteration and the window is
+            consumed on the iteration where that index reaches ``NUM_STEPS - 1``.
+        last_obs: The observation the pending action was selected from, stored already
+            normalized because the loss reruns the network on exactly that input.
+        last_action: The action that opened the pending transition. Its rank is also where
+            ``step`` recovers whether the policy is continuous, since ``step`` never sees a
+            spec.
+        last_log_prob: That action's log-probability under the policy that chose it, which
+            is the denominator of PPO's ratio and must be the behaviour policy's.
+        last_value: The critic's estimate of ``last_obs`` at the time the action was chosen.
+        key: PRNG key for sampling actions and shuffling minibatches.
+        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
+
+    The four ``last_*`` fields are zero-primed at ``init``, which sees no observation. Only
+    rollout slot ``0`` of the first window ever reads the primed values, and that slot is
+    the one the ``valid`` mask removes.
+    """
+
+    train_state: TrainState
+    obs_norm_state: _ObservationNormState
+    rollout: PPOTransition
+    last_obs: jax.Array
+    last_action: jax.Array
+    last_log_prob: jax.Array
+    last_value: jax.Array
+    key: chex.PRNGKey
+    hypers: PPOHypers
+
+
+class PPOAgent:
+    """Proximal policy optimization over a rollout window the agent fills itself.
+
+    PPO is on-policy, so what replaces the replay buffer of the off-policy agents is a
+    fixed ``NUM_STEPS`` window written one slot per loop iteration. The window is consumed
+    -- GAE, then ``UPDATE_EPOCHS`` passes over ``NUM_MINIBATCHES`` shuffled minibatches --
+    on the iteration whose slot index is ``NUM_STEPS - 1``, under a ``lax.cond`` whose
+    predicate reads ``step_index`` alone. That keeps the predicate unbatched under
+    ``jax.vmap`` over seeds, so the cond stays a cond and the update does not execute on
+    every step of every seed.
+
+    Because the window is indexed by the iteration at which a transition *completes*
+    (see :class:`PPOTransition`), the first window holds ``NUM_STEPS - 1`` valid slots and
+    every window after it holds ``NUM_STEPS``. There is no per-rollout boundary artefact:
+    ``step_index`` counts iterations of the whole run, so exactly one slot of one window is
+    ever invalid.
+
+    Observation normalization keeps the pre-port statistics. The running mean and variance
+    are updated from ``timestep.observation`` and the same, just-updated statistics then
+    normalize both that observation and ``timestep.bootstrap_observation``. So the state
+    that normalizes an observation always includes that observation, which is what the
+    pre-port loop did by updating from ``obsv`` at the end of an iteration and normalizing
+    the identical value as ``last_obs`` at the start of the next. The final
+    ``observation_count`` is one lower than the pre-port count for the same budget, because
+    a run of ``N`` iterations closes ``N - 1`` transitions and the final iteration's next
+    state never reaches the agent.
+
+    The agent owns no environment, no ``lax.scan`` over the horizon and no discount:
+    :func:`rl_components.loop.run` supplies the horizon and ``gamma``, and the per-transition
+    bootstrap coefficient reaches GAE through ``Timestep.discount``.
+    """
+
+    def __init__(self, config: PPOConfig) -> None:
+        """Bind the configuration. The object is static under ``jit``.
+
+        Args:
+            config: Hyperparameters. Read at trace time only, so every field may be a
+                Python scalar. ``GAMMA`` is not read at all.
+
+        Raises:
+            ValueError: If ``REWARD_SCALE`` is not finite and positive, which would scale
+                every stored reward to zero, infinity or NaN in silence.
+        """
+        if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
+            raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
+        self.config = config
+
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> PPOAgentState:
+        """Build the network, the optimizer, the empty rollout window and the primed slots.
+
+        Args:
+            key: PRNG key for parameter initialization.
+            spec: The environment description, and the only place the observation shape and
+                the action space come from.
+
+        Returns:
+            The initial agent state.
+
+        Raises:
+            ValueError: If ``spec`` describes a continuous action space that is not a
+                one-dimensional vector normalized to ``[-1, 1]``, which the tanh-squashed
+                continuous head requires.
+        """
+        observation_shape = tuple(spec.observation_shape)
+        observation_dtype = jnp.dtype(spec.observation_dtype)
+        action_shape = tuple(spec.action_shape)
+        action_dtype = jnp.dtype(spec.action_dtype)
+        if spec.num_actions is None:
+            network = ContinuousActorCritic(continuous_action_dim(spec), activation="tanh")
+        else:
+            network = ActorCritic(spec.num_actions, activation="tanh")
+
+        params_key, carry_key = jax.random.split(key)
+        zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
+        hypers = ppo_hypers(self.config)
+        # Normalization casts to float32; without it the raw observation rides through, so
+        # the stored dtype follows the flag or the first slot write is a silent promotion.
+        stored_obs_dtype = jnp.dtype(jnp.float32) if self.config.NORMALIZE_OBSERVATIONS else observation_dtype
+        num_steps = self.config.NUM_STEPS
+        scalars = jnp.zeros((num_steps,), dtype=jnp.float32)
+
+        return PPOAgentState(
+            train_state=TrainState.create(
+                apply_fn=network.apply,
+                params=network.init(params_key, zero_obs),
+                tx=optax.inject_hyperparams(_ppo_tx)(learning_rate=hypers.LR, max_grad_norm=hypers.MAX_GRAD_NORM),
+            ),
+            obs_norm_state=_empty_observation_norm_state(zero_obs),
+            rollout=PPOTransition(
+                obs=jnp.zeros((num_steps, *observation_shape), dtype=stored_obs_dtype),
+                action=jnp.zeros((num_steps, *action_shape), dtype=action_dtype),
+                log_prob=scalars,
+                value=scalars,
+                reward=scalars,
+                discount=scalars,
+                episode_end=jnp.zeros((num_steps,), dtype=jnp.bool_),
+                bootstrap_value=scalars,
+                valid=jnp.zeros((num_steps,), dtype=jnp.bool_),
+            ),
+            last_obs=jnp.zeros(observation_shape, dtype=stored_obs_dtype),
+            last_action=jnp.zeros(action_shape, dtype=action_dtype),
+            last_log_prob=jnp.zeros((), jnp.float32),
+            last_value=jnp.zeros((), jnp.float32),
+            key=carry_key,
+            hypers=hypers,
+        )
+
+    def step(
+        self,
+        state: PPOAgentState,
+        timestep: Timestep[jax.Array],
+        step_index: jax.Array,
+    ) -> AgentStep[PPOAgentState, jax.Array]:
+        """Close the pending transition into a rollout slot, update if the window is full, then act.
+
+        The order is normative. The closed slot's ``bootstrap_value`` is read from
+        ``timestep.bootstrap_observation`` and not ``timestep.observation``: at a boundary
+        the latter is the post-reset observation, and valuing it as the state the transition
+        reached is the cross-episode leak this port removes.
+
+        Args:
+            state: The agent state from the previous iteration.
+            timestep: This iteration's view of the environment.
+            step_index: Transitions closed so far. Iteration ``0`` closes none, so the slot
+                it writes is marked invalid and every loss masks it out.
+
+        Returns:
+            The next state, the action to apply, and a fixed four-key metric schema. Each
+            entry is a zero placeholder on the iterations that do not update, so the pytree
+            returned to ``lax.scan`` is identical on every iteration.
+        """
+        hypers = state.hypers
+        is_continuous = state.last_action.ndim == 1
+        num_steps = self.config.NUM_STEPS
+        carry_key, action_key, update_key = jax.random.split(state.key, 3)
+
+        obs_norm_state = _maybe_update_observation_norm_state(
+            state.obs_norm_state, timestep.observation, enabled=self.config.NORMALIZE_OBSERVATIONS
+        )
+        _, bootstrap_value = state.train_state.apply_fn(
+            state.train_state.params,
+            self._normalize(timestep.bootstrap_observation, obs_norm_state, hypers),
+        )
+
+        closed = PPOTransition(
+            obs=state.last_obs,
+            action=state.last_action,
+            log_prob=state.last_log_prob,
+            value=state.last_value,
+            reward=(timestep.reward * hypers.REWARD_SCALE).astype(jnp.float32),
+            discount=timestep.discount,
+            episode_end=timestep.episode_end,
+            bootstrap_value=jnp.asarray(bootstrap_value, jnp.float32),
+            valid=step_index > 0,
+        )
+        slot = jnp.remainder(step_index, num_steps)
+        rollout = jax.tree_util.tree_map(lambda window, value: window.at[slot].set(value), state.rollout, closed)
+
+        train_state, losses = jax.lax.cond(
+            slot == num_steps - 1,
+            lambda: self._update(state.train_state, rollout, update_key, hypers, is_continuous=is_continuous),
+            lambda: (
+                state.train_state,
+                (
+                    jnp.zeros((), jnp.float32),
+                    jnp.zeros((), jnp.float32),
+                    jnp.zeros((), jnp.float32),
+                    jnp.zeros((), jnp.float32),
+                ),
+            ),
+        )
+
+        normalized_obs = self._normalize(timestep.observation, obs_norm_state, hypers)
+        policy, value = train_state.apply_fn(train_state.params, normalized_obs)
+        action = policy.sample(seed=action_key).astype(state.last_action.dtype)
+        log_prob = _sum_action_event_terms(policy.log_prob(action), is_continuous=is_continuous)
+        total_loss, value_loss, policy_loss, entropy = losses
+
+        return AgentStep(
+            state=PPOAgentState(
+                train_state=train_state,
+                obs_norm_state=obs_norm_state,
+                rollout=rollout,
+                last_obs=normalized_obs,
+                last_action=action,
+                last_log_prob=jnp.asarray(log_prob, jnp.float32),
+                last_value=jnp.asarray(value, jnp.float32),
+                key=carry_key,
+                hypers=hypers,
+            ),
+            action=action,
+            metrics={
+                "total_loss": total_loss,
+                "value_loss": value_loss,
+                "policy_loss": policy_loss,
+                "entropy": entropy,
+            },
+        )
+
+    def _normalize(self, observation: jax.Array, obs_norm_state: _ObservationNormState, hypers: PPOHypers) -> jax.Array:
+        """Normalize one observation against the current statistics, or pass it through."""
+        return _maybe_normalize_observation(
+            observation,
+            obs_norm_state,
+            eps=hypers.OBS_NORM_EPS,
+            clip=hypers.OBS_NORM_CLIP,
+            enabled=self.config.NORMALIZE_OBSERVATIONS,
+        )
+
+    def _update(
+        self,
+        train_state: TrainState,
+        rollout: PPOTransition,
+        key: chex.PRNGKey,
+        hypers: PPOHypers,
+        *,
+        is_continuous: bool,
+    ) -> tuple[TrainState, tuple[jax.Array, jax.Array, jax.Array, jax.Array]]:
+        """Run GAE over the finished window, then ``UPDATE_EPOCHS`` passes of minibatch ascent.
+
+        The advantages and targets are computed once and closed over: they do not depend on
+        the parameters being updated, so recomputing them per epoch would be both wasted
+        work and a different algorithm. The observation statistics are deliberately absent
+        here as well -- ``rollout.obs`` was normalized when it was collected, and
+        re-normalizing it against statistics that have since moved would make the ratio's
+        denominator no longer the behaviour policy's.
+        """
+        advantages, targets = ppo_gae(rollout, hypers.GAE_LAMBDA)
+
+        def _minibatch(
+            train_state: TrainState,
+            batch: tuple[PPOTransition, jax.Array, jax.Array],
+        ) -> tuple[TrainState, tuple[jax.Array, jax.Array, jax.Array, jax.Array]]:
+            transitions, batch_advantages, batch_targets = batch
+            (loss, (value_loss, policy_loss, entropy)), grads = jax.value_and_grad(ppo_loss, has_aux=True)(
+                train_state.params,
+                transitions,
+                batch_advantages,
+                batch_targets,
+                apply_fn=train_state.apply_fn,
+                is_continuous=is_continuous,
+                clip_eps=hypers.CLIP_EPS,
+                vf_coef=hypers.VF_COEF,
+                ent_coef=hypers.ENT_COEF,
+            )
+            # The transformation is a static field and cannot hold a traced value, so the
+            # swept rate and clip norm are pushed into the optimizer state each step.
+            opt_state = train_state.opt_state
+            train_state = train_state.replace(
+                opt_state=opt_state._replace(
+                    hyperparams={
+                        **opt_state.hyperparams,
+                        "learning_rate": hypers.LR,
+                        "max_grad_norm": hypers.MAX_GRAD_NORM,
+                    }
+                ),
+            )
+            return train_state.apply_gradients(grads=grads), (loss, value_loss, policy_loss, entropy)
+
+        def _epoch(
+            carry: tuple[TrainState, chex.PRNGKey],
+            unused: None,
+        ) -> tuple[tuple[TrainState, chex.PRNGKey], tuple[jax.Array, jax.Array, jax.Array, jax.Array]]:
+            del unused
+            train_state, epoch_key = carry
+            epoch_key, permutation_key = jax.random.split(epoch_key)
+            permutation = jax.random.permutation(permutation_key, self.config.NUM_STEPS)
+            shuffled = jax.tree_util.tree_map(
+                lambda leaf: jnp.take(leaf, permutation, axis=0).reshape((self.config.NUM_MINIBATCHES, -1, *leaf.shape[1:])),
+                (rollout, advantages, targets),
+            )
+            train_state, losses = jax.lax.scan(_minibatch, train_state, shuffled)
+            return (train_state, epoch_key), losses
+
+        (train_state, _), losses = jax.lax.scan(_epoch, (train_state, key), None, self.config.UPDATE_EPOCHS)
+        total_loss, value_loss, policy_loss, entropy = losses
+        return train_state, (
+            jnp.mean(total_loss).astype(jnp.float32),
+            jnp.mean(value_loss).astype(jnp.float32),
+            jnp.mean(policy_loss).astype(jnp.float32),
+            jnp.mean(entropy).astype(jnp.float32),
+        )
 
 
 def make_train(
