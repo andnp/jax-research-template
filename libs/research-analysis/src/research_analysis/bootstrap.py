@@ -172,7 +172,7 @@ def bootstrap_difference_ci(
         confidence_level=confidence,
         n_resamples=n_resamples,
         method="BCa",
-        random_state=rng,
+        rng=rng,
     )
     low = float(result.confidence_interval.low)
     high = float(result.confidence_interval.high)
@@ -225,7 +225,7 @@ def bootstrap_scalar_ci(
         confidence_level=confidence,
         n_resamples=n_resamples,
         method="BCa",
-        random_state=rng,
+        rng=rng,
     )
     low = float(result.confidence_interval.low)
     high = float(result.confidence_interval.high)

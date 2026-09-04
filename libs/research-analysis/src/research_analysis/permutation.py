@@ -73,7 +73,7 @@ def run_permutation_test(
         permutation_type=permutation_type,
         alternative="two-sided",
         n_resamples=n_resamples,
-        random_state=rng,
+        rng=rng,
     )
     return PermutationResult(
         statistic=float(result.statistic),
