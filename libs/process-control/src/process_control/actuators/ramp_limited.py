@@ -8,11 +8,11 @@ from process_control._jax_dataclass import jax_dataclass
 
 @dataclass(frozen=True)
 class RampLimitedActuatorParams:
-    max_output: float
-    min_output: float
-    max_ramp_rate: float | None = None
-    max_ramp_up: float | None = None
-    max_ramp_down: float | None = None
+    max_output: float | jax.Array
+    min_output: float | jax.Array
+    max_ramp_rate: float | jax.Array | None = None
+    max_ramp_up: float | jax.Array | None = None
+    max_ramp_down: float | jax.Array | None = None
 
 
 @jax_dataclass

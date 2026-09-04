@@ -19,15 +19,15 @@ from process_control.actuators.ramp_limited import (
 class BoundedPIControllerParams:
     """PI gains, bounds, anti-windup, and actuator-rate settings."""
 
-    kp: float
-    ki: float
-    ff: float
-    output_min: float
-    output_max: float
-    dt: float
-    anti_windup_gain: float = 1.0
-    max_ramp_up: float | None = None
-    max_ramp_down: float | None = None
+    kp: float | jax.Array
+    ki: float | jax.Array
+    ff: float | jax.Array
+    output_min: float | jax.Array
+    output_max: float | jax.Array
+    dt: float | jax.Array
+    anti_windup_gain: float | jax.Array = 1.0
+    max_ramp_up: float | jax.Array | None = None
+    max_ramp_down: float | jax.Array | None = None
 
 
 @jax_dataclass
