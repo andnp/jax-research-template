@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, TypeVar, cast, runtime_checkable
 
 from experiment_definition import Experiment, ParameterValue
 
@@ -25,6 +25,9 @@ class ExecutionContext:
     points: tuple[RunPoint, ...]
     execution_root: Path
     metrics_db_path: Path
+
+    def bind(self, schema: "ParameterSchema") -> "BoundBatch":
+        return BoundBatch.from_context(self, schema)
 
     def axes(self) -> dict[str, list[ParameterValue]]:
         """Parameters that vary across the batch, stacked in `points` order.
@@ -59,6 +62,62 @@ class ParameterSchema:
         overlap = self.static_keys & self.dynamic_keys
         if overlap:
             raise ValueError(f"parameter schema classifies keys as both static and dynamic: {sorted(overlap)}")
+
+
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True, slots=True)
+class BoundBatch:
+    """Validated static and dynamic values for one trainer execution."""
+
+    static_config: Mapping[str, ParameterValue]
+    dynamic_axes: Mapping[str, tuple[ParameterValue, ...]]
+    seeds: tuple[int, ...]
+    points: tuple[RunPoint, ...]
+
+    @classmethod
+    def from_context(cls, context: ExecutionContext, schema: ParameterSchema) -> "BoundBatch":
+        axes = context.axes()
+        seed_axis = axes.pop("seed", None)
+        if seed_axis is None:
+            raise ValueError("every execution point must provide a seed")
+        seeds = tuple(_coerce(value, int, "seed") for value in seed_axis)
+        if len(seeds) != len(context.points):
+            raise ValueError("the seed axis must match the number of execution points")
+        unknown = set(axes) - schema.dynamic_keys
+        if unknown:
+            raise ValueError(f"dynamic parameters are not supported by this trainer: {sorted(unknown)}")
+        return cls(
+            static_config=context.static_config,
+            dynamic_axes={key: tuple(values) for key, values in axes.items()},
+            seeds=seeds,
+            points=context.points,
+        )
+
+    def static(self, name: str, expected_type: type[_T]) -> _T:
+        try:
+            value = self.static_config[name]
+        except KeyError as error:
+            raise ValueError(f"missing static parameter {name!r}") from error
+        return _coerce(value, expected_type, name)
+
+    def dynamic(self, name: str, expected_type: type[_T]) -> tuple[_T, ...]:
+        try:
+            values = self.dynamic_axes[name]
+        except KeyError as error:
+            raise ValueError(f"missing dynamic parameter {name!r}") from error
+        return tuple(_coerce(value, expected_type, name) for value in values)
+
+
+def _coerce(value: ParameterValue, expected_type: type[_T], name: str) -> _T:
+    if expected_type is float and isinstance(value, int | float) and not isinstance(value, bool):
+        return cast(_T, float(value))
+    if expected_type is int and isinstance(value, int) and not isinstance(value, bool):
+        return cast(_T, value)
+    if isinstance(value, expected_type):
+        return cast(_T, value)
+    raise TypeError(f"parameter {name!r} must be {expected_type.__name__}, got {value!r}")
 
 
 @runtime_checkable
