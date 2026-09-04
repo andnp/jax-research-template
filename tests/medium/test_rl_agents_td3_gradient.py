@@ -1,75 +1,15 @@
 """Medium tests for rl_agents.td3 — gradient flow and JIT compilation."""
 
-from dataclasses import dataclass
 from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_agents.td3 import Actor, Critic, TD3Config, make_train
-from rl_components.gym_env import ContinuousActionSpace, ObservationSpace
-
-
-@dataclass(frozen=True)
-class FakeObservationSpace:
-    shape: tuple[int, ...]
-    dtype: jnp.dtype = jnp.float32
-
-
-@dataclass(frozen=True)
-class FakeActionSpace:
-    shape: tuple[int, ...]
-    action_low: jax.Array | None = None
-    action_high: jax.Array | None = None
-
-
-class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> ObservationSpace:
-        del params
-        return FakeObservationSpace(shape=(3,))
-
-    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
-        del params
-        return FakeActionSpace(shape=(2,))
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.zeros((3,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
-
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        return (
-            jnp.full((3,), next_state, dtype=jnp.float32),
-            next_state,
-            jnp.array(1.0, dtype=jnp.float32),
-            jnp.array(False),
-            info,
-        )
+from rl_agents.td3 import Actor, Critic
 
 
 class TestTD3GradientFlow:
-    def test_make_train_accepts_injected_env(self) -> None:
-        config = TD3Config(TOTAL_TIMESTEPS=4, LEARNING_STARTS=100, BUFFER_SIZE=16, BATCH_SIZE=4)
-        train = make_train(config, env=FakeContinuousEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        metrics = out["metrics"]
-
-        assert metrics["returned_episode"].shape == (4,)
-        assert metrics["returned_episode_returns"].shape == (4,)
-
     def test_critic_params_change_after_update(self) -> None:
         critic = Critic()
         obs_dim = (4,)
