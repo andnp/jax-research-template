@@ -405,6 +405,39 @@ def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.ecdf_plot_path.exists()
 
 
+def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:
+    """Compare algorithms across benchmark metadata using the explicit schema."""
+    setup = temp_experiment_setup
+    algorithms = ["ppo", "sac", "td3"]
+    benchmarks = ["chlorine", "h2s"]
+    with DatabaseManager(setup["db_path"]) as db:
+        for algorithm in algorithms:
+            for benchmark in benchmarks:
+                for seed in range(3):
+                    hyper_id = db.add_hyperparam_config(
+                        {"algorithm": algorithm, "benchmark": benchmark, "seed": seed}
+                    )
+                    run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+                    execution_id = db.add_execution()
+                    db.update_execution_status(execution_id, "COMPLETED")
+                    db.link_execution_run(execution_id, run_id)
+                    db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
+                    populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [float(seed)])
+
+    report = compare_bakeoff(
+        setup["db_path"],
+        "test-exp",
+        algorithms,
+        benchmarks,
+        "metric",
+        verbose=False,
+        schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
+    )
+
+    assert report.algorithms == algorithms
+    assert report.environments == benchmarks
+
+
 def _populate_bakeoff_rows(setup: dict[str, Any], rows: list[tuple[str, str, int, float]]) -> None:
     with DatabaseManager(setup["db_path"]) as db:
         for algorithm, environment, seed, value in rows:
