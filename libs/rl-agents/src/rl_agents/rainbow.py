@@ -20,6 +20,13 @@ from rl_components.structs import chex_struct
 
 from rl_agents.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
+type RainbowApplyFn = Callable[..., jax.Array]
+"""The network's ``apply``, as reached through ``TrainState.apply_fn``.
+
+Noisy layers make it an ``apply`` that must be handed a ``noise`` rng on every call, so
+no caller of :func:`rainbow_loss` can omit the key.
+"""
+
 
 @chex_struct(frozen=True, kw_only=True)
 class RainbowConfig:
@@ -309,6 +316,61 @@ def _gather_action_logits(action_logits: jax.Array, actions: jax.Array) -> jax.A
     return jnp.take_along_axis(action_logits, actions[..., None, None], axis=-2).squeeze(-2)
 
 
+def rainbow_loss(
+    params: VariableDict,
+    target_params: VariableDict,
+    obs: jax.Array,
+    actions: jax.Array,
+    rewards: jax.Array,
+    next_obs: jax.Array,
+    discounts: jax.Array,
+    importance_weights: jax.Array,
+    key: jax.Array,
+    *,
+    apply_fn: RainbowApplyFn,
+    support: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Importance-weighted cross-entropy against the double-Q distributional target.
+
+    Reachable from outside the agent so the termination semantics can be gated on the
+    real target rule rather than on a copy of it. ``discounts`` carries the cumulative
+    n-step coefficient replay stored, so a row whose window ended in a termination
+    collapses onto its bare reward and the loss becomes independent of ``next_obs``
+    there, while a row cut short by a truncation keeps the shorter bootstrap it earned.
+
+    Args:
+        params: Online parameters. Differentiate with respect to this argument only.
+        target_params: Target-network parameters, which value the bootstrap action the
+            online network selects.
+        obs: Observations the stored transitions started from.
+        actions: Actions taken from ``obs``, as integer indices.
+        rewards: Accumulated n-step rewards of the stored transitions.
+        next_obs: True observations the stored windows reached.
+        discounts: Per-transition bootstrap coefficients, ``0.0`` on a terminated window.
+        importance_weights: Prioritised-replay weights, held out of the gradient.
+        key: PRNG key for the three independent noisy-network samples this loss draws.
+        apply_fn: The network's ``apply``, static because it is a Python callable.
+        support: The atom locations, which are also the target's projection basis.
+
+    Returns:
+        The scalar weighted loss and the per-example losses the priorities are set from.
+    """
+    obs_noise_key, next_online_noise_key, next_target_noise_key = jax.random.split(key, 3)
+
+    logits = apply_fn(params, obs, rngs={"noise": obs_noise_key})
+    chosen_logits = _gather_action_logits(logits, actions)
+
+    next_online_logits = apply_fn(params, next_obs, rngs={"noise": next_online_noise_key})
+    next_actions = rainbow_select_actions(next_online_logits, support)
+    next_target_logits = apply_fn(target_params, next_obs, rngs={"noise": next_target_noise_key})
+    next_target_probabilities = rainbow_probabilities(_gather_action_logits(next_target_logits, next_actions))
+
+    target_probabilities = categorical_target_probabilities(rewards, next_target_probabilities, support, discounts)
+    per_example_loss = categorical_losses(chosen_logits, jax.lax.stop_gradient(target_probabilities))
+    weighted_loss = per_example_loss * jax.lax.stop_gradient(importance_weights)
+    return jnp.mean(weighted_loss), per_example_loss
+
+
 def _init_n_step_accumulator(config: RainbowConfig, prototype: RainbowTransition) -> _NStepAccumulatorState:
     if config.N_STEP <= 0:
         raise ValueError("N_STEP must be positive.")
@@ -512,37 +574,6 @@ def make_train_step(
     # instead of baking one arm's value in here.
     support = _rainbow_support_from_hypers(hypers, config.NUM_ATOMS)
 
-    def _loss(
-        params: VariableDict,
-        target_params: VariableDict,
-        obs: jax.Array,
-        actions: jax.Array,
-        rewards: jax.Array,
-        next_obs: jax.Array,
-        discounts: jax.Array,
-        online_next_noise_rng: jax.Array,
-        target_next_noise_rng: jax.Array,
-        online_obs_noise_rng: jax.Array,
-        importance_weights: jax.Array,
-    ) -> tuple[jax.Array, jax.Array]:
-        logits = network.apply(params, obs, rngs={"noise": online_obs_noise_rng})
-        chosen_logits = _gather_action_logits(logits, actions)
-
-        next_online_logits = network.apply(params, next_obs, rngs={"noise": online_next_noise_rng})
-        next_actions = rainbow_select_actions(next_online_logits, support)
-        next_target_logits = network.apply(target_params, next_obs, rngs={"noise": target_next_noise_rng})
-        next_target_selected_logits = _gather_action_logits(next_target_logits, next_actions)
-        next_target_probabilities = rainbow_probabilities(next_target_selected_logits)
-        target_probabilities = categorical_target_probabilities(
-            rewards,
-            next_target_probabilities,
-            support,
-            discounts,
-        )
-        per_example_loss = categorical_losses(chosen_logits, jax.lax.stop_gradient(target_probabilities))
-        weighted_loss = per_example_loss * jax.lax.stop_gradient(importance_weights)
-        return jnp.mean(weighted_loss), per_example_loss
-
     def train_step(runner_state: "RunnerState", step_index: jax.Array) -> tuple["RunnerState", dict[str, jax.Array]]:
         train_state, target_params, buffer_state, env_state, last_obs, rng, n_step_accumulator = runner_state
 
@@ -575,8 +606,6 @@ def make_train_step(
                 beta=1.0,
                 prototype=replay_prototype,
             )
-            online_obs_noise_rng, online_next_noise_rng, target_next_noise_rng = jax.random.split(learn_rng, 3)
-
             # `LEARNING_RATE`/`RMSPROP_DECAY`/`OPTIMIZER_EPSILON` are traced
             # `hypers`, not the static config the optimizer was constructed
             # with, so each arm's current value must be pushed into the
@@ -596,7 +625,7 @@ def make_train_step(
             )
 
             def _loss_with_priorities(params: VariableDict) -> tuple[jax.Array, jax.Array]:
-                return _loss(
+                return rainbow_loss(
                     params,
                     target_params,
                     sampled_batch.obs,
@@ -604,10 +633,10 @@ def make_train_step(
                     sampled_batch.reward,
                     sampled_batch.next_obs,
                     sampled_batch.discount,
-                    online_next_noise_rng,
-                    target_next_noise_rng,
-                    online_obs_noise_rng,
                     importance_weights,
+                    learn_rng,
+                    apply_fn=network.apply,
+                    support=support,
                 )
 
             (loss, per_example_loss), grads = jax.value_and_grad(_loss_with_priorities, has_aux=True)(
