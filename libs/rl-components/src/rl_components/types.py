@@ -11,7 +11,6 @@ class PPOConfig:
     NUM_MINIBATCHES: int = 4
 
     # PPO Specifics
-    GAMMA: float = 0.99
     GAE_LAMBDA: float = 0.95
     CLIP_EPS: float = 0.2
     ENT_COEF: float = 0.01

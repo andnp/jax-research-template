@@ -1,26 +1,12 @@
 """PPO as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
 
-:class:`PPOAgent` is the port. ``make_train`` below it is the private training loop the
-port replaces, and it is still here because ``projects/missingness-rl`` calls it from an
-independent repository: ``missingness_rl/experiment_execution.py`` reads
-``out["metrics"]["returned_episode_returns"]`` and its own environment-``info`` metrics, and
-``experiment_evaluation.py`` reads ``out["runner_state"][0].params``, out of the result. That
-repository resolves ``rl-agents`` as ``{ workspace = true }`` from this worktree, so it
-breaks the instant either symbol disappears -- not at some later merge.
-``projects/generative-replay`` and ``projects/learning-dynamics`` no longer call it; both
-already drive :class:`PPOAgent` through :func:`rl_components.loop.run`.
-
-**Removal condition:** once ``missingness-rl`` ports too. That port needs a metrics path for
-the environment ``info`` its observation wrapper emits, which
-:func:`rl_components.loop.run` does not forward today, so it is a loop change rather than a
-project-side rewrite. Five ``examples/`` scripts and two ``tests/performance`` benches inside
-this repository also still call ``make_train`` and must be re-seated in the same change.
-
-``PPOConfig.GAMMA`` and ``PPOHypers.GAMMA`` survive only for that legacy path. The discount
-belongs to :func:`rl_components.loop.run`, which puts a per-transition coefficient on
-``Timestep.discount``; :class:`PPOAgent` reads that coefficient and never reads ``GAMMA``.
-Two sources of truth for the discount is how the bootstrap defect this port exists to fix
-recurs.
+:class:`PPOAgent` is the only training path here. The ``make_train`` closure that ran
+beside it through the port is gone, along with ``Transition``, ``RunnerState`` and
+``PPOTrainOutput``, the types that existed only to shape its scan. ``PPOConfig.GAMMA`` is
+gone too: no discount is configurable on this agent any more. The discount belongs to
+:func:`rl_components.loop.run`, which stores a per-transition coefficient in
+``Timestep.discount`` that :class:`PPOAgent` reads; it never reads ``GAMMA``. Two sources
+of truth for the discount is how the bootstrap defect this port exists to fix recurs.
 
 Two things separate this port from a re-seating, and both are recorded in §4.5 of
 ``docs/specs/agent-port-and-training-loop.md``:
@@ -41,7 +27,7 @@ tests gate the real arithmetic instead of a copy of it.
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, NamedTuple, Protocol, TypedDict, cast
+from typing import Callable, NamedTuple, Protocol
 
 import chex
 import jax
@@ -51,7 +37,6 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.env_protocol import EnvSpec
-from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, GymEnv
 from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
@@ -60,38 +45,10 @@ from rl_components.types import PPOConfig
 from rl_agents.continuous_actions import continuous_action_dim
 
 
-class Transition(NamedTuple):
-    done: jax.Array
-    action: jax.Array
-    value: jax.Array
-    reward: jax.Array
-    log_prob: jax.Array
-    obs: jax.Array
-    info: dict[str, jax.Array]
-
-
 class _ObservationNormState(NamedTuple):
     observation_count: jax.Array
     mean: jax.Array
     m2: jax.Array
-
-
-class RunnerState(NamedTuple):
-    train_state: TrainState
-    env_state: object
-    last_obs: jax.Array
-    obs_norm_state: _ObservationNormState
-    rng: jax.Array
-
-
-def _is_discrete_action_space(action_space: object) -> bool:
-    return hasattr(action_space, "n")
-
-
-def _continuous_action_dim(action_space: ContinuousActionSpace) -> int:
-    if len(action_space.shape) != 1:
-        raise ValueError(f"continuous PPO expects a flat action shape, got {action_space.shape}")
-    return action_space.shape[0]
 
 
 def _sum_action_event_terms(values: object, *, is_continuous: bool) -> jax.Array:
@@ -366,11 +323,6 @@ def ppo_loss(
     return loss, (value_loss, policy_loss, entropy)
 
 
-class PPOTrainOutput(TypedDict):
-    runner_state: RunnerState
-    metrics: dict[str, jax.Array]
-
-
 @chex_struct(frozen=True)
 class PPOHypers:
     """The hyperparameters ``train`` reads as traced values.
@@ -382,7 +334,6 @@ class PPOHypers:
     """
 
     LR: jax.Array
-    GAMMA: jax.Array
     GAE_LAMBDA: jax.Array
     CLIP_EPS: jax.Array
     ENT_COEF: jax.Array
@@ -396,7 +347,6 @@ class PPOHypers:
 def ppo_hypers(config: PPOConfig) -> PPOHypers:
     return PPOHypers(
         LR=jnp.asarray(config.LR, jnp.float32),
-        GAMMA=jnp.asarray(config.GAMMA, jnp.float32),
         GAE_LAMBDA=jnp.asarray(config.GAE_LAMBDA, jnp.float32),
         CLIP_EPS=jnp.asarray(config.CLIP_EPS, jnp.float32),
         ENT_COEF=jnp.asarray(config.ENT_COEF, jnp.float32),
@@ -737,197 +687,3 @@ class PPOAgent:
             jnp.mean(entropy).astype(jnp.float32),
         )
 
-
-def make_train(
-    config: PPOConfig,
-    env: GymEnv[DiscreteActionSpace | ContinuousActionSpace],
-    env_params: object | None = None,
-) -> Callable[[jax.Array, PPOHypers | None], PPOTrainOutput]:
-    if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
-        raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
-
-    normalize_observations = config.NORMALIZE_OBSERVATIONS
-
-    def train(rng: jax.Array, hypers: PPOHypers | None = None) -> PPOTrainOutput:
-        if hypers is None:
-            hypers = ppo_hypers(config)
-        reward_scale = jnp.asarray(hypers.REWARD_SCALE, dtype=jnp.float32)
-
-        # INIT NETWORK
-        action_space = env.action_space(env_params)
-        continuous_actions = not _is_discrete_action_space(action_space)
-        if continuous_actions:
-            continuous_action_space = cast(ContinuousActionSpace, action_space)
-            network = ContinuousActorCritic(_continuous_action_dim(continuous_action_space), activation="tanh")
-        else:
-            discrete_action_space = cast(DiscreteActionSpace, action_space)
-            network = ActorCritic(discrete_action_space.n, activation="tanh")
-        rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space(env_params).shape)
-        network_params = network.init(_rng, init_x)
-
-        tx = optax.inject_hyperparams(_ppo_tx)(learning_rate=hypers.LR, max_grad_norm=hypers.MAX_GRAD_NORM)
-        train_state = TrainState.create(
-            apply_fn=network.apply,
-            params=network_params,
-            tx=tx,
-        )
-
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
-        obs_norm_state = _init_observation_norm_state(obsv)
-
-        # TRAIN LOOP
-        def _update_step(runner_state: RunnerState, unused: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
-            train_state, env_state, last_obs, obs_norm_state, rng = runner_state
-
-            # COLLECT TRAJECTORIES
-            def _env_step(runner_state: RunnerState, unused: jax.Array) -> tuple[RunnerState, Transition]:
-                train_state, env_state, last_obs, obs_norm_state, rng = runner_state
-                normalized_obs = _maybe_normalize_observation(
-                    last_obs,
-                    obs_norm_state,
-                    eps=hypers.OBS_NORM_EPS,
-                    clip=hypers.OBS_NORM_CLIP,
-                    enabled=normalize_observations,
-                )
-
-                # SELECT ACTION
-                rng, _rng = jax.random.split(rng)
-                policy, value = network.apply(train_state.params, normalized_obs)
-                action = policy.sample(seed=_rng)
-                log_prob = _sum_action_event_terms(policy.log_prob(action), is_continuous=continuous_actions)
-
-                # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
-                scaled_reward = reward * reward_scale
-                obs_norm_state = _maybe_update_observation_norm_state(obs_norm_state, obsv, enabled=normalize_observations)
-                transition = Transition(done, action, value, scaled_reward, log_prob, normalized_obs, info)
-                runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv, obs_norm_state=obs_norm_state, rng=rng)
-                return runner_state, transition
-
-            runner_state, traj_batch = jax.lax.scan(_env_step, runner_state, None, config.NUM_STEPS)
-
-            # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, obs_norm_state, rng = runner_state
-            normalized_last_obs = _maybe_normalize_observation(
-                last_obs,
-                obs_norm_state,
-                eps=hypers.OBS_NORM_EPS,
-                clip=hypers.OBS_NORM_CLIP,
-                enabled=normalize_observations,
-            )
-            _, last_val = network.apply(train_state.params, normalized_last_obs)
-
-            def _calculate_gae(traj_batch: Transition, last_val: jax.Array) -> tuple[jax.Array, jax.Array]:
-                def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition) -> tuple[tuple[jax.Array, jax.Array], jax.Array]:
-                    gae, next_value = gae_and_next_value
-                    done, value, reward = (
-                        transition.done,
-                        transition.value,
-                        transition.reward,
-                    )
-                    not_done = 1.0 - done
-                    delta = reward + hypers.GAMMA * next_value * not_done - value
-                    gae = delta + hypers.GAMMA * hypers.GAE_LAMBDA * not_done * gae
-                    return (gae, value), gae
-
-                _, advantages = jax.lax.scan(
-                    _get_advantages,
-                    (jnp.zeros_like(last_val), last_val),
-                    traj_batch,
-                    reverse=True,
-                )
-                return advantages, advantages + traj_batch.value
-
-            advantages, targets = _calculate_gae(traj_batch, last_val)
-
-            # UPDATE NETWORK
-            def _update_epoch(
-                update_state: tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array],
-                unused: jax.Array,
-            ) -> tuple[tuple[TrainState, Transition, jax.Array, jax.Array, jax.Array], Any]:
-                def _update_minbatch(
-                    train_state: TrainState,
-                    batch_info: tuple[Transition, jax.Array, jax.Array],
-                ) -> tuple[TrainState, tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]]:
-                    traj_batch, advantages, targets = batch_info
-
-                    def _loss_fn(
-                        params: VariableDict,
-                        traj_batch: Transition,
-                        advantages: jax.Array,
-                        targets: jax.Array,
-                    ) -> tuple[jax.Array, tuple[jax.Array, jax.Array, jax.Array]]:
-                        # RERUN NETWORK
-                        policy, value = network.apply(params, traj_batch.obs)
-                        log_prob = _sum_action_event_terms(policy.log_prob(traj_batch.action), is_continuous=continuous_actions)
-
-                        # CALCULATE VALUE LOSS
-                        value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(-hypers.CLIP_EPS, hypers.CLIP_EPS)
-                        value_losses = jnp.square(value - targets)
-                        value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                        value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-
-                        # CALCULATE POLICY LOSS
-                        ratio = jnp.exp(log_prob - traj_batch.log_prob)
-                        gae = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                        loss_pc1 = ratio * gae
-                        loss_pc2 = (
-                            jnp.clip(
-                                ratio,
-                                1.0 - hypers.CLIP_EPS,
-                                1.0 + hypers.CLIP_EPS,
-                            )
-                            * gae
-                        )
-                        policy_loss = -jnp.minimum(loss_pc1, loss_pc2).mean()
-
-                        # CALCULATE ENTROPY LOSS
-                        entropy_loss = _sum_action_event_terms(policy.entropy(), is_continuous=continuous_actions).mean()
-
-                        loss = policy_loss + hypers.VF_COEF * value_loss - hypers.ENT_COEF * entropy_loss
-                        return loss, (value_loss, policy_loss, entropy_loss)
-
-                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    loss, grads = grad_fn(train_state.params, traj_batch, advantages, targets)
-
-                    opt_state = train_state.opt_state
-                    train_state = train_state.replace(
-                        opt_state=opt_state._replace(
-                            hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LR, "max_grad_norm": hypers.MAX_GRAD_NORM}
-                        ),
-                    )
-                    train_state = train_state.apply_gradients(grads=grads)
-                    return train_state, loss
-
-                train_state, traj_batch, advantages, targets, rng = update_state
-                rng, _rng = jax.random.split(rng)
-                batch_size = config.NUM_STEPS
-                permutation = jax.random.permutation(_rng, batch_size)
-                batch = (traj_batch, advantages, targets)
-                shuffled_batch = jax.tree_util.tree_map(
-                    lambda x: jnp.take(x, permutation, axis=0).reshape([config.NUM_MINIBATCHES, -1] + list(x.shape[1:])),
-                    batch,
-                )
-                train_state, losses = jax.lax.scan(_update_minbatch, train_state, shuffled_batch)
-                update_state = (train_state, traj_batch, advantages, targets, rng)
-                return update_state, losses
-
-            update_state = (train_state, traj_batch, advantages, targets, rng)
-            update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.UPDATE_EPOCHS)
-            train_state = update_state[0]
-            metric = jax.tree_util.tree_map(lambda x: x.mean(), traj_batch.info)
-            metric["returned_episode_returns"] = traj_batch.info["returned_episode_returns"].mean()
-
-            runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=last_obs, obs_norm_state=obs_norm_state, rng=update_state[-1])
-            return runner_state, metric
-
-        num_updates = config.TOTAL_TIMESTEPS // config.NUM_STEPS
-        runner_state = RunnerState(train_state=train_state, env_state=env_state, last_obs=obsv, obs_norm_state=obs_norm_state, rng=rng)
-        runner_state, metrics = jax.lax.scan(_update_step, runner_state, None, num_updates)
-        return {"runner_state": runner_state, "metrics": metrics}
-
-    return train

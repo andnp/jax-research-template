@@ -1,16 +1,11 @@
 """Medium tests for rl_agents.ppo — gradient flow and JIT compilation."""
 
-from dataclasses import dataclass
-from typing import override
-
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from rl_agents.ppo import PPOTransition, _sum_action_event_terms, make_train, ppo_loss
-from rl_components.gym_env import ContinuousActionSpace, DiscreteActionSpace, ObservationSpace
+from rl_agents.ppo import PPOTransition, _sum_action_event_terms, ppo_loss
 from rl_components.networks import ActorCritic, ContinuousActorCritic
-from rl_components.types import PPOConfig
 
 _CLIP_EPS = jnp.asarray(0.2, dtype=jnp.float32)
 _VF_COEF = jnp.asarray(0.5, dtype=jnp.float32)
@@ -45,179 +40,12 @@ def _minibatch(
     )
 
 
-@dataclass(frozen=True)
-class FakeObservationSpace:
-    shape: tuple[int, ...]
-    dtype: jnp.dtype = jnp.float32
-
-
-@dataclass(frozen=True)
-class FakeActionSpace:
-    n: int
-
-
-@dataclass(frozen=True)
-class FakeContinuousActionSpace:
-    shape: tuple[int, ...]
-    action_low: jax.Array | None = None
-    action_high: jax.Array | None = None
-
-
-class FakeDiscreteEnv:
-    def observation_space(self, params: object | None = None) -> ObservationSpace:
-        del params
-        return FakeObservationSpace(shape=(4,))
-
-    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
-        del params
-        return FakeActionSpace(n=2)
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.zeros((4,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
-
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        return (
-            jnp.full((4,), next_state, dtype=jnp.float32),
-            next_state,
-            jnp.array(1.0, dtype=jnp.float32),
-            jnp.array(False),
-            info,
-        )
-
-
-class FakeContinuousEnv:
-    def observation_space(self, params: object | None = None) -> ObservationSpace:
-        del params
-        return FakeObservationSpace(shape=(4,))
-
-    def action_space(self, params: object | None = None) -> ContinuousActionSpace:
-        del params
-        return FakeContinuousActionSpace(shape=(2,))
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.zeros((4,), dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
-
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        reward = jnp.array(1.0, dtype=jnp.float32) - 0.1 * jnp.sum(jnp.square(action))
-        return (
-            jnp.full((4,), next_state, dtype=jnp.float32),
-            next_state,
-            reward,
-            jnp.array(False),
-            info,
-        )
-
-
-class LargeMagnitudeDiscreteEnv(FakeDiscreteEnv):
-    @override
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.full((4,), 1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
-
-    @override
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        scaled_obs = jnp.full((4,), 1e6 * (next_state + 1), dtype=jnp.float32)
-        return scaled_obs, next_state, jnp.array(1.0, dtype=jnp.float32), jnp.array(False), info
-
-
-class LargeMagnitudeContinuousEnv(FakeContinuousEnv):
-    @override
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.full((4,), -1e6, dtype=jnp.float32), jnp.array(0, dtype=jnp.int32)
-
-    @override
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        reward = jnp.array(1.0, dtype=jnp.float32) - 0.1 * jnp.sum(jnp.square(action))
-        scaled_obs = jnp.full((4,), -1e6 * (next_state + 1), dtype=jnp.float32)
-        return scaled_obs, next_state, reward, jnp.array(False), info
-
-
-class RewardLoggingEnv(FakeDiscreteEnv):
-    @override
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        raw_reward = jnp.array(2.0, dtype=jnp.float32)
-        info = {
-            "returned_episode": jnp.array(True),
-            "returned_episode_returns": jnp.array(3.0, dtype=jnp.float32),
-        }
-        return jnp.full((4,), next_state, dtype=jnp.float32), next_state, raw_reward, jnp.array(False), info
-
-
 def _tree_all_finite(tree: object) -> bool:
     leaves = jax.tree_util.tree_leaves(tree)
     return all(bool(jnp.all(jnp.isfinite(leaf))) for leaf in leaves)
 
 
 class TestPPOGradientFlow:
-    def test_make_train_accepts_injected_env(self) -> None:
-        config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
-        train = make_train(config, env=FakeDiscreteEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        metrics = out["metrics"]
-
-        assert metrics["returned_episode"].shape == (2,)
-        assert metrics["returned_episode_returns"].shape == (2,)
-
     def test_params_change_after_update(self) -> None:
         """A gradient step on the real `ppo_loss` must move the ActorCritic parameters."""
         net = ActorCritic(action_dim=2)
@@ -339,78 +167,8 @@ class TestPPOGradientFlow:
         assert loss.shape == ()
         assert _tree_all_finite((loss, components))
 
-    def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
-        config = PPOConfig(
-            TOTAL_TIMESTEPS=4,
-            NUM_STEPS=2,
-            UPDATE_EPOCHS=1,
-            NUM_MINIBATCHES=1,
-            NORMALIZE_OBSERVATIONS=True,
-        )
-        train = make_train(config, env=LargeMagnitudeDiscreteEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        final_train_state = out["runner_state"][0]
-        obs_norm_state = out["runner_state"][3]
-
-        assert _tree_all_finite(final_train_state.params)
-        assert jnp.allclose(obs_norm_state.observation_count, jnp.array(5.0, dtype=jnp.float32))
-
-    def test_reward_scale_keeps_logged_returns_raw(self) -> None:
-        config = PPOConfig(
-            TOTAL_TIMESTEPS=4,
-            NUM_STEPS=2,
-            UPDATE_EPOCHS=1,
-            NUM_MINIBATCHES=1,
-            REWARD_SCALE=5.0,
-        )
-        train = make_train(config, env=RewardLoggingEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        returns = out["metrics"]["returned_episode_returns"]
-
-        assert jnp.allclose(returns, jnp.full((2,), 3.0, dtype=jnp.float32))
-
-    def test_reward_scale_changes_training_update(self) -> None:
-        unit_scale_train = make_train(
-            PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1, REWARD_SCALE=1.0),
-            env=FakeDiscreteEnv(),
-            env_params=None,
-        )
-        amplified_scale_train = make_train(
-            PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1, REWARD_SCALE=2.0),
-            env=FakeDiscreteEnv(),
-            env_params=None,
-        )
-
-        unit_scale_out = jax.jit(unit_scale_train)(jax.random.key(0))
-        amplified_scale_out = jax.jit(amplified_scale_train)(jax.random.key(0))
-
-        unit_params = unit_scale_out["runner_state"][0].params
-        amplified_params = amplified_scale_out["runner_state"][0].params
-        any_changed = any(
-            not jnp.allclose(unit_leaf, amplified_leaf)
-            for unit_leaf, amplified_leaf in zip(
-                jax.tree_util.tree_leaves(unit_params),
-                jax.tree_util.tree_leaves(amplified_params),
-                strict=True,
-            )
-        )
-
-        assert any_changed, "Reward scaling should alter PPO parameter updates"
-
 
 class TestContinuousPPOGradientFlow:
-    def test_make_train_accepts_continuous_env(self) -> None:
-        config = PPOConfig(TOTAL_TIMESTEPS=4, NUM_STEPS=2, UPDATE_EPOCHS=1, NUM_MINIBATCHES=1)
-        train = make_train(config, env=FakeContinuousEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        metrics = out["metrics"]
-
-        assert metrics["returned_episode"].shape == (2,)
-        assert metrics["returned_episode_returns"].shape == (2,)
-
     def test_params_change_after_update(self) -> None:
         """A gradient step on the real `ppo_loss` must move the continuous head too.
 
@@ -482,20 +240,3 @@ class TestContinuousPPOGradientFlow:
 
         assert loss.shape == ()
         assert _tree_all_finite((loss, components))
-
-    def test_large_magnitude_observations_remain_finite_with_normalization(self) -> None:
-        config = PPOConfig(
-            TOTAL_TIMESTEPS=4,
-            NUM_STEPS=2,
-            UPDATE_EPOCHS=1,
-            NUM_MINIBATCHES=1,
-            NORMALIZE_OBSERVATIONS=True,
-        )
-        train = make_train(config, env=LargeMagnitudeContinuousEnv(), env_params=None)
-
-        out = jax.jit(train)(jax.random.key(0))
-        final_train_state = out["runner_state"][0]
-        obs_norm_state = out["runner_state"][3]
-
-        assert _tree_all_finite(final_train_state.params)
-        assert jnp.allclose(obs_norm_state.observation_count, jnp.array(5.0, dtype=jnp.float32))

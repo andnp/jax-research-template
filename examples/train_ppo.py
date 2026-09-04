@@ -1,11 +1,14 @@
 import time
 
 import gymnax
-import gymnax.wrappers
 import jax
 import matplotlib.pyplot as plt
-from rl_agents.ppo import make_train
+from rl_agents.ppo import PPOAgent
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
 from rl_components.types import PPOConfig
+
+GAMMA = 0.99
 
 
 def main() -> None:
@@ -19,34 +22,25 @@ def main() -> None:
     )
 
     rng = jax.random.PRNGKey(config.SEED)
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
-    train_jit = jax.jit(train_fn)
+    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    env = make_gymnax_env(raw_env)
+    agent = PPOAgent(config)
+    train_jit = jax.jit(
+        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+    )
 
     print(f"--- Training PPO on {config.ENV_NAME} ---")
     print("Compiling...")
     compile_start = time.time()
-    # Trigger compilation with a small run or just run it.
-    # Here we just run the full thing.
-    out = train_jit(rng)
-    jax.block_until_ready(out)
+    _, metrics = jax.block_until_ready(train_jit(rng))
     total_time = time.time() - compile_start
-
-    # We want to separate compile time from execution time for real SPS
-    # But JAX JIT usually happens on the first call.
-    # To get "pure" SPS, we'd run once and then time a second run.
-    # For a CLI script, the first run's total time (including JIT) is often what the user cares about.
-    # Let's do a quick second run for accurate SPS if it's fast enough.
 
     print("Executing second run for accurate SPS...")
     start_time = time.time()
-    out = train_jit(rng)
-    jax.block_until_ready(out)
+    _, metrics = jax.block_until_ready(train_jit(rng))
     execution_time = time.time() - start_time
 
-    metrics = out["metrics"]
-    returns = metrics["returned_episode_returns"]
+    returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
     sps = config.TOTAL_TIMESTEPS / execution_time
 
     print(f"Compilation Time: {max(0, total_time - execution_time):.2f}s")
@@ -56,7 +50,7 @@ def main() -> None:
     print(f"Max Return:       {returns.max().item():.2f}")
 
     plt.plot(returns)
-    plt.xlabel("Update Step")
+    plt.xlabel("Episode")
     plt.ylabel("Episode Return")
     plt.title(f"PPO on {config.ENV_NAME} (SPS: {sps:.0f})")
     plt.savefig("ppo_results.png")

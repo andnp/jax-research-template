@@ -1,10 +1,13 @@
 from typing import Any
 
 import gymnax
-import gymnax.wrappers
 import jax
-from rl_agents.ppo import make_train
+from rl_agents.ppo import PPOAgent
+from rl_components.gymnax_bridge import make_gymnax_env
+from rl_components.loop import run
 from rl_components.types import PPOConfig
+
+GAMMA = 0.99
 
 
 def test_ppo_speed(benchmark: Any) -> None:
@@ -18,10 +21,12 @@ def test_ppo_speed(benchmark: Any) -> None:
     )
 
     rng = jax.random.PRNGKey(config.SEED)
-    env, env_params = gymnax.make(config.ENV_NAME)
-    env = gymnax.wrappers.LogWrapper(env)
-    train_fn = make_train(config, env=env, env_params=env_params)
-    train_jit = jax.jit(train_fn)
+    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    env = make_gymnax_env(raw_env)
+    agent = PPOAgent(config)
+    train_jit = jax.jit(
+        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+    )
 
     # Warmup (compilation)
     jax.block_until_ready(train_jit(rng))
