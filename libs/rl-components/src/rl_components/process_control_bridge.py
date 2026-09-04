@@ -162,7 +162,7 @@ class ProcessControlEnv[StateT]:
         self._scalar_action = scalar_action
         self._action_low, self._action_high = _broadcast_action_bounds(action_low, action_high, action_dim)
 
-    def spec(self, params: None = None) -> EnvSpec:
+    def spec(self, params: object | None = None) -> EnvSpec:
         del params
         return EnvSpec(
             id=self._env_id,
@@ -174,7 +174,7 @@ class ProcessControlEnv[StateT]:
             action_high=self._action_high,
         )
 
-    def reset(self, key: chex.PRNGKey, params: None = None) -> EnvReset[jax.Array, StateT]:
+    def reset(self, key: chex.PRNGKey, params: object | None = None) -> EnvReset[jax.Array, StateT]:
         del params
         state, observation = self._reset_fn(key)
         return EnvReset(observation=observation, state=state)
@@ -184,7 +184,7 @@ class ProcessControlEnv[StateT]:
         key: chex.PRNGKey,
         state: StateT,
         action: jax.Array,
-        params: None = None,
+        params: object | None = None,
     ) -> EnvStep[jax.Array, StateT]:
         del params
         if self._scalar_action:
