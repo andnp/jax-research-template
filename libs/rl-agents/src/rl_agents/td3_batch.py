@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import jax
@@ -39,14 +39,14 @@ class TD3BatchTrainer:
 
     def __init__(
         self,
-        env: EnvProtocol[jax.Array, object, jax.Array, object],
-        env_params: object,
+        env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
     ) -> None:
-        self._env = env
-        self._env_params = env_params
+        self._env_factory = env_factory
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         static_config = dict(context.static_config)
+        env_name = cast(str, static_config["env_name"])
+        env, env_params = self._env_factory(env_name)
         axes = context.axes()
         seeds = tuple(_seed_of(point.hyperparameters["seed"], point.run_id) for point in context.points)
         dynamic_axes = {
@@ -77,11 +77,11 @@ class TD3BatchTrainer:
             agent = TD3Agent(config)
             _, metrics = run(
                 agent,
-                self._env,
+                env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
                 gamma=cast(float, static_config["gamma"]),
-                env_params=self._env_params,
+                env_params=env_params,
             )
             return {
                 "reward": metrics["loop/reward"],
@@ -107,7 +107,6 @@ def _seed_of(value: ParameterValue, run_id: int) -> int:
 
 
 def make_td3_batch_trainer(
-    env: EnvProtocol[jax.Array, object, jax.Array, object],
-    env_params: object,
+    env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
 ) -> BatchTrainer:
-    return TD3BatchTrainer(env, env_params)
+    return TD3BatchTrainer(env_factory)
