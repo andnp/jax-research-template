@@ -18,6 +18,7 @@ from typing import Any
 import polars as pl
 
 from research_analysis.loader import load_sqlite_query
+from research_analysis.schema import AnalysisSchema
 
 _ARTIFACTS_SCHEMA: dict[str, Any] = {
     "condition_name": pl.String,
@@ -35,8 +36,31 @@ _METRICS_SCHEMA: dict[str, Any] = {
     "value": pl.Float64,
 }
 
+_MAPPED_ARTIFACTS_SCHEMA: dict[str, Any] = {
+    "condition_name": pl.String,
+    "env_name": pl.String,
+    "seed": pl.Int64,
+    "run_id": pl.Int64,
+    "execution_id": pl.Int64,
+    "metrics_db": pl.String,
+}
 
-def resolve_run_artifacts(experiments_db: Path | str, slug: str) -> pl.DataFrame:
+_MAPPED_METRICS_SCHEMA: dict[str, Any] = {
+    "condition_name": pl.String,
+    "env_name": pl.String,
+    "seed": pl.Int64,
+    "step": pl.Int64,
+    "metric": pl.String,
+    "value": pl.Float64,
+}
+
+
+def resolve_run_artifacts(
+    experiments_db: Path | str,
+    slug: str,
+    *,
+    schema: AnalysisSchema | None = None,
+) -> pl.DataFrame:
     """Resolve the latest completed execution artifacts for each run in an experiment.
 
     Returns a DataFrame with columns:
@@ -78,24 +102,30 @@ def resolve_run_artifacts(experiments_db: Path | str, slug: str) -> pl.DataFrame
                 continue
 
             hyperparameters: dict[str, object] = json.loads(hyper_config.json_blob)
-            condition_name = str(hyperparameters.get("condition_name", ""))
+            condition_name = (
+                schema.condition_name(hyperparameters)
+                if schema is not None
+                else str(hyperparameters.get("condition_name", ""))
+            )
 
             metadata: dict[str, object] = (
                 json.loads(latest_artifacts.metadata_json) if latest_artifacts.metadata_json else {}
             )
             metrics_db_path = metadata.get("metrics_db_path")
 
-            rows.append(
-                {
-                    "condition_name": condition_name,
-                    "seed": run.seed,
-                    "run_id": run.id,
-                    "execution_id": latest_exec.id,
-                    "metrics_db": metrics_db_path,
-                }
-            )
+            row: dict[str, object] = {
+                "condition_name": condition_name,
+                "seed": run.seed,
+                "run_id": run.id,
+                "execution_id": latest_exec.id,
+                "metrics_db": metrics_db_path,
+            }
+            if schema is not None:
+                row["env_name"] = schema.environment_name(hyperparameters)
+            rows.append(row)
 
-    return pl.DataFrame(rows or None, schema=_ARTIFACTS_SCHEMA)
+    result_schema = _MAPPED_ARTIFACTS_SCHEMA if schema is not None else _ARTIFACTS_SCHEMA
+    return pl.DataFrame(rows or None, schema=result_schema)
 
 
 def load_experiment_metrics(
@@ -104,6 +134,7 @@ def load_experiment_metrics(
     slug: str,
     metrics: list[str] | None = None,
     run_artifacts: pl.DataFrame | None = None,
+    schema: AnalysisSchema | None = None,
 ) -> pl.DataFrame:
     """Load training metrics for all conditions in a completed experiment.
 
@@ -127,15 +158,18 @@ def load_experiment_metrics(
             from ``experiments_db`` and ``slug``.
     """
     if run_artifacts is None:
-        run_artifacts = resolve_run_artifacts(experiments_db, slug)
+        run_artifacts = resolve_run_artifacts(experiments_db, slug, schema=schema)
 
+    mapped = "env_name" in run_artifacts.columns
     if run_artifacts.is_empty():
-        return pl.DataFrame(schema=_METRICS_SCHEMA)
+        result_schema = _MAPPED_METRICS_SCHEMA if mapped else _METRICS_SCHEMA
+        return pl.DataFrame(schema=result_schema)
 
     metric_filter = ""
     if metrics is not None:
         if not metrics:
-            return pl.DataFrame(schema=_METRICS_SCHEMA)
+            result_schema = _MAPPED_METRICS_SCHEMA if mapped else _METRICS_SCHEMA
+            return pl.DataFrame(schema=result_schema)
         quoted = ", ".join(f"'{m}'" for m in metrics)
         metric_filter = f" AND metric_name IN ({quoted})"
 
@@ -163,10 +197,19 @@ def load_experiment_metrics(
                     pl.lit(row["condition_name"]).alias("condition_name"),
                     pl.lit(row["seed"]).cast(pl.Int64).alias("seed"),
                 )
-                .select(list(_METRICS_SCHEMA.keys()))
             )
+            if mapped:
+                frames[-1] = frames[-1].with_columns(
+                    pl.lit(row["env_name"]).alias("env_name")
+                )
+            result_columns = _MAPPED_METRICS_SCHEMA if mapped else _METRICS_SCHEMA
+            frames[-1] = frames[-1].select(list(result_columns.keys()))
 
     if not frames:
-        return pl.DataFrame(schema=_METRICS_SCHEMA)
+        result_schema = _MAPPED_METRICS_SCHEMA if mapped else _METRICS_SCHEMA
+        return pl.DataFrame(schema=result_schema)
 
-    return pl.concat(frames).sort(["condition_name", "seed", "step", "metric"])
+    sort_columns = ["condition_name", "seed", "step", "metric"]
+    if mapped:
+        sort_columns.insert(1, "env_name")
+    return pl.concat(frames).sort(sort_columns)
