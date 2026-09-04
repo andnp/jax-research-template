@@ -181,7 +181,7 @@ def run_batched_rollout(
     capture_action: bool,
     mask_step_zero_delta: bool,
     telemetry_hook: TelemetryHook | None = None,
-    telemetry_keys: tuple[str, ...] = (),
+    telemetry_keys: tuple[str, ...] | None = None,
     action_shape: tuple[int, ...],
     step_offset: int | jax.Array,
     reset_policy: ResetPolicy = "ignore",
@@ -314,7 +314,7 @@ def run_batched_rollout(
                 env_step.info,
             )
         )
-        if set(telemetry) != set(telemetry_keys):
+        if telemetry_keys is not None and set(telemetry) != set(telemetry_keys):
             raise ValueError(
                 f"telemetry keys {sorted(telemetry)} do not match declared keys "
                 f"{sorted(telemetry_keys)}"
