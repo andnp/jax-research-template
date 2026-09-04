@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from .registry import registered_specs, spec
 from .runner import execute_batch, run_experiment
-from .types import ExecutionContext, ExecutionResult, ExperimentSpec, RunPoint
+from .types import BatchTrainer, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
 
 __all__ = [
+    "BatchTrainer",
     "ExecutionContext",
     "ExecutionResult",
     "ExperimentSpec",
+    "ParameterSchema",
     "RunPoint",
     "execute_batch",
     "registered_specs",

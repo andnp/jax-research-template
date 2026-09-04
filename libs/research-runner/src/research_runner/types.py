@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from experiment_definition import Experiment, ParameterValue
 
@@ -43,6 +44,26 @@ class ExecutionContext:
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
     metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterSchema:
+    """Classify hyperparameters that a trainer can batch dynamically."""
+
+    static_keys: frozenset[str] = frozenset()
+    dynamic_keys: frozenset[str] = frozenset()
+
+    def __post_init__(self) -> None:
+        overlap = self.static_keys & self.dynamic_keys
+        if overlap:
+            raise ValueError(f"parameter schema classifies keys as both static and dynamic: {sorted(overlap)}")
+
+
+class BatchTrainer(Protocol):
+    @property
+    def parameter_schema(self) -> ParameterSchema: ...
+
+    def __call__(self, context: ExecutionContext) -> ExecutionResult: ...
 
 
 @dataclass(frozen=True, slots=True)
