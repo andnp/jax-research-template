@@ -104,6 +104,86 @@ def _maybe_normalize_observation(
     return _normalize_observation(state, obs, eps=eps, clip=clip)
 
 
+@chex_struct(frozen=True)
+class PPOTransition:
+    """One completion-indexed rollout slot, or a stacked window of them.
+
+    Slot ``i`` records the transition **closed** at loop iteration ``i``, not the one
+    opened there. ``lax.scan`` forces this: a scan body at iteration ``i`` can only emit
+    values it holds at ``i``, so a layout referring to ``ts_{i+1}`` is not implementable in
+    a single forward pass. The first four fields are what the agent carried into the
+    iteration; the next three arrive with the incoming
+    :class:`~rl_components.timestep.Timestep`.
+
+    Attributes:
+        obs: ``s_{i-1}``, already normalized when the agent normalizes, because the loss
+            reruns the network on exactly what the action was selected from.
+        action: ``a_{i-1}``, the action that opened the transition.
+        log_prob: The behaviour policy's log-probability of ``action``, for the ratio.
+        value: ``V(s_{i-1})`` as estimated when that action was selected.
+        reward: The reward ``ts_i`` closed the transition with, after ``REWARD_SCALE``.
+        discount: ``ts_i.discount``: the bootstrap coefficient, ``0`` on termination and
+            ``gamma`` on continuation and truncation alike.
+        episode_end: ``ts_i.episode_end``: the trajectory break, true on termination and
+            truncation alike. It cuts the GAE trace and does nothing else.
+        bootstrap_value: ``V(ts_i.bootstrap_observation)``, computed at iteration ``i``
+            while the true state reached is still in hand. Storing it per slot is what
+            decouples advantage accumulation from value propagation; recovering it by
+            carrying the following slot's ``value`` backward through the reverse scan is
+            the cross-episode leak, because at a boundary that value is ``V(s_0_new)``.
+        valid: ``step_index > 0``. False on exactly one iteration of the whole run --
+            global ``t = 0``, the only iteration that closes no transition -- so the first
+            rollout holds ``NUM_STEPS - 1`` valid slots and every later one holds
+            ``NUM_STEPS``.
+    """
+
+    obs: jax.Array
+    action: jax.Array
+    log_prob: jax.Array
+    value: jax.Array
+    reward: jax.Array
+    discount: jax.Array
+    episode_end: jax.Array
+    bootstrap_value: jax.Array
+    valid: jax.Array
+
+
+def ppo_gae(rollout: PPOTransition, gae_lambda: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """Generalized advantage estimation over one completion-indexed rollout window.
+
+    The two boundary quantities drive different halves of the recurrence, and separating
+    them is the correctness half of this port: the pre-port code drove both from a single
+    fused ``not_done`` and so could not express a truncation at all.
+
+    - ``discount`` is the bootstrap coefficient of the TD residual. It is ``0`` only where
+      the bootstrap is genuinely dead, so a truncated transition keeps the estimate of the
+      state it actually reached.
+    - ``episode_end`` cuts the trace, and is true on truncation as well, so no advantage
+      accumulates across a boundary.
+
+    ``discount * gae_lambda * (1 - episode_end)`` equals the textbook
+    ``gamma * lam * (1 - done)`` in all three cases, because wherever ``discount`` differs
+    from ``gamma`` the ``(1 - episode_end)`` factor is already zero. That equality holds
+    under both ``truncation_policy`` values, which is why PPO needs no ``gamma`` of its own.
+
+    Args:
+        rollout: One rollout window, leading axis ``NUM_STEPS``.
+        gae_lambda: The trace-decay parameter, traced so a sweep can batch over it.
+
+    Returns:
+        The advantages and the value targets, each shaped like ``rollout.value``.
+    """
+
+    def _advance(gae: jax.Array, transition: PPOTransition) -> tuple[jax.Array, jax.Array]:
+        continues = jnp.asarray(1.0, jnp.float32) - transition.episode_end.astype(jnp.float32)
+        delta = transition.reward + transition.discount * transition.bootstrap_value - transition.value
+        gae = delta + transition.discount * gae_lambda * continues * gae
+        return gae, gae
+
+    _, advantages = jax.lax.scan(_advance, jnp.zeros((), jnp.float32), rollout, reverse=True)
+    return advantages, advantages + rollout.value
+
+
 class PPOTrainOutput(TypedDict):
     runner_state: RunnerState
     metrics: dict[str, jax.Array]
