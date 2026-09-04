@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from rl_components.agent_protocol import AgentStep
 from rl_components.env_protocol import BoundaryResetProtocol, EnvReset, EnvSpec, EnvStep
-from rl_components.gymnax_bridge import GymnaxEnv
+from rl_components.gymnax_bridge import GymnaxEnv, make_gymnax_env
 from rl_components.loop import LoopState, run
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
@@ -24,6 +24,9 @@ class _CounterState:
 
 
 class _CounterEnv:
+    def __init__(self, *, terminates: bool = True) -> None:
+        self.terminates = terminates
+
     def spec(self, params: None = None) -> EnvSpec:
         del params
         return EnvSpec(
@@ -62,7 +65,7 @@ class _CounterEnv:
                 previous_boundary_step=state.previous_boundary_step,
             ),
             reward=jnp.ones((), jnp.float32),
-            terminated=episode_step == 2,
+            terminated=(episode_step == 2) if self.terminates else jnp.array(False),
             truncated=jnp.array(False),
             info={},
         )
@@ -108,22 +111,29 @@ class _ZeroAgent:
         )
 
 
-def _run(env: _CounterEnv) -> tuple[LoopState[_CounterState, _AgentState, jax.Array], dict[str, jax.Array]]:
-    return jax.jit(lambda key: run(_ZeroAgent(), env, key, steps=5, gamma=0.99))(jax.random.key(0))
+def _run(env: _CounterEnv, *, episode_cutoff: int = -1) -> tuple[LoopState[_CounterState, _AgentState, jax.Array], dict[str, jax.Array]]:
+    return jax.jit(lambda key: run(_ZeroAgent(), env, key, steps=5, gamma=0.99, episode_cutoff=episode_cutoff))(jax.random.key(0))
 
 
 def test_boundary_reset_receives_prior_state_and_preserves_cumulative_clock_under_jit_vmap() -> None:
     """Boundary resets receive prior state and retain its cumulative clock across episodes."""
     env = _PreservingCounterEnv()
 
-    final_states, metrics = jax.vmap(lambda key: jax.jit(lambda inner: run(_ZeroAgent(), env, inner, steps=5, gamma=0.99))(key))(
-        jax.random.split(jax.random.key(0), 2)
-    )
+    batched_run = jax.jit(jax.vmap(lambda key: run(_ZeroAgent(), env, key, steps=5, gamma=0.99)))
+    final_states, metrics = batched_run(jax.random.split(jax.random.key(0), 2))
 
     assert isinstance(env, BoundaryResetProtocol)
     np.testing.assert_array_equal(final_states.env_state.total_step, [5, 5])
     np.testing.assert_array_equal(final_states.env_state.previous_boundary_step, [4, 4])
     np.testing.assert_array_equal(metrics["loop/episode_end"], [[False, True, False, True, False]] * 2)
+
+
+def test_boundary_reset_preserves_state_through_loop_truncation() -> None:
+    """A loop cutoff still uses the opt-in reset and preserves the terminal state."""
+    final_state, metrics = _run(_PreservingCounterEnv(terminates=False), episode_cutoff=2)
+
+    np.testing.assert_array_equal(metrics["loop/truncated"], [False, True, False, True, False])
+    assert int(final_state.env_state.total_step) == 5
 
 
 def test_environment_without_boundary_protocol_keeps_ordinary_reset_behavior() -> None:
@@ -161,7 +171,11 @@ class _ForwardingEnv:
 
 def test_gymnax_adapter_forwards_opt_in_boundary_reset_under_jit() -> None:
     """Gymnax wrappers forward boundary resets while preserving the deferred limit."""
-    env = GymnaxEnv(_ForwardingEnv())
+    ordinary = GymnaxEnv(_ForwardingEnv())
+    env = make_gymnax_env(_ForwardingEnv())
+
+    assert not isinstance(ordinary, BoundaryResetProtocol)
+    assert isinstance(env, BoundaryResetProtocol)
 
     reset = jax.jit(lambda state: env.reset_after_episode(jax.random.key(0), state))(jnp.array(7))
 

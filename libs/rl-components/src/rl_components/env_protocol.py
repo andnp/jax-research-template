@@ -103,7 +103,11 @@ class EnvProtocol[ObservationT, StateT, ActionT, ParamsT](Protocol):
 
 @runtime_checkable
 class BoundaryResetProtocol[ObservationT, StateT, ParamsT](Protocol):
-    """Opt-in reset that can preserve state across an episode boundary."""
+    """Opt-in pure reset preserving state across an episode boundary.
+
+    Implementations run inside ``jit`` and ``vmap`` and must return the same state
+    pytree structure, leaf shapes, and dtypes as ``reset`` and ``step``.
+    """
 
     def reset_after_episode(
         self,

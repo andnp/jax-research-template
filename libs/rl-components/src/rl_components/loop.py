@@ -76,12 +76,14 @@ silent corruption.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import chex
 import jax
 import jax.numpy as jnp
 
 from rl_components.agent_protocol import AgentProtocol
-from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, TruncationPolicy
+from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, EnvReset, TruncationPolicy
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep, bootstrap_terms
 
@@ -164,6 +166,20 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
     spec = env.spec(env_params)
     policy: TruncationPolicy = spec.truncation_policy if truncation_policy is None else truncation_policy
 
+    boundary_reset: Callable[[chex.PRNGKey, EnvStateT, ParamsT | None], EnvReset[ObsT, EnvStateT]]
+    if isinstance(env, BoundaryResetProtocol):
+        boundary_reset = env.reset_after_episode
+    else:
+        def reset_after_boundary(
+            reset_key: chex.PRNGKey,
+            previous_state: EnvStateT,
+            params: ParamsT | None,
+        ) -> EnvReset[ObsT, EnvStateT]:
+            del previous_state
+            return env.reset(reset_key, params)
+
+        boundary_reset = reset_after_boundary
+
     key, agent_key, initial_reset_key = jax.random.split(key, 3)
     agent_state = agent.init(agent_key, spec)
     reset = env.reset(initial_reset_key, env_params)
@@ -205,10 +221,7 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
         )
 
         def _on_boundary() -> tuple[ObsT, EnvStateT]:
-            if isinstance(env, BoundaryResetProtocol):
-                fresh = env.reset_after_episode(reset_key, env_step.state, env_params)
-            else:
-                fresh = env.reset(reset_key, env_params)
+            fresh = boundary_reset(reset_key, env_step.state, env_params)
             return fresh.observation, fresh.state
 
         def _on_continuation() -> tuple[ObsT, EnvStateT]:

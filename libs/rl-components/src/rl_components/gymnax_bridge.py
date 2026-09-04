@@ -176,17 +176,6 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         observation, state = self._env.reset_env(key, self._deferred_limit(resolved))
         return EnvReset(observation=observation, state=state)
 
-    def reset_after_episode(
-        self,
-        key: chex.PRNGKey,
-        previous_state: StateT,
-        params: ParamsT | None = None,
-    ) -> EnvReset[jax.Array, StateT]:
-        resolved = self._resolve(params)
-        if isinstance(self._env, BoundaryResetProtocol):
-            return self._env.reset_after_episode(key, previous_state, self._deferred_limit(resolved))
-        return self.reset(key, params)
-
     def step(
         self,
         key: chex.PRNGKey,
@@ -215,6 +204,21 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         )
 
 
+class _BoundaryResetGymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams](GymnaxEnv[StateT, ParamsT]):
+    def reset_after_episode(
+        self,
+        key: chex.PRNGKey,
+        previous_state: StateT,
+        params: ParamsT | None = None,
+    ) -> EnvReset[jax.Array, StateT]:
+        resolved = self._resolve(params)
+        if not isinstance(self._env, BoundaryResetProtocol):
+            raise TypeError("boundary-capable Gymnax adapter requires a boundary-reset environment")
+        return self._env.reset_after_episode(key, previous_state, self._deferred_limit(resolved))
+
+
 def make_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](env: object) -> GymnaxEnv[StateT, ParamsT]:
     """Wrap a raw Gymnax environment as an :class:`EnvProtocol` environment."""
+    if isinstance(env, BoundaryResetProtocol):
+        return _BoundaryResetGymnaxEnv(env)
     return GymnaxEnv(env)
