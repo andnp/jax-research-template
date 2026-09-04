@@ -26,6 +26,18 @@ class TestComponent:
         c = Component(name="X", path=Path("/nonexistent/path.py"))
         assert c.code_hash() == ""
 
+    def test_from_module_resolves_path(self) -> None:
+        import experiment_definition.component as component_module
+
+        c = Component.from_module("component", component_module, type=ComponentType.OTHER)
+        assert c.path == Path(component_module.__file__ or "")
+
+    def test_from_module_rejects_module_without_source_file(self) -> None:
+        import sys
+
+        with pytest.raises(ValueError, match="no source file"):
+            Component.from_module("sys", sys)
+
 
 # ── ParameterSpec ─────────────────────────────────────────────────────────────
 
