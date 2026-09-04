@@ -328,6 +328,7 @@ def make_chlorine_benchmark(
 
         info: dict[str, jax.Array] = {
             "pi_dose": pi_dose,
+            "sensed_residual": sensed_residual,
             "outlet_residual": outlet_residual,
             "flow": flow,
             "demand": demand,
