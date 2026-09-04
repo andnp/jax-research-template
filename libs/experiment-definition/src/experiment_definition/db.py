@@ -749,6 +749,42 @@ class DatabaseManager:
         ).fetchall()
         return [RunRow(*row) for row in rows]
 
+    def list_orphan_runs(self, experiment_id: int, wanted_run_ids: frozenset[int]) -> list[RunRow]:
+        """Return runs the current definition does not want and that no execution ever touched.
+
+        ``wanted_run_ids`` comes from ``Experiment.sync``. A run with any linked execution
+        is excluded whatever its status: a COMPLETED one is a result, and a PENDING or
+        RUNNING one is a live claim, so neither is garbage even when the definition has
+        moved on.
+        """
+        rows = self.conn.execute(
+            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
+            "FROM Runs r "
+            "LEFT JOIN ExecutionRuns er ON er.run_id = r.id "
+            "WHERE r.experiment_id = ? AND er.run_id IS NULL "
+            "ORDER BY r.hyper_id, r.seed, r.id",
+            (experiment_id,),
+        ).fetchall()
+        return [RunRow(*row) for row in rows if int(row[0]) not in wanted_run_ids]
+
+    def delete_runs(self, run_ids: list[int]) -> int:
+        """Delete runs by id, skipping any that an execution touched, and return the count.
+
+        The execution guard is repeated here rather than trusted from the caller: this
+        deletes rows from a durable results database, and a stale id list must not be able
+        to remove a run that has results.
+        """
+        deleted = 0
+        with self.conn:
+            for run_id in run_ids:
+                cursor = self.conn.execute(
+                    "DELETE FROM Runs WHERE id = ? "
+                    "AND NOT EXISTS (SELECT 1 FROM ExecutionRuns er WHERE er.run_id = Runs.id)",
+                    (run_id,),
+                )
+                deleted += cursor.rowcount
+        return deleted
+
     def list_unsatisfied_run_batches(self, experiment_id: int, max_runs_per_batch: int | None = None) -> list[RunBatch]:
         """Group unsatisfied runs by static vmap zone for batch planning."""
         rows = self.conn.execute(
