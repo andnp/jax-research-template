@@ -16,6 +16,7 @@ from research_analysis.reporting import (
     compare_bakeoff,
     compare_pairwise,
 )
+from research_analysis.schema import AnalysisSchema
 
 
 def populate_metrics_db(db_path: Path, run_id: int, metric_name: str, values: list[float], execution_id: int | None = None) -> None:
@@ -126,6 +127,49 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     # Verify plotting artifact exists
     assert report.distribution_plot_path is not None
     assert report.distribution_plot_path.exists()
+
+
+def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:
+    """Compare algorithm conditions stored with a benchmark source key."""
+    setup = temp_experiment_setup
+    with DatabaseManager(setup["db_path"]) as db:
+        for algorithm in ("td3", "sac"):
+            for seed in range(4):
+                hyper_id = db.add_hyperparam_config(
+                    {"algorithm": algorithm, "benchmark": "chlorine", "seed": seed}
+                )
+                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+                execution_id = db.add_execution()
+                db.update_execution_status(execution_id, "COMPLETED")
+                db.link_execution_run(execution_id, run_id)
+                db.record_execution_artifacts(
+                    execution_id,
+                    str(setup["tmp_path"]),
+                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
+                )
+                value = 100.0 + seed if algorithm == "td3" else 150.0 + seed
+                populate_metrics_db(
+                    setup["metrics_db_path"],
+                    run_id,
+                    "metric",
+                    [value],
+                    execution_id=execution_id,
+                )
+
+    report = compare_pairwise(
+        setup["db_path"],
+        "test-exp",
+        "td3",
+        "sac",
+        "metric",
+        verbose=False,
+        schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
+    )
+
+    assert report.condition_a == "td3"
+    assert report.condition_b == "sac"
+    assert report.mean_a == pytest.approx(101.5)
+    assert report.mean_b == pytest.approx(151.5)
 
 
 def test_compare_pairwise_honors_confidence_level(temp_experiment_setup: dict[str, Any]) -> None:
