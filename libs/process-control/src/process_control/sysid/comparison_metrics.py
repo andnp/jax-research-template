@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import isclose
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +11,8 @@ from process_control.sysid.comparison import (
     TraceComparisonSpec,
     TraceMetricArrays,
 )
-from process_control.sysid.trace import SignalSpec, UniformTrace
+from process_control.sysid.comparison_arrays import prepare_trace_comparison
+from process_control.sysid.trace import UniformTrace
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,41 +27,6 @@ class _MetricSums:
     reference_squared_sum: jax.Array
     candidate_squared_sum: jax.Array
     cross_sum: jax.Array
-
-
-@dataclass(frozen=True, slots=True)
-class _TraceSignal:
-    values: jax.Array
-    valid: jax.Array
-    spec: SignalSpec
-
-
-def _find_signal(trace: UniformTrace, name: str) -> _TraceSignal:
-    groups = (
-        (trace.schema.controls, trace.arrays.controls, 0),
-        (trace.schema.disturbances, trace.arrays.disturbances, len(trace.schema.controls)),
-        (
-            trace.schema.measurements,
-            trace.arrays.measurements,
-            len(trace.schema.controls) + len(trace.schema.disturbances),
-        ),
-        (
-            trace.schema.actuators,
-            trace.arrays.actuators,
-            len(trace.schema.controls)
-            + len(trace.schema.disturbances)
-            + len(trace.schema.measurements),
-        ),
-    )
-    for specs, values, offset in groups:
-        for index, spec in enumerate(specs):
-            if spec.name == name:
-                return _TraceSignal(
-                    values=values[:, index],
-                    valid=trace.arrays.valid[:, offset + index],
-                    spec=spec,
-                )
-    raise ValueError(f"trace does not contain signal {name!r}")
 
 
 def _metric_sums(
@@ -172,39 +137,12 @@ def compare_traces(
     spec: TraceComparisonSpec,
 ) -> TraceComparisonResult:
     """Compare named signals without crossing invalid or segmented rows."""
-    if reference.n_steps != candidate.n_steps:
-        raise ValueError("reference and candidate traces must have equal lengths")
-    if not isclose(reference.sample_period, candidate.sample_period, rel_tol=0.0, abs_tol=spec.time_tolerance):
-        raise ValueError("reference and candidate sample periods must match")
-    if not bool(
-        jnp.all(
-            jnp.abs(reference.time - candidate.time) <= spec.time_tolerance
-        )
-    ):
-        raise ValueError("reference and candidate timestamps must match")
-    if spec.warmup_steps >= reference.n_steps:
-        raise ValueError("warmup_steps must leave at least one comparison row")
-
+    aligned = prepare_trace_comparison(reference, candidate, spec)
+    reference_values = aligned.reference
+    candidate_values = aligned.candidate
+    valid = aligned.valid
+    segment_ids = aligned.segment_id
     pairs = tuple(spec.pairs)
-    reference_signals = tuple(_find_signal(reference, pair.reference) for pair in pairs)
-    candidate_signals = tuple(_find_signal(candidate, pair.candidate) for pair in pairs)
-    for pair, reference_signal, candidate_signal in zip(
-        pairs,
-        reference_signals,
-        candidate_signals,
-        strict=True,
-    ):
-        if reference_signal.spec.unit != pair.unit or candidate_signal.spec.unit != pair.unit:
-            raise ValueError(f"units do not match comparison pair {pair.reference!r}")
-
-    rows = slice(spec.warmup_steps, None)
-    reference_values = jnp.stack([signal.values[rows] for signal in reference_signals], axis=1)
-    candidate_values = jnp.stack([signal.values[rows] for signal in candidate_signals], axis=1)
-    valid = jnp.stack(
-        [reference_signal.valid[rows] & candidate_signal.valid[rows] for reference_signal, candidate_signal in zip(reference_signals, candidate_signals, strict=True)],
-        axis=1,
-    )
-    segment_ids = reference.arrays.segment_id[rows]
     unique_segments = tuple(int(value) for value in jnp.unique(segment_ids).tolist())
     segment_sums = _stack_sums(
         tuple(
