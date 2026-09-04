@@ -7,7 +7,7 @@ from typing import Literal
 
 type Estimand = Literal["mean", "median"]
 type Pairing = Literal["auto", "paired", "independent"]
-type Missingness = Literal["error", "complete_case"]
+type Missingness = Literal["error", "complete_case", "blockwise"]
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class ComparisonSpec:
             raise ValueError(f"n_resamples must be positive, got {self.n_resamples}")
         if self.min_samples < 3:
             raise ValueError(f"min_samples must be at least 3, got {self.min_samples}")
-        if self.missingness not in ("error", "complete_case"):
+        if self.missingness not in ("error", "complete_case", "blockwise"):
             raise ValueError(f"unknown missingness policy {self.missingness!r}")
         if not self.pairing_keys or any(not key for key in self.pairing_keys):
             raise ValueError("pairing_keys must contain at least one non-empty key")
