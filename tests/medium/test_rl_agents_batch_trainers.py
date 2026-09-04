@@ -874,7 +874,7 @@ def test_multi_algorithm_dispatch_accepts_static_trainer_values(tmp_path: Path) 
 
     Each selected trainer must run when only its static configuration is supplied.
     """
-    trainer = make_algorithm_batch_trainer(_make_env, ("ppo", "sac", "td3"))
+    trainer = make_algorithm_batch_trainer(_make_env, ["ppo", "sac", "td3"])
     assert trainer.parameter_schema.dynamic_keys == frozenset({"learning_rate"})
     configs = {
         "ppo": {
@@ -1058,6 +1058,32 @@ def test_algorithm_batch_trainer_rejects_invalid_configuration() -> None:
         make_algorithm_batch_trainer(_make_env, ())
     with pytest.raises(ValueError, match="no batch trainer registered"):
         make_algorithm_batch_trainer(_make_env, ("unknown",))
+
+
+def test_algorithm_batch_trainer_rejects_mixed_h_regularization_axis(tmp_path: Path) -> None:
+    """
+    Verify mixed GAC/QRC dispatch rejects their incompatible shared override.
+
+    The intersected schema must reject a varying h_regularization axis before
+    dispatch can pass a numeric GAC weight to the categorical QRC contract.
+    """
+    static_config = {"algorithm": "qrc", "env_name": "CartPole-v1"}
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="mixed-regularization-test",
+        static_config=static_config,
+        points=(
+            RunPoint(0, {**static_config, "h_regularization": "adamw", "seed": 0}),
+            RunPoint(1, {**static_config, "h_regularization": "l2", "seed": 1}),
+        ),
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+    trainer = make_algorithm_batch_trainer(_make_env, ("gac", "qrc"))
+
+    with pytest.raises(ValueError, match="h_regularization"):
+        trainer(context)
 
 
 @pytest.mark.parametrize("static_config", [{}, {"algorithm": 1}])

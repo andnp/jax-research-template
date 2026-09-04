@@ -7,7 +7,7 @@ being rewritten by every project that sweeps more than one algorithm.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 import jax
 from experiment_definition import ParameterValue
@@ -44,7 +44,8 @@ ALGORITHM_TRAINERS: Mapping[str, Callable[[EnvFactory], BatchTrainer]] = {
 class AlgorithmBatchTrainer:
     """Dispatch a batch of runs to the trainer named by its ``algorithm`` parameter."""
 
-    def __init__(self, env_factory: EnvFactory, algorithms: tuple[str, ...]) -> None:
+    def __init__(self, env_factory: EnvFactory, algorithms: Sequence[str]) -> None:
+        algorithms = tuple(algorithms)
         if not algorithms:
             raise ValueError("an algorithm dispatch needs at least one algorithm")
         unknown = sorted(set(algorithms) - set(ALGORITHM_TRAINERS))
@@ -78,6 +79,6 @@ class AlgorithmBatchTrainer:
         return trainer(context)
 
 
-def make_algorithm_batch_trainer(env_factory: EnvFactory, algorithms: tuple[str, ...]) -> BatchTrainer:
+def make_algorithm_batch_trainer(env_factory: EnvFactory, algorithms: Sequence[str]) -> BatchTrainer:
     """Build a trainer that serves every algorithm in ``algorithms``."""
     return AlgorithmBatchTrainer(env_factory, algorithms)
