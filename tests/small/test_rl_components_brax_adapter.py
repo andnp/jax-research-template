@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import pytest
 import rl_components.brax as brax_module
 from rl_components.brax import BraxAdapter, BraxConfig
+from rl_components.env_protocol import EnvSpec
 
 
 @dataclass(frozen=True)
@@ -121,3 +122,28 @@ class TestBraxAdapterAutoReset:
 
         assert captured["auto_reset"] is False
         assert captured["env_name"] == "fake"
+
+
+class TestBraxAdapterActionBounds:
+    """``spec`` is read inside the caller's ``jit``, so its bounds must be constants.
+
+    :func:`rl_components.loop.run` calls ``env.spec`` and ``agent.init`` in the traced
+    region. A staged control range reaches :class:`EnvSpec` as a tracer, and the
+    continuous agents' ``[-1, 1]`` check then cannot read the bounds it was handed.
+    """
+
+    def test_the_control_range_is_concrete_inside_a_trace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class UnnormalizedBraxEnv(FakeBraxEnv):
+            sys = FakeBraxSystem(actuator=FakeBraxActuator(ctrl_range=jnp.array([[-3.0, 3.0]], dtype=jnp.float32)))
+
+        monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: UnnormalizedBraxEnv(0.0, 0.0))
+        adapter = BraxAdapter(BraxConfig(env_name="fake"))
+        traced: list[EnvSpec] = []
+
+        jax.jit(lambda key: (traced.append(adapter.spec()), key)[1])(jax.random.key(0))
+
+        (spec,) = traced
+        assert spec.action_low is not None
+        assert spec.action_high is not None
+        assert bool(jnp.all(spec.action_low == -3.0))
+        assert bool(jnp.all(spec.action_high == 3.0))

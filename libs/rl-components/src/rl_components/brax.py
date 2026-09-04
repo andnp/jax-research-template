@@ -80,18 +80,34 @@ def _coerce_info(info: Mapping[str, object]) -> dict[str, jax.Array]:
 
 
 def _action_bounds(env: _BraxEnv[_BraxState]) -> tuple[jax.Array | None, jax.Array | None]:
+    """Read the actuator control range as trace-time constants.
+
+    ``spec`` is called from inside :func:`rl_components.loop.run`, which the caller
+    jits, so these ``jnp`` calls would otherwise be staged and the bounds would reach
+    :class:`EnvSpec` as tracers the agent reading the spec cannot compare.
+
+    Args:
+        env: The Brax environment whose system carries the actuator range.
+
+    Returns:
+        The lower and upper bounds, or ``(None, None)`` when the system declares none.
+
+    Raises:
+        ValueError: If the declared range does not match the action size.
+    """
     actuator = getattr(env.sys, "actuator", None)
     ctrl_range = getattr(actuator, "ctrl_range", None)
     if ctrl_range is None:
         return None, None
 
-    ctrl_range_array = jnp.asarray(ctrl_range, dtype=jnp.float32)
-    expected_shape = (int(env.action_size), 2)
-    if ctrl_range_array.shape != expected_shape:
-        raise ValueError(
-            f"expected Brax actuator ctrl_range shape {expected_shape}, got {ctrl_range_array.shape}"
-        )
-    return ctrl_range_array[:, 0], ctrl_range_array[:, 1]
+    with jax.ensure_compile_time_eval():
+        ctrl_range_array = jnp.asarray(ctrl_range, dtype=jnp.float32)
+        expected_shape = (int(env.action_size), 2)
+        if ctrl_range_array.shape != expected_shape:
+            raise ValueError(
+                f"expected Brax actuator ctrl_range shape {expected_shape}, got {ctrl_range_array.shape}"
+            )
+        return ctrl_range_array[:, 0], ctrl_range_array[:, 1]
 
 
 class BraxAdapter:
