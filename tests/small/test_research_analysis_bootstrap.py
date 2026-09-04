@@ -2,7 +2,13 @@
 
 import numpy as np
 import pytest
-from research_analysis.bootstrap import BootstrapCI, bootstrap_ci, bootstrap_difference_ci
+from research_analysis.bootstrap import (
+    BootstrapCI,
+    ScalarBootstrapCI,
+    bootstrap_ci,
+    bootstrap_difference_ci,
+    bootstrap_scalar_ci,
+)
 
 
 def _reference_bootstrap_ci(
@@ -142,3 +148,18 @@ def test_difference_bootstrap_rejects_invalid_inputs() -> None:
             np.array([1.0, np.nan, 3.0]),
             np.array([0.0, 1.0, 2.0]),
         )
+
+
+def test_scalar_bootstrap_returns_bca_interval() -> None:
+    """Scalar estimates expose a finite BCa interval with explicit settings."""
+    result = bootstrap_scalar_ci(
+        np.array([1.0, 2.0, 4.0, 7.0, 9.0]),
+        confidence=0.90,
+        n_resamples=128,
+        rng=np.random.default_rng(42),
+    )
+
+    assert isinstance(result, ScalarBootstrapCI)
+    assert result.estimate == pytest.approx(4.6)
+    assert result.ci_low <= result.estimate <= result.ci_high
+    assert result.confidence == 0.90
