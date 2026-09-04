@@ -3,6 +3,10 @@
 An experiment that varies ``algorithm`` needs something to read that parameter and pick
 a trainer. Nothing about that choice is project-specific, so it lives here rather than
 being rewritten by every project that sweeps more than one algorithm.
+
+Each registered algorithm is an :class:`~rl_agents.batch_trainer.AlgorithmSpec`, not a
+hand-written trainer factory: :func:`~rl_agents.batch_trainer.make_batch_trainer` builds
+the actual :class:`~research_runner.BatchTrainer` from the spec plus the env factory.
 """
 
 from __future__ import annotations
@@ -13,14 +17,17 @@ import jax
 from experiment_definition import ParameterValue
 from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.env_protocol import EnvProtocol
+from rl_components.types import PPOConfig
 
-from rl_agents.dqn_batch import make_dqn_batch_trainer
-from rl_agents.gac_batch import make_gac_batch_trainer
-from rl_agents.ppo_batch import make_ppo_batch_trainer
-from rl_agents.qrc_batch import make_qrc_batch_trainer
-from rl_agents.sac_batch import make_sac_batch_trainer
-from rl_agents.sac_rc_batch import make_sac_rc_batch_trainer
-from rl_agents.td3_batch import make_td3_batch_trainer
+from rl_agents.batch_trainer import AlgorithmSpec, make_batch_trainer
+from rl_agents.dqn import DQNAgent, DQNConfig
+from rl_agents.greedy_ac import GACAgent, GACConfig, GACHypers
+from rl_agents.ppo import PPOAgent, PPOHypers
+from rl_agents.qrc import QRCAgent, QRCConfig, QRCHypers
+from rl_agents.replay_q_agent import ReplayQHypers
+from rl_agents.sac import SACAgent, SACConfig, SACHypers
+from rl_agents.sac_rc import SACRCAgent, SACRCConfig, SACRCHypers
+from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 
 EnvFactory = Callable[
     [Mapping[str, ParameterValue]],
@@ -30,14 +37,14 @@ EnvFactory = Callable[
 ALGORITHM_PARAMETER = "algorithm"
 """The parameter naming which algorithm a batch of runs belongs to."""
 
-ALGORITHM_TRAINERS: Mapping[str, Callable[[EnvFactory], BatchTrainer]] = {
-    "dqn": make_dqn_batch_trainer,
-    "gac": make_gac_batch_trainer,
-    "ppo": make_ppo_batch_trainer,
-    "qrc": make_qrc_batch_trainer,
-    "sac": make_sac_batch_trainer,
-    "sac-rc": make_sac_rc_batch_trainer,
-    "td3": make_td3_batch_trainer,
+ALGORITHM_TRAINERS: Mapping[str, AlgorithmSpec] = {
+    "dqn": AlgorithmSpec("dqn", DQNAgent, DQNConfig, ReplayQHypers),
+    "gac": AlgorithmSpec("gac", GACAgent, GACConfig, GACHypers),
+    "ppo": AlgorithmSpec("ppo", PPOAgent, PPOConfig, PPOHypers),
+    "qrc": AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers),
+    "sac": AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers),
+    "sac-rc": AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers),
+    "td3": AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers),
 }
 
 
@@ -51,7 +58,7 @@ class AlgorithmBatchTrainer:
         unknown = sorted(set(algorithms) - set(ALGORITHM_TRAINERS))
         if unknown:
             raise ValueError(f"no batch trainer registered for {unknown}; known: {sorted(ALGORITHM_TRAINERS)}")
-        self._trainers = {name: ALGORITHM_TRAINERS[name](env_factory) for name in algorithms}
+        self._trainers = {name: make_batch_trainer(ALGORITHM_TRAINERS[name], env_factory) for name in algorithms}
 
     @property
     def parameter_schema(self) -> ParameterSchema:
