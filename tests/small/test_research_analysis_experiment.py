@@ -82,6 +82,38 @@ def _bootstrap_experiments_db(db_path: Path) -> _ExperimentFixture:
     return _ExperimentFixture(runs=runs, metrics_db=metrics_db)
 
 
+def _bootstrap_mapped_experiments_db(db_path: Path) -> tuple[Path, list[tuple[int, int, int]]]:
+    """Create a synthetic experiment using algorithm and benchmark metadata."""
+    metrics_db = db_path.parent / "metrics.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        algo_comp = db.add_component("td3", "ALGO")
+        algo_ver = db.add_component_version(algo_comp, "abc123")
+        env_comp = db.add_component("chlorine", "ENV")
+        env_ver = db.add_component_version(env_comp, "def456")
+        exp_id = db.add_experiment("mapped-experiment")
+
+        run_records: list[tuple[int, int, int]] = []
+        for seed, algorithm in enumerate(("td3", "sac")):
+            hyper_id = db.add_hyperparam_config(
+                {"algorithm": algorithm, "benchmark": "chlorine", "seed": seed}
+            )
+            run_id = db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed)
+            execution_id = db.add_execution()
+            db.link_execution_run(execution_id, run_id)
+            execution_root = db_path.parent / "executions" / str(execution_id)
+            execution_root.mkdir(parents=True, exist_ok=True)
+            db.record_execution_artifacts(
+                execution_id,
+                str(execution_root),
+                metadata={"metrics_db_path": str(metrics_db)},
+            )
+            db.update_execution_status(execution_id, "COMPLETED")
+            run_records.append((run_id, execution_id, seed))
+
+    return metrics_db, run_records
+
+
 def _write_metrics_db(metrics_db: Path, rows: list[dict[str, float | int | str]]) -> None:
     """Write rows into a minimal metrics SQLite DB."""
     metrics_db.parent.mkdir(parents=True, exist_ok=True)
@@ -279,3 +311,33 @@ class TestLoadExperimentMetrics:
 
         assert df.is_empty()
         assert set(df.columns) == {"condition_name", "seed", "step", "metric", "value"}
+
+    def test_maps_project_metadata_without_condition_collapse(self, tmp_path: Path) -> None:
+        """Preserve algorithm and benchmark dimensions through canonical loading."""
+        db_path = tmp_path / "experiments.sqlite"
+        metrics_db, run_records = _bootstrap_mapped_experiments_db(db_path)
+        _write_metrics_db(
+            metrics_db,
+            [
+                {
+                    "metric_name": "reward",
+                    "value": float(seed + 1),
+                    "global_step": 0,
+                    "seed_id": seed,
+                    "experiment_id": 1,
+                    "run_id": run_id,
+                    "execution_id": execution_id,
+                }
+                for run_id, execution_id, seed in run_records
+            ],
+        )
+
+        df = load_experiment_metrics(
+            experiments_db=db_path,
+            slug="mapped-experiment",
+            schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
+        )
+
+        assert set(df["condition_name"].to_list()) == {"td3", "sac"}
+        assert set(df["env_name"].to_list()) == {"chlorine"}
+        assert set(df["metric"].to_list()) == {"reward"}
