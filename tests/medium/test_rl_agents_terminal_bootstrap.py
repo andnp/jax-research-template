@@ -23,11 +23,20 @@ import jax.numpy as jnp
 import pytest
 from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, sac, sac_rc, td3
 from rl_agents.q_networks import make_q_network
+from rl_agents.rainbow import RainbowConfig, RainbowNatureNetwork, rainbow_loss, rainbow_support
 
 BATCH_SIZE = 8
 OBS_DIM = 2
 ACTION_DIM = 1
 NUM_ACTIONS = 3
+
+RAINBOW_OBSERVATION_SHAPE = (4, 84, 84, 1)
+RAINBOW_BATCH_SIZE = 4
+"""Rainbow needs image observations for its Nature CNN, so it gets its own shapes.
+
+The batch is smaller because each row goes through the convolutional torso three times:
+once for the stored observation and twice for the bootstrap one.
+"""
 
 
 def _next_obs_pair(shape: tuple[int, ...]) -> tuple[jax.Array, jax.Array]:
@@ -91,6 +100,61 @@ def test_double_q_loss_ignores_next_obs_on_terminal_rows(agent: str) -> None:
     assert jnp.allclose(loss(next_obs_a, terminal), loss(next_obs_b, terminal))
 
     surviving = jnp.full((BATCH_SIZE,), 0.99, dtype=jnp.float32)
+    assert not jnp.allclose(loss(next_obs_a, surviving), loss(next_obs_b, surviving))
+
+
+def test_rainbow_loss_ignores_next_obs_on_terminal_rows() -> None:
+    """The distributional bootstrap must vanish whole when the n-step window terminated.
+
+    Rainbow's stored ``discount`` is a cumulative product over the window rather than a
+    one-step coefficient, and the loss has no ``done`` mask left to fall back on: the
+    product reaching ``0`` is the only thing that can remove the bootstrap. So the
+    zero-discount case here also pins that the projection collapses onto the bare reward.
+
+    The nonzero-discount case is the control, and it does double duty for this agent: a
+    loss that ignored ``discounts`` altogether -- multiplying by a compile-time constant,
+    as this one used to -- would satisfy the invariance only if that constant were zero,
+    and would fail the control if it were anything else.
+    """
+    config = RainbowConfig()
+    network = RainbowNatureNetwork(
+        action_dim=NUM_ACTIONS,
+        num_atoms=config.NUM_ATOMS,
+        observation_layout="fhwc",
+    )
+    support = rainbow_support(config)
+
+    obs_zeros = jnp.zeros(RAINBOW_OBSERVATION_SHAPE, dtype=jnp.uint8)
+    params = network.init({"params": jax.random.key(0), "noise": jax.random.key(1)}, obs_zeros)
+    target_params = network.init({"params": jax.random.key(2), "noise": jax.random.key(3)}, obs_zeros)
+
+    batch_shape = (RAINBOW_BATCH_SIZE, *RAINBOW_OBSERVATION_SHAPE)
+    obs = jax.random.randint(jax.random.key(4), batch_shape, 0, 256, dtype=jnp.uint8)
+    actions = jax.random.randint(jax.random.key(5), (RAINBOW_BATCH_SIZE,), 0, NUM_ACTIONS)
+    rewards = jax.random.normal(jax.random.key(6), (RAINBOW_BATCH_SIZE,), dtype=jnp.float32)
+    next_obs_a = jax.random.randint(jax.random.key(7), batch_shape, 0, 256, dtype=jnp.uint8)
+    next_obs_b = jax.random.randint(jax.random.key(8), batch_shape, 0, 256, dtype=jnp.uint8)
+
+    def loss(next_obs: jax.Array, discounts: jax.Array) -> jax.Array:
+        total, _per_example = rainbow_loss(
+            params,
+            target_params,
+            obs,
+            actions,
+            rewards,
+            next_obs,
+            discounts,
+            jnp.ones((RAINBOW_BATCH_SIZE,), dtype=jnp.float32),
+            jax.random.key(9),
+            apply_fn=network.apply,
+            support=support,
+        )
+        return total
+
+    terminal = jnp.zeros((RAINBOW_BATCH_SIZE,), dtype=jnp.float32)
+    assert jnp.allclose(loss(next_obs_a, terminal), loss(next_obs_b, terminal))
+
+    surviving = jnp.full((RAINBOW_BATCH_SIZE,), 0.99**3, dtype=jnp.float32)
     assert not jnp.allclose(loss(next_obs_a, surviving), loss(next_obs_b, surviving))
 
 
