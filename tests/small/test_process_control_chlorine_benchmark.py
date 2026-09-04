@@ -13,6 +13,22 @@ from process_control.units.contact_basin import step as basin_step
 
 
 class TestChlorineBenchmarkResetAndStep:
+    def test_step_publishes_named_sensed_residual(self) -> None:
+        """
+        Expose the controller-visible residual independently of observation layout.
+
+        The named signal must equal the sensed observation value for migration callers.
+        """
+        config = ChlorineBenchmarkConfig()
+        reset_fn, step_fn = make_chlorine_benchmark(config)
+        key = jax.random.PRNGKey(42)
+        k1, k2 = jax.random.split(key)
+
+        state, _ = reset_fn(k1)
+        _new_state, observation, _reward, _done, info = step_fn(state, jnp.array(2.0), k2)
+
+        assert jnp.allclose(info["sensed_residual"], observation[1])
+
     def test_reset_returns_state_and_obs(self) -> None:
         config = ChlorineBenchmarkConfig()
         reset_fn, _step_fn = make_chlorine_benchmark(config)
