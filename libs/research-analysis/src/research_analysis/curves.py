@@ -67,13 +67,18 @@ def _condition_curve_array(
         (pl.col("metric") == metric) & (pl.col("condition_name") == condition)
     ).sort(["seed", "step"])
 
-    seeds = subset["seed"].unique().sort().to_list()
-    steps = subset.filter(pl.col("seed") == seeds[0]).sort("step")["step"].to_list()
-
-    rows = [
-        subset.filter(pl.col("seed") == seed).sort("step")["value"].to_numpy()
-        for seed in seeds
-    ]
+    seed_frames = subset.partition_by("seed", maintain_order=True)
+    steps = seed_frames[0]["step"].to_list()
+    for seed_frame in seed_frames[1:]:
+        seed_steps = seed_frame["step"].to_list()
+        if seed_steps == steps:
+            continue
+        divergent_seed = seed_frame["seed"][0]
+        raise ValueError(
+            f"metric {metric!r} has non-uniform steps across seeds for condition "
+            f"{condition!r}; first divergent seed is {divergent_seed}"
+        )
+    rows = [seed_frame["value"].to_numpy() for seed_frame in seed_frames]
     return steps, np.array(rows, dtype=np.float64)
 
 

@@ -80,6 +80,19 @@ class TestMeanCurves:
         means = result.sort("step")["mean"].to_list()
         assert means == pytest.approx([5.0, 6.0, 7.0], abs=1e-9)
 
+    def test_rejects_nonuniform_seed_curve_lengths(self) -> None:
+        """Reject jagged per-seed curves with an explicit alignment error."""
+        df = pl.DataFrame(
+            [
+                {"condition_name": "A", "seed": 0, "step": 0, "metric": "r", "value": 1.0},
+                {"condition_name": "A", "seed": 0, "step": 1, "metric": "r", "value": 2.0},
+                {"condition_name": "A", "seed": 1, "step": 0, "metric": "r", "value": 3.0},
+            ]
+        )
+
+        with pytest.raises(ValueError, match="non-uniform steps across seeds.*seed is 1"):
+            mean_curves(df, "r", n_resamples=100, random_seed=0)
+
     def test_ci_bounds_bracket_mean(self) -> None:
         df = _make_df(["A"], [0, 1, 2, 3], [0, 1, 2], "r", lambda c, s, t: t + s * 5)
         result = mean_curves(df, "r", n_resamples=200, random_seed=0)
