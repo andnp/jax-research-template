@@ -236,6 +236,36 @@ class TestUpdateSchedule:
             "with no truncation in this environment the two boundary quantities must agree"
         )
 
+    def test_a_truncated_slot_keeps_its_bootstrap_while_cutting_the_trace(self) -> None:
+        """``discount == gamma`` AND ``episode_end`` true in the same slot.
+
+        This is the one case a single fused flag cannot represent, and the only regime that
+        distinguishes the loop's two boundary quantities: everywhere else they agree, so
+        ``test_terminal_slots_store_a_zero_discount`` above is satisfied by an agent that
+        derives either one from the other.
+
+        Defends against both fusions. Deriving ``episode_end`` as ``discount == 0.0`` makes a
+        truncation look like a continuation and leaks the GAE trace across the boundary, which
+        is the cross-episode leakage this port exists to remove. Zeroing ``discount`` wherever
+        ``episode_end`` is set costs a truncation the bootstrap it is entitled to, which is the
+        pre-port fused ``not_done`` defect verbatim. Both survived the whole PPO suite before
+        this test existed, including the golden gate and the learning regression.
+        """
+        agent = PPOAgent(_config())
+        final_state, metrics = jax.jit(
+            lambda key: run(agent, ToyEpisodeEnv(), key, steps=3 * _NUM_STEPS, gamma=_GAMMA, episode_cutoff=2)
+        )(jax.random.key(_SEED))
+        rollout = final_state.agent_state.rollout
+
+        # The cutoff fires at step 2, before the environment's own step-3 termination, so the
+        # boundary is a truncation rather than a termination.
+        assert int(jnp.sum(metrics["loop/truncated"])) >= 2, "the cutoff never fired"
+        truncated_slots = rollout.episode_end & (rollout.discount > 0.0)
+        assert bool(jnp.any(truncated_slots)), "no truncated transition reached the window"
+        assert bool(jnp.all(jnp.where(truncated_slots, rollout.discount == jnp.asarray(_GAMMA, jnp.float32), True))), (
+            "a truncated slot must keep the full discount while still breaking the trace"
+        )
+
 
 class ToyContinuousEnv:
     """A one-dimensional continuous environment, normalized to the box a tanh policy needs."""
