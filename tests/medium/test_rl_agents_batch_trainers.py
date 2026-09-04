@@ -6,6 +6,7 @@ from typing import cast
 
 import gymnax
 import jax
+import jax.numpy as jnp
 from experiment_definition import ParameterValue
 from research_runner import ExecutionContext, RunPoint
 from rl_agents.ppo_batch import PPOBatchTrainer
@@ -52,10 +53,20 @@ def test_sac_batch_trainer_returns_vmapped_curves(tmp_path: Path) -> None:
         metrics_db_path=tmp_path / "metrics.sqlite",
     )
 
-    result = SACBatchTrainer(_make_env)(context)
+    trainer = SACBatchTrainer(_make_env)
+    result = trainer(context)
+    replay = trainer(context)
 
-    assert set(result.metric_curves) == {"reward", "critic_loss", "actor_loss"}
-    assert all(len(curve) == 8 for curve in result.metric_curves["reward"])
+    assert set(result.metric_curves) == {
+        "reward",
+        "critic_loss",
+        "actor_loss",
+        "alpha_loss",
+        "alpha",
+    }
+    assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+    assert all(jnp.isfinite(jnp.asarray(value)).all() for curve in result.metric_curves.values() for value in curve)
+    assert result.metric_curves == replay.metric_curves
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:

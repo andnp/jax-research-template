@@ -61,6 +61,8 @@ class SACBatchTrainer:
                 "reward": metrics["loop/reward"],
                 "critic_loss": metrics["critic_loss"],
                 "actor_loss": metrics["actor_loss"],
+                "alpha_loss": metrics["alpha_loss"],
+                "alpha": metrics["alpha"],
             }
 
         metrics = run_batch(train_one, dynamic_axes, batch.seeds)
