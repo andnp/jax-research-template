@@ -33,6 +33,11 @@ def continuous_action_dim(spec: EnvSpec) -> int:
     at trace time. Both mirror how :class:`~rl_components.env_protocol.EnvSpec` validates
     its own bounds.
 
+    ``init`` runs inside the caller's ``jit``, so the comparison is forced to evaluate
+    rather than stage. Without that, every bound an adapter declares reads as traced and
+    the rejection below never fires on the path that drives training. Bounds that
+    genuinely derive from traced ``params`` remain unverifiable and are still accepted.
+
     Args:
         spec: The environment description handed to the agent's ``init``.
 
@@ -57,7 +62,8 @@ def continuous_action_dim(spec: EnvSpec) -> int:
     if spec.action_low is None or spec.action_high is None:
         return action_shape[0]
     try:
-        is_normalized = bool(jnp.all(spec.action_low == -1.0) & jnp.all(spec.action_high == 1.0))
+        with jax.ensure_compile_time_eval():
+            is_normalized = bool(jnp.all(spec.action_low == -1.0) & jnp.all(spec.action_high == 1.0))
     except TracerBoolConversionError:
         return action_shape[0]
     if not is_normalized:
