@@ -15,7 +15,7 @@ from typing import Any, overload
 import numpy as np
 import polars as pl
 from experiment_definition.db import DatabaseManager
-from research_plot import plot_distributions, plot_ecdf, plot_sensitivity
+from research_plot.plots import plot_distributions, plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
