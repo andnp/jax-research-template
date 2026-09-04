@@ -5,6 +5,7 @@ description = "Stateless experiment runner implementing the ADR-007 plan-execute
 requires-python = ">=3.13"
 dependencies = [
     "experiment-definition",
+    "research-instrument",
 ]
 
 [build-system]

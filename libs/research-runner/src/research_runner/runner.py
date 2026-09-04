@@ -7,6 +7,7 @@ from pathlib import Path
 
 from experiment_definition import Experiment, ParameterValue
 from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
+from research_instrument.seed_batch import write_seed_batch_curve
 
 from .git import capture_git_metadata
 from .types import ExecutionContext, ExecutionResult, RunPoint
@@ -24,6 +25,7 @@ def run_experiment(
     on_batch_complete: Callable[[Path], None] | None = None,
     reclaim_stale_after_seconds: float | None = None,
     static_parameter_names: frozenset[str] | None = None,
+    metric_subsample_factor: int = 1,
 ):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     experiment.sync(db_path, static_parameter_names=static_parameter_names)
@@ -61,6 +63,7 @@ def run_experiment(
             train_fn,
             metrics_db_path=metrics_db_path,
             capture_git=False,
+            metric_subsample_factor=metric_subsample_factor,
         )
         execution_roots.append(root)
         if on_batch_complete is not None:
@@ -76,6 +79,7 @@ def execute_batch(
     *,
     metrics_db_path: Path | None = None,
     capture_git: bool = True,
+    metric_subsample_factor: int = 1,
 ):
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -108,6 +112,7 @@ def execute_batch(
     try:
         execution_root.mkdir(parents=True, exist_ok=True)
         result = train_fn(context)
+        _write_metric_curves(context, result, metric_subsample_factor)
 
         manifest = {
             "experiment_slug": experiment_row.name,
@@ -142,6 +147,32 @@ def execute_batch(
         raise
 
     return execution_root
+
+
+def _write_metric_curves(
+    context: ExecutionContext,
+    result: ExecutionResult,
+    subsample_factor: int,
+) -> None:
+    run_ids = tuple(point.run_id for point in context.points)
+    seed_ids: list[int] = []
+    for point in context.points:
+        seed = point.hyperparameters.get("seed")
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise TypeError(f"Run {point.run_id} seed must be an int, got {seed!r}.")
+        seed_ids.append(seed)
+
+    for metric_name, curves in result.metric_curves.items():
+        write_seed_batch_curve(
+            context.metrics_db_path,
+            curves,
+            metric_name=metric_name,
+            experiment_id=context.experiment_id,
+            execution_id=context.execution_id,
+            run_ids=run_ids,
+            seed_ids=tuple(seed_ids),
+            subsample_factor=subsample_factor,
+        )
 
 
 def _utc_now():

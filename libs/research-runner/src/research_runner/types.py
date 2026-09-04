@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -44,6 +44,7 @@ class ExecutionContext:
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
     metadata: dict[str, object] = field(default_factory=dict)
+    metric_curves: Mapping[str, Sequence[Sequence[float]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,9 +76,12 @@ class ExperimentSpec:
     train_fn: Callable[[ExecutionContext], ExecutionResult]
     results_root: Path
     max_runs_per_batch: int | None = None
+    metric_subsample_factor: int = 1
     capture_git: bool = True
 
     def __post_init__(self) -> None:
+        if self.metric_subsample_factor < 1:
+            raise ValueError("metric_subsample_factor must be at least 1")
         if not self.results_root.is_absolute():
             raise ValueError(
                 f"results_root must be absolute, got {self.results_root}. "

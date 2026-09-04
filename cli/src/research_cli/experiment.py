@@ -174,6 +174,7 @@ def run(
             capture_git=experiment_spec.capture_git,
             reclaim_stale_after_seconds=reclaim_stale_after,
             static_parameter_names=experiment_spec.static_parameter_names,
+            metric_subsample_factor=experiment_spec.metric_subsample_factor,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
@@ -318,6 +319,7 @@ def execute_batch_cmd(
         experiment_spec.train_fn,
         metrics_db_path=experiment_spec.metrics_db_path,
         capture_git=experiment_spec.capture_git,
+        metric_subsample_factor=experiment_spec.metric_subsample_factor,
     )
     typer.echo(f"Execution {execution_id} completed: {root}")
 
