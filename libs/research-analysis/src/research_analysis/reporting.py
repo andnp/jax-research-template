@@ -14,7 +14,6 @@ from typing import Any, overload
 
 import numpy as np
 import polars as pl
-import scipy.stats as stats
 from experiment_definition.db import DatabaseManager
 from research_plot import plot_distributions, plot_ecdf, plot_sensitivity
 from rich.console import Console
@@ -22,10 +21,20 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from research_analysis.aggregates import (
+    ReferenceRange,
+    interquartile_mean,
+    normalize_scores,
+    optimality_gap,
+    performance_profile,
+    probability_of_improvement,
+)
 from research_analysis.bootstrap import bootstrap_difference_ci
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.experiment import load_experiment_metrics
+from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
+from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.schema import AnalysisSchema
 
 
@@ -75,10 +84,14 @@ class HyperparameterSensitivityReport:
 class BenchmarkBakeoffReport:
     algorithms: list[str]
     environments: list[str]
-    ecdf_scores: dict[str, dict[str, float]]
+    normalized_scores: dict[str, dict[str, float]]
+    performance_profiles: dict[str, dict[float, float]]
+    probability_of_improvement: dict[str, dict[str, float]]
+    optimality_gaps: dict[str, float]
+    supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]
-    ecdf_plot_path: Path | None
+    aggregate_plot_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -681,7 +694,7 @@ def _load_bakeoff_data(
     environments: list[str],
     metric_name: str,
     schema: AnalysisSchema | None,
-) -> tuple[dict[tuple[str, str], dict[int, float]], dict[str, list[float]]]:
+) -> dict[tuple[str, str], dict[int, float]]:
     with DatabaseManager(db_path) as database:
         database.initialize()
         exp_row = database.get_experiment(experiment_slug)
@@ -690,7 +703,6 @@ def _load_bakeoff_data(
         runs = database.list_runs(exp_row.id)
 
     data_by_group: dict[tuple[str, str], dict[int, float]] = {}
-    all_scores_by_env: dict[str, list[float]] = {env: [] for env in environments}
     with DatabaseManager(db_path) as database:
         for run in runs:
             latest_exec = database.get_latest_completed_execution_for_run(run.id)
@@ -718,45 +730,47 @@ def _load_bakeoff_data(
             if metric_curve is None:
                 continue
             data_by_group.setdefault((algo, env), {})[run.seed] = float(metric_curve[-1])
-            all_scores_by_env[env].append(float(metric_curve[-1]))
-    return data_by_group, all_scores_by_env
+    return data_by_group
 
 
 @dataclass(frozen=True)
 class _BakeoffStatistics:
-    ecdf_scores: dict[str, dict[str, float]]
+    normalized_scores: dict[str, dict[str, float]]
+    performance_profiles: dict[str, dict[float, float]]
+    probability_of_improvement: dict[str, dict[str, float]]
+    optimality_gaps: dict[str, float]
+    supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]
-    ecdf_curves: dict[str, tuple[list[float], list[float]]]
+    score_curves: dict[str, tuple[list[float], list[float]]]
 
 
 def _compute_bakeoff_statistics(
     data_by_group: dict[tuple[str, str], dict[int, float]],
-    all_scores_by_env: dict[str, list[float]],
     algorithms: list[str],
     environments: list[str],
+    references: dict[str, ReferenceRange],
+    spec: ComparisonSpec,
 ) -> _BakeoffStatistics:
-    ecdf_normalized: dict[tuple[str, str], dict[int, float]] = {}
+    normalized: dict[tuple[str, str], dict[int, float]] = {}
     for (algo, env), seed_map in data_by_group.items():
-        pool = sorted(all_scores_by_env[env])
-        if not pool:
-            continue
-        n_pool = len(pool)
-        for seed, val in seed_map.items():
-            rank_sum = sum(1 for score in pool if score < val)
-            ecdf_normalized.setdefault((algo, env), {})[seed] = rank_sum / n_pool
+        if env not in references:
+            raise ValueError(f"missing fixed reference for environment {env!r}")
+        values = normalize_scores(np.array(list(seed_map.values())), references[env])
+        for seed in seed_map:
+            normalized.setdefault((algo, env), {})[seed] = float(values[list(seed_map).index(seed)])
 
-    ecdf_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
+    normalized_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
     for algo in algorithms:
         for env in environments:
-            seeds = ecdf_normalized.get((algo, env), {})
-            ecdf_means[algo][env] = float(np.mean(list(seeds.values()))) if seeds else float("nan")
+            values = normalized.get((algo, env), {}).values()
+            normalized_means[algo][env] = float(np.mean(list(values))) if values else float("nan")
 
     row_keys = []
     for env in environments:
         all_seeds_for_env = set()
         for algo in algorithms:
-            all_seeds_for_env.update(ecdf_normalized.get((algo, env), {}).keys())
+            all_seeds_for_env.update(normalized.get((algo, env), {}).keys())
         for seed in sorted(all_seeds_for_env):
             row_keys.append((env, seed))
 
@@ -765,33 +779,25 @@ def _compute_bakeoff_statistics(
     for env, seed in row_keys:
         row = []
         for algo in algorithms:
-            val = ecdf_normalized.get((algo, env), {}).get(seed)
+            val = normalized.get((algo, env), {}).get(seed)
             if val is None:
                 has_missing = True
             row.append(val)
         matrix.append(row)
 
     matrix = np.array(matrix, dtype=np.float64)
-    valid_rows = [r for r in matrix if not np.isnan(r).any()]
-    n_complete = len(valid_rows)
-    if n_complete < 3:
-        raise ValueError(f"Insufficient complete bakeoff data: need at least 3 rows, got {n_complete}")
+    if np.any(np.isfinite(matrix).sum(axis=1) < 2):
+        raise ValueError("each bakeoff block must contain at least two observed algorithms")
+    if has_missing and spec.missingness == "error":
+        raise ValueError("bakeoff contains missing cells under missingness='error'")
+    block_result = block_stratified_permutation_test(
+        matrix,
+        n_resamples=spec.n_resamples,
+        min_blocks=spec.min_samples,
+        rng=np.random.default_rng(spec.random_seed),
+    )
 
-    friedman_matrix = np.array(valid_rows)
-    res = stats.friedmanchisquare(*[friedman_matrix[:, i] for i in range(len(algorithms))])
-    p_val = float(res.pvalue)
-    stat = float(res.statistic)
-    if has_missing:
-        test_name = "Friedman Test (Listwise Deleted for Missing Data)"
-        justification = (
-            "Selected Friedman test with listwise deletion because missing values were present; "
-            "rows containing missing data were excluded from the omnibus check."
-        )
-    else:
-        test_name = "Friedman Test"
-        justification = "Selected Friedman test because data is complete (no missing environment-seed points)."
-
-    posthoc: dict[str, dict[str, float]] = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
+    raw_posthoc: dict[tuple[str, str], float] = {}
     for i, algo_a in enumerate(algorithms):
         for j, algo_b in enumerate(algorithms):
             if i >= j:
@@ -799,53 +805,103 @@ def _compute_bakeoff_statistics(
             paired_a = []
             paired_b = []
             for env, seed in row_keys:
-                va = ecdf_normalized.get((algo_a, env), {}).get(seed)
-                vb = ecdf_normalized.get((algo_b, env), {}).get(seed)
+                va = normalized.get((algo_a, env), {}).get(seed)
+                vb = normalized.get((algo_b, env), {}).get(seed)
                 if va is not None and vb is not None:
                     paired_a.append(va)
                     paired_b.append(vb)
-            if len(paired_a) >= 3:
-                res_w = stats.wilcoxon(paired_a, paired_b)
-                raw_p = float(res_w.pvalue)
-                num_comparisons = (len(algorithms) * (len(algorithms) - 1)) / 2
-                adjusted_p = min(1.0, raw_p * num_comparisons)
-                posthoc[algo_a][algo_b] = adjusted_p
-                posthoc[algo_b][algo_a] = adjusted_p
+            if len(paired_a) < spec.min_samples:
+                raise ValueError(
+                    f"pair {algo_a!r}/{algo_b!r} has only {len(paired_a)} paired observations"
+                )
+            result = run_permutation_test(
+                np.array(paired_a),
+                np.array(paired_b),
+                estimand=spec.estimand,
+                pairing="paired",
+                alpha=spec.alpha,
+                n_resamples=spec.n_resamples,
+                min_samples=spec.min_samples,
+                rng=np.random.default_rng(spec.random_seed),
+            )
+            raw_posthoc[(algo_a, algo_b)] = result.p_value
 
-    ecdf_curves = {}
+    adjusted_values = holm_step_down(list(raw_posthoc.values()))
+    posthoc = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
+    for (algo_a, algo_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
+        posthoc[algo_a][algo_b] = adjusted
+        posthoc[algo_b][algo_a] = adjusted
+
+    threshold_values = (0.0, 0.25, 0.5, 0.75, 1.0)
+    profiles: dict[str, dict[float, float]] = {}
+    gaps: dict[str, float] = {}
+    iqms: dict[str, float] = {}
+    score_curves = {}
     for algo in algorithms:
         all_vals = []
         for env in environments:
-            all_vals.extend(ecdf_normalized.get((algo, env), {}).values())
+            all_vals.extend(normalized.get((algo, env), {}).values())
         if all_vals:
             sorted_vals = sorted(all_vals)
             proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
-            ecdf_curves[algo] = (sorted_vals, proportions)
+            score_curves[algo] = (sorted_vals, proportions)
+            profiles[algo] = performance_profile(
+                np.array(all_vals)[:, np.newaxis], threshold_values, [algo]
+            )[algo]
+            gaps[algo] = optimality_gap(np.array(all_vals))
+            iqms[algo] = interquartile_mean(np.array(all_vals))
 
     return _BakeoffStatistics(
-        ecdf_scores=ecdf_means,
+        normalized_scores=normalized_means,
+        performance_profiles=profiles,
+        probability_of_improvement={
+            algo_a: {
+                algo_b: probability_of_improvement(
+                    np.array([
+                        normalized[(algo_a, env)][seed]
+                        for env, seed in row_keys
+                        if seed in normalized.get((algo_a, env), {}) and seed in normalized.get((algo_b, env), {})
+                    ]),
+                    np.array([
+                        normalized[(algo_b, env)][seed]
+                        for env, seed in row_keys
+                        if seed in normalized.get((algo_a, env), {}) and seed in normalized.get((algo_b, env), {})
+                    ]),
+                )
+                for algo_b in algorithms
+                if algo_b != algo_a
+            }
+            for algo_a in algorithms
+        },
+        optimality_gaps=gaps,
+        supplementary_iqm=iqms,
         omnibus_details=StatisticalTestDetails(
-            test_name=test_name,
-            statistic=stat,
-            p_value=p_val,
+            test_name="Block-stratified permutation omnibus test",
+            statistic=block_result.statistic,
+            p_value=block_result.p_value,
             effect_size=None,
-            is_significant=p_val < 0.05,
-            assumptions={"has_missing": has_missing},
-            justification=justification,
+            is_significant=block_result.p_value < spec.alpha,
+            assumptions={
+                "has_missing": has_missing,
+                "n_blocks": block_result.n_blocks,
+                "n_observations": block_result.n_observations,
+                "alpha": spec.alpha,
+            },
+            justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
             intermediate_tests={},
         ),
         posthoc_matrix=posthoc,
-        ecdf_curves=ecdf_curves,
+        score_curves=score_curves,
     )
 
 
 def _plot_bakeoff(
-    ecdf_curves: dict[str, tuple[list[float], list[float]]],
+    score_curves: dict[str, tuple[list[float], list[float]]],
     experiment_slug: str,
 ) -> Path | None:
-    plot_path = Path("results/analysis") / experiment_slug / "ecdf_comparison.png"
-    if ecdf_curves:
-        plot_ecdf(ecdf_curves, plot_path)
+    plot_path = Path("results/analysis") / experiment_slug / "normalized_score_comparison.png"
+    if score_curves:
+        plot_ecdf(score_curves, plot_path)
         return plot_path
     return None
 
@@ -864,14 +920,14 @@ def _present_bakeoff(
         )
     )
 
-    table = Table(title="ECDF-Normalized Performance Matrix", show_header=True, header_style="bold magenta")
+    table = Table(title="Reference-Normalized Performance Matrix", show_header=True, header_style="bold magenta")
     table.add_column("Algorithm")
     for env in environments:
         table.add_column(env, justify="right")
     for algo in report.algorithms:
         row = [algo]
         for env in environments:
-            row.append(f"{report.ecdf_scores[algo][env]:.2f}")
+            row.append(f"{report.normalized_scores[algo][env]:.2f}")
         table.add_row(*row)
     console.print(table)
 
@@ -886,19 +942,18 @@ def _present_bakeoff(
                 (f"• Justification: {omnibus_details.justification}\n\n", "italic"),
                 ("Pedagogical Interpretation:\n", "bold"),
                 (
-                    "Raw scores cannot be averaged across different environments because they reside "
-                    "on different numerical scales. ECDF normalization maps scores to their relative percentile "
-                    "ranks across all algorithms tested on that specific task, making averages statistically valid."
+                    "Scores are normalized against fixed caller-supplied references, so adding an algorithm "
+                    "cannot change existing normalized values."
                 ),
             ),
             title="Omnibus Methodology Justification",
         )
     )
 
-    if report.ecdf_plot_path:
+    if report.aggregate_plot_path:
         console.print(
             Panel(
-                Text(f"Saved ECDF curves visual artifact to: {report.ecdf_plot_path}", style="italic green"),
+                Text(f"Saved normalized score visual artifact to: {report.aggregate_plot_path}", style="italic green"),
                 title="Artifact Outputs Panel",
             )
         )
@@ -912,15 +967,23 @@ def compare_bakeoff(
     metric_name: str,
     verbose: bool = True,
     schema: AnalysisSchema | None = None,
+    references: dict[str, ReferenceRange] | None = None,
+    spec: ComparisonSpec | None = None,
 ) -> BenchmarkBakeoffReport:
-    """Compare algorithms with ECDF normalization and a listwise-deleted Friedman test."""
+    """Compare algorithms with fixed-reference normalization and blockwise inference."""
     if len(algorithms) < 3:
         raise ValueError(
             f"compare_bakeoff requires at least 3 algorithms for the omnibus Friedman test, got "
             f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
         )
+    if references is None:
+        raise ValueError("compare_bakeoff requires fixed references for every environment")
+    if spec is None:
+        spec = ComparisonSpec(missingness="blockwise")
+    elif spec.missingness == "complete_case":
+        raise ValueError("bakeoff missingness must be 'blockwise' or 'error'")
     db_path = Path(db_path)
-    data_by_group, all_scores_by_env = _load_bakeoff_data(
+    data_by_group = _load_bakeoff_data(
         db_path,
         experiment_slug,
         algorithms,
@@ -931,24 +994,29 @@ def compare_bakeoff(
 
     statistics = _compute_bakeoff_statistics(
         data_by_group,
-        all_scores_by_env,
         algorithms,
         environments,
+        references,
+        spec,
     )
-    ecdf_means = statistics.ecdf_scores
+    normalized_scores = statistics.normalized_scores
     omnibus_details = statistics.omnibus_details
     posthoc = statistics.posthoc_matrix
-    ecdf_curves = statistics.ecdf_curves
+    score_curves = statistics.score_curves
 
-    plot_path = _plot_bakeoff(ecdf_curves, experiment_slug)
+    plot_path = _plot_bakeoff(score_curves, experiment_slug)
 
     report = BenchmarkBakeoffReport(
         algorithms=algorithms,
         environments=environments,
-        ecdf_scores=ecdf_means,
+        normalized_scores=normalized_scores,
+        performance_profiles=statistics.performance_profiles,
+        probability_of_improvement=statistics.probability_of_improvement,
+        optimality_gaps=statistics.optimality_gaps,
+        supplementary_iqm=statistics.supplementary_iqm,
         omnibus_details=omnibus_details,
         posthoc_matrix=posthoc,
-        ecdf_plot_path=plot_path,
+        aggregate_plot_path=plot_path,
     )
 
     if verbose:

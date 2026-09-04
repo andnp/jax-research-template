@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from research_analysis.aggregates import ReferenceRange
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.reporting import (
     ABComparisonReport,
@@ -437,13 +438,15 @@ def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
         environments=envs,
         metric_name="returned_episode_returns",
         verbose=True,
+        references={env: ReferenceRange(0.0, 200.0) for env in envs},
     )
 
     assert isinstance(report, BenchmarkBakeoffReport)
     assert sorted(report.algorithms) == sorted(algos)
     assert sorted(report.environments) == sorted(envs)
-    assert report.ecdf_plot_path is not None
-    assert report.ecdf_plot_path.exists()
+    assert report.aggregate_plot_path is not None
+    assert report.aggregate_plot_path.exists()
+    assert set(report.supplementary_iqm) == set(algos)
 
 
 def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:
@@ -473,6 +476,7 @@ def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, 
         "metric",
         verbose=False,
         schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
+        references={benchmark: ReferenceRange(0.0, 1.0) for benchmark in benchmarks},
     )
 
     assert report.algorithms == algorithms
@@ -491,8 +495,8 @@ def _populate_bakeoff_rows(setup: dict[str, Any], rows: list[tuple[str, str, int
             populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [value])
 
 
-def test_compare_bakeoff_reports_listwise_missing_data(temp_experiment_setup: dict[str, Any]) -> None:
-    """Run Friedman on complete rows while reporting listwise deletion."""
+def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: dict[str, Any]) -> None:
+    """Use blockwise inference without deleting incomplete environment-seed rows."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [
         (algorithm, "CartPole", seed, float(seed + index))
@@ -501,10 +505,19 @@ def test_compare_bakeoff_reports_listwise_missing_data(temp_experiment_setup: di
     ] + [("ppo", "CartPole", 3, 10.0), ("sac", "CartPole", 3, 11.0)]
     _populate_bakeoff_rows(temp_experiment_setup, rows)
 
-    report = compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
+    report = compare_bakeoff(
+        temp_experiment_setup["db_path"],
+        "test-exp",
+        algorithms,
+        ["CartPole"],
+        "metric",
+        verbose=False,
+        references={"CartPole": ReferenceRange(0.0, 12.0)},
+    )
 
-    assert report.omnibus_details.test_name == "Friedman Test (Listwise Deleted for Missing Data)"
+    assert report.omnibus_details.test_name == "Block-stratified permutation omnibus test"
     assert report.omnibus_details.assumptions["has_missing"] is True
+    assert report.omnibus_details.assumptions["n_blocks"] == 4
 
 
 def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:
@@ -514,8 +527,16 @@ def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setu
     rows += [("ppo", "CartPole", 1, 10.0), ("sac", "CartPole", 1, 11.0)]
     _populate_bakeoff_rows(temp_experiment_setup, rows)
 
-    with pytest.raises(ValueError, match="Insufficient complete bakeoff data"):
-        compare_bakeoff(temp_experiment_setup["db_path"], "test-exp", algorithms, ["CartPole"], "metric", verbose=False)
+    with pytest.raises(ValueError, match="need at least 3 blocks"):
+        compare_bakeoff(
+            temp_experiment_setup["db_path"],
+            "test-exp",
+            algorithms,
+            ["CartPole"],
+            "metric",
+            verbose=False,
+            references={"CartPole": ReferenceRange(0.0, 10.0)},
+        )
 
 
 def test_compare_bakeoff_rejects_fewer_than_three_algorithms() -> None:
