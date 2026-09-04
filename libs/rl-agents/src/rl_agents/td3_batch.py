@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from typing import cast
 
 import jax
+from experiment_definition import ParameterValue
 from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
@@ -38,13 +39,13 @@ class TD3BatchTrainer:
 
     def __init__(
         self,
-        env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
+        env_factory: Callable[[Mapping[str, ParameterValue]], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None]],
     ) -> None:
         self._env_factory = env_factory
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         batch = context.bind(self.parameter_schema)
-        env, env_params = self._env_factory(batch.static("env_name", str))
+        env, env_params = self._env_factory(batch.static_config)
         dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
@@ -89,6 +90,6 @@ class TD3BatchTrainer:
         )
 
 def make_td3_batch_trainer(
-    env_factory: Callable[[str], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]],
+    env_factory: Callable[[Mapping[str, ParameterValue]], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None]],
 ) -> BatchTrainer:
     return TD3BatchTrainer(env_factory)
