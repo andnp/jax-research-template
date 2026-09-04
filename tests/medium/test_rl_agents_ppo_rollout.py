@@ -17,10 +17,15 @@ expectations, and no re-implementation of anything inside the agent.
 
 The update schedule is gated separately, through `rl_components.loop.run`, because "the
 window is full" is a statement about `step_index` over the whole run rather than about one
-call.
+call. Two more properties are gated the same way, because both are decided by the shape of
+what the agent carries rather than by anything a caller passes: the continuous branch, which
+`step` selects from the rank of its own stored action since it never sees a spec, and
+observation normalization, whose statistics now advance once per loop iteration.
 """
 
 from __future__ import annotations
+
+from typing import override
 
 import jax
 import jax.numpy as jnp
@@ -230,3 +235,105 @@ class TestUpdateSchedule:
         assert bool(jnp.all(window.rollout.episode_end == (window.rollout.discount == 0.0))), (
             "with no truncation in this environment the two boundary quantities must agree"
         )
+
+
+class ToyContinuousEnv:
+    """A one-dimensional continuous environment, normalized to the box a tanh policy needs."""
+
+    def spec(self, params: None = None) -> EnvSpec:
+        del params
+        return EnvSpec(
+            id="toy:ppo-continuous",
+            observation_shape=(2,),
+            action_shape=(1,),
+            observation_dtype=jnp.dtype(jnp.float32),
+            action_dtype=jnp.dtype(jnp.float32),
+            action_low=-jnp.ones((1,), jnp.float32),
+            action_high=jnp.ones((1,), jnp.float32),
+        )
+
+    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, jax.Array]:
+        del key, params
+        return EnvReset(observation=jnp.zeros((2,), jnp.float32), state=jnp.zeros((), jnp.int32))
+
+    def step(self, key: jax.Array, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
+        del key, params
+        next_state = state + jnp.ones((), jnp.int32)
+        return EnvStep(
+            observation=jnp.stack([next_state.astype(jnp.float32), action[0]]),
+            state=next_state,
+            reward=jnp.ones((), jnp.float32) - 0.1 * jnp.sum(jnp.square(action)),
+            terminated=jnp.zeros((), jnp.bool_),
+            truncated=jnp.zeros((), jnp.bool_),
+            info={},
+        )
+
+
+class LargeMagnitudeEnv(ToyEpisodeEnv):
+    """`ToyEpisodeEnv` with observations six orders of magnitude larger."""
+
+    @override
+    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, jax.Array]:
+        reset = super().reset(key, params)
+        return EnvReset(observation=reset.observation * 1e6, state=reset.state)
+
+    @override
+    def step(self, key: jax.Array, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
+        env_step = super().step(key, state, action, params)
+        return EnvStep(
+            observation=env_step.observation * 1e6,
+            state=env_step.state,
+            reward=env_step.reward,
+            terminated=env_step.terminated,
+            truncated=env_step.truncated,
+            info=env_step.info,
+        )
+
+
+class TestContinuousPolicy:
+    def test_the_continuous_branch_trains_and_stays_finite(self) -> None:
+        """`step` reads the policy's kind off the rank of its own stored action.
+
+        A discrete policy returns one log-probability per step and a continuous one returns
+        one per action dimension, which has to be summed. There is no spec in `step` to ask,
+        so the inference is from `last_action`, and getting it wrong on a one-dimensional
+        action space is invisible -- the sum of a length-one vector is the vector -- which is
+        why this environment is driven end to end rather than probed for the flag.
+        """
+        agent = PPOAgent(_config())
+        final_state, metrics = jax.jit(
+            lambda key: run(agent, ToyContinuousEnv(), key, steps=2 * _NUM_STEPS, gamma=_GAMMA)
+        )(jax.random.key(_SEED))
+
+        assert final_state.agent_state.last_action.shape == (1,)
+        assert int(jnp.sum(metrics["total_loss"] != 0.0)) == 2
+        for leaf in jax.tree_util.tree_leaves(final_state.agent_state.train_state.params):
+            assert bool(jnp.all(jnp.isfinite(leaf)))
+
+
+class TestObservationNormalization:
+    def test_large_magnitude_observations_stay_finite(self) -> None:
+        """Normalization is the whole reason a 1e6 observation does not blow the update up."""
+        agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
+        steps = 2 * _NUM_STEPS
+        final_state, _ = jax.jit(lambda key: run(agent, LargeMagnitudeEnv(), key, steps=steps, gamma=_GAMMA))(
+            jax.random.key(_SEED)
+        )
+
+        for leaf in jax.tree_util.tree_leaves(final_state.agent_state.train_state.params):
+            assert bool(jnp.all(jnp.isfinite(leaf)))
+        assert bool(jnp.all(jnp.abs(final_state.agent_state.rollout.obs) <= PPOConfig().OBS_NORM_CLIP))
+
+    def test_the_statistics_advance_once_per_iteration(self) -> None:
+        """One sample per iteration, from the observation the agent acts from.
+
+        The pre-port loop took one per environment step plus the reset observation, which is
+        one more, because a run of `N` iterations closes only `N - 1` transitions.
+        """
+        steps = 3 * _NUM_STEPS
+        agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
+        final_state, _ = jax.jit(lambda key: run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA))(
+            jax.random.key(_SEED)
+        )
+
+        assert float(final_state.agent_state.obs_norm_state.observation_count) == float(steps)
