@@ -13,10 +13,7 @@ from rl_components.batch import run_batch
 
 
 class _Trainer:
-    parameter_schema = ParameterSchema(
-        static_keys=frozenset({"env_name"}),
-        dynamic_keys=frozenset({"learning_rate"}),
-    )
+    parameter_schema = ParameterSchema(dynamic_keys=frozenset({"learning_rate"}))
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         del context

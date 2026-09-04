@@ -13,17 +13,6 @@ from rl_components.loop import run
 from rl_agents.sac import SACAgent, SACConfig
 
 SAC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
-    static_keys=frozenset(
-        {
-            "algorithm",
-            "env_name",
-            "total_timesteps",
-            "buffer_size",
-            "batch_size",
-            "gamma",
-            "alpha",
-        }
-    ),
     dynamic_keys=frozenset({"learning_rate", "learning_starts", "train_frequency", "tau"}),
 )
 

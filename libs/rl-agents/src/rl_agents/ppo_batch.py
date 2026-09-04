@@ -15,18 +15,6 @@ from rl_components.types import PPOConfig
 from rl_agents.ppo import PPOAgent
 
 PPO_BATCH_PARAMETER_SCHEMA = ParameterSchema(
-    static_keys=frozenset(
-        {
-            "algorithm",
-            "env_name",
-            "num_steps",
-            "total_timesteps",
-            "update_epochs",
-            "num_minibatches",
-            "reward_scale",
-            "normalize_observations",
-        }
-    ),
     dynamic_keys=frozenset(
         {
             "learning_rate",

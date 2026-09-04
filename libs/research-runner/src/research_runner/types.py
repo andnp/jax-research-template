@@ -53,15 +53,9 @@ class ExecutionResult:
 
 @dataclass(frozen=True, slots=True)
 class ParameterSchema:
-    """Classify hyperparameters that a trainer can batch dynamically."""
+    """Name the hyperparameters that a trainer can batch dynamically."""
 
-    static_keys: frozenset[str] = frozenset()
     dynamic_keys: frozenset[str] = frozenset()
-
-    def __post_init__(self) -> None:
-        overlap = self.static_keys & self.dynamic_keys
-        if overlap:
-            raise ValueError(f"parameter schema classifies keys as both static and dynamic: {sorted(overlap)}")
 
 
 _T = TypeVar("_T")

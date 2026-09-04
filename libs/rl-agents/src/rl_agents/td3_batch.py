@@ -13,16 +13,6 @@ from rl_components.loop import run
 from rl_agents.td3 import TD3Agent, TD3Config
 
 TD3_BATCH_PARAMETER_SCHEMA = ParameterSchema(
-    static_keys=frozenset(
-        {
-            "algorithm",
-            "env_name",
-            "total_timesteps",
-            "buffer_size",
-            "batch_size",
-            "gamma",
-        }
-    ),
     dynamic_keys=frozenset(
         {
             "learning_rate",
