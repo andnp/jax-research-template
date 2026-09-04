@@ -29,7 +29,7 @@ from research_analysis.aggregates import (
     performance_profile,
     probability_of_improvement,
 )
-from research_analysis.bootstrap import bootstrap_difference_ci
+from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.experiment import load_experiment_metrics
 from research_analysis.multiplicity import holm_step_down
@@ -78,6 +78,8 @@ class HyperparameterSensitivityReport:
     sensitivity_slice: dict[Any, float]
     sensitivity_best: dict[Any, float]
     sensitivity_plot_path: Path | None
+    estimate_method: str
+    estimate_ci: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -338,7 +340,7 @@ def _load_hyperparameter_records(
             metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
             if metric_curve is None:
                 continue
-            records.append({"run_id": run.id, "value": float(metric_curve[-1]), "hypers": hypers})
+            records.append({"run_id": run.id, "seed": run.seed, "value": float(metric_curve[-1]), "hypers": hypers})
 
     if not records:
         raise ValueError(f"No completed runs found containing hyperparameter {target_hyperparameter!r}")
@@ -429,6 +431,10 @@ def analyze_hypers(
     metric_name: str,
     group_by: None = None,
     verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
 ) -> HyperparameterSensitivityReport: ...
 
 
@@ -440,6 +446,10 @@ def analyze_hypers(
     metric_name: str,
     group_by: list[str],
     verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
 ) -> dict[tuple[Any, ...], HyperparameterSensitivityReport]: ...
 
 
@@ -450,8 +460,12 @@ def analyze_hypers(
     metric_name: str,
     group_by: list[str] | None = None,
     verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
 ) -> HyperparameterSensitivityReport | dict[tuple[Any, ...], HyperparameterSensitivityReport]:
-    """Analyze hyperparameter sweep, correcting for maximization bias via two-stage bootstrapping.
+    """Analyze hyperparameter sweep with held-out seed evaluation.
 
     When ``group_by`` names one or more hyperparameter keys, the analysis is performed
     separately for each distinct combination of those keys' values (read from each run's
@@ -480,6 +494,10 @@ def analyze_hypers(
                 verbose=verbose,
                 group_label=", ".join(f"{key}={value}" for key, value in zip(group_by, group_key, strict=True)),
                 plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_by, group_key, strict=True)),
+                confidence_level=confidence_level,
+                n_resamples=n_resamples,
+                min_samples=min_samples,
+                random_seed=random_seed,
             )
             for group_key, group_records in groups.items()
         }
@@ -491,6 +509,10 @@ def analyze_hypers(
         verbose=verbose,
         group_label=None,
         plot_suffix="",
+        confidence_level=confidence_level,
+        n_resamples=n_resamples,
+        min_samples=min_samples,
+        random_seed=random_seed,
     )
 
 
@@ -506,9 +528,24 @@ class _HyperparameterStatistics:
     sorted_slice: list[float]
     sorted_best: list[float]
     correction_ci: tuple[float, float]
+    estimate_method: str
 
 
-def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_hyperparameter: str) -> _HyperparameterStatistics:
+def _compute_hyperparameter_statistics(
+    records: list[dict[str, Any]],
+    *,
+    target_hyperparameter: str,
+    confidence_level: float,
+    n_resamples: int,
+    min_samples: int,
+    random_seed: int,
+) -> _HyperparameterStatistics:
+    if not 0 < confidence_level < 1:
+        raise ValueError("confidence_level must be between 0 and 1")
+    if n_resamples < 1:
+        raise ValueError("n_resamples must be positive")
+    if min_samples < 3:
+        raise ValueError("min_samples must be at least 3")
     runs_by_val: dict[Any, list[dict[str, Any]]] = {}
     for record in records:
         runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
@@ -517,21 +554,42 @@ def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_
     winning_val = max(raw_means, key=lambda k: raw_means[k])
     raw_winner_mean = raw_means[winning_val]
 
-    rng = np.random.default_rng(12345)
-    bootstrap_winner_means = []
-    unique_vals = list(runs_by_val.keys())
-    for _ in range(1000):
-        resampled_means = {}
-        for val in unique_vals:
-            records = runs_by_val[val]
-            n = len(records)
-            resampled_idx = rng.choice(n, size=n, replace=True)
-            resampled_means[val] = np.mean([records[i]["value"] for i in resampled_idx])
-        resampled_winner = max(resampled_means, key=lambda k: resampled_means[k])
-        bootstrap_winner_means.append(raw_means[resampled_winner])
+    seeds = sorted({int(record["seed"]) for record in records})
+    if len(seeds) < min_samples:
+        raise ValueError(f"need at least {min_samples} distinct seeds for cross-fitted tuning")
+    held_out_values: list[float] = []
+    for held_out_seed in seeds:
+        training = [record for record in records if record["seed"] != held_out_seed]
+        training_by_value: dict[Any, list[dict[str, Any]]] = {}
+        for record in training:
+            training_by_value.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
+        if set(training_by_value) != set(runs_by_val):
+            raise ValueError("cross-fitted tuning requires every hyperparameter value in every training fold")
+        winner = max(
+            training_by_value,
+            key=lambda value: float(np.mean([record["value"] for record in training_by_value[value]])),
+        )
+        held_out = [
+            record["value"]
+            for record in runs_by_val[winner]
+            if record["seed"] == held_out_seed
+        ]
+        if len(held_out) != 1:
+            raise ValueError("cross-fitted tuning requires exactly one held-out result per selected value")
+        held_out_values.append(float(held_out[0]))
 
-    corrected_mean = float(np.mean(bootstrap_winner_means))
-    ci_low, ci_high = np.percentile(bootstrap_winner_means, [2.5, 97.5])
+    corrected_mean = float(np.mean(held_out_values))
+    if len(set(held_out_values)) == 1:
+        interval = (held_out_values[0], held_out_values[0])
+    else:
+        bootstrap = bootstrap_scalar_ci(
+            np.array(held_out_values),
+            confidence=confidence_level,
+            n_resamples=n_resamples,
+            min_samples=min_samples,
+            rng=np.random.default_rng(random_seed),
+        )
+        interval = (bootstrap.ci_low, bootstrap.ci_high)
     maximization_bias = float(raw_winner_mean - corrected_mean)
 
     best_config = runs_by_val[winning_val][0]["hypers"]
@@ -550,7 +608,7 @@ def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_
             else best_perf[val]
         )
 
-    sorted_keys = sorted(unique_vals)
+    sorted_keys = sorted(runs_by_val)
     return _HyperparameterStatistics(
         winning_value=winning_val,
         raw_mean=raw_winner_mean,
@@ -561,7 +619,8 @@ def _compute_hyperparameter_statistics(records: list[dict[str, Any]], *, target_
         sorted_values=sorted_keys,
         sorted_slice=[slice_perf[k] for k in sorted_keys],
         sorted_best=[best_perf[k] for k in sorted_keys],
-        correction_ci=(float(ci_low), float(ci_high)),
+        correction_ci=interval,
+        estimate_method="leave_one_seed_out",
     )
 
 
@@ -638,11 +697,19 @@ def _analyze_hypers_group(
     verbose: bool,
     group_label: str | None,
     plot_suffix: str,
+    confidence_level: float,
+    n_resamples: int,
+    min_samples: int,
+    random_seed: int,
 ) -> HyperparameterSensitivityReport:
     """Run the maximization-bias-corrected sensitivity analysis over one set of run records."""
     statistics = _compute_hyperparameter_statistics(
         records,
         target_hyperparameter=target_hyperparameter,
+        confidence_level=confidence_level,
+        n_resamples=n_resamples,
+        min_samples=min_samples,
+        random_seed=random_seed,
     )
     winning_val = statistics.winning_value
     raw_winner_mean = statistics.raw_mean
@@ -673,6 +740,8 @@ def _analyze_hypers_group(
         sensitivity_slice=slice_perf,
         sensitivity_best=best_perf,
         sensitivity_plot_path=plot_path,
+        estimate_method=statistics.estimate_method,
+        estimate_ci=statistics.correction_ci,
     )
 
     if verbose:

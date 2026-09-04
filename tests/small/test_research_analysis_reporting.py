@@ -301,6 +301,8 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.raw_mean == pytest.approx(501.0)
     assert report.corrected_mean == pytest.approx(501.0)
     assert report.maximization_bias == pytest.approx(0.0)
+    assert report.estimate_method == "leave_one_seed_out"
+    assert report.estimate_ci[0] <= report.corrected_mean <= report.estimate_ci[1]
     assert report.sensitivity_best == {
         "1e-3": pytest.approx(201.0),
         "3e-4": pytest.approx(501.0),
@@ -379,8 +381,8 @@ def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_s
     assert beta_report.sensitivity_plot_path.exists()
 
 
-def test_analyze_hypers_group_by_empty_list_keeps_pooled_contract(temp_experiment_setup: dict[str, Any]) -> None:
-    """Treat an empty grouping list like no grouping and return one report."""
+def test_analyze_hypers_rejects_insufficient_cross_fit_seeds(temp_experiment_setup: dict[str, Any]) -> None:
+    """Cross-fitted tuning fails when the seed population cannot form folds."""
     setup = temp_experiment_setup
 
     with DatabaseManager(setup["db_path"]) as db:
@@ -393,10 +395,8 @@ def test_analyze_hypers_group_by_empty_list_keeps_pooled_contract(temp_experimen
             db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
             populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [score])
 
-    report = analyze_hypers(setup["db_path"], "test-exp", "setting", "metric", group_by=[], verbose=False)
-
-    assert isinstance(report, HyperparameterSensitivityReport)
-    assert report.winning_value == "high"
+    with pytest.raises(ValueError, match="at least 3 distinct seeds"):
+        analyze_hypers(setup["db_path"], "test-exp", "setting", "metric", group_by=[], verbose=False)
 
 
 def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
