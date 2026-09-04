@@ -60,6 +60,8 @@ class ABComparisonReport:
     pairing: str
     alpha: float
     n_resamples: int
+    min_samples: int
+    missingness: str
     mean_a: float
     mean_b: float
     difference_in_means: float
@@ -177,8 +179,10 @@ def _load_pairwise_data(
     is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and same_keys)
     if not is_paired:
         return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
-    if not same_keys and spec.missingness == "error":
-        raise ValueError("paired comparison requires identical pairing keys")
+    if not same_keys and spec.missingness != "complete_case":
+        raise ValueError(
+            "paired comparison requires identical pairing keys unless missingness='complete_case'"
+        )
     paired = key_a.with_columns(rows_a["value"].alias("value_a")).join(
         key_b.with_columns(rows_b["value"].alias("value_b")), on=keys, how="inner"
     ).sort(keys)
@@ -220,7 +224,14 @@ def _compute_pairwise_statistics(
             p_value=permutation.p_value,
             effect_size=permutation.statistic,
             is_significant=permutation.is_significant,
-            assumptions={"paired": is_paired, "estimand": spec.estimand, "alpha": spec.alpha},
+            assumptions={
+                "paired": is_paired,
+                "estimand": spec.estimand,
+                "alpha": spec.alpha,
+                "n_resamples": spec.n_resamples,
+                "min_samples": spec.min_samples,
+                "missingness": spec.missingness,
+            },
             justification="Permutation inference follows the declared comparison design without a normality pretest.",
             intermediate_tests={},
         ),
@@ -404,6 +415,8 @@ def compare_pairwise(
         pairing="paired" if is_paired else "independent",
         alpha=spec.alpha,
         n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        missingness=spec.missingness,
         mean_a=float(np.mean(vals_a)),
         mean_b=float(np.mean(vals_b)),
         difference_in_means=float(np.mean(vals_a) - np.mean(vals_b)),
@@ -965,6 +978,9 @@ def _compute_bakeoff_statistics(
                 "n_blocks": block_result.n_blocks,
                 "n_observations": block_result.n_observations,
                 "alpha": spec.alpha,
+                "n_resamples": spec.n_resamples,
+                "min_samples": spec.min_samples,
+                "missingness": spec.missingness,
             },
             justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
             intermediate_tests={},
@@ -1066,7 +1082,7 @@ def compare_bakeoff(
     """Compare algorithms with fixed-reference normalization and blockwise inference."""
     if len(algorithms) < 3:
         raise ValueError(
-            f"compare_bakeoff requires at least 3 algorithms for the omnibus Friedman test, got "
+            f"compare_bakeoff requires at least 3 algorithms for the omnibus test, got "
             f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
         )
     if references is None:

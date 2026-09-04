@@ -129,6 +129,8 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.pairing == "paired"
     assert report.alpha == pytest.approx(0.05)
     assert report.n_resamples == 10_000
+    assert report.min_samples == 3
+    assert report.missingness == "error"
     assert report.test_details.test_name == "Paired permutation test"
     assert report.test_details.intermediate_tests == {}
     assert report.test_details.assumptions["paired"] is True
@@ -249,6 +251,42 @@ def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: di
 
     assert report.estimand == "median"
     assert report.test_details.statistic == pytest.approx(-3.0)
+
+
+def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: dict[str, Any]) -> None:
+    """Reject blockwise missingness for paired data instead of silently dropping cells."""
+    setup = temp_experiment_setup
+    with DatabaseManager(setup["db_path"]) as db:
+        for condition, seeds in (("a", (0, 1, 2)), ("b", (0, 1, 3))):
+            for seed in seeds:
+                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
+                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+                execution_id = db.add_execution()
+                db.update_execution_status(execution_id, "COMPLETED")
+                db.link_execution_run(execution_id, run_id)
+                db.record_execution_artifacts(
+                    execution_id,
+                    str(setup["tmp_path"]),
+                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
+                )
+                populate_metrics_db(
+                    setup["metrics_db_path"],
+                    run_id,
+                    "metric",
+                    [float(seed)],
+                    execution_id=execution_id,
+                )
+
+    with pytest.raises(ValueError, match="missingness='complete_case'"):
+        compare_pairwise(
+            setup["db_path"],
+            "test-exp",
+            "a",
+            "b",
+            "metric",
+            verbose=False,
+            spec=ComparisonSpec(pairing="paired", missingness="blockwise"),
+        )
 
 
 def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:
@@ -520,6 +558,7 @@ def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: dict[str,
     assert report.omnibus_details.test_name == "Block-stratified permutation omnibus test"
     assert report.omnibus_details.assumptions["has_missing"] is True
     assert report.omnibus_details.assumptions["n_blocks"] == 4
+    assert report.omnibus_details.assumptions["missingness"] == "blockwise"
 
 
 def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:
