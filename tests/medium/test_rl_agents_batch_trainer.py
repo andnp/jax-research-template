@@ -6,6 +6,7 @@ from typing import cast
 
 import gymnax
 import jax
+import pytest
 from experiment_definition import ParameterValue
 from research_runner import ExecutionContext, RunPoint
 from rl_agents.batch_trainer import AlgorithmSpec, make_batch_trainer
@@ -126,19 +127,30 @@ class TestDynamicKeyDerivation:
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["td3"]
         assert derived == hand | {"gamma"}
 
-    def test_dqn_gains_total_timesteps_gamma_already_present(self) -> None:
-        """DQN already hand-lists gamma; ReplayQHypers additionally carries total_timesteps."""
+    def test_dqn_matches_its_hand_written_schema(self) -> None:
+        """DQN already hand-lists gamma, so the derivation reproduces its set exactly."""
         derived = DQN_SPEC.parameter_schema.dynamic_keys
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["dqn"]
         assert "gamma" in hand
-        assert derived == hand | {"total_timesteps"}
+        assert derived == hand
 
-    def test_qrc_gains_total_timesteps_gamma_already_present(self) -> None:
-        """QRC already hand-lists gamma; QRCHypers additionally carries total_timesteps."""
+    def test_qrc_matches_its_hand_written_schema(self) -> None:
+        """QRC already hand-lists gamma, so the derivation reproduces its set exactly."""
         derived = QRC_SPEC.parameter_schema.dynamic_keys
         hand = _HAND_WRITTEN_DYNAMIC_KEYS["qrc"]
         assert "gamma" in hand
-        assert derived == hand | {"total_timesteps"}
+        assert derived == hand
+
+    @pytest.mark.parametrize("spec", [DQN_SPEC, QRC_SPEC], ids=["dqn", "qrc"])
+    def test_the_scan_length_is_never_batchable(self, spec: AlgorithmSpec) -> None:
+        """``TOTAL_TIMESTEPS`` rides these hypers, but the loop needs it as a Python int.
+
+        The epsilon schedule divides by it, which is why it sits on the hypers struct at
+        all. It is also the ``lax.scan`` length handed to ``run``, and a traced value
+        there fails to compile -- so declaring it batchable would promise a sweep the
+        trainer cannot serve. The scan boundary wins.
+        """
+        assert "total_timesteps" not in spec.parameter_schema.dynamic_keys
 
     def test_ppo_gains_reward_scale(self) -> None:
         """PPOHypers carries REWARD_SCALE, which the hand-written schema omits."""

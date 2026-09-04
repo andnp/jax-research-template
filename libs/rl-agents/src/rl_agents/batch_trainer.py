@@ -52,7 +52,14 @@ ENV_NAME = "env_name"
 
 # Cast through Python int() to size an array in greedy_ac's proposal/ranking path (see
 # GACHypers's own docstring); sweeping them would need a redesign that is out of scope.
-_NEVER_DYNAMIC = frozenset({"actor_percentile", "uniform_weight"})
+_NEVER_DYNAMIC = frozenset({"actor_percentile", "uniform_weight", "total_timesteps"})
+"""Hypers fields that must stay static however they are declared.
+
+``actor_percentile`` and ``uniform_weight`` are unsweepable by necessity. ``total_timesteps``
+rides ``ReplayQHypers``/``QRCHypers`` because the epsilon schedule divides by it, but it is
+also the ``lax.scan`` length ``run`` is given, which has to be a Python int -- a traced value
+there fails to compile. The scan boundary wins, so it is resolved statically.
+"""
 
 
 @dataclass(frozen=True, slots=True)
