@@ -1175,12 +1175,16 @@ class DatabaseManager:
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
         jax_config: Mapping[str, ParameterValue] | None = None,
+        only: Mapping[str, str] | None = None,
     ) -> PlannedExecution | None:
-        """Plan and return the next unsatisfied execution batch, or None when none remain."""
+        """Plan and return the next unsatisfied execution batch, or None when none remain.
+
+        ``only`` restricts which runs are eligible, per :func:`_run_matches`.
+        """
         base_path = Path(artifacts_root)
         self.conn.execute("BEGIN IMMEDIATE")
         try:
-            batches = self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch)
+            batches = self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch, only=only)
             if not batches:
                 self.conn.commit()
                 return None
