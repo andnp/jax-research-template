@@ -25,6 +25,7 @@ from rich.text import Text
 
 from research_analysis.experiment import load_experiment_metrics
 from research_analysis.hypothesis import mann_whitney_u_test, welch_ttest
+from research_analysis.schema import AnalysisSchema
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ def _load_pairwise_data(
     condition_a: str,
     condition_b: str,
     metric_name: str,
+    schema: AnalysisSchema | None,
 ) -> tuple[str, np.ndarray, np.ndarray, bool]:
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -134,6 +136,7 @@ def _load_pairwise_data(
         experiments_db=db_path,
         slug=experiment_slug,
         metrics=[metric_name],
+        schema=schema,
     )
     final_per_run = (
         all_metrics
@@ -407,6 +410,7 @@ def compare_pairwise(
     metric_name: str,
     confidence_level: float = 0.95,
     verbose: bool = True,
+    schema: AnalysisSchema | None = None,
 ) -> ABComparisonReport:
     """Compare exactly two experimental conditions, selecting the correct test automatically."""
     if not 0 < confidence_level < 1:
@@ -419,6 +423,7 @@ def compare_pairwise(
         condition_a,
         condition_b,
         metric_name,
+        schema,
     )
 
     pairwise_statistics = _compute_pairwise_statistics(
