@@ -137,7 +137,9 @@ def _smoothed_return_curve(metrics: dict[str, jax.Array]) -> jax.Array:
     """
     steps = _CONFIG.TOTAL_TIMESTEPS
     episode_return = metrics["loop/episode_return"]
-    impulse_index = jnp.where(metrics["loop/episode_end"], jnp.arange(steps, dtype=jnp.int32), jnp.int32(-1))
+    impulse_index = jnp.asarray(
+        jnp.where(metrics["loop/episode_end"], jnp.arange(steps, dtype=jnp.int32), jnp.int32(-1))
+    )
     latest = jax.lax.cummax(impulse_index, axis=1)
     carried = jnp.where(latest >= 0, jnp.take_along_axis(episode_return, jnp.maximum(latest, 0), axis=1), 0.0)
     return carried.reshape(_NUM_SEEDS, steps // _CONFIG.NUM_STEPS, _CONFIG.NUM_STEPS).mean(axis=-1)
