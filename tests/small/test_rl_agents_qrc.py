@@ -17,6 +17,7 @@ class TestQRCConfig:
         assert cfg.EPSILON_END == 0.05
         assert cfg.BETA == 1.0
         assert cfg.HIDDEN_WIDTH == 64
+        assert cfg.H_REGULARIZATION == "adamw"
 
     def test_custom_config(self) -> None:
         cfg = QRCConfig(LR=1e-3, BUFFER_SIZE=1000, ENV_NAME="Acrobot-v1", BETA=0.5)

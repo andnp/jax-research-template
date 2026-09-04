@@ -42,7 +42,7 @@ its per-transition ``gamma``; :class:`QRCAgent` never reads ``config.GAMMA``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import NamedTuple, TypedDict
+from typing import Literal, NamedTuple, TypedDict
 
 import chex
 import flax.linen as nn
@@ -62,6 +62,11 @@ from rl_components.timestep import Timestep
 type QRCApplyFn = Callable[..., tuple[jax.Array, jax.Array]]
 """``QRCNetwork.apply``, as reached through ``TrainState.apply_fn``."""
 
+type HRegularization = Literal["adamw", "l2"]
+"""How the h-head's ``BETA`` regularises: decoupled AdamW weight decay (matches the
+reference) or an L2 term added directly to the loss (this project's prior behaviour,
+which a prior run reported outperforming AdamW for QRC's h-head)."""
+
 
 @chex_struct(frozen=True, kw_only=True)
 class QRCConfig:
@@ -76,6 +81,7 @@ class QRCConfig:
     EPSILON_END: float = 0.05
     EPSILON_FRACTION: float = 0.5
     BETA: float = 1.0
+    H_REGULARIZATION: HRegularization = "adamw"
     HIDDEN_WIDTH: int = 64
     ENV_NAME: str = "CartPole-v1"
     SEED: int = 42
@@ -170,12 +176,18 @@ def _param_labels(params: VariableDict) -> VariableDict:
     return {**params, "params": labeled}
 
 
-def _make_tx(params: VariableDict, learning_rate: jax.Array | float, weight_decay: jax.Array | float) -> optax.GradientTransformation:
-    """Adam for the trunk/q-head, AdamW (decoupled weight decay) for the h-head."""
-    return optax.multi_transform(
-        {"q": optax.adam(learning_rate), "h": optax.adamw(learning_rate, weight_decay=weight_decay)},
-        _param_labels(params),
-    )
+def _make_tx(
+    params: VariableDict,
+    learning_rate: jax.Array | float,
+    weight_decay: jax.Array | float,
+    h_regularization: HRegularization = "adamw",
+) -> optax.GradientTransformation:
+    """Adam for the trunk/q-head. AdamW (decoupled weight decay) for the h-head when
+    ``h_regularization`` is ``"adamw"``; plain Adam when it is ``"l2"``, since that style
+    regularises through an L2 term added to the loss instead (``qrc_loss_batch``).
+    """
+    h_tx = optax.adamw(learning_rate, weight_decay=weight_decay) if h_regularization == "adamw" else optax.adam(learning_rate)
+    return optax.multi_transform({"q": optax.adam(learning_rate), "h": h_tx}, _param_labels(params))
 
 
 def expected_action_value(q_next: jax.Array, epsilon: jax.Array | float) -> jax.Array:
@@ -231,15 +243,19 @@ def qrc_loss_batch(
     epsilon: jax.Array | float,
     *,
     apply_fn: QRCApplyFn,
+    h_regularization: HRegularization = "adamw",
+    beta: jax.Array | float = 0.0,
 ) -> jax.Array:
     """Mean QRC loss over a minibatch.
 
-    Regularising the h-head (Ghiassian et al. 2020, §3.2) is the caller's
-    optimizer's job, not this loss's: ``h_head`` params get decoupled weight
-    decay via their own ``optax.adamw`` (see ``_param_labels``/``BETA``),
-    not an L2 term added in here. An in-loss L2 term would have its gradient
-    rescaled per-parameter by Adam's ``1/sqrt(v_hat)``, which is not the same
-    regulariser as AdamW's decoupled decay.
+    Regularising the h-head (Ghiassian et al. 2020, §3.2) is normally the
+    caller's optimizer's job, not this loss's: with ``h_regularization="adamw"``,
+    ``h_head`` params get decoupled weight decay via their own ``optax.adamw``
+    (see ``_make_tx``/``BETA``), not an L2 term added in here -- an in-loss L2
+    term would have its gradient rescaled per-parameter by Adam's
+    ``1/sqrt(v_hat)``, which is not the same regulariser as AdamW's decoupled
+    decay. ``h_regularization="l2"`` adds that L2 term directly instead, using
+    ``beta`` as its coefficient, and pairs with plain Adam on the h-head.
 
     ``discounts`` is the per-transition bootstrap coefficient the loop computed
     and is passed straight through as each transition's ``gamma``, so a terminal
@@ -257,7 +273,11 @@ def qrc_loss_batch(
         q, h, actions, rewards, discounts, q_next, epsilon
     )
 
-    return jnp.mean(v_loss) + jnp.mean(h_loss)
+    loss = jnp.mean(v_loss) + jnp.mean(h_loss)
+    if h_regularization == "l2":
+        h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
+        loss = loss + beta * h_reg
+    return loss
 
 
 @chex_struct(frozen=True)
@@ -337,7 +357,10 @@ class QRCAgent:
         )
 
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
-        tx = optax.inject_hyperparams(lambda learning_rate, weight_decay: _make_tx(params, learning_rate, weight_decay))(
+        h_regularization = self.config.H_REGULARIZATION
+        tx = optax.inject_hyperparams(
+            lambda learning_rate, weight_decay: _make_tx(params, learning_rate, weight_decay, h_regularization)
+        )(
             learning_rate=jnp.asarray(self.config.LR, jnp.float32),
             weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
         )
@@ -468,6 +491,8 @@ class QRCAgent:
                 discounts,
                 epsilon,
                 apply_fn=train_state.apply_fn,
+                h_regularization=self.config.H_REGULARIZATION,
+                beta=weight_decay,
             )
         )(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
@@ -496,7 +521,7 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
         init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)
 
-        tx = _make_tx(params, config.LR, config.BETA)
+        tx = _make_tx(params, config.LR, config.BETA, config.H_REGULARIZATION)
         train_state = TrainState.create(apply_fn=network.apply, params=params, tx=tx)
 
         # INIT BUFFER
@@ -545,7 +570,10 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
                 obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
 
                 def _loss_fn(params: VariableDict) -> jax.Array:
-                    return qrc_loss_batch(params, obs, actions, rewards, next_obs, discounts, epsilon, apply_fn=network.apply)
+                    return qrc_loss_batch(
+                        params, obs, actions, rewards, next_obs, discounts, epsilon,
+                        apply_fn=network.apply, h_regularization=config.H_REGULARIZATION, beta=config.BETA,
+                    )
 
                 loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
                 train_state = train_state.apply_gradients(grads=grads)
