@@ -49,6 +49,18 @@ class DifferenceBootstrapCI:
     estimand: Estimand
 
 
+@dataclass(frozen=True)
+class ScalarBootstrapCI:
+    """BCa interval for one scalar sample."""
+
+    estimate: float
+    ci_low: float
+    ci_high: float
+    confidence: float
+    n_resamples: int
+    estimand: Estimand
+
+
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
     array = np.asarray(data, dtype=np.float64)
     squeeze = array.ndim == 1
@@ -173,5 +185,57 @@ def bootstrap_difference_ci(
         confidence=confidence,
         n_resamples=n_resamples,
         pairing=pairing,
+        estimand=estimand,
+    )
+
+
+def bootstrap_scalar_ci(
+    values: NDArray[np.floating],
+    *,
+    estimand: Estimand = "mean",
+    confidence: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    rng: np.random.Generator | None = None,
+) -> ScalarBootstrapCI:
+    """Compute a scalar BCa confidence interval for one sample."""
+    data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
+    if estimand not in ("mean", "median"):
+        raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    if n_resamples < 1:
+        raise ValueError(f"n_resamples must be positive, got {n_resamples}")
+    if min_samples < 3 or len(data) < min_samples:
+        raise ValueError(f"need at least {min_samples} finite observations, got {len(data)}")
+    if not np.isfinite(data).all():
+        raise ValueError("bootstrap samples must contain only finite values")
+
+    statistic = np.mean if estimand == "mean" else np.median
+
+    def estimate(sample: NDArray[np.float64]) -> float:
+        return float(statistic(sample))
+
+    if rng is None:
+        rng = np.random.default_rng()
+    result = stats.bootstrap(
+        (data,),
+        estimate,
+        vectorized=False,
+        confidence_level=confidence,
+        n_resamples=n_resamples,
+        method="BCa",
+        random_state=rng,
+    )
+    low = float(result.confidence_interval.low)
+    high = float(result.confidence_interval.high)
+    if not np.isfinite(low) or not np.isfinite(high):
+        raise ValueError("BCa bootstrap interval is undefined for these samples")
+    return ScalarBootstrapCI(
+        estimate=estimate(data),
+        ci_low=low,
+        ci_high=high,
+        confidence=confidence,
+        n_resamples=n_resamples,
         estimand=estimand,
     )
