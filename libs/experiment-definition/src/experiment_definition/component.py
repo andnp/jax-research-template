@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from enum import StrEnum
 from pathlib import Path
+from types import ModuleType
 
 from pydantic import BaseModel
 
@@ -30,6 +31,16 @@ class Component(BaseModel):
     name: str
     path: Path
     type: ComponentType = ComponentType.OTHER
+
+    @classmethod
+    def from_module(
+        cls, name: str, module: ModuleType, type: ComponentType = ComponentType.OTHER
+    ) -> Component:
+        """Build a Component whose path is resolved from an imported module's source file."""
+        file = getattr(module, "__file__", None)
+        if file is None:
+            raise ValueError(f"module {module.__name__!r} has no source file")
+        return cls(name=name, path=Path(file), type=type)
 
     def code_hash(self) -> str:
         """Return the SHA-256 hex digest of the source file.
