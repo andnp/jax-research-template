@@ -18,10 +18,13 @@
 - First-class support for reporting full distributions rather than single-point estimates.
 
 ### 2.2 Policy Comparison & Hypothesis Testing
-- Implementation of statistical tests with appropriate assumptions for RL data (e.g., handling non-normality and autocorrelation).
-- Support Skillings–Mack tests for incomplete repeated-block comparisons and
-  Friedman tests only for complete blocks. Insufficient data must fail clearly.
-- Automated confidence interval (CI) generation using appropriate bootstrapping techniques.
+- Implementation of explicit mean or median estimands with declared paired or
+  independent designs. No normality pretest selects the method.
+- Paired or independent permutation tests for pairwise comparisons, plus a
+  block-stratified permutation omnibus equivalent for incomplete repeated blocks.
+  It retains observed cells within each block instead of listwise deletion.
+- BCa confidence intervals with explicit confidence, resample, and minimum-sample
+  settings. Insufficient or invalid data must fail clearly.
 
 ### 2.3 Experimental Design Primitives
 - Support for sophisticated experimental designs in the `define` phase (e.g., Factorial designs, Latin Hypercube Sampling).
@@ -46,6 +49,8 @@
 - **Database:** Must interface directly with the relational SQLite schema defined in ADR 008.
 - **Normalization Policy:** Benchmark normalization must use caller-supplied
   fixed reference anchors or ranges, never a comparison-set-derived pool.
+- **Multiplicity Policy:** Pairwise post-hoc p-values use true Holm step-down
+  adjustment, not a fixed per-comparison correction.
 
 
 ## 4. Proposed Usage

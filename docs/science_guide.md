@@ -27,16 +27,16 @@ This ensures that an agent taking 10,000 steps to fail once is weighted equally 
 
 Reporting the "best" performance of an algorithm after a hyperparameter sweep is prone to **Maximization Bias**. We are likely overestimating performance because we selected the hyperparameter configuration that had the "luckiest" random seeds.
 
-### The Solution: Bootstrapped Two-Stage Tuning
-Instead of a single "best" curve, we report the distribution of "likely winners."
+### The Solution: Cross-Fitted Tuning
+Instead of evaluating a selected setting on the same seeds used to select it, we
+report held-out performance after cross-fitted tuning.
 
 1.  **Collect Data:** Run $N$ seeds for every hyperparameter configuration $H$.
-2.  **Bootstrap Resampling (Outer Loop):**
-    - For $M$ iterations (e.g., 1000):
-        - For each configuration $h \in H$, resample $N$ runs (with replacement) and compute their mean performance.
-        - Identify the "Winner": the configuration $h^*$ with the highest resampled mean.
-        - Record the **true sample mean** (from the original data) of $h^*$ for this iteration.
-3.  **Reporting:** Report the mean and confidence interval of these $M$ recorded "winner" performances.
+2.  **Cross-Fit:** For each seed, select the winner using all other seeds and
+    evaluate that selected configuration on the held-out seed. Every tuning fold
+    must contain every candidate value and exactly one held-out result.
+3.  **Reporting:** Report the mean of held-out outcomes and a BCa interval with
+    explicit confidence, resample, and minimum-sample settings.
 
 This procedure captures the uncertainty in hyperparameter selection and provides a realistic estimate of the algorithm's performance in a "new" environment where tuning would be required.
 
@@ -46,14 +46,10 @@ This procedure captures the uncertainty in hyperparameter selection and provides
 
 Comparing algorithms across multiple tasks requires normalization, as returns are not on the same scale.
 
-### CDF-based Normalization
-We use an Empirical Cumulative Distribution Function (ECDF) to map any raw score $x$ in environment $e$ to a value in $[0, 1]$.
-
-$$N(x, e) = \frac{1}{|\mathcal{P}_e|} \sum_{g \in \mathcal{P}_e} \mathbb{1}(g < x)$$
-
-Normalization must instead use fixed, predeclared reference anchors or ranges for
-each environment. The references must not be recalculated when algorithms or
-hyperparameter settings are added to a comparison.
+### Fixed-Reference Normalization
+Normalization maps each score using fixed, predeclared reference anchors or
+ranges for its environment. The references must not be recalculated when
+algorithms or hyperparameter settings are added to a comparison.
 
 ---
 
@@ -74,18 +70,20 @@ For each value of the target hyperparameter $\alpha$, show the performance of th
 
 ## 5. Statistical Primitives
 
-### Non-Parametric Percentile Bootstrapping
-We do not assume performance is Gaussian. All Confidence Intervals (CIs) must be generated via bootstrapping:
+### Non-Parametric BCa Bootstrapping
+We do not assume performance is Gaussian. Scalar Confidence Intervals (CIs) use
+BCa bootstrapping with explicit confidence and resample counts:
 1.  Resample indices with replacement.
 2.  Compute the statistic (mean, median, etc.).
 3.  Repeat 10,000 times.
-4.  CI is the $(\frac{\alpha}{2}, 1-\frac{\alpha}{2})$ percentiles of the bootstrap distribution.
+4.  CI is the bias-corrected and accelerated interval from the bootstrap distribution.
 
 ### Repeated-Block Tests in the Reporting API
-The reporting API uses Friedman for complete environment-seed blocks and
-Skillings–Mack when blocks contain missing algorithm observations. Missingness is
-reported explicitly; insufficient data must fail rather than produce a
-placeholder statistic or p-value.
+The reporting API uses paired permutation post-hoc tests and a block-stratified
+permutation omnibus equivalent to Skillings–Mack. It permutes observed cells
+within each environment-seed block, retaining incomplete blocks rather than
+silently listwise-deleting rows. Missingness is reported explicitly; insufficient
+data must fail rather than produce a placeholder statistic or p-value.
 
 ### Supplementary Robust Aggregates
 IQM may be shown as one supplementary center summary. It must appear alongside

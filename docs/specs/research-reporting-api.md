@@ -15,8 +15,17 @@ This API lives in a new module: [reporting.py](file:///home/andy/Projects/resear
 - **Pedagogical Value:** Explain the *why* and *how* behind statistical test selections to guide researchers through correct empirical interpretation.
 - **Explicit Design:** Require callers to declare the estimand, pairing, alpha,
   resampling, minimum sample size, and missingness policy.
-- **Statistical Rigor:** Directly integrate monorepo primitives such as non-parametric tolerance intervals, bootstrapped confidence intervals, and two-stage tuning.
+- **Statistical Rigor:** Directly integrate monorepo primitives such as BCa
+  confidence intervals, permutation tests, Holm correction, fixed-reference
+  aggregates, and cross-fitted tuning.
 - **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](file:///home/andy/Projects/research/research-monorepo/core/docs/adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
+
+`ComparisonSpec` is the canonical design contract. Callers can set the
+estimand (`mean` or `median`), pairing (`auto`, `paired`, or `independent`),
+alpha, resample count, minimum sample size, pairing keys, random seed, and
+missingness policy (`error`, `complete_case`, or `blockwise`). Pairwise
+`blockwise` missingness is rejected because it would require silently dropping
+unmatched pairs; `blockwise` is reserved for repeated-block bakeoffs.
 
 ---
 
@@ -33,11 +42,13 @@ Used to compare exactly two experimental arms (e.g., a baseline and a proposed m
   def compare_pairwise(
       db_path: Path | str,
       experiment_slug: str,
-      arm_a: str,
-      arm_b: str,
+      condition_a: str,
+      condition_b: str,
       metric_name: str,
       confidence_level: float = 0.95,
       verbose: bool = True,
+      schema: AnalysisSchema | None = None,
+      spec: ComparisonSpec | None = None,
   ) -> ABComparisonReport: ...
   ```
 - **Analysis Steps:**
@@ -59,11 +70,15 @@ Used to evaluate hyperparameter tuning sweeps, identify optimal configurations, 
       metric_name: str,
       group_by: list[str] | None = None,
       verbose: bool = True,
+      confidence_level: float = 0.95,
+      n_resamples: int = 10000,
+      min_samples: int = 3,
+      random_seed: int = 0,
   ) -> HyperparameterSensitivityReport: ...
   ```
 - **Analysis Steps:**
   1. Retrieve all tuning configurations from `HyperparamConfigs` for the experiment.
-  2. Implement **Bootstrapped Two-Stage Tuning** to correct for maximization bias by resampling winner configurations.
+  2. Select each fold's winner on training seeds and estimate it on the held-out seed.
   3. Compute the raw winner mean, corrected winner mean, and estimated maximization bias.
   4. Generate sensitivity curve data using both the **Best** and **Slice** strategies described in the science guide.
 
@@ -80,16 +95,19 @@ Used to compare multiple algorithms ($K \ge 3$) across a benchmark suite of seve
       environments: list[str],
       metric_name: str,
       verbose: bool = True,
+      schema: AnalysisSchema | None = None,
+      references: dict[str, ReferenceRange] | None = None,
+      spec: ComparisonSpec | None = None,
   ) -> BenchmarkBakeoffReport: ...
   ```
 - **Analysis Steps:**
   1. Retrieve curves across all tasks and algorithms.
-  2. Apply ECDF-based (Empirical Cumulative Distribution Function) normalization to scale returns across environments with different return boundaries.
+  2. Apply caller-supplied fixed-reference normalization to scale returns across environments with different boundaries.
   3. Detect missing run data (e.g., if certain seeds/tasks failed or are incomplete).
-  4. Perform Skillings–Mack when environment-seed blocks are incomplete, or
-     Friedman when they are complete. Require explicit minimum data.
+  4. Perform a block-stratified permutation omnibus test equivalent in purpose
+     to Skillings–Mack for incomplete blocks without listwise deletion. Require
+     explicit minimum data.
   5. Run paired permutation post-hoc tests with true Holm step-down correction.
-  6. Normalize with fixed caller-supplied environment references.
 
 ---
 
@@ -112,13 +130,19 @@ class StatisticalTestDetails:
 @dataclass(frozen=True)
 class ABComparisonReport:
     experiment_name: str
-    arm_a: str
-    arm_b: str
+    condition_a: str
+    condition_b: str
     metric_name: str
     mean_a: float
     mean_b: float
     difference_in_means: float
     difference_ci: tuple[float, float]
+    estimand: Literal["mean", "median"]
+    pairing: Literal["paired", "independent"]
+    alpha: float
+    n_resamples: int
+    min_samples: int
+    missingness: str
     test_details: StatisticalTestDetails
     distribution_plot_path: Path | None  # Path to saved distribution PDF/violin plot
 
@@ -132,12 +156,20 @@ class HyperparameterSensitivityReport:
     sensitivity_slice: dict[Any, float]  # Value -> performance
     sensitivity_best: dict[Any, float]   # Value -> performance
     sensitivity_plot_path: Path | None   # Path to saved sensitivity curve PDF
+    estimate_method: str
+    estimate_ci: tuple[float, float]
 
 @dataclass(frozen=True)
 class BenchmarkBakeoffReport:
     algorithms: list[str]
     environments: list[str]
     normalized_scores: dict[str, dict[str, float]]  # Algo -> Env -> score
+    performance_profiles: dict[str, dict[float, float]]
+    probability_of_improvement: dict[str, dict[str, float]]
+    optimality_gaps: dict[str, float]
+    dispersion: dict[str, float]
+    lower_tail: dict[str, float]
+    supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float]]  # Algo A -> Algo B -> Adjusted P-value
     aggregate_plot_path: Path | None
@@ -149,7 +181,8 @@ class BenchmarkBakeoffReport:
 
 When `verbose=True`, the reporter writes to the standard output using `rich` console panels. Every report must output:
 1. **Design Summary Panel:** Outlining identified independent/dependent variables and sample structure (e.g., repeated measures availability).
-2. **Methodology Justification Box:** Explaining *why* a particular test was chosen, printing normality check scores (e.g., Shapiro-Wilk test statistic and p-value) and other intermediate test metrics.
+2. **Methodology Justification Box:** Explaining the declared estimand, pairing,
+   permutation design, confidence level, resample count, and missingness policy.
 3. **Findings & Interpretation Section:** Presenting statistics, significance, and a plain-English translation of p-values (e.g., "This p-value indicates a 1.2% probability of observing this performance gap purely due to random seed variation under identical algorithms").
 4. **Correction Logs (For Hypers):** Explaining maximization bias and showing the contrast between raw averages and corrected estimates.
 5. **Artifact Outputs Panel:** Surfacing the file paths of generated diagnostic distribution plots (e.g. violin plots or PDFs) saved in the experiment's analysis directory.
@@ -158,5 +191,5 @@ When `verbose=True`, the reporter writes to the standard output using `rich` con
 
 ## 6. Non-Goals
 
-- **Interactive GUI Rendering:** This API does not launch interactive GUI windows or web servers. Plotting is restricted to generating and saving static diagnostic visual artifacts (violin plots, ECDF curves) directly to the file system using `research-plot`.
+- **Interactive GUI Rendering:** This API does not launch interactive GUI windows or web servers. Plotting is restricted to generating and saving static diagnostic visual artifacts (including ECDF diagnostic curves) directly to the file system using `research-plot`.
 - **Dynamic DB Writing:** This is a read-only API. It does not modify logical runs, hyperparameter configs, or execution metadata tables in the sqlite registry.
