@@ -262,6 +262,8 @@ class TD3Agent:
     normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
     """
 
+    REPORTED_METRICS = ("critic_loss", "actor_loss")
+
     def __init__(self, config: TD3Config) -> None:
         """Bind the configuration. The object is static under ``jit``.
 

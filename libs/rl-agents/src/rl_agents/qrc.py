@@ -304,6 +304,8 @@ class QRCAgentState:
 class QRCAgent:
     """Q-learning with Regularized Corrections over a discrete action space."""
 
+    REPORTED_METRICS = ("loss", "epsilon", "q_max")
+
     def __init__(self, config: QRCConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.
 

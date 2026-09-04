@@ -302,6 +302,8 @@ class SACAgent:
     normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
     """
 
+    REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
+
     def __init__(self, config: SACConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.
 

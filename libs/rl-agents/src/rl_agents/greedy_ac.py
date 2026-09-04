@@ -600,6 +600,8 @@ class GACAgent:
     normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
     """
 
+    REPORTED_METRICS = ("critic_loss", "actor_loss", "critic_grad_norm", "actor_grad_norm")
+
     def __init__(self, config: GACConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.
 

@@ -434,7 +434,13 @@ class PPOAgent:
     The agent owns no environment, no ``lax.scan`` over the horizon and no discount:
     :func:`rl_components.loop.run` supplies the horizon and ``gamma``, and the per-transition
     bootstrap coefficient reaches GAE through ``Timestep.discount``.
+
+    REPORTED_METRICS names PPO's own update diagnostics; the reported return curve is not
+    ``loop/reward`` but the episode-return hold computed by the caller, because PPO is
+    on-policy and the horizon spans many episodes.
     """
+
+    REPORTED_METRICS = ("total_loss", "value_loss", "policy_loss", "entropy")
 
     def __init__(self, config: PPOConfig) -> None:
         """Bind the configuration. The object is static under ``jit``.

@@ -88,6 +88,8 @@ def dqn_loss(
 class DQNAgent(ReplayQAgent):
     """Deep Q-learning with a target network and epsilon-greedy exploration."""
 
+    REPORTED_METRICS = ("loss", "epsilon", "q_max")
+
     def __init__(self, config: DQNConfig) -> None:
         """Bind the configuration, the preset-selected Q-network and the vanilla target.
 
