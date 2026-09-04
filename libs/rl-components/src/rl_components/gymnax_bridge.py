@@ -134,14 +134,21 @@ def _continuous_bounds(
     Returns:
         The lower and upper bounds, or ``(None, None)`` when the space declares neither;
         :class:`EnvSpec` accepts both bounds or neither, never one.
+
+        The bounds are forced to evaluate rather than stage. ``spec`` is called from
+        inside :func:`rl_components.loop.run`, which the caller jits, so these ``jnp``
+        calls would otherwise be traced and the agent reading the spec could not compare
+        the bounds it was handed. A bound that genuinely derives from traced ``params``
+        stays traced, which the agent-side check treats as unverifiable.
     """
     if not (hasattr(action_space, "low") and hasattr(action_space, "high")):
         return None, None
     bounded = cast(_GymnaxBoundedActionSpace, action_space)
-    return (
-        jnp.broadcast_to(jnp.asarray(bounded.low, dtype=jnp.float32), action_shape),
-        jnp.broadcast_to(jnp.asarray(bounded.high, dtype=jnp.float32), action_shape),
-    )
+    with jax.ensure_compile_time_eval():
+        return (
+            jnp.broadcast_to(jnp.asarray(bounded.low, dtype=jnp.float32), action_shape),
+            jnp.broadcast_to(jnp.asarray(bounded.high, dtype=jnp.float32), action_shape),
+        )
 
 
 class _GymnaxEnv[StateT, ParamsT](Protocol):
