@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from research_analysis.bootstrap import BootstrapCI, bootstrap_ci
+from research_analysis.bootstrap import BootstrapCI, bootstrap_ci, bootstrap_difference_ci
 
 
 def _reference_bootstrap_ci(
@@ -107,3 +107,38 @@ class TestBootstrapCI:
         np.testing.assert_allclose(result.mean, expected.mean)
         np.testing.assert_allclose(result.ci_low, expected.ci_low)
         np.testing.assert_allclose(result.ci_high, expected.ci_high)
+
+
+def test_difference_bootstrap_returns_bca_interval() -> None:
+    """Scalar paired comparisons expose a finite BCa interval with settings."""
+    result = bootstrap_difference_ci(
+        np.array([1.0, 2.0, 4.0, 7.0, 9.0]),
+        np.array([0.0, 1.0, 2.0, 4.0, 5.0]),
+        pairing="paired",
+        confidence=0.90,
+        n_resamples=128,
+        rng=np.random.default_rng(42),
+    )
+
+    assert result.estimate == pytest.approx(2.2)
+    assert result.ci_low <= result.estimate <= result.ci_high
+    assert result.confidence == 0.90
+    assert result.n_resamples == 128
+    assert result.pairing == "paired"
+
+
+def test_difference_bootstrap_rejects_invalid_inputs() -> None:
+    """Scalar BCa intervals reject underpowered, misaligned, and non-finite data."""
+    with pytest.raises(ValueError, match="at least 3"):
+        bootstrap_difference_ci(np.array([1.0, 2.0]), np.array([0.0, 1.0]))
+    with pytest.raises(ValueError, match="equal lengths"):
+        bootstrap_difference_ci(
+            np.array([1.0, 2.0, 3.0]),
+            np.array([0.0, 1.0]),
+            pairing="paired",
+        )
+    with pytest.raises(ValueError, match="finite"):
+        bootstrap_difference_ci(
+            np.array([1.0, np.nan, 3.0]),
+            np.array([0.0, 1.0, 2.0]),
+        )
