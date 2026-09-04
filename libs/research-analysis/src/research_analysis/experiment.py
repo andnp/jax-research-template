@@ -55,11 +55,18 @@ _MAPPED_METRICS_SCHEMA: dict[str, Any] = {
 }
 
 
+def _max_component_version(values: list[int | None]) -> int | None:
+    """Return the maximum of the non-``None`` values, or ``None`` if all are ``None``."""
+    present = [v for v in values if v is not None]
+    return max(present) if present else None
+
+
 def resolve_run_artifacts(
     experiments_db: Path | str,
     slug: str,
     *,
     schema: AnalysisSchema | None = None,
+    latest_component_versions: bool = True,
 ) -> pl.DataFrame:
     """Resolve the latest completed execution artifacts for each run in an experiment.
 
@@ -73,6 +80,18 @@ def resolve_run_artifacts(
       if the execution artifacts predate metrics DB path recording)
 
     Only includes runs that have at least one completed execution with artifacts.
+
+    By default (``latest_component_versions=True``) only runs whose
+    ``algo_version_id`` and ``env_version_id`` both equal the maximum values
+    present for this experiment are returned. Without this restriction, an
+    experiment re-run after an agent or environment fix silently pools runs
+    from every prior code version into one result, averaging broken and fixed
+    behaviour together with no error or warning. ``algo_version_id`` is
+    ``None`` whenever the experiment declares more than one ALGO component;
+    ``None`` is matched against ``None`` (an experiment with no versioned
+    runs still returns them), never coerced to "oldest" or dropped. Pass
+    ``False`` to restore the old pooling behaviour, e.g. to deliberately
+    compare a pre-fix arm against a post-fix arm.
 
     Args:
         experiments_db: Path to the experiments SQLite database.
@@ -91,7 +110,17 @@ def resolve_run_artifacts(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        for run in db.list_runs(experiment.id):
+        runs = db.list_runs(experiment.id)
+        if latest_component_versions and runs:
+            max_algo = _max_component_version([r.algo_version_id for r in runs])
+            max_env = _max_component_version([r.env_version_id for r in runs])
+            runs = [
+                r
+                for r in runs
+                if r.algo_version_id == max_algo and r.env_version_id == max_env
+            ]
+
+        for run in runs:
             latest_exec = db.get_latest_completed_execution_for_run(run.id)
             latest_artifacts = db.get_latest_completed_artifacts_for_run(run.id)
             if latest_exec is None or latest_artifacts is None:
@@ -135,6 +164,7 @@ def load_experiment_metrics(
     metrics: list[str] | None = None,
     run_artifacts: pl.DataFrame | None = None,
     schema: AnalysisSchema | None = None,
+    latest_component_versions: bool = True,
 ) -> pl.DataFrame:
     """Load training metrics for all conditions in a completed experiment.
 
@@ -149,6 +179,12 @@ def load_experiment_metrics(
     Only includes data from the most recently completed execution per run.
     Rows are sorted by ``(condition_name, seed, step, metric)``.
 
+    ``latest_component_versions`` is passed through to
+    :func:`resolve_run_artifacts` when ``run_artifacts`` is not supplied
+    directly; see that function's docstring for its default-restrictive
+    behaviour. It has no effect when ``run_artifacts`` is provided — the
+    caller has already made that choice.
+
     Args:
         experiments_db: Path to the experiments SQLite database.
         slug: Experiment slug to load metrics for.
@@ -158,7 +194,12 @@ def load_experiment_metrics(
             from ``experiments_db`` and ``slug``.
     """
     if run_artifacts is None:
-        run_artifacts = resolve_run_artifacts(experiments_db, slug, schema=schema)
+        run_artifacts = resolve_run_artifacts(
+            experiments_db,
+            slug,
+            schema=schema,
+            latest_component_versions=latest_component_versions,
+        )
 
     mapped = "env_name" in run_artifacts.columns
     if run_artifacts.is_empty():

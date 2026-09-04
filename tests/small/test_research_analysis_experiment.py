@@ -205,6 +205,91 @@ class TestResolveRunArtifacts:
 
 
 # ---------------------------------------------------------------------------
+# resolve_run_artifacts — latest_component_versions
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_versioned_experiment(db_path: Path) -> tuple[int, int, int, int]:
+    """Create one experiment with two ALGO component versions, one completed run each.
+
+    Returns (older_algo_version_id, newer_algo_version_id, older_run_id, newer_run_id).
+    """
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        algo_comp = db.add_component("ppo", "ALGO")
+        older_algo_ver = db.add_component_version(algo_comp, "commit-buggy")
+        newer_algo_ver = db.add_component_version(algo_comp, "commit-fixed")
+        env_comp = db.add_component("cartpole", "ENV")
+        env_ver = db.add_component_version(env_comp, "def456")
+        exp_id = db.add_experiment("versioned-experiment")
+
+        older_hyper = db.add_hyperparam_config({"condition_name": "buggy", "seed": 0})
+        newer_hyper = db.add_hyperparam_config({"condition_name": "fixed", "seed": 0})
+        older_run = db.add_run(exp_id, older_algo_ver, env_ver, older_hyper, 0)
+        newer_run = db.add_run(exp_id, newer_algo_ver, env_ver, newer_hyper, 0)
+
+        for run_id in (older_run, newer_run):
+            exec_id = db.add_execution()
+            db.link_execution_run(exec_id, run_id)
+            db.record_execution_artifacts(exec_id, str(db_path.parent / "executions" / str(exec_id)))
+            db.update_execution_status(exec_id, "COMPLETED")
+
+    return older_algo_ver, newer_algo_ver, older_run, newer_run
+
+
+class TestLatestComponentVersions:
+    def test_default_filters_to_newest_algo_version(self, tmp_path: Path) -> None:
+        """Pooling every code version by default is the bug; the default must return only the newest."""
+        db_path = tmp_path / "experiments.sqlite"
+        older_ver, newer_ver, older_run, newer_run = _bootstrap_versioned_experiment(db_path)
+        assert newer_ver > older_ver  # fixture premise: the intended "newest" really is the max
+
+        df = resolve_run_artifacts(db_path, "versioned-experiment")
+
+        assert set(df["run_id"].to_list()) == {newer_run}
+        assert older_run not in df["run_id"].to_list()
+
+    def test_opt_out_restores_pooling_across_versions(self, tmp_path: Path) -> None:
+        """Deliberate cross-version comparison (e.g. diagnosing this exact bug) must remain possible."""
+        db_path = tmp_path / "experiments.sqlite"
+        _, _, older_run, newer_run = _bootstrap_versioned_experiment(db_path)
+
+        df = resolve_run_artifacts(db_path, "versioned-experiment", latest_component_versions=False)
+
+        assert set(df["run_id"].to_list()) == {older_run, newer_run}
+
+    def test_null_algo_version_id_still_returns_rows(self, tmp_path: Path) -> None:
+        """A multi-ALGO-component study stores NULL algo_version_id for every run; the default must match NULL, not drop the rows."""
+        db_path = tmp_path / "experiments.sqlite"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with DatabaseManager(db_path) as db:
+            db.initialize()
+            env_comp = db.add_component("cartpole", "ENV")
+            env_ver = db.add_component_version(env_comp, "def456")
+            exp_id = db.add_experiment("null-version-experiment")
+            hyper_id = db.add_hyperparam_config({"condition_name": "multi", "seed": 0})
+            with db.conn:
+                cur = db.conn.execute(
+                    "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
+                    "VALUES (?, NULL, ?, ?, ?, NULL)",
+                    (exp_id, env_ver, hyper_id, 0),
+                )
+            assert cur.lastrowid is not None
+            run_id = int(cur.lastrowid)
+
+            exec_id = db.add_execution()
+            db.link_execution_run(exec_id, run_id)
+            db.record_execution_artifacts(exec_id, str(db_path.parent / "executions" / str(exec_id)))
+            db.update_execution_status(exec_id, "COMPLETED")
+
+        df = resolve_run_artifacts(db_path, "null-version-experiment")
+
+        assert df["run_id"].to_list() == [run_id]
+
+
+# ---------------------------------------------------------------------------
 # load_experiment_metrics
 # ---------------------------------------------------------------------------
 
