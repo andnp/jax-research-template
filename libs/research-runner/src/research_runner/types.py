@@ -165,8 +165,8 @@ class ExperimentSpec:
             if name != "seed" and name not in schema.dynamic_keys
         )
 
-    def sync(self, db_path: Path | str) -> None:
-        self.experiment.sync(db_path, static_parameter_names=self.static_parameter_names)
+    def sync(self, db_path: Path | str):
+        return self.experiment.sync(db_path, static_parameter_names=self.static_parameter_names)
 
     @property
     def db_path(self) -> Path:

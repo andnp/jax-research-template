@@ -146,16 +146,20 @@ def sync_to_db(
     state: "_ExperimentState",
     *,
     static_parameter_names: frozenset[str] | None = None,
-) -> None:
+):
     """Materialise the experiment definition into a SQLite file.
 
     Creates the database if it does not exist and applies the ADR 008 schema.
     All operations are wrapped in a single transaction.
 
+    Returns the ids of every run this definition wants, so a caller can identify rows an
+    earlier definition left behind.
+
     Args:
         db_path: Path to the SQLite file (will be created if absent).
         state: Internal state snapshot from ``Experiment``.
     """
+    wanted: set[int] = set()
     con = sqlite3.connect(db_path)
     try:
         con.execute("PRAGMA journal_mode=WAL;")
@@ -198,7 +202,7 @@ def sync_to_db(
 
             # ── Generate runs ─────────────────────────────────────────────────
             configs = _generate_configs(state)
-            _insert_runs(
+            wanted = _insert_runs(
                 cur,
                 exp_id,
                 comp_version_ids,
@@ -208,6 +212,7 @@ def sync_to_db(
             )
     finally:
         con.close()
+    return frozenset(wanted)
 
 
 # ── Config generation ─────────────────────────────────────────────────────────
@@ -276,11 +281,16 @@ def _insert_runs(
     state: "_ExperimentState",
     *,
     static_parameter_names: frozenset[str] | None = None,
-) -> None:
-    """Insert Run rows for each (config × ablation) combination.
+) -> set[int]:
+    """Insert Run rows for each (config × ablation) combination, returning every wanted id.
 
     Seeds are extracted from the ``seed`` key in the config; all other keys
     form the ``HyperparamConfig``.
+
+    The returned set covers rows that already existed as well as rows inserted here, so a
+    caller can tell the definition's runs apart from rows an earlier definition left
+    behind. Those orphans are invisible to the ``UNIQUE`` identity: a component-hash
+    change or a dropped hyperparameter mints new rows rather than updating old ones.
     """
     # Determine algo/env version ids. When exactly one component of a type is
     # declared it unambiguously authored every run, so its version id is
@@ -302,6 +312,7 @@ def _insert_runs(
     for abl in state.ablations:
         ablation_list.append((abl.name, abl.overrides))
 
+    wanted: set[int] = set()
     for config in configs:
         raw_seed = config.get("seed", 0)
         if raw_seed is None:
@@ -328,6 +339,7 @@ def _insert_runs(
                 (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
             ).fetchone()
             if existing is not None:
+                wanted.add(int(existing[0]))
                 continue
 
             cur.execute(
@@ -335,6 +347,8 @@ def _insert_runs(
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
             )
+            wanted.add(int(cur.lastrowid))
+    return wanted
 
 
 # ---------------------------------------------------------------------------

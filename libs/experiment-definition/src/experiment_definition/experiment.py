@@ -213,8 +213,8 @@ class Experiment:
         db_path: Path | str,
         *,
         static_parameter_names: frozenset[str] | None = None,
-    ) -> None:
-        """Persist the experiment definition to a SQLite database.
+    ):
+        """Persist the experiment definition to a SQLite database, returning its run ids.
 
         Creates the file and schema (ADR 008) if they do not exist.
         Existing experiments with the same name are reopened additively:
@@ -226,4 +226,4 @@ class Experiment:
         """
         from .db import sync_to_db
 
-        sync_to_db(db_path, self._state, static_parameter_names=static_parameter_names)
+        return sync_to_db(db_path, self._state, static_parameter_names=static_parameter_names)
