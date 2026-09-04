@@ -77,20 +77,36 @@ def run_replay[StateT](
     state, _ = environment.reset(keys[0])
 
     def scan_step(
-        state: StateT,
+        carry: tuple[StateT, jax.Array],
         item: tuple[jax.Array, jax.Array],
-    ) -> tuple[StateT, tuple[jax.Array, jax.Array, jax.Array, Mapping[str, jax.Array]]]:
+    ) -> tuple[
+        tuple[StateT, jax.Array],
+        tuple[jax.Array, jax.Array, jax.Array, Mapping[str, jax.Array]],
+    ]:
+        state, active = carry
         action, key = item
         next_state, observation, reward, terminated, diagnostics = environment.step(
             state,
             action,
             key,
         )
-        return next_state, (observation, reward, terminated, diagnostics)
+        next_state = jax.tree.map(
+            lambda new, old: jnp.where(active, new, old),
+            next_state,
+            state,
+        )
+        observation = jnp.where(active, observation, jnp.zeros_like(observation))
+        reward = jnp.where(active, reward, jnp.zeros_like(reward))
+        terminated = active & terminated
+        diagnostics = jax.tree.map(
+            lambda value: jnp.where(active, value, jnp.zeros_like(value)),
+            diagnostics,
+        )
+        return (next_state, active & ~terminated), (observation, reward, terminated, diagnostics)
 
-    final_state, (observations, rewards, terminated, diagnostics) = jax.lax.scan(
+    (final_state, _), (observations, rewards, terminated, diagnostics) = jax.lax.scan(
         scan_step,
-        state,
+        (state, jnp.array(True)),
         (controls, keys[1:]),
     )
     arrays = ReplayResultArrays(

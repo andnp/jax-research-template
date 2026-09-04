@@ -1,5 +1,7 @@
 """Small contracts for trace-driven process-control replay."""
 
+from typing import override
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -57,6 +59,18 @@ class _ReplayEnvironment:
         )
 
 
+class _TerminatingReplayEnvironment(_ReplayEnvironment):
+    @override
+    def step(
+        self,
+        state: jax.Array,
+        action: jax.Array,
+        key: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
+        next_state, observation, reward, _, diagnostics = super().step(state, action, key)
+        return next_state, observation, reward, jnp.array(True), diagnostics
+
+
 def _factory(case: ReplayCase) -> _ReplayEnvironment:
     del case
     return _ReplayEnvironment()
@@ -105,6 +119,19 @@ def test_replay_rejects_invalid_required_inputs() -> None:
 
     with pytest.raises(ValueError, match="invalid required samples"):
         run_replay(case, _factory)
+
+
+def test_replay_masks_rows_after_termination() -> None:
+    """Freeze state and outputs after the environment terminates early."""
+    case = ReplayCase(_trace())
+
+    result = run_replay(case, lambda case: _TerminatingReplayEnvironment())
+
+    assert jnp.array_equal(result.arrays.terminated, jnp.array([True, False, False]))
+    assert jnp.allclose(result.arrays.observations[1:], jnp.zeros((2, 1)))
+    assert jnp.allclose(result.arrays.rewards[1:], jnp.zeros(2))
+    assert jnp.allclose(result.arrays.diagnostics["realized"][1:], jnp.zeros(2))
+    assert jnp.allclose(result.final_state, jnp.array(1.0))
 
 
 def test_replay_case_rejects_ranges_crossing_gap_segments() -> None:
