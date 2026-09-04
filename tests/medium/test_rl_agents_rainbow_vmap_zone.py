@@ -1,62 +1,28 @@
 """One compiled Rainbow kernel must train a batch of hyperparameter arms independently."""
 
+from __future__ import annotations
+
 import dataclasses
 
 import jax
 import jax.numpy as jnp
-from rl_agents.rainbow import (
-    RainbowConfig,
-    RainbowHypers,
-    make_train,
-    rainbow_atari_runtime_from_dqn_zoo,
-    rainbow_hypers,
+from rl_agents.rainbow import RainbowAgent, RainbowAgentState, RainbowConfig, RainbowHypers, rainbow_hypers
+from rl_components.env_protocol import EnvSpec
+from rl_components.timestep import Timestep
+
+OBSERVATION_SHAPE = (4, 84, 84, 1)
+STEPS = 10
+"""Long enough that the three-step window fills, replay clears its warmup, and the
+learn branch fires several times."""
+
+SPEC = EnvSpec(
+    id="toy-atari",
+    observation_shape=OBSERVATION_SHAPE,
+    action_shape=(),
+    observation_dtype=jnp.dtype(jnp.uint8),
+    action_dtype=jnp.dtype(jnp.int32),
+    num_actions=3,
 )
-from rl_components.gym_env import DiscreteActionSpace, ObservationSpace
-
-
-@dataclasses.dataclass(frozen=True)
-class _FakeObservationSpace:
-    shape: tuple[int, ...]
-    dtype: jnp.dtype
-
-
-@dataclasses.dataclass(frozen=True)
-class _FakeActionSpace:
-    n: int
-
-
-class _FakeAtariLikeEnv:
-    """A constant-reward, never-terminating env -- enough to exercise the learn path."""
-
-    def observation_space(self, params: object | None = None) -> ObservationSpace:
-        del params
-        return _FakeObservationSpace(shape=(4, 84, 84, 1), dtype=jnp.uint8)
-
-    def action_space(self, params: object | None = None) -> DiscreteActionSpace:
-        del params
-        return _FakeActionSpace(n=3)
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8), jnp.array(0, dtype=jnp.int32)
-
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + jnp.array(1, dtype=jnp.int32)
-        observation = jnp.full((4, 84, 84, 1), next_state, dtype=jnp.uint8)
-        reward = jnp.array(1.0, dtype=jnp.float32)
-        done = jnp.array(False)
-        info = {
-            "returned_episode": jnp.array(False),
-            "returned_episode_returns": jnp.array(0.0, dtype=jnp.float32),
-        }
-        return observation, next_state, reward, done, info
 
 
 def _config() -> RainbowConfig:
@@ -69,88 +35,88 @@ def _config() -> RainbowConfig:
     )
 
 
-def _run_arm(config: RainbowConfig, hypers: RainbowHypers, key: jax.Array):
-    runtime_config = rainbow_atari_runtime_from_dqn_zoo(config, num_iterations=1, num_train_frames_per_iteration=32)
-    train = make_train(config, runtime_config, _FakeAtariLikeEnv(), env_params=None)
-    out = train(key, hypers)
-    return out["runner_state"].train_state.params
+def _run_arm(agent: RainbowAgent, hypers: RainbowHypers, key: jax.Array):
+    """Drive one arm's ``step`` directly, with the swept hypers pushed into its state.
+
+    The agent object is static under ``jit``, so a sweep cannot vary anything closed over
+    it; the traced hypers ride the state pytree instead, which is exactly what ``vmap``
+    can map over.
+    """
+    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
+
+    def _one_step(state: RainbowAgentState, step_index: jax.Array):
+        observation = jnp.full(OBSERVATION_SHAPE, step_index + 1, dtype=jnp.uint8)
+        timestep = Timestep(
+            reward=jnp.float32(1.0),
+            discount=jnp.float32(0.9),
+            bootstrap_observation=observation,
+            episode_end=jnp.bool_(False),
+            observation=observation,
+        )
+        out = agent.step(state, timestep, step_index)
+        return out.state, out.metrics["loss"]
+
+    state, _ = jax.lax.scan(_one_step, state, jnp.arange(STEPS, dtype=jnp.int32))
+    return state.train_state.params
+
+
+def _sweep(arms: list[RainbowHypers]):
+    agent = RainbowAgent(_config())
+    key = jax.random.key(0)
+    keys = jnp.stack([key] * len(arms))
+    batched = jax.tree_util.tree_map(lambda *leaves: jnp.stack(leaves), *arms)
+    return jax.jit(jax.vmap(lambda hypers, k: _run_arm(agent, hypers, k)))(batched, keys)
 
 
 class TestRainbowVmapZone:
     def test_batched_learning_rates_train_independent_arms(self) -> None:
         """A single vmapped kernel must give each learning-rate arm its own weights.
 
-        Both arms share one key, so identical weights would mean the swept
-        rate never reached the kernel -- the failure that existed while
-        ``LEARNING_RATE`` was closed over the ``RainbowConfig`` baked into the
-        optimizer at construction.
+        Both arms share one key, so identical weights would mean the swept rate never
+        reached the kernel -- the failure that existed while ``LEARNING_RATE`` was closed
+        over the ``RainbowConfig`` baked into the optimizer at construction.
         """
-        config = _config()
-        base_hypers = rainbow_hypers(config)
-        learning_rates = jnp.array([1e-1, 1e-4], dtype=jnp.float32)
-        key = jax.random.key(0)
-        keys = jnp.stack([key, key])
+        base = rainbow_hypers(_config())
+        arms = [dataclasses.replace(base, LEARNING_RATE=jnp.float32(rate)) for rate in (1e-1, 1e-4)]
 
-        def arm(lr: jax.Array, k: jax.Array):
-            hypers = dataclasses.replace(base_hypers, LEARNING_RATE=lr)
-            return _run_arm(config, hypers, k)
+        leaves = jax.tree_util.tree_leaves(_sweep(arms))
 
-        params = jax.jit(jax.vmap(arm))(learning_rates, keys)
-
-        leaves = jax.tree_util.tree_leaves(params)
         assert leaves, "expected at least one parameter leaf"
         for leaf in leaves:
-            assert leaf.shape[0] == learning_rates.shape[0]
-
-        fast, slow = leaves[0][0], leaves[0][1]
-        assert not jnp.allclose(fast, slow)
+            assert leaf.shape[0] == len(arms)
+        assert not jnp.allclose(leaves[0][0], leaves[0][1])
 
     def test_shared_hypers_train_identical_arms(self) -> None:
         """Two arms given the same hypers and key must land on identical weights.
 
-        Guards the negative direction: divergence has to come from the swept
-        value, not from the batching itself.
+        Guards the negative direction: divergence has to come from the swept value, not
+        from the batching itself.
         """
-        config = _config()
-        base_hypers = rainbow_hypers(config)
-        learning_rates = jnp.array([1e-3, 1e-3], dtype=jnp.float32)
-        key = jax.random.key(0)
-        keys = jnp.stack([key, key])
+        base = rainbow_hypers(_config())
+        arms = [base, base]
 
-        def arm(lr: jax.Array, k: jax.Array):
-            hypers = dataclasses.replace(base_hypers, LEARNING_RATE=lr)
-            return _run_arm(config, hypers, k)
+        leaf = jax.tree_util.tree_leaves(_sweep(arms))[0]
 
-        params = jax.jit(jax.vmap(arm))(learning_rates, keys)
-
-        leaf = jax.tree_util.tree_leaves(params)[0]
         assert jnp.allclose(leaf[0], leaf[1])
 
-    def test_batched_discounts_train_independent_arms(self) -> None:
-        """Two ``ADDITIONAL_DISCOUNT`` arms sharing a key must diverge too.
+    def test_batched_atom_supports_train_independent_arms(self) -> None:
+        """Two arms sweeping the C51 support endpoints sharing a key must diverge too.
 
-        Uses ``N_STEP=1`` so the n-step reward accumulation cannot contribute
-        any divergence of its own: at that width a window holds one reward,
-        which carries weight ``1`` whatever the discount is. What is left is
-        the cumulative coefficient the window stores, which at ``N_STEP=1`` is
-        the arm's own per-step discount, and which the categorical loss reads
-        per sampled row. A sweep that shared one arm's discount -- as it would
-        if the coefficient came from the closed-over config rather than from
-        ``hypers`` -- collapses these two arms onto identical weights.
+        ``V_MIN``/``V_MAX`` do not reach the loss directly: ``step`` rebuilds the atom
+        support from them on every iteration, and the projection of the target
+        distribution onto that support is the only path from the endpoints to a gradient.
+        A derived quantity computed once at trace-setup time from the closed-over config
+        rather than from the traced hypers is precisely how a sweep silently shares one
+        arm's value across every arm, so a batched support is the case worth pinning now
+        that the swept discount this test used to sweep belongs to the loop.
         """
-        config = dataclasses.replace(_config(), N_STEP=1)
-        base_hypers = rainbow_hypers(config)
-        discounts = jnp.array([0.1, 0.99], dtype=jnp.float32)
-        key = jax.random.key(0)
-        keys = jnp.stack([key, key])
+        base = rainbow_hypers(_config())
+        arms = [
+            dataclasses.replace(base, V_MIN=jnp.float32(-1.0), V_MAX=jnp.float32(1.0)),
+            dataclasses.replace(base, V_MIN=jnp.float32(-100.0), V_MAX=jnp.float32(100.0)),
+        ]
 
-        def arm(discount: jax.Array, k: jax.Array):
-            hypers = dataclasses.replace(base_hypers, ADDITIONAL_DISCOUNT=discount)
-            return _run_arm(config, hypers, k)
+        leaves = jax.tree_util.tree_leaves(_sweep(arms))
 
-        params = jax.jit(jax.vmap(arm))(discounts, keys)
-
-        leaves = jax.tree_util.tree_leaves(params)
         assert leaves, "expected at least one parameter leaf"
-        low, high = leaves[0][0], leaves[0][1]
-        assert not jnp.allclose(low, high)
+        assert not jnp.allclose(leaves[0][0], leaves[0][1])

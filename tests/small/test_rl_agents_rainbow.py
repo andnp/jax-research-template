@@ -1,6 +1,3 @@
-from collections.abc import Callable
-from typing import cast
-
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
@@ -12,6 +9,7 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_should_learn,
 )
 from rl_agents.rainbow import (
+    RainbowAgent,
     RainbowConfig,
     RainbowNatureNetwork,
     RainbowRuntimeConfig,
@@ -24,8 +22,6 @@ from rl_agents.rainbow import (
     categorical_losses,
     categorical_target_probabilities,
     categorical_target_support,
-    initialize_train_state,
-    make_train,
     rainbow_atari_runtime_from_dqn_zoo,
     rainbow_expected_q_values,
     rainbow_probabilities,
@@ -36,48 +32,19 @@ from rl_agents.rainbow import (
     rainbow_zoo_atari_should_update_target,
     rainbow_zoo_atari_total_train_env_steps,
 )
+from rl_components.env_protocol import EnvSpec
 
 
-class _ToySpace:
-    def __init__(self, shape: tuple[int, ...], dtype: jnp.dtype) -> None:
-        self.shape = shape
-        self.dtype = dtype
-
-
-class _ToyDiscreteSpace(_ToySpace):
-    def __init__(self, n: int) -> None:
-        super().__init__((), jnp.int32)
-        self.n = n
-
-
-class _ToyAtariEnv:
-    def observation_space(self, params: object | None = None) -> _ToySpace:
-        del params
-        return _ToySpace((4, 84, 84, 1), jnp.uint8)
-
-    def action_space(self, params: object | None = None) -> _ToyDiscreteSpace:
-        del params
-        return _ToyDiscreteSpace(3)
-
-    def reset(self, key: jax.Array, params: object | None = None) -> tuple[jax.Array, jax.Array]:
-        del key, params
-        return jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8), jnp.asarray(0, dtype=jnp.int32)
-
-    def step(
-        self,
-        key: jax.Array,
-        state: jax.Array,
-        action: jax.Array,
-        params: object | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        del key, action, params
-        next_state = state + 1
-        observation = jnp.full((4, 84, 84, 1), next_state % 255, dtype=jnp.uint8)
-        info = {
-            "returned_episode": next_state % 3 == 0,
-            "returned_episode_returns": jnp.where(next_state % 3 == 0, jnp.asarray(1.0), jnp.asarray(0.0)),
-        }
-        return observation, next_state, jnp.asarray(1.0), jnp.asarray(False), info
+def _toy_atari_spec() -> EnvSpec:
+    """The only thing the agent ever learns about its environment."""
+    return EnvSpec(
+        id="toy-atari",
+        observation_shape=(4, 84, 84, 1),
+        action_shape=(),
+        observation_dtype=jnp.dtype(jnp.uint8),
+        action_dtype=jnp.dtype(jnp.int32),
+        num_actions=3,
+    )
 
 
 class TestRainbowConfig:
@@ -386,7 +353,7 @@ class TestRainbowOptimizerParity:
             )
             params = jax.tree_util.tree_map(lambda value, update: value + update, params, rainbow_updates)
 
-    def test_initialize_train_state_wires_rmsprop_builder(self) -> None:
+    def test_agent_init_wires_rmsprop_builder(self) -> None:
         config = RainbowConfig(
             REPLAY_CAPACITY=16,
             LEARNING_RATE=1e-3,
@@ -394,13 +361,8 @@ class TestRainbowOptimizerParity:
             OPTIMIZER_EPSILON=1e-4,
             RMSPROP_CENTERED=False,
         )
-        _network, _prototype, runner_state = initialize_train_state(
-            config,
-            _ToyAtariEnv(),
-            jax.random.key(0),
-        )
 
-        train_state = runner_state[0]
+        train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).train_state
         grads = jax.tree_util.tree_map(jnp.ones_like, train_state.params)
         expected_tx = build_rainbow_zoo_atari_rmsprop(config)
 
@@ -421,25 +383,28 @@ class TestRainbowOptimizerParity:
         )
 
 
-class TestRainbowTrainPath:
-    def test_make_train_requires_explicit_env(self) -> None:
-        train_factory = cast(Callable[..., object], make_train)
+class TestRainbowAgentInit:
+    def test_init_uses_per_buffer_with_logical_capacity(self) -> None:
+        agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=17))
 
-        with pytest.raises(TypeError):
-            train_factory(RainbowConfig(), RainbowRuntimeConfig())
-
-    def test_initialize_train_state_uses_per_buffer_with_logical_capacity(self) -> None:
-        config = RainbowConfig(REPLAY_CAPACITY=17)
-        _network, _prototype, runner_state = initialize_train_state(
-            config,
-            _ToyAtariEnv(),
-            jax.random.key(0),
-        )
-
-        buffer_state = runner_state[2]
+        buffer_state = agent.init(jax.random.key(0), _toy_atari_spec()).buffer_state
 
         assert int(buffer_state.logical_capacity) == 17
         assert int(buffer_state.storage_capacity) == 32
+
+    def test_init_rejects_a_continuous_action_space(self) -> None:
+        """The target maximizes an expected value over the actions, so there must be a count."""
+        agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=16))
+        continuous = EnvSpec(
+            id="toy-continuous",
+            observation_shape=(4, 84, 84, 1),
+            action_shape=(1,),
+            observation_dtype=jnp.dtype(jnp.uint8),
+            action_dtype=jnp.dtype(jnp.float32),
+        )
+
+        with pytest.raises(ValueError, match="discrete action space"):
+            agent.init(jax.random.key(0), continuous)
 
 
 def _toy_n_step_prototype() -> RainbowTransition:
@@ -454,7 +419,7 @@ def _toy_n_step_prototype() -> RainbowTransition:
 
 class TestRainbowNStepAccumulator:
     def test_nonterminal_insert_waits_for_exact_n_step_rewards(self) -> None:
-        config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
+        config = RainbowConfig(N_STEP=3)
         prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
@@ -493,7 +458,7 @@ class TestRainbowNStepAccumulator:
         npt.assert_allclose(accumulator.obs[:, 0], jnp.array([2.0, 3.0, 0.0], dtype=jnp.float32))
 
     def test_terminal_step_flushes_all_pending_transitions(self) -> None:
-        config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
+        config = RainbowConfig(N_STEP=3)
         prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
@@ -537,7 +502,7 @@ class TestRainbowNStepAccumulator:
         must leave with ``gamma ** (m - i)``. A single ``gamma ** N_STEP`` is correct for
         at most the oldest row, and the assertion below pins all three apart.
         """
-        config = RainbowConfig(N_STEP=3, ADDITIONAL_DISCOUNT=0.5)
+        config = RainbowConfig(N_STEP=3)
         accumulator = _init_n_step_accumulator(config, _toy_n_step_prototype())
         gamma = jnp.asarray(0.5, dtype=jnp.float32)
 
