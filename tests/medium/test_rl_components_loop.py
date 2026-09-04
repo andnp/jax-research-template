@@ -267,7 +267,7 @@ class InfoEnv(ToyEnv):
     """A toy environment that reports a diagnostic through ``EnvStep.info``."""
 
     @override
-    def step(self, key: chex.PRNGKey, state: jax.Array, action: jax.Array, params: None = None) -> EnvStep[jax.Array, jax.Array]:
+    def step(self, key: chex.PRNGKey, state: ToyState, action: jax.Array, params: None = None) -> EnvStep[jax.Array, ToyState]:
         transition = super().step(key, state, action, params)
         return EnvStep(
             observation=transition.observation,
