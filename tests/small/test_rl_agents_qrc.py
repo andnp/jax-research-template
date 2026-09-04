@@ -16,6 +16,7 @@ class TestQRCConfig:
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
         assert cfg.BETA == 1.0
+        assert cfg.HIDDEN_WIDTH == 64
 
     def test_custom_config(self) -> None:
         cfg = QRCConfig(LR=1e-3, BUFFER_SIZE=1000, ENV_NAME="Acrobot-v1", BETA=0.5)
@@ -45,6 +46,18 @@ class TestQRCNetwork:
         q, h = net.apply(params, jnp.ones((10, 4)))
         assert q.shape == (10, 3)
         assert h.shape == (10, 3)
+
+    def test_hidden_width_is_configurable(self) -> None:
+        """A non-default width must actually resize the trunk's Dense layers."""
+        net = QRCNetwork(action_dim=4, hidden_width=200)
+        params = net.init(jax.random.key(0), jnp.zeros((8,)))
+        assert params["params"]["Dense_0"]["kernel"].shape == (8, 200)
+        assert params["params"]["Dense_1"]["kernel"].shape == (200, 200)
+
+    def test_hidden_width_defaults_to_64(self) -> None:
+        net = QRCNetwork(action_dim=4)
+        params = net.init(jax.random.key(0), jnp.zeros((8,)))
+        assert params["params"]["Dense_0"]["kernel"].shape == (8, 64)
 
     def test_heads_are_zero_at_init(self) -> None:
         """Both heads are zero-initialised, so outputs must start at zero."""

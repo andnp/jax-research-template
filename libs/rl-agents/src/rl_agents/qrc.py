@@ -76,6 +76,7 @@ class QRCConfig:
     EPSILON_END: float = 0.05
     EPSILON_FRACTION: float = 0.5
     BETA: float = 1.0
+    HIDDEN_WIDTH: int = 64
     ENV_NAME: str = "CartPole-v1"
     SEED: int = 42
 
@@ -125,12 +126,13 @@ class QRCNetwork(TypedApply[tuple[jax.Array, jax.Array]], nn.Module):
     """
 
     action_dim: int
+    hidden_width: int = 64
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-        phi = nn.Dense(64)(x)
+        phi = nn.Dense(self.hidden_width)(x)
         phi = nn.relu(phi)
-        phi = nn.Dense(64)(phi)
+        phi = nn.Dense(self.hidden_width)(phi)
         phi = nn.relu(phi)
         q = nn.Dense(
             self.action_dim,
@@ -323,7 +325,7 @@ class QRCAgent:
         observation_shape = tuple(spec.observation_shape)
         observation_dtype = jnp.dtype(spec.observation_dtype)
         action_dtype = jnp.dtype(spec.action_dtype)
-        network = QRCNetwork(spec.num_actions)
+        network = QRCNetwork(spec.num_actions, hidden_width=self.config.HIDDEN_WIDTH)
 
         params_key, carry_key = jax.random.split(key)
         buffer = ReplayBuffer(
@@ -489,7 +491,7 @@ def make_train(config: QRCConfig, env: GymEnv[DiscreteActionSpace], env_params: 
         # INIT NETWORK
         observation_shape = tuple(env.observation_space(env_params).shape)
         action_dim = env.action_space(env_params).n
-        network = QRCNetwork(action_dim)
+        network = QRCNetwork(action_dim, hidden_width=config.HIDDEN_WIDTH)
         rng, _rng = jax.random.split(rng)
         init_x = jnp.zeros(observation_shape, dtype=env.observation_space(env_params).dtype)
         params = network.init(_rng, init_x)
