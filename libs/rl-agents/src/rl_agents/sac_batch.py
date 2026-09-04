@@ -20,14 +20,11 @@ SAC_BATCH_PARAMETER_SCHEMA = ParameterSchema(
             "total_timesteps",
             "buffer_size",
             "batch_size",
-            "learning_starts",
             "gamma",
-            "train_frequency",
-            "tau",
             "alpha",
         }
     ),
-    dynamic_keys=frozenset({"learning_rate"}),
+    dynamic_keys=frozenset({"learning_rate", "learning_starts", "train_frequency", "tau"}),
 )
 
 
@@ -43,7 +40,11 @@ class SACBatchTrainer:
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         batch = context.bind(self.parameter_schema)
         env, env_params = self._env_factory(batch.static_config)
-        dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
+        dynamic_axes = {
+            key: batch.dynamic(key, int if key in {"learning_starts", "train_frequency"} else float)
+            for key in self.parameter_schema.dynamic_keys
+            if key in batch.dynamic_axes
+        }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
             config = SACConfig(
@@ -51,9 +52,9 @@ class SACBatchTrainer:
                 BUFFER_SIZE=batch.static_or("buffer_size", int, 100_000),
                 BATCH_SIZE=batch.static_or("batch_size", int, 256),
                 TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-                LEARNING_STARTS=batch.static_or("learning_starts", int, 5_000),
-                TRAIN_FREQUENCY=batch.static_or("train_frequency", int, 1),
-                TAU=batch.static_or("tau", float, 0.005),
+                LEARNING_STARTS=cast(int, dynamic.get("learning_starts", 5_000)),
+                TRAIN_FREQUENCY=cast(int, dynamic.get("train_frequency", 1)),
+                TAU=cast(float, dynamic.get("tau", 0.005)),
                 ALPHA=batch.static_or("alpha", float, 0.2),
                 ENV_NAME=batch.static("env_name", str),
                 SEED=0,

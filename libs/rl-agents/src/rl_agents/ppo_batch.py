@@ -23,18 +23,23 @@ PPO_BATCH_PARAMETER_SCHEMA = ParameterSchema(
             "total_timesteps",
             "update_epochs",
             "num_minibatches",
+            "reward_scale",
+            "normalize_observations",
+        }
+    ),
+    dynamic_keys=frozenset(
+        {
+            "learning_rate",
             "gamma",
+            "gae_lambda",
             "clip_eps",
             "ent_coef",
             "vf_coef",
             "max_grad_norm",
-            "reward_scale",
-            "normalize_observations",
             "obs_norm_eps",
             "obs_norm_clip",
         }
     ),
-    dynamic_keys=frozenset({"learning_rate"}),
 )
 
 
@@ -52,21 +57,22 @@ def _held_episode_returns(metrics: Mapping[str, jax.Array]):
     return returns
 
 
-def _config_from(batch: BoundBatch, learning_rate: float | jax.Array):
+def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
     return PPOConfig(
-        LR=cast(float, learning_rate),
+        LR=cast(float, dynamic["learning_rate"]),
+        GAE_LAMBDA=cast(float, dynamic.get("gae_lambda", 0.95)),
         NUM_STEPS=batch.static("num_steps", int),
         TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
         UPDATE_EPOCHS=batch.static("update_epochs", int),
         NUM_MINIBATCHES=batch.static("num_minibatches", int),
-        CLIP_EPS=batch.static("clip_eps", float),
-        ENT_COEF=batch.static("ent_coef", float),
-        VF_COEF=batch.static("vf_coef", float),
-        MAX_GRAD_NORM=batch.static("max_grad_norm", float),
+        CLIP_EPS=cast(float, dynamic.get("clip_eps", 0.2)),
+        ENT_COEF=cast(float, dynamic.get("ent_coef", 0.01)),
+        VF_COEF=cast(float, dynamic.get("vf_coef", 0.5)),
+        MAX_GRAD_NORM=cast(float, dynamic.get("max_grad_norm", 0.5)),
         REWARD_SCALE=batch.static("reward_scale", float),
         NORMALIZE_OBSERVATIONS=batch.static("normalize_observations", bool),
-        OBS_NORM_EPS=batch.static("obs_norm_eps", float),
-        OBS_NORM_CLIP=batch.static("obs_norm_clip", float),
+        OBS_NORM_EPS=cast(float, dynamic.get("obs_norm_eps", 1e-8)),
+        OBS_NORM_CLIP=cast(float, dynamic.get("obs_norm_clip", 10.0)),
         ENV_NAME=batch.static("env_name", str),
         SEED=0,
     )
@@ -84,17 +90,21 @@ class PPOBatchTrainer:
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         batch = context.bind(self.parameter_schema)
         env, env_params = self._env_factory(batch.static_config)
-        dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
+        dynamic_axes = {
+            key: batch.dynamic(key, int if key == "learning_starts" else float)
+            for key in self.parameter_schema.dynamic_keys
+            if key in batch.dynamic_axes
+        }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
-            config = _config_from(batch, dynamic["learning_rate"])
+            config = _config_from(batch, dynamic)
             agent = PPOAgent(config)
             final_state, metrics = run(
                 agent,
                 env,
                 key,
                 steps=config.TOTAL_TIMESTEPS,
-                gamma=batch.static("gamma", float),
+                gamma=cast(float, dynamic.get("gamma", 0.99)),
                 env_params=env_params,
             )
             return final_state.agent_state.train_state.params, _held_episode_returns(

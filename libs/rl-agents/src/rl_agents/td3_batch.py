@@ -20,8 +20,13 @@ TD3_BATCH_PARAMETER_SCHEMA = ParameterSchema(
             "total_timesteps",
             "buffer_size",
             "batch_size",
-            "learning_starts",
             "gamma",
+        }
+    ),
+    dynamic_keys=frozenset(
+        {
+            "learning_rate",
+            "learning_starts",
             "train_frequency",
             "tau",
             "policy_delay",
@@ -30,7 +35,6 @@ TD3_BATCH_PARAMETER_SCHEMA = ParameterSchema(
             "noise_clip",
         }
     ),
-    dynamic_keys=frozenset({"learning_rate"}),
 )
 
 
@@ -46,7 +50,11 @@ class TD3BatchTrainer:
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         batch = context.bind(self.parameter_schema)
         env, env_params = self._env_factory(batch.static_config)
-        dynamic_axes = {"learning_rate": batch.dynamic("learning_rate", float)}
+        dynamic_axes = {
+            key: batch.dynamic(key, int if key in {"learning_starts", "train_frequency", "policy_delay"} else float)
+            for key in self.parameter_schema.dynamic_keys
+            if key in batch.dynamic_axes
+        }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
             config = TD3Config(
@@ -54,13 +62,13 @@ class TD3BatchTrainer:
                 BUFFER_SIZE=batch.static("buffer_size", int),
                 BATCH_SIZE=batch.static("batch_size", int),
                 TOTAL_TIMESTEPS=batch.static("total_timesteps", int),
-                LEARNING_STARTS=batch.static("learning_starts", int),
-                TRAIN_FREQUENCY=batch.static_or("train_frequency", int, 1),
-                TAU=batch.static_or("tau", float, 0.005),
-                POLICY_DELAY=batch.static_or("policy_delay", int, 2),
-                EXPLORATION_NOISE=batch.static_or("exploration_noise", float, 0.1),
-                POLICY_NOISE=batch.static_or("policy_noise", float, 0.2),
-                NOISE_CLIP=batch.static_or("noise_clip", float, 0.5),
+                LEARNING_STARTS=cast(int, dynamic.get("learning_starts", 25_000)),
+                TRAIN_FREQUENCY=cast(int, dynamic.get("train_frequency", 1)),
+                TAU=cast(float, dynamic.get("tau", 0.005)),
+                POLICY_DELAY=cast(int, dynamic.get("policy_delay", 2)),
+                EXPLORATION_NOISE=cast(float, dynamic.get("exploration_noise", 0.1)),
+                POLICY_NOISE=cast(float, dynamic.get("policy_noise", 0.2)),
+                NOISE_CLIP=cast(float, dynamic.get("noise_clip", 0.5)),
                 ENV_NAME=batch.static("env_name", str),
                 SEED=0,
             )
