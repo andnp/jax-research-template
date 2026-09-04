@@ -27,11 +27,14 @@ because this critic returns ``(q, h)`` rather than ``q``, but it is SAC's
 expression over the q-head.
 
 :class:`SACRCAgent` is the port; ``make_train`` below it is the private
-training loop it replaces. Unlike ``sac`` and ``td3`` this module has no
-out-of-repository caller, so ``make_train``, :class:`RunnerState`,
-:class:`SACRCTrainOutput` and ``SACRCConfig.GAMMA`` can go as soon as the
-in-repository callers do. **Removal condition:** the ``make_train`` drivers in
-``tests/`` are the last of them.
+training loop it replaces. It is still here because ``projects/iterated-gtd`` calls it from an independent repository:
+``iterated_gtd/sweep_train.py`` imports ``rl_agents.sac_rc.make_train`` and ``**``-unpacks a ``GAMMA``
+key into ``SACRCConfig`` (``sweep_train.py:21, :140``), directly and through the
+``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
+``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
+either symbol disappears -- not at some later merge. **Removal condition:** once
+``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
+:func:`rl_components.loop.run` (migration step 11).
 
 ``GAMMA`` survives only for that legacy path. The discount belongs to
 :func:`rl_components.loop.run`, which stores a per-transition coefficient in

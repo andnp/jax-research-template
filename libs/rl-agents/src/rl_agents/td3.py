@@ -1,10 +1,12 @@
 """TD3 as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
 
 :class:`TD3Agent` is the port. ``make_train`` below it is the private training loop the
-port replaces, and it is still here for one reason: ``projects/process-control-baselines``
-calls ``rl_agents.td3.make_train`` from a different repository, and no commit spans two
-repositories. **Removal condition:** once that project drives :class:`TD3Agent` through
-:func:`rl_components.loop.run`, ``make_train``, :class:`RunnerState`,
+port replaces. Its former out-of-repository caller,
+``projects/process-control-baselines``, already drives :class:`TD3Agent` through
+:func:`rl_components.loop.run`, and unlike ``sac``, ``sac_rc``, ``qrc`` and ``greedy_ac``
+this module is NOT imported by ``projects/iterated-gtd/iterated_gtd/sweep_train.py``. Every
+remaining caller is in this repository. **Removal condition:** the in-repository
+``make_train`` drivers are the last of them, so ``make_train``, :class:`RunnerState`,
 :class:`TD3TrainOutput`, ``TD3Config.GAMMA`` and the
 :class:`~rl_components.gym_env.GymEnv` import all go together.
 

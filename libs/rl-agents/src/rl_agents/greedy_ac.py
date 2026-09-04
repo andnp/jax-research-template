@@ -19,11 +19,14 @@ References:
 
 :class:`GACAgent` is the
 :class:`~rl_components.agent_protocol.AgentProtocol` port; ``make_train``
-below it is the private training loop it replaces. This module has no
-out-of-repository caller, so ``make_train``, :class:`RunnerState`,
-:class:`GACTrainOutput` and ``GACConfig.GAMMA`` can go as soon as the
-in-repository callers do. **Removal condition:** the ``make_train`` drivers in
-``tests/`` are the last of them.
+below it is the private training loop it replaces. It is still here because ``projects/iterated-gtd`` calls it from an independent repository:
+``iterated_gtd/sweep_train.py`` imports ``rl_agents.greedy_ac.make_train`` and ``**``-unpacks a ``GAMMA``
+key into ``GACConfig`` (``sweep_train.py:15, :91``), directly and through the
+``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
+``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
+either symbol disappears -- not at some later merge. **Removal condition:** once
+``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
+:func:`rl_components.loop.run` (migration step 11).
 
 ``GAMMA`` survives only for that legacy path. The discount belongs to
 :func:`rl_components.loop.run`, which stores a per-transition coefficient in

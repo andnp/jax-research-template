@@ -24,10 +24,14 @@ reset at an episode boundary -- the ``h``-head is an ordinary ``nn.Dense``
 living in ``TrainState.params`` and is persistent by design.
 
 :class:`QRCAgent` is the port; ``make_train`` below it is the private training
-loop it replaces. This module has no out-of-repository caller, so
-``make_train``, :class:`RunnerState`, :class:`QRCTrainOutput` and
-``QRCConfig.GAMMA`` can go as soon as the in-repository callers do. **Removal
-condition:** the ``make_train`` drivers in ``tests/`` are the last of them.
+loop it replaces. It is still here because ``projects/iterated-gtd`` calls it from an independent repository:
+``iterated_gtd/sweep_train.py`` imports ``rl_agents.qrc.make_train`` and ``**``-unpacks a ``GAMMA``
+key into ``QRCConfig`` (``sweep_train.py:17, :41``), directly and through the
+``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
+``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
+either symbol disappears -- not at some later merge. **Removal condition:** once
+``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
+:func:`rl_components.loop.run` (migration step 11).
 
 ``GAMMA`` survives only for that legacy path. The discount belongs to
 :func:`rl_components.loop.run`, which stores a per-transition coefficient in

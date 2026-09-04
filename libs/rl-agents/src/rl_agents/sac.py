@@ -1,12 +1,16 @@
 """Soft Actor-Critic as an :class:`~rl_components.agent_protocol.AgentProtocol` implementation.
 
 :class:`SACAgent` is the port. ``make_train`` below it is the private training loop the
-port replaces, and it is still here for one reason: ``projects/process-control-baselines``
-calls ``rl_agents.sac.make_train`` from a different repository, and no commit spans two
-repositories. **Removal condition:** once that project drives :class:`SACAgent` through
-:func:`rl_components.loop.run`, ``make_train``, :class:`RunnerState`,
-:class:`SACTrainOutput`, ``SACConfig.GAMMA`` and the
-:class:`~rl_components.gym_env.GymEnv` import all go together.
+port replaces, and it is still here because ``projects/iterated-gtd`` calls it from an independent repository:
+``iterated_gtd/sweep_train.py`` imports ``rl_agents.sac.make_train`` and ``**``-unpacks a ``GAMMA``
+key into ``SACConfig`` (``sweep_train.py:19, :140``), directly and through the
+``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
+``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
+either symbol disappears -- not at some later merge. **Removal condition:** once
+``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
+:func:`rl_components.loop.run` (migration step 11).
+``projects/process-control-baselines`` no longer calls it: that project already drives
+:class:`SACAgent` through the loop, so it is not what holds this path open.
 
 ``GAMMA`` survives only for that legacy path. The discount belongs to
 :func:`rl_components.loop.run`, which stores a per-transition coefficient in replay, and
