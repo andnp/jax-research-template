@@ -142,6 +142,57 @@ def plan(
             typer.echo(f"  Batch {i + 1}: {len(batch.run_ids)} run(s)")
 
 
+@experiment_app.command("prune")
+def prune(
+    spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
+    spec: str | None = typer.Option(None, "--spec", help="Prune only the named spec factory."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+):
+    """Delete run rows an earlier definition left behind, so ``run`` does not execute them.
+
+    A study planned but never run accumulates orphans whenever a component file or a
+    hyperparameter changes: the new identity mints new rows and the old ones stay
+    plannable, so ``run`` would execute them and record results under a stale component
+    version that analysis then filters out. ``invalidate`` cannot reach them because they
+    have no executions. Runs with any execution are never touched.
+    """
+    module = _load_spec_module(spec_file)
+    specs = _discover_specs(module, spec)
+
+    for name, factory in specs.items():
+        experiment_spec = _with_results_root(factory(), results_root)
+        db_path = experiment_spec.db_path
+
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        wanted = experiment_spec.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            exp_row = database.get_experiment(experiment_spec.experiment.name)
+            if exp_row is None:
+                typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
+                raise typer.Exit(code=1)
+            orphans = database.list_orphan_runs(exp_row.id, wanted)
+
+        if not orphans:
+            typer.echo(f"Spec '{name}': no orphan runs.")
+            continue
+
+        typer.echo(f"Spec '{name}': {len(orphans)} orphan run(s) in '{exp_row.name}'")
+        for algo_vid, env_vid in sorted({(o.algo_version_id, o.env_version_id) for o in orphans},
+                                        key=lambda pair: (pair[0] or 0, pair[1] or 0)):
+            count = sum(1 for o in orphans if (o.algo_version_id, o.env_version_id) == (algo_vid, env_vid))
+            typer.echo(f"  algo_version={algo_vid} env_version={env_vid}: {count} run(s)")
+        if not yes:
+            typer.confirm(f"Delete {len(orphans)} orphan run(s) from '{exp_row.name}'?", abort=True)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            deleted = database.delete_runs([o.id for o in orphans])
+        typer.echo(f"Spec '{name}': deleted {deleted} orphan run(s)")
+
+
 @experiment_app.command("run")
 def run(
     spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
