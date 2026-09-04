@@ -12,7 +12,7 @@ from research_instrument.seed_batch import write_seed_batch_curve
 from research_store.store import Store
 
 from .git import capture_git_metadata
-from .types import ExecutionContext, ExecutionResult, RunPoint
+from .types import BatchTrainer, ExecutionContext, ExecutionResult, RunPoint
 
 
 def run_experiment(
@@ -30,6 +30,11 @@ def run_experiment(
     metric_subsample_factor: int = 1,
 ):
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    static_parameter_names = _resolve_static_parameter_names(
+        experiment,
+        train_fn,
+        static_parameter_names,
+    )
     experiment.sync(db_path, static_parameter_names=static_parameter_names)
 
     git_commit, git_diff = capture_git_metadata() if capture_git else (None, None)
@@ -116,7 +121,9 @@ def execute_batch(
         result = train_fn(context)
         _write_metric_curves(context, result, metric_subsample_factor)
         artifact_uris = _write_artifacts(context, result)
-        metadata = {**result.metadata, "artifacts": artifact_uris}
+        metadata = dict(result.metadata)
+        if artifact_uris:
+            metadata["artifacts"] = artifact_uris
 
         manifest = {
             "experiment_slug": experiment_row.name,
@@ -151,6 +158,22 @@ def execute_batch(
         raise
 
     return execution_root
+
+
+def _resolve_static_parameter_names(
+    experiment: Experiment,
+    train_fn: Callable[[ExecutionContext], ExecutionResult],
+    explicit_names: frozenset[str] | None,
+) -> frozenset[str] | None:
+    if explicit_names is not None:
+        return explicit_names
+    if not isinstance(train_fn, BatchTrainer):
+        return None
+    return frozenset(
+        name
+        for name in experiment.parameter_names
+        if name != "seed" and name not in train_fn.parameter_schema.dynamic_keys
+    )
 
 
 def _write_artifacts(context: ExecutionContext, result: ExecutionResult) -> dict[str, str]:

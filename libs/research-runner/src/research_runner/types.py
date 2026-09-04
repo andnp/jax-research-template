@@ -163,7 +163,13 @@ class ExperimentSpec:
     @property
     def static_parameter_names(self) -> frozenset[str] | None:
         schema = self.parameter_schema
-        return None if schema is None else schema.static_keys
+        if schema is None:
+            return None
+        return frozenset(
+            name
+            for name in self.experiment.parameter_names
+            if name != "seed" and name not in schema.dynamic_keys
+        )
 
     def sync(self, db_path: Path | str) -> None:
         self.experiment.sync(db_path, static_parameter_names=self.static_parameter_names)

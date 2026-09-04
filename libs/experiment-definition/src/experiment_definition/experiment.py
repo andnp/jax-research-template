@@ -72,6 +72,10 @@ class Experiment:
     def name(self):
         return self._state.name
 
+    @property
+    def parameter_names(self) -> tuple[str, ...]:
+        return tuple(parameter.name for parameter in self._state.parameters)
+
     # ── Parameter API ─────────────────────────────────────────────────────────
 
     def add_parameter(

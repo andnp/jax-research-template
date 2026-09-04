@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -46,3 +47,30 @@ def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
         ).fetchall()
 
     assert rows == [(1, 0, 0, 1.0), (1, 0, 2, 3.0), (2, 1, 0, 4.0), (2, 1, 2, 6.0)]
+
+
+def test_execute_batch_persists_result_artifacts(tmp_path: Path) -> None:
+    """
+    Verify the runner owns artifact storage and records its URI in the manifest.
+    """
+    database_path = tmp_path / "experiments.sqlite"
+    experiment = Experiment("artifact-test")
+    experiment.add_parameter("seed", [0])
+    experiment.sync(database_path)
+
+    with DatabaseManager(database_path) as database:
+        database.initialize()
+        experiment_row = database.get_experiment(experiment.name)
+        assert experiment_row is not None
+        planned = database.plan_next_execution_batch(experiment_row.id, tmp_path / "executions")
+        assert planned is not None
+
+    def train(context: ExecutionContext) -> ExecutionResult:
+        assert len(context.points) == 1
+        return ExecutionResult(artifacts={"summary": {"value": 3}})
+
+    execute_batch(database_path, planned, train, capture_git=False)
+
+    manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["metadata"]["artifacts"]["summary"].startswith("research://")
+    assert list((Path(planned.root_path) / "artifacts").rglob("summary_v1.pkl"))
