@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from research_analysis.comparison import ComparisonSpec
 from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
@@ -123,6 +124,12 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.mean_a == pytest.approx(101.5)
     assert report.mean_b == pytest.approx(151.5)
     assert report.difference_in_means == pytest.approx(-50.0)
+    assert report.estimand == "mean"
+    assert report.pairing == "paired"
+    assert report.alpha == pytest.approx(0.05)
+    assert report.n_resamples == 10_000
+    assert report.test_details.test_name == "Paired permutation test"
+    assert report.test_details.intermediate_tests == {}
     assert report.test_details.assumptions["paired"] is True
     # Verify plotting artifact exists
     assert report.distribution_plot_path is not None
@@ -207,6 +214,40 @@ def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
     """Reject confidence levels outside the open unit interval."""
     with pytest.raises(ValueError, match="confidence_level must be in"):
         compare_pairwise("unused.sqlite", "test-exp", "a", "b", "metric", confidence_level=1.0, verbose=False)
+
+
+def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: dict[str, Any]) -> None:
+    """Use the caller's median estimand instead of inspecting normality."""
+    setup = temp_experiment_setup
+    with DatabaseManager(setup["db_path"]) as db:
+        for condition, values in (("a", [1.0, 2.0, 100.0]), ("b", [4.0, 5.0, 6.0])):
+            for seed, value in enumerate(values):
+                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
+                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
+                execution_id = db.add_execution()
+                db.update_execution_status(execution_id, "COMPLETED")
+                db.link_execution_run(execution_id, run_id)
+                db.record_execution_artifacts(
+                    execution_id,
+                    str(setup["tmp_path"]),
+                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
+                )
+                populate_metrics_db(
+                    setup["metrics_db_path"], run_id, "metric", [value], execution_id=execution_id
+                )
+
+    report = compare_pairwise(
+        setup["db_path"],
+        "test-exp",
+        "a",
+        "b",
+        "metric",
+        verbose=False,
+        spec=ComparisonSpec(estimand="median", pairing="paired", n_resamples=64),
+    )
+
+    assert report.estimand == "median"
+    assert report.test_details.statistic == pytest.approx(-3.0)
 
 
 def test_analyze_hypers(temp_experiment_setup: dict[str, Any]) -> None:

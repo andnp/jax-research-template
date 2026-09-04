@@ -7,7 +7,6 @@ with pedagogical explanations and diagnostic plotting.
 from __future__ import annotations
 
 import json
-import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,8 +22,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from research_analysis.bootstrap import bootstrap_difference_ci
+from research_analysis.comparison import ComparisonSpec
 from research_analysis.experiment import load_experiment_metrics
-from research_analysis.hypothesis import mann_whitney_u_test, welch_ttest
+from research_analysis.permutation import run_permutation_test
 from research_analysis.schema import AnalysisSchema
 
 
@@ -46,6 +47,10 @@ class ABComparisonReport:
     condition_a: str
     condition_b: str
     metric_name: str
+    estimand: str
+    pairing: str
+    alpha: float
+    n_resamples: int
     mean_a: float
     mean_b: float
     difference_in_means: float
@@ -80,8 +85,6 @@ class BenchmarkBakeoffReport:
 class _PairwiseStatistics:
     test_details: StatisticalTestDetails
     difference_ci: tuple[float, float]
-    normality_p_values: tuple[float, float]
-    normality_flags: tuple[bool, bool]
 
 
 # ── Database Helpers ─────────────────────────────────────────────────────────
@@ -125,6 +128,7 @@ def _load_pairwise_data(
     condition_b: str,
     metric_name: str,
     schema: AnalysisSchema | None,
+    spec: ComparisonSpec,
 ) -> tuple[str, np.ndarray, np.ndarray, bool]:
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -138,11 +142,10 @@ def _load_pairwise_data(
         metrics=[metric_name],
         schema=schema,
     )
-    final_per_run = (
-        all_metrics
-        .group_by(["condition_name", "seed"])
-        .agg(pl.col("value").last())
-    )
+    missing_keys = [key for key in spec.pairing_keys if key not in all_metrics.columns]
+    if missing_keys:
+        raise ValueError(f"Pairing keys are absent from loaded metrics: {missing_keys}")
+    final_per_run = all_metrics.group_by(["condition_name", *spec.pairing_keys]).agg(pl.col("value").last())
     rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort("seed")
     rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort("seed")
     if rows_a.is_empty() or rows_b.is_empty():
@@ -150,129 +153,61 @@ def _load_pairwise_data(
             f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
         )
 
-    seeds_a = rows_a["seed"].to_list()
-    seeds_b = rows_b["seed"].to_list()
-    return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), seeds_a == seeds_b
+    keys = list(spec.pairing_keys)
+    key_a = rows_a.select(keys)
+    key_b = rows_b.select(keys)
+    same_keys = set(key_a.rows()) == set(key_b.rows())
+    is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and same_keys)
+    if not is_paired:
+        return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
+    if not same_keys and spec.missingness == "error":
+        raise ValueError("paired comparison requires identical pairing keys")
+    paired = key_a.with_columns(rows_a["value"].alias("value_a")).join(
+        key_b.with_columns(rows_b["value"].alias("value_b")), on=keys, how="inner"
+    ).sort(keys)
+    return exp_row.name, paired["value_a"].to_numpy(), paired["value_b"].to_numpy(), True
 
 
 def _compute_pairwise_statistics(
     vals_a: np.ndarray,
     vals_b: np.ndarray,
     *,
-    alpha: float,
+    spec: ComparisonSpec,
     is_paired: bool,
 ) -> _PairwiseStatistics:
-    shapiro_a = stats.shapiro(vals_a) if len(vals_a) >= 3 else (1.0, 1.0)
-    shapiro_b = stats.shapiro(vals_b) if len(vals_b) >= 3 else (1.0, 1.0)
-    normal_a = shapiro_a[1] > 0.05
-    normal_b = shapiro_b[1] > 0.05
-
-    norm_a_details = StatisticalTestDetails(
-        test_name="Shapiro-Wilk (Group A)",
-        statistic=shapiro_a[0],
-        p_value=shapiro_a[1],
-        effect_size=None,
-        is_significant=not normal_a,
-        assumptions={},
-        justification="Checks if Group A outcomes deviate significantly from a normal distribution.",
-        intermediate_tests={},
+    pairing = "paired" if is_paired else "independent"
+    permutation = run_permutation_test(
+        vals_a,
+        vals_b,
+        estimand=spec.estimand,
+        pairing=pairing,
+        alpha=spec.alpha,
+        n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        rng=np.random.default_rng(spec.random_seed),
     )
-    norm_b_details = StatisticalTestDetails(
-        test_name="Shapiro-Wilk (Group B)",
-        statistic=shapiro_b[0],
-        p_value=shapiro_b[1],
-        effect_size=None,
-        is_significant=not normal_b,
-        assumptions={},
-        justification="Checks if Group B outcomes deviate significantly from a normal distribution.",
-        intermediate_tests={},
+    interval = bootstrap_difference_ci(
+        vals_a,
+        vals_b,
+        estimand=spec.estimand,
+        pairing=pairing,
+        confidence=spec.confidence_level,
+        n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        rng=np.random.default_rng(spec.random_seed),
     )
-    intermediate_tests = {"normality_a": norm_a_details, "normality_b": norm_b_details}
-
-    if is_paired:
-        differences = vals_a - vals_b
-        shapiro_diff = stats.shapiro(differences) if len(differences) >= 3 else (1.0, 1.0)
-        normal_diff = shapiro_diff[1] > 0.05
-        intermediate_tests["normality_diff"] = StatisticalTestDetails(
-            test_name="Shapiro-Wilk (Differences)",
-            statistic=shapiro_diff[0],
-            p_value=shapiro_diff[1],
-            effect_size=None,
-            is_significant=not normal_diff,
-            assumptions={},
-            justification="Checks if paired differences are normally distributed.",
-            intermediate_tests={},
-        )
-
-        if normal_diff:
-            ttest = stats.ttest_rel(vals_a, vals_b)
-            p_value = float(ttest.pvalue)
-            statistic = float(ttest.statistic)
-            test_name = "Paired t-test"
-            justification = (
-                "Selected because the same random seeds were reused (paired data) "
-                "and differences are normally distributed (Shapiro-Wilk p > 0.05)."
-            )
-        else:
-            wilc = stats.wilcoxon(vals_a, vals_b)
-            p_value = float(wilc.pvalue)
-            statistic = float(wilc.statistic)
-            test_name = "Wilcoxon Signed-Rank Test"
-            justification = (
-                "Selected because the same random seeds were reused (paired data) "
-                "but the differences deviate significantly from normality (Shapiro-Wilk p <= 0.05)."
-            )
-        effect_size = float(np.mean(differences) / np.std(differences, ddof=1)) if np.std(differences, ddof=1) > 0 else 0.0
-    elif normal_a and normal_b:
-        wel = welch_ttest(vals_a, vals_b)
-        p_value = wel.p_value
-        statistic = wel.t_statistic
-        test_name = "Welch's t-test"
-        justification = (
-            "Selected because the groups are independent (unpaired seeds) "
-            "and both are normally distributed."
-        )
-        effect_size = (np.mean(vals_a) - np.mean(vals_b)) / math.sqrt((np.var(vals_a, ddof=1) + np.var(vals_b, ddof=1)) / 2)
-    else:
-        mw = mann_whitney_u_test(vals_a, vals_b)
-        p_value = mw.p_value
-        statistic = mw.u_statistic
-        test_name = "Mann-Whitney U-test"
-        justification = (
-            "Selected because the groups are independent (unpaired seeds) "
-            "and at least one group deviates from normality."
-        )
-        effect_size = mw.rank_biserial_correlation
-
-    is_significant = p_value < alpha
-    rng = np.random.default_rng(12345)
-    boot_diffs = []
-    n_a = len(vals_a)
-    n_b = len(vals_b)
-    for _ in range(1000):
-        if is_paired:
-            indices = rng.choice(n_a, size=n_a, replace=True)
-            boot_diffs.append(np.mean(vals_a[indices] - vals_b[indices]))
-        else:
-            idx_a = rng.choice(n_a, size=n_a, replace=True)
-            idx_b = rng.choice(n_b, size=n_b, replace=True)
-            boot_diffs.append(np.mean(vals_a[idx_a]) - np.mean(vals_b[idx_b]))
-
-    ci_low, ci_high = np.percentile(boot_diffs, [100 * alpha / 2, 100 * (1 - alpha / 2)])
     return _PairwiseStatistics(
         test_details=StatisticalTestDetails(
-            test_name=test_name,
-            statistic=statistic,
-            p_value=p_value,
-            effect_size=effect_size,
-            is_significant=is_significant,
-            assumptions={"paired": is_paired, "normal_a": normal_a, "normal_b": normal_b},
-            justification=justification,
-            intermediate_tests=intermediate_tests,
+            test_name=f"{pairing.title()} permutation test",
+            statistic=permutation.statistic,
+            p_value=permutation.p_value,
+            effect_size=permutation.statistic,
+            is_significant=permutation.is_significant,
+            assumptions={"paired": is_paired, "estimand": spec.estimand, "alpha": spec.alpha},
+            justification="Permutation inference follows the declared comparison design without a normality pretest.",
+            intermediate_tests={},
         ),
-        difference_ci=(float(ci_low), float(ci_high)),
-        normality_p_values=(float(shapiro_a[1]), float(shapiro_b[1])),
-        normality_flags=(normal_a, normal_b),
+        difference_ci=(interval.ci_low, interval.ci_high),
     )
 
 
@@ -295,9 +230,6 @@ def _present_pairwise(
     condition_a: str,
     condition_b: str,
     metric_name: str,
-    is_paired: bool,
-    normality_p_values: tuple[float, float],
-    normality_flags: tuple[bool, bool],
 ) -> None:
     console = Console()
     console.print()
@@ -318,18 +250,16 @@ def _present_pairwise(
     console.print(table)
 
     test_details = report.test_details
-    shapiro_a_p, shapiro_b_p = normality_p_values
-    normal_a, normal_b = normality_flags
     console.print(
         Panel(
             Text.assemble(
-                ("Hypothesis Test Selection:\n", "bold"),
-                (f"• Selected Test: {test_details.test_name}\n", "yellow"),
-                (f"• Justification: {test_details.justification}\n\n", "italic"),
-                ("Assumptions Checked:\n", "bold"),
-                (f"  - Repeated measures (paired seeds): {'Yes' if is_paired else 'No'}\n"),
-                (f"  - Group A normal distribution (p={shapiro_a_p:.4f}): {'Yes' if normal_a else 'No'}\n"),
-                (f"  - Group B normal distribution (p={shapiro_b_p:.4f}): {'Yes' if normal_b else 'No'}"),
+                ("Declared Inference Design:\n", "bold"),
+                (f"• Test: {test_details.test_name}\n", "yellow"),
+                (f"• Estimand: {report.estimand}\n"),
+                (f"• Pairing: {report.pairing}\n"),
+                (f"• Alpha: {report.alpha:.3f}\n"),
+                (f"• Resamples: {report.n_resamples}\n"),
+                (f"• Justification: {test_details.justification}"),
             ),
             title="Methodology Justification Box",
         )
@@ -343,7 +273,7 @@ def _present_pairwise(
                 ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
                 ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
                 ("Difference Mean : ", "dim"), (f"{report.difference_in_means:.4f}\n"),
-                ("Bootstrapped CI : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
+                ("BCa CI          : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
                 ("Pedagogical Interpretation:\n", "bold"),
                 (
                     f"There is a {report.test_details.p_value * 100:.2f}% chance that we would observe "
@@ -411,11 +341,15 @@ def compare_pairwise(
     confidence_level: float = 0.95,
     verbose: bool = True,
     schema: AnalysisSchema | None = None,
+    spec: ComparisonSpec | None = None,
 ) -> ABComparisonReport:
-    """Compare exactly two experimental conditions, selecting the correct test automatically."""
-    if not 0 < confidence_level < 1:
-        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
-    alpha = 1.0 - confidence_level
+    """Compare exactly two conditions using a declared statistical design."""
+    if spec is None:
+        if not 0 < confidence_level < 1:
+            raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+        spec = ComparisonSpec(alpha=1.0 - confidence_level)
+    elif confidence_level != 0.95:
+        raise ValueError("pass confidence through spec when spec is provided")
     db_path = Path(db_path)
     experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
         db_path,
@@ -424,18 +358,17 @@ def compare_pairwise(
         condition_b,
         metric_name,
         schema,
+        spec,
     )
 
     pairwise_statistics = _compute_pairwise_statistics(
         vals_a,
         vals_b,
-        alpha=alpha,
+        spec=spec,
         is_paired=is_paired,
     )
     test_details = pairwise_statistics.test_details
     ci_low, ci_high = pairwise_statistics.difference_ci
-    shapiro_a_p, shapiro_b_p = pairwise_statistics.normality_p_values
-    normal_a, normal_b = pairwise_statistics.normality_flags
 
     plot_path = _plot_pairwise(
         vals_a,
@@ -450,6 +383,10 @@ def compare_pairwise(
         condition_a=condition_a,
         condition_b=condition_b,
         metric_name=metric_name,
+        estimand=spec.estimand,
+        pairing="paired" if is_paired else "independent",
+        alpha=spec.alpha,
+        n_resamples=spec.n_resamples,
         mean_a=float(np.mean(vals_a)),
         mean_b=float(np.mean(vals_b)),
         difference_in_means=float(np.mean(vals_a) - np.mean(vals_b)),
@@ -466,9 +403,6 @@ def compare_pairwise(
             condition_a,
             condition_b,
             metric_name,
-            is_paired,
-            pairwise_statistics.normality_p_values,
-            pairwise_statistics.normality_flags,
         )
 
     return report
