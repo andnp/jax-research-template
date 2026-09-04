@@ -18,6 +18,7 @@ from rl_agents.qrc import QRCConfig
 from rl_agents.qrc_batch import QRCBatchTrainer
 from rl_agents.qrc_batch import _config_from as _qrc_config_from
 from rl_agents.sac_batch import SACBatchTrainer
+from rl_agents.sac_rc_batch import SACRCBatchTrainer
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_env
@@ -440,3 +441,58 @@ def test_ppo_batch_trainer_forwards_selected_environment_metrics(tmp_path: Path)
     )
     assert result.metric_curves == replay.metric_curves
     assert "final_policy_params" in result.artifacts
+
+
+def test_sac_rc_batch_trainer_preserves_metrics_and_seed_batching(tmp_path: Path) -> None:
+    """
+    Verify SAC-RC uses the shared batch boundary with real updates.
+
+    Repeated execution must replay exactly while distinct dynamic arms remain independent.
+    """
+    static_config = {
+        "algorithm": "sac-rc",
+        "env_name": "Pendulum-v1",
+        "total_timesteps": 8,
+        "buffer_size": 16,
+        "batch_size": 2,
+        "learning_starts": 0,
+    }
+    points = tuple(
+        RunPoint(index, {**static_config, "learning_rate": rate, "seed": index})
+        for index, rate in enumerate((1e-3, 1e-4))
+    )
+    context = ExecutionContext(
+        execution_id=1,
+        experiment_id=1,
+        experiment_name="sac-rc-batch-test",
+        static_config=static_config,
+        points=points,
+        execution_root=tmp_path,
+        metrics_db_path=tmp_path / "metrics.sqlite",
+    )
+
+    trainer = SACRCBatchTrainer(_make_env)
+    result = trainer(context)
+    replay = trainer(context)
+
+    assert set(result.metric_curves) == {
+        "reward",
+        "critic_loss",
+        "actor_loss",
+        "alpha_loss",
+        "alpha",
+    }
+    assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+    assert all(
+        jnp.isfinite(jnp.asarray(sample)).all()
+        for metric in result.metric_curves.values()
+        for curve in metric
+        for sample in curve
+    )
+    assert any(value != 0.0 for value in result.metric_curves["critic_loss"][0])
+    assert any(value != 0.0 for value in result.metric_curves["actor_loss"][0])
+    assert result.metric_curves == replay.metric_curves
+    assert any(
+        result.metric_curves[metric][0] != result.metric_curves[metric][1]
+        for metric in result.metric_curves
+    )
