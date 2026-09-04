@@ -168,13 +168,13 @@ class BenchmarkBakeoffReport:
     environments: list[str]
     normalized_scores: dict[str, dict[str, float]]  # Algo -> Env -> score
     performance_profiles: dict[str, dict[float, float]]
-    probability_of_improvement: dict[str, dict[str, float]]
+    probability_of_improvement: dict[str, dict[str, float | None]]
     optimality_gaps: dict[str, float]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float]]  # Algo A -> Algo B -> Adjusted P-value
+    posthoc_matrix: dict[str, dict[str, float | None]]  # None means unavailable
     aggregate_plot_path: Path | None
 ```
 

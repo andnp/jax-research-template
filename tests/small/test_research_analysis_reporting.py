@@ -610,8 +610,60 @@ def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: dict[str,
     assert report.omnibus_details.assumptions["missingness"] == "blockwise"
 
 
+def test_compare_bakeoff_filters_singleton_blocks(temp_experiment_setup: dict[str, Any]) -> None:
+    """Drop one-observation blocks before omnibus validation and report the count."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [
+        (algorithm, "CartPole", seed, float(seed + index))
+        for seed in range(3)
+        for index, algorithm in enumerate(algorithms)
+    ] + [("ppo", "CartPole", 3, 10.0)]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+
+    report = compare_bakeoff(
+        temp_experiment_setup["db_path"],
+        "test-exp",
+        algorithms,
+        ["CartPole"],
+        "metric",
+        verbose=False,
+        references={"CartPole": ReferenceRange(0.0, 12.0)},
+    )
+
+    assert report.omnibus_details.assumptions["n_blocks"] == 3
+    assert report.omnibus_details.assumptions["dropped_singleton_blocks"] == 1
+
+
+def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_setup: dict[str, Any]) -> None:
+    """Return unavailable post-hoc entries when pair overlap is below the declared minimum."""
+    algorithms = ["ppo", "sac", "td3"]
+    rows = [
+        ("ppo", "CartPole", seed, 1.0 + seed) for seed in range(3)
+    ] + [
+        ("sac", "CartPole", seed, 2.0 + seed) for seed in range(3)
+    ] + [
+        ("td3", "CartPole", 0, 3.0),
+        ("td3", "CartPole", 3, 4.0),
+    ]
+    _populate_bakeoff_rows(temp_experiment_setup, rows)
+
+    report = compare_bakeoff(
+        temp_experiment_setup["db_path"],
+        "test-exp",
+        algorithms,
+        ["CartPole"],
+        "metric",
+        verbose=False,
+        references={"CartPole": ReferenceRange(0.0, 10.0)},
+    )
+
+    assert report.posthoc_matrix["ppo"]["sac"] is not None
+    assert report.posthoc_matrix["ppo"]["td3"] is None
+    assert report.posthoc_matrix["sac"]["td3"] is None
+
+
 def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:
-    """Fail clearly when missingness leaves fewer than three complete rows."""
+    """Fail clearly when missingness leaves fewer than three valid blocks."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [(algorithm, "CartPole", 0, float(index)) for index, algorithm in enumerate(algorithms)]
     rows += [("ppo", "CartPole", 1, 10.0), ("sac", "CartPole", 1, 11.0)]

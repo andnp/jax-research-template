@@ -93,13 +93,13 @@ class BenchmarkBakeoffReport:
     environments: list[str]
     normalized_scores: dict[str, dict[str, float]]
     performance_profiles: dict[str, dict[float, float]]
-    probability_of_improvement: dict[str, dict[str, float]]
+    probability_of_improvement: dict[str, dict[str, float | None]]
     optimality_gaps: dict[str, float]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float]]
+    posthoc_matrix: dict[str, dict[str, float | None]]
     aggregate_plot_path: Path | None
 
 
@@ -851,13 +851,13 @@ def _load_bakeoff_data(
 class _BakeoffStatistics:
     normalized_scores: dict[str, dict[str, float]]
     performance_profiles: dict[str, dict[float, float]]
-    probability_of_improvement: dict[str, dict[str, float]]
+    probability_of_improvement: dict[str, dict[str, float | None]]
     optimality_gaps: dict[str, float]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float]]
+    posthoc_matrix: dict[str, dict[str, float | None]]
     score_curves: dict[str, tuple[list[float], list[float]]]
 
 
@@ -895,19 +895,24 @@ def _compute_bakeoff_statistics(
             row_keys.append((env, seed))
 
     matrix = []
-    has_missing = False
     for env, seed in row_keys:
         row = []
         for algo in algorithms:
             val = normalized.get((algo, env), {}).get(seed)
-            if val is None:
-                has_missing = True
             row.append(val)
         matrix.append(row)
 
     matrix = np.array(matrix, dtype=np.float64)
-    if np.any(np.isfinite(matrix).sum(axis=1) < 2):
-        raise ValueError("each bakeoff block must contain at least two observed algorithms")
+    observed_counts = np.isfinite(matrix).sum(axis=1)
+    valid_rows = observed_counts >= 2
+    dropped_singleton_blocks = int(np.sum(observed_counts == 1))
+    matrix = matrix[valid_rows]
+    if matrix.shape[0] < spec.min_samples:
+        raise ValueError(
+            f"need at least {spec.min_samples} blocks with at least two observed algorithms; "
+            f"got {matrix.shape[0]}"
+        )
+    has_missing = bool(np.isnan(matrix).any())
     if has_missing and spec.missingness == "error":
         raise ValueError("bakeoff contains missing cells under missingness='error'")
     block_result = block_stratified_permutation_test(
@@ -918,6 +923,7 @@ def _compute_bakeoff_statistics(
     )
 
     raw_posthoc: dict[tuple[str, str], float] = {}
+    pair_data: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
     for i, algo_a in enumerate(algorithms):
         for j, algo_b in enumerate(algorithms):
             if i >= j:
@@ -930,13 +936,15 @@ def _compute_bakeoff_statistics(
                 if va is not None and vb is not None:
                     paired_a.append(va)
                     paired_b.append(vb)
+            values_a = np.array(paired_a)
+            values_b = np.array(paired_b)
+            pair_data[(algo_a, algo_b)] = (values_a, values_b)
+            pair_data[(algo_b, algo_a)] = (values_b, values_a)
             if len(paired_a) < spec.min_samples:
-                raise ValueError(
-                    f"pair {algo_a!r}/{algo_b!r} has only {len(paired_a)} paired observations"
-                )
+                continue
             result = run_permutation_test(
-                np.array(paired_a),
-                np.array(paired_b),
+                values_a,
+                values_b,
                 estimand=spec.estimand,
                 pairing="paired",
                 alpha=spec.alpha,
@@ -947,7 +955,10 @@ def _compute_bakeoff_statistics(
             raw_posthoc[(algo_a, algo_b)] = result.p_value
 
     adjusted_values = holm_step_down(list(raw_posthoc.values()))
-    posthoc = {algo: {other: 1.0 for other in algorithms} for algo in algorithms}
+    posthoc = {
+        algo: {other: 1.0 if algo == other else None for other in algorithms}
+        for algo in algorithms
+    }
     for (algo_a, algo_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
         posthoc[algo_a][algo_b] = adjusted
         posthoc[algo_b][algo_a] = adjusted
@@ -975,28 +986,20 @@ def _compute_bakeoff_statistics(
             lower_tails[algo] = float(np.quantile(all_vals, 0.1))
             iqms[algo] = interquartile_mean(np.array(all_vals))
 
+    probabilities: dict[str, dict[str, float | None]] = {algo: {} for algo in algorithms}
+    for algo_a in algorithms:
+        for algo_b in algorithms:
+            if algo_a == algo_b:
+                continue
+            values_a, values_b = pair_data[(algo_a, algo_b)]
+            probabilities[algo_a][algo_b] = (
+                probability_of_improvement(values_a, values_b) if len(values_a) else None
+            )
+
     return _BakeoffStatistics(
         normalized_scores=normalized_means,
         performance_profiles=profiles,
-        probability_of_improvement={
-            algo_a: {
-                algo_b: probability_of_improvement(
-                    np.array([
-                        normalized[(algo_a, env)][seed]
-                        for env, seed in row_keys
-                        if seed in normalized.get((algo_a, env), {}) and seed in normalized.get((algo_b, env), {})
-                    ]),
-                    np.array([
-                        normalized[(algo_b, env)][seed]
-                        for env, seed in row_keys
-                        if seed in normalized.get((algo_a, env), {}) and seed in normalized.get((algo_b, env), {})
-                    ]),
-                )
-                for algo_b in algorithms
-                if algo_b != algo_a
-            }
-            for algo_a in algorithms
-        },
+        probability_of_improvement=probabilities,
         optimality_gaps=gaps,
         dispersion=dispersions,
         lower_tail=lower_tails,
@@ -1015,6 +1018,7 @@ def _compute_bakeoff_statistics(
                 "n_resamples": spec.n_resamples,
                 "min_samples": spec.min_samples,
                 "missingness": spec.missingness,
+                "dropped_singleton_blocks": dropped_singleton_blocks,
             },
             justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
             intermediate_tests={},
