@@ -7,6 +7,7 @@ from typing import cast
 import gymnax
 import jax
 import jax.numpy as jnp
+import pytest
 from experiment_definition import ParameterValue
 from research_runner import BoundBatch, ExecutionContext, RunPoint
 from rl_agents.dqn import DQNConfig
@@ -164,6 +165,7 @@ def test_dqn_batch_config_prefers_dynamic_static_and_default_values() -> None:
     """
     batch = BoundBatch(
         static_config={
+            "env_name": "CartPole-v1",
             "buffer_size": 16,
             "batch_size": 2,
             "total_timesteps": 8,
@@ -185,6 +187,16 @@ def test_dqn_batch_config_prefers_dynamic_static_and_default_values() -> None:
     assert static_config.NETWORK_PRESET == "mlp"
     assert dynamic_config.LR == 4e-3
     assert dynamic_config.LEARNING_STARTS == 1
+
+
+def test_dqn_batch_config_requires_environment_name() -> None:
+    """
+    Verify the DQN configuration and result metadata share one required environment key.
+    """
+    batch = BoundBatch(static_config={}, dynamic_axes={}, seeds=(0,), points=())
+
+    with pytest.raises(ValueError, match="missing static parameter 'env_name'"):
+        _config_from(batch, {})
 
 
 def test_ppo_batch_trainer_returns_vmapped_curves_and_artifacts(tmp_path: Path) -> None:

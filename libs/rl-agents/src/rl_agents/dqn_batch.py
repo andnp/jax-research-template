@@ -61,7 +61,7 @@ def _config_from(batch: BoundBatch, dynamic: Mapping[str, jax.Array]):
         EPSILON_FRACTION=cast(
             float, dynamic.get("epsilon_fraction", batch.static_or("epsilon_fraction", float, defaults.EPSILON_FRACTION))
         ),
-        ENV_NAME=batch.static_or("env_name", str, defaults.ENV_NAME),
+        ENV_NAME=batch.static("env_name", str),
         SEED=batch.static_or("seed", int, defaults.SEED),
         NETWORK_PRESET=cast(Literal["mlp", "nature_cnn"], network_preset),
     )
