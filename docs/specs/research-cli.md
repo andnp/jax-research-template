@@ -68,7 +68,8 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Syncs the definition and reports the batches that would run, without creating executions.
 - `research experiment run <spec_file> [--max-runs <n>]`:
     - Plans one batch at a time and executes it before planning the next, so an interrupted sweep leaves no unexecuted `PENDING` executions stranded.
-    - Groups work into **"vmap-zones"**: a batch is one static configuration, and the parameters that vary inside it arrive as per-run points the training function can map over.
+    - Groups work into **"vmap-zones"**: a batch is one structural configuration, and the parameters that vary inside it arrive through the selected trainer's typed batch binding.
+    - Core-owned trainers publish which fields are dynamically batchable. Project experiment definitions declare parameter values normally; they do not mark axes static or call `jax.vmap`.
     - Records each execution as `RUNNING`, then `COMPLETED` or `FAILED`. A `FAILED` execution is retried on the next run.
 - `research experiment status <db_path> [--experiment <slug>]`:
     - Reports total, completed and pending logical runs per experiment.
@@ -110,9 +111,15 @@ Analysis is deliberately not a CLI concern: `research-analysis` reads the metric
             - Never run mutating environment commands such as `uv sync`, `uv pip install`, cache cleanup, or package upgrades.
 
 ## 3. The "vmap-zone" Batching Logic
-The orchestrator must be "JAX-aware." It identifies which parameters are **static** (change the JIT kernel, like hidden layer size) and which are **dynamic** (can be vmapped over, like learning rate or seed).
-- Work is batched such that each `vmap-zone` corresponds to exactly one static configuration.
-- This ensures maximum hardware utilization by filling the accelerator's memory with dynamic sweeps.
+The orchestrator groups work by a trainer-owned parameter schema. Structural parameters change the compiled kernel; dynamic parameters are passed as one aligned batch axis.
+
+- Core-owned algorithm trainers publish this schema alongside their batch entrypoint.
+- The runner validates and binds each execution's static values and dynamic axes before training.
+- The shared batch driver owns `jit`/`vmap`, seed-key construction, axis-length validation, and result alignment.
+- Custom algorithms can provide a local trainer adapter using the same port without changing their experiment declaration.
+- Work is batched such that each `vmap-zone` corresponds to exactly one structural configuration.
+
+This ensures high accelerator utilization without asking projects to understand the runner's internal batching model.
 
 
 ## 3. Configuration
@@ -144,7 +151,7 @@ doctor:
 ## 4. User Workflows
 
 ### Workflow A: The Hyperparameter Sweep
-1. Researcher defines an `Experiment` (parameters, static axes, metrics) and a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`, in a project file, e.g. `projects/new-idea/sweep.py`.
+1. Researcher defines an `Experiment` (parameter values and metrics) and a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`, in a project file, e.g. `projects/new-idea/sweep.py`. A shared algorithm trainer supplies structural/dynamic parameter knowledge; the project does not mark vmap axes.
 2. Runs `uv run research experiment plan sweep.py --spec my_sweep` to preview the batches that would run, with no side effects.
 3. Runs `uv run research experiment run sweep.py --spec my_sweep`. The CLI groups work into vmap-zones sharing static parameters and dispatches them, writing intent/provenance to `experiments.sqlite` and metric series to `metrics.sqlite`.
 4. If the run is interrupted, rerunning the same `run` command re-plans and executes only the unsatisfied runs; completed work is never repeated.

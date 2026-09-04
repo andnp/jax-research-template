@@ -124,7 +124,7 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
 To run a hyperparameter sweep instead of a single training script, define it declaratively rather than hand-rolling a loop over `train.py`:
 
 1. **Define the sweep:**
-   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter axes with `add_parameter(name, values, is_static=...)`, declare metrics with `add_metric(name, frequency=..., kind=...)` (`kind` defaults to `"float"`), and expose a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`. The CLI discovers exactly the factories registered by `@spec`.
+   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter values with `add_parameter(name, values)`, declare metrics with `add_metric(name, frequency=..., kind=...)` (`kind` defaults to `"float"`), wire a shared algorithm trainer, and expose a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`. Core-owned trainers derive vmap zones automatically; the CLI discovers exactly the factories registered by `@spec`.
 
 2. **Preview the run (dry run):**
    ```bash
@@ -136,7 +136,7 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    ```bash
    uv run research experiment run sweep.py --spec my_sweep
    ```
-   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), and `metrics.sqlite` holds the metric series written by the project's `train_fn`.
+   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists trainer metric series to `metrics.sqlite` and trainer artifacts under the execution root.
 
 4. **Resume after a failure:**
    Re-running the same `run` command re-plans only the unsatisfied runs — those without a linked `COMPLETED` execution — so an interrupted sweep picks back up without repeating finished work. Check progress with:

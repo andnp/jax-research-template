@@ -89,10 +89,11 @@ from a slow but healthy process.
 
 ## Two definition rules that cost whole sweeps
 
-**Mark every axis except `seed` as `is_static=True`.** The runner resolves one
-hyperparameter dict per execution from its batch, and batching groups by static config.
-A non-static axis means a batch trains at one value while each run records its own — no
-error, plausible numbers, wrong results.
+**Let the selected trainer classify axes.** Core-owned trainers publish which fields
+are structural and which are dynamically batchable. Project definitions should declare
+parameter values without `is_static`; the runner derives one structural configuration per
+execution and binds dynamic values to the trainer's batch axis. Custom trainers must
+publish the same schema rather than silently ignoring dynamic values.
 
 **Name axes `algorithm`, `env_name`, `learning_rate`, `seed`.** The reporting helpers in
 `research_analysis.reporting` key off those names, so you get `analyze_hypers` and
