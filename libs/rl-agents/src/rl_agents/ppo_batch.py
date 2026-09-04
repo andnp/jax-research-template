@@ -72,8 +72,11 @@ class PPOBatchTrainer:
     def __init__(
         self,
         env_factory: Callable[[Mapping[str, ParameterValue]], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None]],
+        *,
+        extra_metric_names: tuple[str, ...] = (),
     ) -> None:
         self._env_factory = env_factory
+        self._extra_metric_names = extra_metric_names
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         batch = context.bind(self.parameter_schema)
@@ -95,9 +98,11 @@ class PPOBatchTrainer:
                 gamma=cast(float, dynamic.get("gamma", 0.99)),
                 env_params=env_params,
             )
-            return final_state.agent_state.train_state.params, _held_episode_returns(
-                cast(Mapping[str, jax.Array], metrics)
-            )
+            typed_metrics = cast(Mapping[str, jax.Array], metrics)
+            return final_state.agent_state.train_state.params, {
+                "returned_episode_returns": _held_episode_returns(typed_metrics),
+                **{name: typed_metrics[name] for name in self._extra_metric_names},
+            }
 
         final_params, curves = run_batch(train_one, dynamic_axes, batch.seeds)
         return ExecutionResult(
@@ -106,12 +111,14 @@ class PPOBatchTrainer:
                 "env_name": batch.static("env_name", str),
                 "seed_values": list(batch.seeds),
             },
-            metric_curves={"returned_episode_returns": curves.tolist()},
+            metric_curves={name: values.tolist() for name, values in curves.items()},
             artifacts={"final_policy_params": final_params},
         )
 
 
 def make_ppo_batch_trainer(
     env_factory: Callable[[Mapping[str, ParameterValue]], tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None]],
+    *,
+    extra_metric_names: tuple[str, ...] = (),
 ) -> BatchTrainer:
-    return PPOBatchTrainer(env_factory)
+    return PPOBatchTrainer(env_factory, extra_metric_names=extra_metric_names)
