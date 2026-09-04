@@ -65,6 +65,9 @@ class ABComparisonReport:
     mean_a: float
     mean_b: float
     difference_in_means: float
+    estimate_a: float
+    estimate_b: float
+    difference_in_estimand: float
     difference_ci: tuple[float, float]
     test_details: StatisticalTestDetails
     distribution_plot_path: Path | None
@@ -282,9 +285,22 @@ def _present_pairwise(
     table.add_column("Group", style="dim")
     table.add_column("N", justify="right")
     table.add_column("Mean", justify="right")
+    table.add_column(f"{report.estimand.title()} estimate", justify="right")
     table.add_column("Std Dev", justify="right")
-    table.add_row(condition_a, str(len(vals_a)), f"{report.mean_a:.2f}", f"{np.std(vals_a, ddof=1):.2f}")
-    table.add_row(condition_b, str(len(vals_b)), f"{report.mean_b:.2f}", f"{np.std(vals_b, ddof=1):.2f}")
+    table.add_row(
+        condition_a,
+        str(len(vals_a)),
+        f"{report.mean_a:.2f}",
+        f"{report.estimate_a:.2f}",
+        f"{np.std(vals_a, ddof=1):.2f}",
+    )
+    table.add_row(
+        condition_b,
+        str(len(vals_b)),
+        f"{report.mean_b:.2f}",
+        f"{report.estimate_b:.2f}",
+        f"{np.std(vals_b, ddof=1):.2f}",
+    )
     console.print(table)
 
     test_details = report.test_details
@@ -310,7 +326,8 @@ def _present_pairwise(
             Text.assemble(
                 ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
                 ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
-                ("Difference Mean : ", "dim"), (f"{report.difference_in_means:.4f}\n"),
+                (f"Difference {report.estimand.title()} : ", "dim"),
+                (f"{report.difference_in_estimand:.4f}\n"),
                 ("BCa CI          : ", "dim"), (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
                 ("Pedagogical Interpretation:\n", "bold"),
                 (
@@ -430,6 +447,9 @@ def compare_pairwise(
         mean_a=float(np.mean(vals_a)),
         mean_b=float(np.mean(vals_b)),
         difference_in_means=float(np.mean(vals_a) - np.mean(vals_b)),
+        estimate_a=float(np.mean(vals_a) if spec.estimand == "mean" else np.median(vals_a)),
+        estimate_b=float(np.mean(vals_b) if spec.estimand == "mean" else np.median(vals_b)),
+        difference_in_estimand=pairwise_statistics.test_details.statistic,
         difference_ci=(float(ci_low), float(ci_high)),
         test_details=test_details,
         distribution_plot_path=plot_path,

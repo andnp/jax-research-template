@@ -125,6 +125,9 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.mean_a == pytest.approx(101.5)
     assert report.mean_b == pytest.approx(151.5)
     assert report.difference_in_means == pytest.approx(-50.0)
+    assert report.estimate_a == pytest.approx(101.5)
+    assert report.estimate_b == pytest.approx(151.5)
+    assert report.difference_in_estimand == pytest.approx(-50.0)
     assert report.estimand == "mean"
     assert report.pairing == "paired"
     assert report.alpha == pytest.approx(0.05)
@@ -251,6 +254,11 @@ def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: di
     )
 
     assert report.estimand == "median"
+    assert report.mean_a == pytest.approx(34.3333333333)
+    assert report.mean_b == pytest.approx(5.0)
+    assert report.estimate_a == pytest.approx(2.0)
+    assert report.estimate_b == pytest.approx(5.0)
+    assert report.difference_in_estimand == pytest.approx(-3.0)
     assert report.test_details.statistic == pytest.approx(-3.0)
 
 

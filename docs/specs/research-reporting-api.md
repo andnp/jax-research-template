@@ -143,6 +143,9 @@ class ABComparisonReport:
     n_resamples: int
     min_samples: int
     missingness: str
+    estimate_a: float
+    estimate_b: float
+    difference_in_estimand: float
     test_details: StatisticalTestDetails
     distribution_plot_path: Path | None  # Path to saved distribution PDF/violin plot
 
