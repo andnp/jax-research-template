@@ -11,7 +11,6 @@ class TestSACRCConfig:
         assert cfg.LR == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 256
-        assert cfg.GAMMA == 0.99
         assert cfg.ALPHA == 0.2
         assert cfg.BETA == 1.0
 

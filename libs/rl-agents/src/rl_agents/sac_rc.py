@@ -26,23 +26,14 @@ the policy, which SAC-RC does not change. The actor loss needs its own function
 because this critic returns ``(q, h)`` rather than ``q``, but it is SAC's
 expression over the q-head.
 
-:class:`SACRCAgent` is the port; ``make_train`` below it is the private
-training loop it replaces. It is still here because ``projects/iterated-gtd`` calls it from an independent repository:
-``iterated_gtd/sweep_train.py`` imports ``rl_agents.sac_rc.make_train`` and ``**``-unpacks a ``GAMMA``
-key into ``SACRCConfig`` (``sweep_train.py:21, :140``), directly and through the
-``GiQRCConfig`` subclasses. That repository has no submodule pointer and resolves
-``rl-agents`` as ``{ workspace = true }`` from this worktree, so it breaks the instant
-either symbol disappears -- not at some later merge. **Removal condition:** once
-``iterated-gtd`` ports to :class:`~rl_components.agent_protocol.AgentProtocol` and
-:func:`rl_components.loop.run` (migration step 11).
-
-``GAMMA`` survives only for that legacy path. The discount belongs to
+:class:`SACRCAgent` is the only training path here. The ``make_train`` closure
+that ran beside it through the port is gone, and so is ``SACRCConfig.GAMMA``:
+no discount is configurable on this agent any more. The discount belongs to
 :func:`rl_components.loop.run`, which stores a per-transition coefficient in
-replay, and :class:`SACRCAgent` reads that coefficient; it never reads
-``config.GAMMA``.
+replay that :class:`SACRCAgent` reads.
 
 SAC-RC was built on the ``make_train`` path during this migration and is absent
-from the agent-port specification's ten-agent plan, so its port is scope the
+from the agent-port specification's ten-agent plan, so its port was scope the
 spec did not anticipate. It is here because leaving one continuous agent on the
 old path would have kept the legacy loop alive after every agent the spec does
 name had left it.
@@ -50,7 +41,7 @@ name had left it.
 
 from __future__ import annotations
 
-from typing import Callable, NamedTuple, TypedDict, cast
+from typing import cast
 
 import chex
 import flax.linen as nn
@@ -62,7 +53,6 @@ from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
-from rl_components.gym_env import ContinuousActionSpace, GymEnv
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -78,7 +68,6 @@ class SACRCConfig:
     TOTAL_TIMESTEPS: int = 1_000_000
     LEARNING_STARTS: int = 5_000
     TRAIN_FREQUENCY: int = 1
-    GAMMA: float = 0.99  # Legacy make_train only; see the module docstring.
     ALPHA: float = 0.2
     TARGET_ENTROPY: float | None = None
     BETA: float = 1.0
@@ -322,7 +311,7 @@ class SACRCAgent:
 
         Args:
             config: Hyperparameters. Read at trace time only, so every field may be a
-                Python scalar. ``GAMMA`` is not read at all.
+                Python scalar.
         """
         self.config = config
 
@@ -542,165 +531,3 @@ class SACRCAgent:
             alpha_loss.astype(jnp.float32),
         )
 
-
-class RunnerState(NamedTuple):
-    actor_state: TrainState
-    critic_state: TrainState
-    alpha_state: TrainState
-    buffer_state: ReplayBufferState
-    env_state: object
-    last_obs: jax.Array
-    rng: jax.Array
-
-
-class SACRCTrainOutput(TypedDict):
-    runner_state: RunnerState
-    metrics: dict[str, jax.Array]
-
-
-def make_train(config: SACRCConfig, env: GymEnv[ContinuousActionSpace], env_params: object | None = None) -> Callable[[jax.Array], SACRCTrainOutput]:
-    def train(rng: jax.Array) -> SACRCTrainOutput:
-        # INIT NETWORKS
-        rng, _rng_actor, _rng_critic = jax.random.split(rng, 3)
-        action_dim = env.action_space(env_params).shape[0]
-        obs_dim = env.observation_space(env_params).shape
-
-        actor, critic = _networks(action_dim)
-        actor_params = actor.init(_rng_actor, jnp.zeros(obs_dim))
-        actor_state = TrainState.create(apply_fn=actor.apply, params=actor_params, tx=optax.adam(config.LR))
-
-        rng, _rng_critic = jax.random.split(rng)
-        critic_params = jax.vmap(critic.init, in_axes=(0, None, None))(
-            jax.random.split(_rng_critic, 2), jnp.zeros(obs_dim), jnp.zeros((action_dim,))
-        )
-        critic_state = TrainState.create(apply_fn=critic.apply, params=critic_params, tx=optax.adam(config.LR))
-
-        # Automatic Entropy Tuning
-        if config.TARGET_ENTROPY is None:
-            target_entropy = -float(action_dim)
-        else:
-            target_entropy = config.TARGET_ENTROPY
-
-        log_alpha = {"log_alpha": jnp.log(jnp.array([config.ALPHA]))}
-        alpha_state = TrainState.create(apply_fn=None, params=log_alpha, tx=optax.adam(config.LR))
-
-        # INIT BUFFER
-        action_shape = env.action_space(env_params).shape
-        buffer = ReplayBuffer(config.BUFFER_SIZE, obs_dim, action_shape, jnp.float32)
-        buffer_state = buffer.init()
-
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        obsv, env_state = env.reset(_rng, env_params)
-
-        def _update_step(runner_state: RunnerState, t: jax.Array) -> tuple[RunnerState, dict[str, jax.Array]]:
-            (
-                actor_state,
-                critic_state,
-                alpha_state,
-                buffer_state,
-                env_state,
-                last_obs,
-                rng,
-            ) = runner_state
-
-            # SELECT ACTION
-            rng, _rng = jax.random.split(rng)
-
-            def _random_action() -> jax.Array:
-                return jax.random.uniform(_rng, (action_dim,), minval=-1, maxval=1)
-
-            def _policy_action() -> jax.Array:
-                action, _ = actor.sample(actor_state.params, last_obs, _rng)
-                return action
-
-            action = jax.lax.cond(
-                t < config.LEARNING_STARTS,
-                _random_action,
-                _policy_action,
-            )
-
-            # STEP ENV
-            rng, _rng = jax.random.split(rng)
-            obsv, env_state, reward, done, info = env.step(_rng, env_state, action, env_params)
-            discount = config.GAMMA * (1.0 - done)
-
-            # ADD TO BUFFER
-            buffer_state = buffer.add(
-                buffer_state,
-                last_obs[None, ...],
-                action[None, ...],
-                reward[None, ...],
-                obsv[None, ...],
-                discount[None, ...],
-            )
-
-            # TRAIN
-            def _do_train(
-                actor_state: TrainState,
-                critic_state: TrainState,
-                alpha_state: TrainState,
-                buffer_state: ReplayBufferState,
-                rng: jax.Array,
-            ) -> tuple[TrainState, TrainState, TrainState, jax.Array, jax.Array]:
-                rng, _rng = jax.random.split(rng)
-                obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, _rng, config.BATCH_SIZE)
-
-                log_alpha_arr = cast(jax.Array, alpha_state.params["log_alpha"])
-                alpha = jnp.exp(log_alpha_arr[0])
-
-                # CRITIC UPDATE
-                rng, _rng = jax.random.split(rng)
-
-                def _critic_loss_fn(critic_params: VariableDict) -> jax.Array:
-                    return sac_rc_loss_batch(
-                        critic_params, critic, actor_state.params, actor, alpha,
-                        obs, actions, rewards, next_obs, discounts, _rng, config.BETA,
-                    )
-
-                critic_loss, critic_grads = jax.value_and_grad(_critic_loss_fn)(critic_state.params)
-                critic_state = critic_state.apply_gradients(grads=critic_grads)
-
-                # ACTOR UPDATE
-                actor_loss, actor_grads = jax.value_and_grad(
-                    lambda params: sac_rc_actor_loss(
-                        params, critic_state.params, obs, alpha, rng, actor=actor, critic=critic
-                    )
-                )(actor_state.params)
-                actor_state = actor_state.apply_gradients(grads=actor_grads)
-
-                # ALPHA UPDATE
-                _, alpha_grads = jax.value_and_grad(
-                    lambda params: sac_alpha_loss(params, actor_state.params, obs, target_entropy, rng, actor=actor)
-                )(alpha_state.params)
-                alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
-
-                return actor_state, critic_state, alpha_state, critic_loss, actor_loss
-
-            can_train = (t > config.LEARNING_STARTS) & (t % config.TRAIN_FREQUENCY == 0)
-            actor_state, critic_state, alpha_state, critic_loss, actor_loss = jax.lax.cond(
-                can_train,
-                lambda: _do_train(actor_state, critic_state, alpha_state, buffer_state, rng),
-                lambda: (actor_state, critic_state, alpha_state, jnp.array(0.0), jnp.array(0.0)),
-            )
-
-            runner_state = RunnerState(
-                actor_state=actor_state, critic_state=critic_state,
-                alpha_state=alpha_state,
-                buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
-            )
-            info = dict(info)
-            info["critic_loss"] = critic_loss
-            info["actor_loss"] = actor_loss
-            return runner_state, info
-
-        # RUNNER
-        runner_state = RunnerState(
-            actor_state=actor_state, critic_state=critic_state,
-            alpha_state=alpha_state,
-            buffer_state=buffer_state, env_state=env_state, last_obs=obsv, rng=rng,
-        )
-        runner_state, metrics = jax.lax.scan(_update_step, runner_state, jnp.arange(config.TOTAL_TIMESTEPS))
-        return {"runner_state": runner_state, "metrics": metrics}
-
-    return train
