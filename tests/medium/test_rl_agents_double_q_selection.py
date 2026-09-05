@@ -41,7 +41,11 @@ def _favour_action(params: VariableDict, action: int) -> VariableDict:
         A new parameter tree; ``params`` is unchanged.
     """
     offset = jnp.zeros((NUM_ACTIONS,), dtype=jnp.float32).at[action].set(1e3)
-    return jax.tree.map(lambda leaf: leaf + offset if leaf.shape == offset.shape else leaf, params)
+
+    def shift_if_matching(leaf: jax.Array):
+        return leaf + offset if leaf.shape == offset.shape else leaf
+
+    return jax.tree.map(shift_if_matching, params)
 
 
 def test_double_q_target_selects_the_bootstrap_action_with_the_online_network() -> None:
