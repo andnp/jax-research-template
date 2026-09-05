@@ -37,7 +37,7 @@ class TestActorCriticForward:
         params = net.init(key, jnp.zeros((4,)))
 
         @jax.jit
-        def forward(params: Any, x: jax.Array) -> Any:
+        def forward(params: Any, x: jax.Array):
             return net.apply(params, x)
 
         probs, value = forward(params, jnp.ones((4,)))
