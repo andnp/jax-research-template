@@ -31,6 +31,7 @@ strongly still, by counting the real resets the environment performs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -264,7 +265,7 @@ def _ignore_monkeypatch_frame_stack(_monkeypatch: pytest.MonkeyPatch):
     ],
 )
 def test_step_returns_the_terminal_state_not_a_fresh_one(
-    build_boundary: Any,
+    build_boundary: Callable[[pytest.MonkeyPatch], Boundary],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     boundary = build_boundary(monkeypatch)
