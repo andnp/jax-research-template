@@ -52,12 +52,14 @@ class DummyCanonicalEnv:
         )
 
 
-def _benchmark_rollout(benchmark: Any, rollout_fn: Callable[..., Any]) -> None:
+def _benchmark_rollout(
+    benchmark: Any, rollout_fn: Callable[[chex.PRNGKey, jax.Array, jax.Array], tuple[jax.Array, jax.Array]]
+) -> None:
     compiled = jax.jit(rollout_fn)
     warm_result = compiled(RESET_KEY, STEP_KEYS, ACTIONS)
     jax.block_until_ready(warm_result)
 
-    def run_once() -> Any:
+    def run_once():
         result = compiled(RESET_KEY, STEP_KEYS, ACTIONS)
         jax.block_until_ready(result)
         return result
