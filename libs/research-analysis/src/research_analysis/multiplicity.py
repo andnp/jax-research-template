@@ -10,7 +10,10 @@ def holm_step_down(p_values: Sequence[float]) -> list[float]:
     """Return Holm step-down adjusted p-values in input order."""
     if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in p_values):
         raise ValueError("p-values must be finite numbers in [0, 1]")
-    ordered = sorted(enumerate(p_values), key=lambda item: item[1])
+    def p_value_of(item: tuple[int, float]) -> float:
+        return item[1]
+
+    ordered = sorted(enumerate(p_values), key=p_value_of)
     adjusted = [0.0] * len(p_values)
     running_max = 0.0
     count = len(p_values)
