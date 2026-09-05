@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.sysid.comparison import TraceComparisonSpec, TraceSignalPair
-from process_control.sysid.comparison_metrics import compare_traces
+from process_control.sysid.comparison_metrics import TraceMetricArrays, compare_traces
 from process_control.sysid.resampling import canonicalize
 from process_control.sysid.trace import SignalRole, SignalSeries, SignalSpec
 
@@ -117,6 +117,9 @@ def test_metric_payload_is_jit_compatible() -> None:
     candidate = _trace("y", [2.0, 2.0, 4.0])
     result = compare_traces(reference, candidate, _spec())
 
-    rmse = jax.jit(lambda metrics: metrics.rmse)(result.overall)
+    def rmse_of(metrics: TraceMetricArrays):
+        return metrics.rmse
+
+    rmse = jax.jit(rmse_of)(result.overall)
 
     assert jnp.allclose(rmse, jnp.array([jnp.sqrt(2.0 / 3.0)]))
