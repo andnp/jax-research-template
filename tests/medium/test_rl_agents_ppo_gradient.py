@@ -25,7 +25,7 @@ def _minibatch(
     upstream by `ppo_gae`, so they stay zero here rather than being given decorative values
     that a reader might mistake for inputs to the loss.
     """
-    length = int(value.shape[0])
+    length = value.shape[0]
     zeros = jnp.zeros((length,), dtype=jnp.float32)
     return PPOTransition(
         obs=obs,
