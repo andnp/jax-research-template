@@ -235,7 +235,7 @@ def test_the_transition_after_a_boundary_starts_the_new_episode(learning_run: Ru
     a transition that never happened in any episode.
     """
     terminal = jnp.flatnonzero(learning_run.discounts == 0.0)
-    count = int(learning_run.observations.shape[0])
+    count = learning_run.observations.shape[0]
     following = [int(index) + 1 for index in terminal if int(index) + 1 < count]
 
     assert following, "no transition closed after a boundary to check"
