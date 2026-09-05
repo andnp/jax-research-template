@@ -38,7 +38,10 @@ def main() -> None:
             frame_skip=config.NUM_ACTION_REPEATS,
         )
     )
-    train_jit = jax.jit(lambda key: run(agent, env, key, steps=env_steps, gamma=GAMMA))
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=env_steps, gamma=GAMMA)
+
+    train_jit = jax.jit(train_fn)
 
     print("--- Training DQN on ALE Pong ---")
     print("Compiling & running quick signs-of-life probe...")
