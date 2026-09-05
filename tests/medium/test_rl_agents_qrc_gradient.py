@@ -179,8 +179,11 @@ class TestQRCGradientFlow:
         grad_q = jax.grad(q_taken)(params)["params"]
 
         # The h-head also receives gradient from h_loss, so compare the q-path only.
+        def scale_by_delta(g: jax.Array):
+            return -delta * g
+
         for name in ("Dense_0", "Dense_1", "q_head"):
-            expected = jax.tree.map(lambda g: -delta * g, grad_q[name])
+            expected = jax.tree.map(scale_by_delta, grad_q[name])
             actual = grad_loss[name]
             for key in expected:
                 assert jnp.allclose(actual[key], expected[key], atol=1e-6), name
