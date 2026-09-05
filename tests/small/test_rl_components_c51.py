@@ -7,7 +7,7 @@ import math
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
-from jax_nn.distributional import (
+from rl_components.distributional import (
     CategoricalValueHead,
     categorical_cross_entropy,
     categorical_expected_value,
