@@ -108,8 +108,9 @@ class TestEpisodeReturnCurve:
         """`vmap` over a leading seed axis reproduces the batched result."""
         returns = jnp.array([[0.0, 3.0, 0.0], [0.0, 0.0, 5.0]])
         ends = jnp.array([[False, True, False], [False, False, True]])
-        batched = jax.vmap(lambda r, e: episode_return_curve({"loop/episode_return": r, "loop/episode_end": e}))(
-            returns, ends
-        )
+        def curve_fn(r: jax.Array, e: jax.Array):
+            return episode_return_curve({"loop/episode_return": r, "loop/episode_end": e})
+
+        batched = jax.vmap(curve_fn)(returns, ends)
         expected = jnp.array([[0.0, 3.0, 3.0], [0.0, 0.0, 5.0]])
         assert jnp.allclose(batched, expected)
