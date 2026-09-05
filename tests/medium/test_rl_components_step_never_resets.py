@@ -42,10 +42,10 @@ import jax.numpy as jnp
 import pytest
 import rl_envs.brax as brax_module
 from rl_components.gymnax_bridge import make_gymnax_env
-from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
 from rl_components.process_control_bridge import ProcessControlEnv
 from rl_envs.brax import BraxAdapter, BraxConfig
 from rl_envs.frame_stack import FrameStackWrapper
+from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
 RESET_OBSERVATION = -99.0
 """A value no double's ``step`` ever produces, so a fused reset is unmistakable."""

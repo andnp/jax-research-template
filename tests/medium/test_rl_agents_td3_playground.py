@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import pytest
 from rl_agents.td3 import TD3Agent, TD3Config
 from rl_components.loop import run
-from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
 STEPS = 200
 GAMMA = 0.99
@@ -36,7 +36,7 @@ def _short_agent(env_name: str) -> TD3Agent:
 class TestMujocoPlaygroundBridge:
     def test_adapter_spec_cheetah(self) -> None:
         from mujoco_playground import dm_control_suite
-        from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+        from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
         adapter = MujocoPlaygroundAdapter(dm_control_suite.load("CheetahRun", config_overrides={"impl": "jax"}))
         spec = adapter.spec()
@@ -47,7 +47,7 @@ class TestMujocoPlaygroundBridge:
 
     def test_adapter_reset_returns_obs(self) -> None:
         from mujoco_playground import dm_control_suite
-        from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+        from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
         adapter = MujocoPlaygroundAdapter(dm_control_suite.load("HopperHop", config_overrides={"impl": "jax"}))
         spec = adapter.spec()
@@ -57,7 +57,7 @@ class TestMujocoPlaygroundBridge:
 
     def test_adapter_step_returns_transition(self) -> None:
         from mujoco_playground import dm_control_suite
-        from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+        from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
         adapter = MujocoPlaygroundAdapter(dm_control_suite.load("HopperHop", config_overrides={"impl": "jax"}))
         spec = adapter.spec()
@@ -73,7 +73,7 @@ class TestMujocoPlaygroundBridge:
     def test_episode_wrapper_time_limit_reports_truncated_not_terminated(self) -> None:
         from brax.envs.wrappers.training import EpisodeWrapper
         from mujoco_playground import dm_control_suite
-        from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+        from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
         raw = dm_control_suite.load("CartpoleBalance", config_overrides={"impl": "jax"})
         wrapped = EpisodeWrapper(cast(Any, raw), episode_length=1, action_repeat=1)

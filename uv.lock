@@ -1666,8 +1666,7 @@ dependencies = [
     { name = "research-store" },
     { name = "rich" },
     { name = "rl-agents" },
-    { name = "rl-components", extra = ["playground"] },
-    { name = "rl-envs" },
+    { name = "rl-envs", extra = ["playground"] },
     { name = "rl-networks" },
     { name = "scipy" },
 ]
@@ -1712,8 +1711,8 @@ requires-dist = [
     { name = "research-store", editable = "libs/research-store" },
     { name = "rich" },
     { name = "rl-agents", editable = "domains/rl/agents" },
-    { name = "rl-components", extras = ["playground"], editable = "libs/rl-components" },
     { name = "rl-envs", editable = "domains/rl/envs" },
+    { name = "rl-envs", extras = ["playground"], editable = "domains/rl/envs" },
     { name = "rl-networks", editable = "domains/rl/networks" },
     { name = "scipy", specifier = ">=1.14" },
 ]
@@ -1840,11 +1839,6 @@ dependencies = [
     { name = "process-control" },
 ]
 
-[package.optional-dependencies]
-playground = [
-    { name = "playground" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "chex", specifier = "~=0.1" },
@@ -1853,10 +1847,8 @@ requires-dist = [
     { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
-    { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0" },
     { name = "process-control", editable = "libs/process-control" },
 ]
-provides-extras = ["playground"]
 
 [[package]]
 name = "rl-envs"
@@ -1872,6 +1864,11 @@ dependencies = [
     { name = "rl-components" },
 ]
 
+[package.optional-dependencies]
+playground = [
+    { name = "playground" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "ale-py", specifier = ">=0.10" },
@@ -1880,8 +1877,10 @@ requires-dist = [
     { name = "gymnasium", extras = ["atari"], specifier = ">=1.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "opencv-python-headless", specifier = ">=4.0" },
+    { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0" },
     { name = "rl-components", editable = "libs/rl-components" },
 ]
+provides-extras = ["playground"]
 
 [[package]]
 name = "rl-networks"

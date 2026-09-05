@@ -8,7 +8,7 @@ Usage::
 
     from mujoco_playground import dm_control_suite
     from rl_components.loop import run
-    from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+    from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
     env = MujocoPlaygroundAdapter(dm_control_suite.load("CheetahRun"))
     final_state, metrics = run(agent, env, key, steps=100_000, gamma=0.99)
@@ -21,7 +21,6 @@ from typing import Any, Protocol
 
 import jax
 import jax.numpy as jnp
-
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 

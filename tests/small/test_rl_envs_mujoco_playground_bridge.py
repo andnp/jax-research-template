@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from rl_components.env_protocol import EnvSpec
-from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
+from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
 
 @dataclass(frozen=True)
