@@ -86,9 +86,11 @@ class TestSoftUpdate:
         online = {"w": jnp.array([1.0, 2.0])}
         target = {"w": jnp.array([0.0, 0.0])}
         tau = 1.0
-        updated = jax.tree_util.tree_map(
-            lambda tp, p: tau * p + (1.0 - tau) * tp, target, online
-        )
+
+        def soft_update(tp: jax.Array, p: jax.Array):
+            return tau * p + (1.0 - tau) * tp
+
+        updated = jax.tree_util.tree_map(soft_update, target, online)
         assert jnp.allclose(updated["w"], online["w"])
 
     def test_tau_zero_is_no_update(self) -> None:
@@ -96,7 +98,9 @@ class TestSoftUpdate:
         online = {"w": jnp.array([1.0, 2.0])}
         target = {"w": jnp.array([3.0, 4.0])}
         tau = 0.0
-        updated = jax.tree_util.tree_map(
-            lambda tp, p: tau * p + (1.0 - tau) * tp, target, online
-        )
+
+        def soft_update(tp: jax.Array, p: jax.Array):
+            return tau * p + (1.0 - tau) * tp
+
+        updated = jax.tree_util.tree_map(soft_update, target, online)
         assert jnp.allclose(updated["w"], target["w"])
