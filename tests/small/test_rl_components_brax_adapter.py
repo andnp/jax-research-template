@@ -75,7 +75,10 @@ class TestBraxAdapterTruncationMapping:
         expected_terminated: bool,
         expected_truncated: bool,
     ) -> None:
-        monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: FakeBraxEnv(done, truncation))
+        def make_fake_env(config: BraxConfig):
+            return FakeBraxEnv(done, truncation)
+
+        monkeypatch.setattr(brax_module, "_make_brax_env", make_fake_env)
         adapter = BraxAdapter(BraxConfig(env_name="fake"))
         state = adapter.reset(jax.random.key(0)).state
 
@@ -136,11 +139,17 @@ class TestBraxAdapterActionBounds:
         class UnnormalizedBraxEnv(FakeBraxEnv):
             sys = FakeBraxSystem(actuator=FakeBraxActuator(ctrl_range=jnp.array([[-3.0, 3.0]], dtype=jnp.float32)))
 
-        monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: UnnormalizedBraxEnv(0.0, 0.0))
+        def make_unnormalized_env(config: BraxConfig):
+            return UnnormalizedBraxEnv(0.0, 0.0)
+
+        monkeypatch.setattr(brax_module, "_make_brax_env", make_unnormalized_env)
         adapter = BraxAdapter(BraxConfig(env_name="fake"))
         traced: list[EnvSpec] = []
 
-        jax.jit(lambda key: (traced.append(adapter.spec()), key)[1])(jax.random.key(0))
+        def record_spec(key: jax.Array):
+            return (traced.append(adapter.spec()), key)[1]
+
+        jax.jit(record_spec)(jax.random.key(0))
 
         (spec,) = traced
         assert spec.action_low is not None
