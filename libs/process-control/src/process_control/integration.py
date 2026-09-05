@@ -32,19 +32,22 @@ def rk4_step[**P, S](
     k4 = derivative_fn(_tree_add(state, _tree_scale(k3, dt)), *args, **kwargs)
 
     # dy = (k1 + 2*k2 + 2*k3 + k4) / 6
-    dy = jax.tree.map(
-        lambda a, b, c, d: (a + 2.0 * b + 2.0 * c + d) / 6.0,
-        k1,
-        k2,
-        k3,
-        k4,
-    )
+    def rk4_combine(a: jax.Array, b: jax.Array, c: jax.Array, d: jax.Array) -> jax.Array:
+        return (a + 2.0 * b + 2.0 * c + d) / 6.0
+
+    dy = jax.tree.map(rk4_combine, k1, k2, k3, k4)
     return _tree_add(state, _tree_scale(dy, dt))
 
 
 def _tree_scale[S](tree: S, scalar: jax.Array) -> S:
-    return jax.tree.map(lambda x: x * scalar, tree)
+    def scale(x: jax.Array) -> jax.Array:
+        return x * scalar
+
+    return jax.tree.map(scale, tree)
 
 
 def _tree_add[S](tree_a: S, tree_b: S) -> S:
-    return jax.tree.map(lambda a, b: a + b, tree_a, tree_b)
+    def add(a: jax.Array, b: jax.Array) -> jax.Array:
+        return a + b
+
+    return jax.tree.map(add, tree_a, tree_b)
