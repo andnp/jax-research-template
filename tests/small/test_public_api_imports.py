@@ -38,9 +38,12 @@ class TestResearchRunnerPublicApi:
         assert ExecutionContext is CanonicalExecutionContext
         assert ExperimentSpec is CanonicalExperimentSpec
         assert set(research_runner.__all__) == {
+            "BatchTrainer",
+            "BoundBatch",
             "ExecutionContext",
             "ExecutionResult",
             "ExperimentSpec",
+            "ParameterSchema",
             "RunPoint",
             "execute_batch",
             "registered_specs",
