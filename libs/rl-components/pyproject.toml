@@ -10,6 +10,7 @@ dependencies = [
     "flax~=0.12",
     "gymnax~=0.0",
     "jax-nn",
+    "jax-utils",
     "ale-py>=0.10",
     "gymnasium[atari]>=1.0",
     "opencv-python-headless>=4.0",
@@ -31,3 +32,4 @@ where = ["src"]
 
 [tool.uv.sources]
 jax-nn = { workspace = true }
+jax-utils = { workspace = true }

@@ -1810,6 +1810,7 @@ dependencies = [
     { name = "gymnax" },
     { name = "jax" },
     { name = "jax-nn" },
+    { name = "jax-utils" },
     { name = "opencv-python-headless" },
     { name = "process-control" },
 ]
@@ -1830,6 +1831,7 @@ requires-dist = [
     { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
+    { name = "jax-utils", editable = "libs/jax-utils" },
     { name = "opencv-python-headless", specifier = ">=4.0" },
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0" },
     { name = "process-control", editable = "libs/process-control" },
