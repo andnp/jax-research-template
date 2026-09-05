@@ -567,7 +567,11 @@ class PPOAgent:
             valid=step_index > 0,
         )
         slot = jnp.remainder(step_index, num_steps)
-        rollout = jax.tree_util.tree_map(lambda window, value: window.at[slot].set(value), state.rollout, closed)
+
+        def set_slot(window: jax.Array, value: jax.Array) -> jax.Array:
+            return window.at[slot].set(value)
+
+        rollout = jax.tree_util.tree_map(set_slot, state.rollout, closed)
 
         train_state, losses = jax.lax.cond(
             slot == num_steps - 1,
@@ -678,10 +682,11 @@ class PPOAgent:
             train_state, epoch_key = carry
             epoch_key, permutation_key = jax.random.split(epoch_key)
             permutation = jax.random.permutation(permutation_key, self.config.NUM_STEPS)
-            shuffled = jax.tree_util.tree_map(
-                lambda leaf: jnp.take(leaf, permutation, axis=0).reshape((self.config.NUM_MINIBATCHES, -1, *leaf.shape[1:])),
-                (rollout, advantages, targets),
-            )
+
+            def shuffle_leaf(leaf: jax.Array) -> jax.Array:
+                return jnp.take(leaf, permutation, axis=0).reshape((self.config.NUM_MINIBATCHES, -1, *leaf.shape[1:]))
+
+            shuffled = jax.tree_util.tree_map(shuffle_leaf, (rollout, advantages, targets))
             train_state, losses = jax.lax.scan(_minibatch, train_state, shuffled)
             return (train_state, epoch_key), losses
 
