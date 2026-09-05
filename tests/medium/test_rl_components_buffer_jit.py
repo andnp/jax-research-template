@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
-from rl_components.buffers import ReplayBuffer
+from rl_components.buffers import ReplayBuffer, ReplayBufferState
 
 
 class TestReplayBufferJIT:
@@ -67,8 +67,11 @@ class TestReplayBufferJIT:
             obs, _, _, _, _ = buf.sample(buf_state, k1, batch_size=2)
             return (buf_state, key), obs.mean()
 
+        def run_scan(s: ReplayBufferState, k: jax.Array):
+            return jax.lax.scan(step, (s, k), jnp.arange(20))
+
         key = jax.random.key(42)
-        (final_state, _), means = jax.jit(lambda s, k: jax.lax.scan(step, (s, k), jnp.arange(20)))(state, key)
+        (final_state, _), means = jax.jit(run_scan)(state, key)
         assert int(final_state.count) == 20
         assert means.shape == (20,)
 
