@@ -123,7 +123,7 @@ class ToyContinuousEpisodeEnv:
     """One-dimensional counter environment, with the same boundary contract.
 
     Its action space is already normalized to ``[-1, 1]``, which is what every continuous
-    agent here requires; see :mod:`rl_agents.continuous_actions`.
+    agent here requires; see :mod:`rl_components.continuous_actions`.
     """
 
     def spec(self, params: None = None) -> EnvSpec:

@@ -1,6 +1,6 @@
 """The action-bounds rejection, exercised on the path that actually drives training.
 
-``tests/small/test_rl_agents_continuous_actions.py`` builds an :class:`EnvSpec` eagerly
+``tests/small/test_rl_components_continuous_actions.py`` builds an :class:`EnvSpec` eagerly
 and so proves only that :func:`continuous_action_dim` can reject. Production never calls
 it that way: :func:`rl_components.loop.run` reads ``env.spec`` and calls ``agent.init``
 inside the caller's ``jit``, where a staged bound makes the comparison unresolvable and
