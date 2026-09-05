@@ -55,9 +55,15 @@ def rain_storm(transport: Transport, magnitude: jax.Array) -> Transport:
 
 
 def apply_disturbance_type(transport: Transport, type_id: jax.Array, magnitude: jax.Array) -> Transport:
+    def apply_demand_slug(t: Transport) -> Transport:
+        return demand_slug(t, magnitude)
+
+    def apply_rain_storm(t: Transport) -> Transport:
+        return rain_storm(t, magnitude)
+
     branches = [
         _no_op,
-        lambda t: demand_slug(t, magnitude),
-        lambda t: rain_storm(t, magnitude),
+        apply_demand_slug,
+        apply_rain_storm,
     ]
     return jax.lax.switch(type_id, branches, transport)
