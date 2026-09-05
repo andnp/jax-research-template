@@ -378,7 +378,10 @@ def step(
     explosions in edge-cases (non-negative concentrations and a safety cap on
     ammonium). This keeps benchmarks stable while preserving realistic dynamics.
     """
-    new_state = rk4_step(lambda x: _asm1_derivatives(x, flow_in, influent, kla, params), state, dt)
+    def derivatives(x: ASM1State) -> ASM1State:
+        return _asm1_derivatives(x, flow_in, influent, kla, params)
+
+    new_state = rk4_step(derivatives, state, dt)
 
     # Enforce non-negative and reasonable upper bounds for problematic species
     return ASM1State(
