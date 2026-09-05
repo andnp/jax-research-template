@@ -61,9 +61,10 @@ class TestBraxAdapterThroughLoopJIT:
         spec = adapter.spec()
         agent = _ZeroActionAgent(spec.action_shape, jnp.dtype(spec.action_dtype))
 
-        final_state, metrics = jax.jit(lambda key: run(agent, adapter, key, steps=STEPS, gamma=0.99))(
-            jax.random.key(0)
-        )
+        def train_fn(key: jax.Array):
+            return run(agent, adapter, key, steps=STEPS, gamma=0.99)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
         assert final_state.timestep.observation.shape == spec.observation_shape
         assert metrics["loop/reward"].shape == (STEPS,)
@@ -84,9 +85,10 @@ class TestBraxAdapterThroughLoopJIT:
         spec = normalized_adapter.spec()
         agent = _ZeroActionAgent(spec.action_shape, jnp.dtype(spec.action_dtype))
 
-        final_state, metrics = jax.jit(
-            lambda key: run(agent, normalized_adapter, key, steps=STEPS, gamma=0.99)
-        )(jax.random.key(0))
+        def train_fn(key: jax.Array):
+            return run(agent, normalized_adapter, key, steps=STEPS, gamma=0.99)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
         assert spec.action_low is not None
         assert spec.action_high is not None
