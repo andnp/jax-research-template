@@ -758,8 +758,11 @@ def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
             database.initialize()
             return database.plan_unsatisfied_execution_batches(exp_id, hostname="planner")
 
+    def run_plan(_: int):
+        return plan()
+
     with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(lambda _: plan(), range(2)))
+        results = list(executor.map(run_plan, range(2)))
 
     assert sorted(len(result) for result in results) == [0, 1]
     with DatabaseManager(db_path) as database:
