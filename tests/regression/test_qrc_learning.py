@@ -49,9 +49,11 @@ def _cartpole_return(config: QRCConfig) -> jax.Array:
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = QRCAgent(config)
-    train_jit = jax.jit(
-        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
-    )
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+
+    train_jit = jax.jit(train_fn)
     _, metrics = train_jit(jax.random.PRNGKey(config.SEED))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return on
@@ -75,11 +77,11 @@ def _acrobot_seed_means(style: HRegularization) -> np.ndarray:
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = QRCAgent(config)
-    train_jit = jax.jit(
-        jax.vmap(
-            lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
-        )
-    )
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+
+    train_jit = jax.jit(jax.vmap(train_fn))
     _, metrics = train_jit(jax.random.split(jax.random.key(config.SEED), FLOOR_SEEDS))
 
     returns = np.asarray(metrics["loop/episode_return"])
