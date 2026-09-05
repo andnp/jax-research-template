@@ -396,7 +396,11 @@ class TestCompilation:
     def test_jit_agrees_with_the_eager_trace(self) -> None:
         env = ToyEnv(terminate_at=3)
         eager_state, eager_metrics = run(RecordAgent(), env, jax.random.key(0), steps=9, gamma=GAMMA)
-        jitted_state, jitted_metrics = jax.jit(lambda key: run(RecordAgent(), env, key, steps=9, gamma=GAMMA))(jax.random.key(0))
+
+        def train_fn(key: jax.Array):
+            return run(RecordAgent(), env, key, steps=9, gamma=GAMMA)
+
+        jitted_state, jitted_metrics = jax.jit(train_fn)(jax.random.key(0))
 
         assert int(jitted_state.agent_state.closed) == int(eager_state.agent_state.closed)
         assert set(jitted_metrics) == set(eager_metrics)
@@ -409,7 +413,11 @@ class TestBatching:
         num_seeds = 4
         steps = 9
         env = SeedLengthEnv()
-        batched = jax.jit(jax.vmap(lambda key: run(RecordAgent(), env, key, steps=steps, gamma=GAMMA)))
+
+        def train_fn(key: jax.Array):
+            return run(RecordAgent(), env, key, steps=steps, gamma=GAMMA)
+
+        batched = jax.jit(jax.vmap(train_fn))
 
         _, metrics = batched(jax.random.split(jax.random.key(0), num_seeds))
 
