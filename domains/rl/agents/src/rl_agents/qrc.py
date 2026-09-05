@@ -48,6 +48,7 @@ from jax_nn.typed_module import TypedApply
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
+from rl_components.exploration import linear_epsilon_schedule
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -419,12 +420,13 @@ class QRCAgent:
             lambda: state.buffer_state,
         )
 
-        epsilon = jnp.maximum(
+        epsilon = linear_epsilon_schedule(
+            step_index,
+            hypers.TOTAL_TIMESTEPS,
+            hypers.EPSILON_START,
             hypers.EPSILON_END,
-            hypers.EPSILON_START
-            - (hypers.EPSILON_START - hypers.EPSILON_END)
-            * (step_index / (hypers.TOTAL_TIMESTEPS * hypers.EPSILON_FRACTION)),
-        ).astype(jnp.float32)
+            hypers.EPSILON_FRACTION,
+        )
 
         can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
         train_state, loss = jax.lax.cond(
