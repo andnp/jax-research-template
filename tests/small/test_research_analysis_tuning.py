@@ -13,6 +13,7 @@ from research_analysis.tuning import (
     hierarchical_bootstrap_ci,
     hierarchical_bootstrap_ci_from_experiment,
     hierarchical_bootstrap_difference_ci,
+    hierarchical_bootstrap_difference_ci_from_experiment,
 )
 
 
@@ -63,6 +64,106 @@ def tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]
                 _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", base + seed)
 
     yield db_path, slug
+
+
+@pytest.fixture
+def two_arm_tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]:
+    """Two arms sharing 5 seeds: 'shared' tuned over learning_rate, 'adversarial' over eta.
+
+    Mirrors 002-plan.md's structure: each arm has its own independent
+    hyperparameter grid, distinguished by an 'algorithm' condition key, and
+    the adversarial arm's champion is clearly better on the shared metric.
+    """
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_db_path = tmp_path / "metrics.sqlite"
+    slug = "two-arm-test-exp"
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment(slug, "Two-arm tuning test experiment")
+        algo_ver_id = db.add_component_version(db.add_component("algo", "ALGO"), "hash_algo")
+        env_ver_id = db.add_component_version(db.add_component("env", "ENV"), "hash_env")
+
+        for learning_rate in (0.001, 0.01, 0.1):
+            for seed in range(5):
+                hyper_id = db.add_hyperparam_config(
+                    {"algorithm": "shared", "learning_rate": learning_rate, "seed": seed}
+                )
+                run_id = db.add_run(
+                    experiment_id=exp_id,
+                    algo_version_id=algo_ver_id,
+                    env_version_id=env_ver_id,
+                    hyper_id=hyper_id,
+                    seed=seed,
+                )
+                exec_id = db.add_execution()
+                db.update_execution_status(exec_id, "COMPLETED")
+                db.link_execution_run(exec_id, run_id)
+                db.record_execution_artifacts(
+                    exec_id, str(tmp_path), metadata={"metrics_db_path": str(metrics_db_path)}
+                )
+                _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", 0.0 + seed)
+
+        for eta in (1, 5, 20):
+            for seed in range(5):
+                base = 10.0 if eta == 20 else 0.0
+                hyper_id = db.add_hyperparam_config({"algorithm": "adversarial", "eta": eta, "seed": seed})
+                run_id = db.add_run(
+                    experiment_id=exp_id,
+                    algo_version_id=algo_ver_id,
+                    env_version_id=env_ver_id,
+                    hyper_id=hyper_id,
+                    seed=seed,
+                )
+                exec_id = db.add_execution()
+                db.update_execution_status(exec_id, "COMPLETED")
+                db.link_execution_run(exec_id, run_id)
+                db.record_execution_artifacts(
+                    exec_id, str(tmp_path), metadata={"metrics_db_path": str(metrics_db_path)}
+                )
+                _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", base + seed)
+
+    yield db_path, slug
+
+
+class TestHierarchicalBootstrapDifferenceCIFromExperiment:
+    def test_loads_both_arms_and_evaluates_paired_difference(
+        self, two_arm_tuning_experiment: tuple[Path, str]
+    ) -> None:
+        """Verify H3-shaped usage: two independently-tuned arms, one difference CI."""
+        db_path, slug = two_arm_tuning_experiment
+        res = hierarchical_bootstrap_difference_ci_from_experiment(
+            db_path,
+            slug,
+            hyperparameter_keys_a=["learning_rate"],
+            hyperparameter_keys_b=["eta"],
+            metric_name="reward",
+            h_samples=3,
+            e_samples=5,
+            condition_a={"algorithm": "shared"},
+            condition_b={"algorithm": "adversarial"},
+            seed=1,
+        )
+        assert isinstance(res, HierarchicalBootstrapDifferenceCI)
+        # adversarial's champion (base 10.0) clearly beats shared's best (base 0.0).
+        assert res.ci_low < 0.0
+        assert res.mean_diff < -5.0
+
+    def test_rejects_no_shared_seeds(self, two_arm_tuning_experiment: tuple[Path, str]) -> None:
+        """No overlap between arms' seed sets must raise, not silently misalign columns."""
+        db_path, slug = two_arm_tuning_experiment
+        with pytest.raises(ValueError, match="Unknown experiment"):
+            hierarchical_bootstrap_difference_ci_from_experiment(
+                db_path,
+                "no-such-experiment",
+                hyperparameter_keys_a=["learning_rate"],
+                hyperparameter_keys_b=["eta"],
+                metric_name="reward",
+                h_samples=3,
+                e_samples=5,
+                condition_a={"algorithm": "shared"},
+                condition_b={"algorithm": "adversarial"},
+            )
 
 
 class TestHierarchicalBootstrapCI:

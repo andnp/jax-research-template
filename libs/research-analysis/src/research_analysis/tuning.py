@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -180,6 +180,15 @@ def _build_hyper_matrix(
     return matrix, keys_sorted, seeds_sorted
 
 
+def _filter_condition(
+    records: list[dict[str, Any]], condition: Mapping[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Restrict records to those whose hypers match every key/value in condition."""
+    if not condition:
+        return records
+    return [record for record in records if all(record["hypers"].get(k) == v for k, v in condition.items())]
+
+
 def hierarchical_bootstrap_ci_from_experiment(
     db_path: Path | str,
     experiment_slug: str,
@@ -208,6 +217,66 @@ def hierarchical_bootstrap_ci_from_experiment(
     matrix, _keys, _seeds = _build_hyper_matrix(records, hyperparameter_keys)
     return hierarchical_bootstrap_ci(
         matrix,
+        h_samples,
+        e_samples,
+        confidence=confidence,
+        n_resamples=n_resamples,
+        selection_trials=selection_trials,
+        seed=seed,
+    )
+
+
+def hierarchical_bootstrap_difference_ci_from_experiment(
+    db_path: Path | str,
+    experiment_slug: str,
+    hyperparameter_keys_a: Sequence[str],
+    hyperparameter_keys_b: Sequence[str],
+    metric_name: str,
+    h_samples: int,
+    e_samples: int,
+    *,
+    condition_a: Mapping[str, Any] | None = None,
+    condition_b: Mapping[str, Any] | None = None,
+    confidence: float = 0.95,
+    n_resamples: int = 10_000,
+    selection_trials: int = 200,
+    seed: int = 42,
+) -> HierarchicalBootstrapDifferenceCI:
+    """Load two arms' hyperparameter grids from one experiment and evaluate their paired difference.
+
+    ``condition_a``/``condition_b`` fix the hyperparameter(s) that distinguish
+    which arm a run belongs to (e.g. ``{"algorithm": "adversarial"}``),
+    separate from ``hyperparameter_keys_a``/``hyperparameter_keys_b``, the
+    axis(es) actually tuned within that arm -- so each arm can be tuned over a
+    different, independent hyperparameter grid (e.g. one arm's grid may have
+    axes the other's doesn't). Both arms' matrices are aligned to the seeds
+    completed under every combination of both arms before evaluation, so the
+    pairing ``hierarchical_bootstrap_difference_ci`` requires holds.
+    """
+    from research_analysis.reporting import _load_hyperparameter_records
+
+    all_keys_a = list(dict.fromkeys([*hyperparameter_keys_a, *(condition_a or {})]))
+    all_keys_b = list(dict.fromkeys([*hyperparameter_keys_b, *(condition_b or {})]))
+
+    records_a = _filter_condition(
+        _load_hyperparameter_records(Path(db_path), experiment_slug, all_keys_a, metric_name), condition_a
+    )
+    records_b = _filter_condition(
+        _load_hyperparameter_records(Path(db_path), experiment_slug, all_keys_b, metric_name), condition_b
+    )
+
+    matrix_a, _keys_a, seeds_a = _build_hyper_matrix(records_a, hyperparameter_keys_a)
+    matrix_b, _keys_b, seeds_b = _build_hyper_matrix(records_b, hyperparameter_keys_b)
+
+    common_seeds = sorted(set(seeds_a) & set(seeds_b))
+    if not common_seeds:
+        raise ValueError("no seed has a completed run under every combination of both arms")
+    matrix_a = matrix_a[:, [seeds_a.index(s) for s in common_seeds]]
+    matrix_b = matrix_b[:, [seeds_b.index(s) for s in common_seeds]]
+
+    return hierarchical_bootstrap_difference_ci(
+        matrix_a,
+        matrix_b,
         h_samples,
         e_samples,
         confidence=confidence,
