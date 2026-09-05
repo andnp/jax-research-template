@@ -25,18 +25,19 @@ from process_control.benchmarks.primary_clarifier import (
 )
 from process_control.benchmarks.reject_water import RejectWaterConfig, make_reject_water_benchmark
 from process_control.chemistry.coagulation import CoagulationParams, coagulate
-from process_control.units.anaerobic_digester import ADM1Params
+from process_control.units.anaerobic_digester import ADM1Params, ADM1State
 from process_control.units.anaerobic_digester import reset as adm1_reset
 from process_control.units.anaerobic_digester import step as adm1_step
 from process_control.units.asm2d import N_COMPONENTS_ASM2D, ASM2dParams, make_default_influent_asm2d, reactions_asm2d
-from process_control.units.dewatering import DewateringParams
+from process_control.units.dewatering import DewateringParams, DewateringState
 from process_control.units.dewatering import reset as dw_reset
 from process_control.units.dewatering import step as dw_step
-from process_control.units.membrane import MembraneParams, compute_tmp
+from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as mem_reset
 from process_control.units.membrane import step as mem_step
 from process_control.units.primary_clarifier import (
     PrimaryClarifierParams,
+    PrimaryClarifierState,
 )
 from process_control.units.primary_clarifier import (
     reset as pc_reset,
@@ -78,7 +79,10 @@ class TestPrimaryClarifierUnit:
     def test_jit_compatible(self) -> None:
         params = PrimaryClarifierParams()
         state = pc_reset(params, jax.random.PRNGKey(3))
-        jit_step = jax.jit(lambda s: pc_step(s, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02)))
+        def step_fn(s: PrimaryClarifierState):
+            return pc_step(s, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02))
+
+        jit_step = jax.jit(step_fn)
         state2, eff, und = jit_step(state)
         assert jnp.isfinite(eff)
         assert jnp.isfinite(und)
@@ -122,7 +126,10 @@ class TestDewateringUnit:
     def test_jit_compatible(self) -> None:
         params = DewateringParams()
         state = dw_reset(params, jax.random.PRNGKey(3))
-        jit_step = jax.jit(lambda s: dw_step(s, jnp.array(10000.0), jnp.array(30.0), jnp.array(5.0), jnp.array(0.5), params, jnp.array(0.05)))
+        def step_fn(s: DewateringState):
+            return dw_step(s, jnp.array(10000.0), jnp.array(30.0), jnp.array(5.0), jnp.array(0.5), params, jnp.array(0.05))
+
+        jit_step = jax.jit(step_fn)
         s2, dry, filt, q = jit_step(state)
         assert jnp.isfinite(dry)
 
@@ -181,7 +188,10 @@ class TestMembraneUnit:
     def test_jit_compatible(self) -> None:
         params = MembraneParams()
         state = mem_reset(params, jax.random.PRNGKey(4))
-        jit_step = jax.jit(lambda s: mem_step(s, jnp.array(50.0), jnp.array(0.03), jnp.array(0.5), jnp.array(0.0), params, jnp.array(0.01)))
+        def step_fn(s: MembraneState):
+            return mem_step(s, jnp.array(50.0), jnp.array(0.03), jnp.array(0.5), jnp.array(0.0), params, jnp.array(0.01))
+
+        jit_step = jax.jit(step_fn)
         s2, tmp, pt, q = jit_step(state)
         assert jnp.isfinite(tmp)
 
@@ -220,7 +230,10 @@ class TestCoagulation:
 
     def test_jit_compatible(self) -> None:
         params = CoagulationParams()
-        jit_coag = jax.jit(lambda d: coagulate(jnp.array(100.0), jnp.array(10.0), d, params))
+        def coagulate_fn(d: jax.Array):
+            return coagulate(jnp.array(100.0), jnp.array(10.0), d, params)
+
+        jit_coag = jax.jit(coagulate_fn)
         eff, eta = jit_coag(jnp.array(30.0))
         assert jnp.isfinite(eff)
         assert jnp.isfinite(eta)
@@ -265,7 +278,10 @@ class TestADM1Unit:
     def test_jit_compatible(self) -> None:
         params = ADM1Params()
         state = adm1_reset(30000.0, params, jax.random.PRNGKey(4))
-        jit_step = jax.jit(lambda s: adm1_step(s, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167)))
+        def step_fn(s: ADM1State):
+            return adm1_step(s, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167))
+
+        jit_step = jax.jit(step_fn)
         s2, qb, ch4, ph = jit_step(state)
         assert jnp.isfinite(qb)
         assert jnp.isfinite(ph)
@@ -316,7 +332,10 @@ class TestASM2dUnit:
     def test_jit_compatible(self) -> None:
         params = ASM2dParams()
         state = make_default_influent_asm2d().at[4].set(2500.0).at[14].set(500.0)
-        jit_rxn = jax.jit(lambda s: reactions_asm2d(s, params))
+        def reactions_fn(s: jax.Array):
+            return reactions_asm2d(s, params)
+
+        jit_rxn = jax.jit(reactions_fn)
         dc = jit_rxn(state)
         assert jnp.all(jnp.isfinite(dc))
 
