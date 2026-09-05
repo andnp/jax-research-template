@@ -155,18 +155,18 @@ def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
     raw_env, env_params = gymnax.make(_CONFIG.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(_CONFIG)
-    train_fn = jax.jit(
-        jax.vmap(
-            lambda key: run(
-                agent,
-                env,
-                key,
-                steps=_CONFIG.TOTAL_TIMESTEPS,
-                gamma=_GAMMA,
-                env_params=env_params,
-            )
+
+    def train_one_key(key: jax.Array):
+        return run(
+            agent,
+            env,
+            key,
+            steps=_CONFIG.TOTAL_TIMESTEPS,
+            gamma=_GAMMA,
+            env_params=env_params,
         )
-    )
+
+    train_fn = jax.jit(jax.vmap(train_one_key))
     keys = jax.vmap(jax.random.PRNGKey)(jnp.arange(_CONFIG.SEED, _CONFIG.SEED + _NUM_SEEDS))
     final_state, metrics = train_fn(keys)
     return _smoothed_return_curve(metrics), final_state.agent_state.obs_norm_state.observation_count
