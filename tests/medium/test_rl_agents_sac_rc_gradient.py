@@ -94,8 +94,11 @@ class TestSACRCGradientFlow:
         params_h_nonzero = {"params": {**params["params"], "h_head": {"kernel": nonzero_h_head}}}
 
         def batch_loss(p: VariableDict) -> jax.Array:
-            q, h = jax.vmap(lambda o, a: critic.apply(p, o, a))(obs, actions)
-            next_q, _ = jax.vmap(lambda o, a: critic.apply(p, o, a))(next_obs, next_actions)
+            def apply_critic(o: jax.Array, a: jax.Array):
+                return critic.apply(p, o, a)
+
+            q, h = jax.vmap(apply_critic)(obs, actions)
+            next_q, _ = jax.vmap(apply_critic)(next_obs, next_actions)
             v_loss, _, _ = jax.vmap(sac_rc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
                 q, h, rewards, discounts, next_q, next_log_probs, alpha
             )
