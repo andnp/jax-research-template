@@ -18,7 +18,7 @@ import jax.numpy as jnp
 from flax.typing import VariableDict
 from rl_agents import double_q
 from rl_agents.double_dqn import DoubleDQNConfig
-from rl_agents.q_networks import make_q_network
+from rl_networks.q_networks import make_q_network
 
 BATCH_SIZE = 8
 OBS_DIM = 2

@@ -60,8 +60,7 @@ from rl_components.layers import NoisyLinear
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
-
-from rl_agents.q_networks import infer_nature_observation_layout, prepare_nature_observations
+from rl_networks.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
 type RainbowApplyFn = Callable[..., jax.Array]
 """The network's ``apply``, as reached through ``TrainState.apply_fn``.

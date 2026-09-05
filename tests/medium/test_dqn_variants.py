@@ -24,8 +24,8 @@ import jax.numpy as jnp
 import pytest
 from rl_agents.double_dqn import DoubleDQNAgent, DoubleDQNConfig
 from rl_agents.dueling_dqn import DuelingDQNAgent, DuelingDQNConfig, DuelingQNetwork, _make_dueling_q_network
-from rl_agents.q_networks import NatureQNetwork, make_q_network
 from rl_components.env_protocol import EnvSpec
+from rl_networks.q_networks import NatureQNetwork, make_q_network
 
 DUELING_MODULE = "DuelingHead_0"
 """The name Flax gives the head inside ``DuelingQNetwork``, absent from the plain MLP."""

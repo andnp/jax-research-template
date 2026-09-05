@@ -21,8 +21,8 @@ import jax
 import jax.numpy as jnp
 from flax.typing import VariableDict
 from rl_components.structs import chex_struct
+from rl_networks.q_networks import make_q_network
 
-from rl_agents.q_networks import make_q_network
 from rl_agents.replay_q_agent import QApplyFn, ReplayQAgent
 
 

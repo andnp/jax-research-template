@@ -22,8 +22,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 from rl_agents import double_dqn, double_q, dueling_dqn, greedy_ac, replay_q_agent, sac, sac_rc, td3
-from rl_agents.q_networks import make_q_network
 from rl_agents.rainbow import RainbowConfig, RainbowNatureNetwork, rainbow_loss, rainbow_support
+from rl_networks.q_networks import make_q_network
 
 BATCH_SIZE = 8
 OBS_DIM = 2

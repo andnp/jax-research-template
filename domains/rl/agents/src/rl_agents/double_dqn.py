@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import Literal
 
 from rl_components.structs import chex_struct
+from rl_networks.q_networks import make_q_network
 
 from rl_agents.double_q import DoubleQAgent
-from rl_agents.q_networks import make_q_network
 
 
 @chex_struct(frozen=True, kw_only=True)

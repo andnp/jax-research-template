@@ -46,8 +46,7 @@ from rl_components.env_protocol import EnvSpec
 from rl_components.heads import epsilon_greedy_action
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
-
-from rl_agents.q_networks import NatureQNetwork, infer_nature_observation_layout
+from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
 
 
 @chex_struct(frozen=True, kw_only=True)

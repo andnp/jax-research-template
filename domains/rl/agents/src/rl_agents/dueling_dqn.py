@@ -66,7 +66,7 @@ class DuelingQNetwork(TypedApply[jax.Array], nn.Module):
 def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> DuelingQNetwork:
     """Select the dueling network for ``config``'s preset.
 
-    Takes no observation shape, unlike :func:`rl_agents.q_networks.make_q_network`, which
+    Takes no observation shape, unlike :func:`rl_networks.q_networks.make_q_network`, which
     needs one only to infer the Nature CNN's frame layout. The one preset supported here
     is a flat MLP, and the agent's ``init`` derives the shape it needs from the
     environment spec.

@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from rl_agents.dqn import DQNConfig
-from rl_agents.q_networks import NatureQNetwork, QNetwork, make_q_network
+from rl_networks.q_networks import NatureQNetwork, QNetwork, make_q_network
 
 
 class TestDQNConfig:
