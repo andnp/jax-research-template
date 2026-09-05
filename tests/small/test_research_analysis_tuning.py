@@ -1,8 +1,66 @@
 """Small unit tests for research_analysis.tuning."""
 
+import sqlite3
+from collections.abc import Generator
+from pathlib import Path
+
 import numpy as np
 import pytest
-from research_analysis.tuning import HierarchicalBootstrapCI, hierarchical_bootstrap_ci
+from experiment_definition.db import DatabaseManager
+from research_analysis.tuning import (
+    HierarchicalBootstrapCI,
+    hierarchical_bootstrap_ci,
+    hierarchical_bootstrap_ci_from_experiment,
+)
+
+
+def _populate_metrics_db(db_path: Path, run_id: int, execution_id: int, metric_name: str, value: float) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS metrics (run_id INTEGER, execution_id INTEGER, "
+        "metric_name TEXT, global_step INTEGER, value REAL)"
+    )
+    conn.execute(
+        "INSERT INTO metrics (run_id, execution_id, metric_name, global_step, value) VALUES (?, ?, ?, ?, ?)",
+        (run_id, execution_id, metric_name, 0, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+@pytest.fixture
+def tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]:
+    """A tiny experiment with 3 hyper values x 5 seeds, hyper 2 clearly best."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_db_path = tmp_path / "metrics.sqlite"
+    slug = "tuning-test-exp"
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment(slug, "Tuning test experiment")
+        algo_ver_id = db.add_component_version(db.add_component("algo", "ALGO"), "hash_algo")
+        env_ver_id = db.add_component_version(db.add_component("env", "ENV"), "hash_env")
+
+        for learning_rate in (0.001, 0.01, 0.1):
+            for seed in range(5):
+                base = 10.0 if learning_rate == 0.1 else 0.0
+                hyper_id = db.add_hyperparam_config({"learning_rate": learning_rate, "seed": seed})
+                run_id = db.add_run(
+                    experiment_id=exp_id,
+                    algo_version_id=algo_ver_id,
+                    env_version_id=env_ver_id,
+                    hyper_id=hyper_id,
+                    seed=seed,
+                )
+                exec_id = db.add_execution()
+                db.update_execution_status(exec_id, "COMPLETED")
+                db.link_execution_run(exec_id, run_id)
+                db.record_execution_artifacts(
+                    exec_id, str(tmp_path), metadata={"metrics_db_path": str(metrics_db_path)}
+                )
+                _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", base + seed)
+
+    yield db_path, slug
 
 
 class TestHierarchicalBootstrapCI:
@@ -95,3 +153,24 @@ class TestHierarchicalBootstrapCI:
         probs, _entropy = get_hyper_distribution(data, h_samples=4, selection_trials=50, seed=0)
         # Hyper 1 dominates unambiguously regardless of which 4-of-4 draw order is used.
         assert probs[1] == 1.0
+
+
+class TestHierarchicalBootstrapCIFromExperiment:
+    def test_loads_and_evaluates_the_stored_grid(self, tuning_experiment: tuple[Path, str]) -> None:
+        """Verify the db-driven wrapper reproduces the array-based function's contract."""
+        db_path, slug = tuning_experiment
+        res = hierarchical_bootstrap_ci_from_experiment(
+            db_path, slug, ["learning_rate"], "reward", h_samples=3, e_samples=5, seed=1
+        )
+        assert isinstance(res, HierarchicalBootstrapCI)
+        # learning_rate=0.1 has base reward 10.0 vs 0.0 for the others: unambiguous winner.
+        assert res.hyper_probs[-1] > 0.95
+        assert res.ci_low <= res.mean <= res.ci_high
+
+    def test_rejects_ungrouped_hyperparameter(self, tuning_experiment: tuple[Path, str]) -> None:
+        """A key absent from every run's config raises, matching _load_hyperparameter_records."""
+        db_path, slug = tuning_experiment
+        with pytest.raises(ValueError, match="No completed runs found"):
+            hierarchical_bootstrap_ci_from_experiment(
+                db_path, slug, ["nonexistent_key"], "reward", h_samples=3, e_samples=5
+            )
