@@ -388,7 +388,7 @@ class ExperimentRow(NamedTuple):
 class RunRow(NamedTuple):
     id: int
     experiment_id: int
-    algo_version_id: int
+    algo_version_id: int | None
     env_version_id: int
     hyper_id: int
     seed: int
@@ -698,7 +698,7 @@ class DatabaseManager:
     def add_run(
         self,
         experiment_id: int,
-        algo_version_id: int,
+        algo_version_id: int | None,
         env_version_id: int,
         hyper_id: int,
         seed: int,

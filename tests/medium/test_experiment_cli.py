@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import cast
 
 from experiment_definition.db import DatabaseManager
 from research_cli.main import app
@@ -130,7 +129,7 @@ def test_experiment_status_renders_null_version_ids(tmp_path: Path) -> None:
         env_ver_id = db.add_component_version(env_id, "def456")
         hyper_id = db.add_hyperparam_config({"lr": 0.01})
 
-        db.add_run(exp_id, cast(int, None), env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, None, env_ver_id, hyper_id, seed=0)
         db.add_run(exp_id, ver_id, env_ver_id, hyper_id, seed=1)
 
     result = runner.invoke(app, ["experiment", "status", str(db_path)])
