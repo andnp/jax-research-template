@@ -36,9 +36,10 @@ def main() -> None:
 
     # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.
-    parallel_train = jax.vmap(
-        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
-    )
+    def train_one_seed(key: jax.Array):
+        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+
+    parallel_train = jax.vmap(train_one_seed)
     parallel_train = jax.jit(parallel_train)
 
     print(f"--- Running {NUM_SEEDS} independent PPO agents in parallel ---")
