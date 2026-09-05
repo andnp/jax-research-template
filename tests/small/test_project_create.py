@@ -1,7 +1,6 @@
 """Small tests for the project create command surface."""
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from jinja2 import BaseLoader, Environment
@@ -107,7 +106,7 @@ def test_project_create_dry_run_does_not_render_or_invoke_git(tmp_path: Path, mo
 
     calls: list[str] = []
 
-    def fake_run_copy(*args: Any, **kwargs: Any) -> None:
+    def fake_run_copy(*args: object, **kwargs: object) -> None:
         calls.append("copier")
 
     def fake_run(args: list[str], cwd: Path) -> None:
@@ -219,7 +218,7 @@ def test_project_create_renders_then_initializes_git_without_github_repo(tmp_pat
 
     calls: list[tuple[str, object, object]] = []
 
-    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: object) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
         assert data == {"project_name": "demo"}
         assert kwargs == {"defaults": True}
@@ -252,7 +251,7 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
 
     calls: list[tuple[str, object, object]] = []
 
-    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: object) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
         assert data == {"project_name": "demo"}
         assert kwargs == {"defaults": True}
@@ -314,7 +313,7 @@ def test_project_create_uses_workspace_defaults_for_private_submodule(tmp_path: 
 
     calls: list[tuple[str, object, object]] = []
 
-    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: Any) -> None:
+    def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: object) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
         project_root.mkdir()
 
