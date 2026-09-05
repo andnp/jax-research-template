@@ -1707,7 +1707,7 @@ requires-dist = [
     { name = "research-runner", editable = "libs/research-runner" },
     { name = "research-store", editable = "libs/research-store" },
     { name = "rich" },
-    { name = "rl-agents", editable = "libs/rl-agents" },
+    { name = "rl-agents", editable = "domains/rl/agents" },
     { name = "rl-components", extras = ["playground"], editable = "libs/rl-components" },
     { name = "rl-envs", editable = "domains/rl/envs" },
     { name = "rl-networks", editable = "domains/rl/networks" },
@@ -1800,7 +1800,7 @@ wheels = [
 [[package]]
 name = "rl-agents"
 version = "0.1.0"
-source = { editable = "libs/rl-agents" }
+source = { editable = "domains/rl/agents" }
 dependencies = [
     { name = "flax" },
     { name = "gymnax" },
