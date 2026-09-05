@@ -18,11 +18,15 @@ from flax.typing import VariableDict
 from rl_agents.qrc import QRCNetwork, _make_tx, qrc_loss_batch
 
 
+def _shift_by_one(leaf: jax.Array):
+    return leaf + 1.0
+
+
 def test_h_head_shrinks_under_zero_gradient_but_trunk_and_q_head_do_not() -> None:
     net = QRCNetwork(action_dim=3)
     raw_params = net.init(jax.random.key(0), jnp.zeros((4,)))
     # Zero-init heads never move on their own; give every leaf a real value.
-    params = cast(VariableDict, jax.tree.map(lambda leaf: leaf + 1.0, raw_params))
+    params = cast(VariableDict, jax.tree.map(_shift_by_one, raw_params))
 
     weight_decay = 0.5
     tx = _make_tx(params, learning_rate=1e-2, weight_decay=weight_decay)
@@ -52,7 +56,7 @@ def test_h_head_does_not_shrink_under_zero_gradient_in_l2_mode() -> None:
     """
     net = QRCNetwork(action_dim=3)
     raw_params = net.init(jax.random.key(0), jnp.zeros((4,)))
-    params = cast(VariableDict, jax.tree.map(lambda leaf: leaf + 1.0, raw_params))
+    params = cast(VariableDict, jax.tree.map(_shift_by_one, raw_params))
 
     tx = _make_tx(params, learning_rate=1e-2, weight_decay=0.5, h_regularization="l2")
     opt_state = tx.init(params)
@@ -79,9 +83,18 @@ def test_l2_mode_adds_beta_scaled_h_head_penalty_to_the_loss() -> None:
     key = jax.random.key(0)
     params = cast(VariableDict, net.init(key, jnp.zeros((4,))))
     # Zero-init heads never move on their own; give the h-head a real, nonzero value.
+    def shift_by_point_three(leaf: jax.Array):
+        return leaf + 0.3
+
     params = cast(
         VariableDict,
-        {**params, "params": {**params["params"], "h_head": jax.tree.map(lambda leaf: leaf + 0.3, params["params"]["h_head"])}},
+        {
+            **params,
+            "params": {
+                **params["params"],
+                "h_head": jax.tree.map(shift_by_point_three, params["params"]["h_head"]),
+            },
+        },
     )
 
     obs_key, next_key = jax.random.split(key)
