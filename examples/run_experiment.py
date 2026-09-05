@@ -30,7 +30,7 @@ def main() -> None:
 
     dqn_component = Component(
         name="DQN",
-        path=Path("libs/rl-agents/src/rl_agents/dqn.py"),
+        path=Path("domains/rl/agents/src/rl_agents/dqn.py"),
         type=ComponentType.ALGO,
     )
     env_component = Component(
