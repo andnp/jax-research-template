@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, overload
@@ -352,9 +353,16 @@ def _present_pairwise(
 def _load_hyperparameter_records(
     db_path: Path,
     experiment_slug: str,
-    target_hyperparameter: str,
+    hyperparameter_keys: Sequence[str],
     metric_name: str,
 ) -> list[dict[str, Any]]:
+    """Load completed runs' final metric value plus their full hyperparameter dict.
+
+    ``hyperparameter_keys`` filters to runs whose config defines every listed
+    key; a run's identity for grouping purposes is the tuple of those keys'
+    values, but the full ``hypers`` dict is kept on each record so callers
+    that only ever needed one key (like ``analyze_hypers``) are unaffected.
+    """
     with DatabaseManager(db_path) as database:
         database.initialize()
         exp_row = database.get_experiment(experiment_slug)
@@ -374,8 +382,7 @@ def _load_hyperparameter_records(
             if hyper_config is None:
                 continue
             hypers = json.loads(hyper_config.json_blob)
-            val = hypers.get(target_hyperparameter)
-            if val is None:
+            if any(hypers.get(key) is None for key in hyperparameter_keys):
                 continue
 
             metrics_db = _resolve_metrics_db_path(latest_art.root_path)
@@ -385,7 +392,7 @@ def _load_hyperparameter_records(
             records.append({"run_id": run.id, "seed": run.seed, "value": float(metric_curve[-1]), "hypers": hypers})
 
     if not records:
-        raise ValueError(f"No completed runs found containing hyperparameter {target_hyperparameter!r}")
+        raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
     return records
 
 
@@ -523,7 +530,7 @@ def analyze_hypers(
     records = _load_hyperparameter_records(
         db_path,
         experiment_slug,
-        target_hyperparameter,
+        [target_hyperparameter],
         metric_name,
     )
 
