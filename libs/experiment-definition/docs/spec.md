@@ -38,7 +38,7 @@ exp = Experiment("Policy Gradient Ablations")
 # Define Generic Components
 ppo = Component(
     name="PPO",
-    path=Path("libs/rl-agents/src/rl_agents/ppo.py"),
+    path=Path("domains/rl/agents/src/rl_agents/ppo.py"),
     type=ComponentType.ALGO,
 )
 env = Component(

@@ -6,7 +6,7 @@ Usage::
 
     exp = Experiment("Policy Gradient Ablations")
 
-    ppo = Component(name="PPO", path="libs/rl-agents/src/rl_agents/ppo.py", type="ALGO")
+    ppo = Component(name="PPO", path="domains/rl/agents/src/rl_agents/ppo.py", type="ALGO")
     env = Component(name="CartPole", path="libs/rl-components/src/rl_components/envs.py", type="ENV")
 
     exp.add_parameter("seed", range(5))
