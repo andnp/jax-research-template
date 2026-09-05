@@ -102,3 +102,14 @@ def tree_lerp[T](a: T, b: T, t: float | Array) -> T:
         return x + t * (y - x)
 
     return jax.tree_util.tree_map(lerp, a, b)
+
+
+def shift_head_axis[T](tree: T, axis: int) -> T:
+    """Shift every leaf's ``axis`` left by one, duplicating the last slot into the vacated one."""
+
+    def shift(x: Array) -> Array:
+        dst = (slice(None),) * axis + (slice(None, -1),)
+        src = (slice(None),) * axis + (slice(1, None),)
+        return x.at[dst].set(x[src])
+
+    return jax.tree_util.tree_map(shift, tree)
