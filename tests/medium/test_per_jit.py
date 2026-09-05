@@ -6,11 +6,11 @@ Target duration: < 1s.
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-from jax_replay.per import init_per_buffer, per_add, per_sample, per_update_priorities
+from jax_replay.per import PERBufferState, init_per_buffer, per_add, per_sample, per_update_priorities
 
 
 class Transition(NamedTuple):
@@ -33,7 +33,7 @@ class TestPerJit:
         weights = jnp.zeros((4,))
 
         @jax.jit
-        def _step(state: Any, key: jax.Array) -> tuple[Any, jax.Array]:
+        def _step(state: PERBufferState, key: jax.Array) -> tuple[PERBufferState, jax.Array]:
             t = Transition(obs=jnp.ones(2), reward=jnp.float32(1.0))
             state = per_add(state, t, alpha=0.6)
             batch, weights, indices = per_sample(state, key, batch_size=4, beta=0.4, prototype=proto)
@@ -66,7 +66,7 @@ class TestPerSamplingDistribution:
         )
 
         @jax.jit
-        def _sample_weights(state: Any, key: jax.Array) -> tuple[jax.Array, jax.Array]:
+        def _sample_weights(state: PERBufferState, key: jax.Array) -> tuple[jax.Array, jax.Array]:
             _, weights, indices = per_sample(state, key, batch_size=4, beta=1.0, prototype=proto)
             return weights, indices
 
@@ -93,7 +93,7 @@ class TestPerSamplingDistribution:
         batch_size = 4
 
         @jax.jit
-        def _sample(state: Any, key: jax.Array) -> jax.Array:
+        def _sample(state: PERBufferState, key: jax.Array) -> jax.Array:
             _, _, idx = per_sample(state, key, batch_size=batch_size, beta=1.0, prototype=proto)
             return idx
 
