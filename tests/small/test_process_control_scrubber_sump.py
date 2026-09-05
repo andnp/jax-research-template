@@ -254,7 +254,10 @@ def test_jit_compatible(params: ScrubberSumpParams, rng: jax.Array):
         sulfide_load=jnp.array(1.0),
     )
 
-    jit_step = jax.jit(lambda s: step(s, inputs, params, dt))
+    def step_fn(s: ScrubberSumpState):
+        return step(s, inputs, params, dt)
+
+    jit_step = jax.jit(step_fn)
     result = jit_step(state)
 
     # Should produce valid output
