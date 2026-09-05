@@ -18,9 +18,9 @@ from typing import Literal
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from jax_nn.heads import DuelingHead
 from jax_nn.initializers import stable_orthogonal
 from jax_nn.typed_module import TypedApply
+from rl_components.heads import DuelingHead
 from rl_components.structs import chex_struct
 
 from rl_agents.double_q import DoubleQAgent

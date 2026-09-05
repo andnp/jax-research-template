@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from jax_nn.heads import epsilon_greedy_action
+from rl_components.heads import epsilon_greedy_action
 
 SEED = 42
 

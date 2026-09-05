@@ -24,7 +24,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 from flax.typing import VariableDict
-from jax_nn.heads import DuelingHead
+from rl_components.heads import DuelingHead
 
 SEED = 42
 ACTION_DIM = 4

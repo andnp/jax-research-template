@@ -40,10 +40,10 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
-from jax_nn.heads import epsilon_greedy_action
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
+from rl_components.heads import epsilon_greedy_action
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
