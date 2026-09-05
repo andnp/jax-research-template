@@ -9,12 +9,12 @@ import jax
 
 
 @overload
-def typed_jit[**P, R](fn: Callable[P, R]) -> Callable[P, R]: ...
+def jit[**P, R](fn: Callable[P, R]) -> Callable[P, R]: ...
 @overload
-def typed_jit[**P, R](fn: Callable[P, R], *, donate_argnums: int | tuple[int, ...] = ...) -> Callable[P, R]: ...
+def jit[**P, R](fn: Callable[P, R], *, donate_argnums: int | tuple[int, ...] = ...) -> Callable[P, R]: ...
 
 
-def typed_jit[**P, R](
+def jit[**P, R](
     fn: Callable[P, R],
     *,
     donate_argnums: int | tuple[int, ...] = (),
@@ -34,7 +34,7 @@ def typed_jit[**P, R](
     return cast(Callable[P, R], jax.jit(fn, donate_argnums=donate_argnums))
 
 
-def typed_vmap[**P, R](
+def vmap[**P, R](
     fn: Callable[P, R],
     *,
     in_axes: int | tuple[object, ...] = 0,

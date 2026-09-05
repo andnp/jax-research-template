@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 from jax_utils.pytree import tree_add, tree_lerp, tree_mean, tree_norm, tree_zeros_like
-from jax_utils.wrappers import typed_jit, typed_vmap
+from jax_utils.wrappers import jit, vmap
 
 
 class TestPytreeOpsJIT:
@@ -42,12 +42,12 @@ class TestPytreeOpsJIT:
         assert jnp.allclose(final["w"], tree["w"])
 
 
-class TestTypedJit:
+class TestJit:
     def test_basic(self) -> None:
         def add(a: jax.Array, b: jax.Array) -> jax.Array:
             return a + b
 
-        jitted = typed_jit(add)
+        jitted = jit(add)
         result = jitted(jnp.array(1.0), jnp.array(2.0))
         assert float(result) == 3.0
 
@@ -55,18 +55,18 @@ class TestTypedJit:
         def make_pair(x: jax.Array) -> tuple[jax.Array, jax.Array]:
             return x, x * 2
 
-        jitted = typed_jit(make_pair)
+        jitted = jit(make_pair)
         a, b = jitted(jnp.array(3.0))
         assert float(a) == 3.0
         assert float(b) == 6.0
 
 
-class TestTypedVmap:
+class TestVmap:
     def test_basic(self) -> None:
         def square(x: jax.Array) -> jax.Array:
             return x**2
 
-        vmapped = typed_vmap(square)
+        vmapped = vmap(square)
         result = vmapped(jnp.array([1.0, 2.0, 3.0]))
         assert jnp.allclose(result, jnp.array([1.0, 4.0, 9.0]))
 
@@ -74,7 +74,7 @@ class TestTypedVmap:
         def identity(x: jax.Array) -> jax.Array:
             return x
 
-        vmapped = typed_vmap(identity, axis_name="batch")
+        vmapped = vmap(identity, axis_name="batch")
         result = vmapped(jnp.array([1.0, 2.0]))
         assert jnp.allclose(result, jnp.array([1.0, 2.0]))
 
@@ -82,6 +82,6 @@ class TestTypedVmap:
         def f(x: jax.Array) -> jax.Array:
             return x + 1
 
-        composed = typed_jit(typed_vmap(f))
+        composed = jit(vmap(f))
         result = composed(jnp.array([1.0, 2.0, 3.0]))
         assert jnp.allclose(result, jnp.array([2.0, 3.0, 4.0]))
