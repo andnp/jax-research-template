@@ -1,6 +1,6 @@
 """Medium tests for rl_components.buffers — JIT compilation and functional correctness."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -13,7 +13,7 @@ class TestReplayBufferJIT:
         state = buf.init()
 
         @jax.jit
-        def add_one(state: Any) -> Any:
+        def add_one(state: ReplayBufferState) -> ReplayBufferState:
             return buf.add(
                 state,
                 obs=jnp.ones((1, 4)),
@@ -41,7 +41,7 @@ class TestReplayBufferJIT:
             )
 
         @jax.jit
-        def sample(state: Any, key: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+        def sample(state: ReplayBufferState, key: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
             return buf.sample(state, key, batch_size=4)
 
         key = jax.random.key(0)
@@ -53,7 +53,7 @@ class TestReplayBufferJIT:
         buf = ReplayBuffer(capacity=50, obs_shape=(2,), action_shape=(), action_dtype=jnp.int32)
         state = buf.init()
 
-        def step(carry: tuple[Any, jax.Array], t: jax.Array) -> tuple[tuple[Any, jax.Array], jax.Array]:
+        def step(carry: tuple[ReplayBufferState, jax.Array], t: jax.Array) -> tuple[tuple[ReplayBufferState, jax.Array], jax.Array]:
             buf_state, key = carry
             key, k1 = jax.random.split(key)
             buf_state = buf.add(
@@ -80,7 +80,7 @@ class TestReplayBufferJIT:
         state = buf.init()
 
         @jax.jit
-        def add_and_sample(state: Any, key: jax.Array) -> tuple[Any, tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]]:
+        def add_and_sample(state: ReplayBufferState, key: jax.Array) -> tuple[ReplayBufferState, tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]]:
             updated_state = buf.add(
                 state,
                 obs=jnp.full((1, 2, 2, 1), 7, dtype=jnp.uint8),
