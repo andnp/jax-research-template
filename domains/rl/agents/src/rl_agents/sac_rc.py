@@ -188,9 +188,10 @@ def sac_rc_loss_batch(
         actor_params, next_obs, jax.random.split(rng, obs.shape[0])
     )
 
-    next_q_values = jax.vmap(
-        lambda params, o, a: _critic_apply(critic, params, o, a)[0], in_axes=(0, None, None)
-    )(critic_params, next_obs, next_actions)
+    def member_q(params: VariableDict, o: jax.Array, a: jax.Array) -> jax.Array:
+        return _critic_apply(critic, params, o, a)[0]
+
+    next_q_values = jax.vmap(member_q, in_axes=(0, None, None))(critic_params, next_obs, next_actions)
     next_q_min = jnp.min(next_q_values, axis=0)
 
     def _single_critic_loss(params: VariableDict) -> jax.Array:
@@ -257,9 +258,10 @@ def sac_rc_actor_loss(
         actor_params, obs, jax.random.split(sample_key, obs.shape[0])
     )
 
-    q_values = jax.vmap(
-        lambda params, o, a: _critic_apply(critic, params, o, a)[0], in_axes=(0, None, None)
-    )(critic_params, obs, new_actions)
+    def member_q(params: VariableDict, o: jax.Array, a: jax.Array) -> jax.Array:
+        return _critic_apply(critic, params, o, a)[0]
+
+    q_values = jax.vmap(member_q, in_axes=(0, None, None))(critic_params, obs, new_actions)
     return jnp.mean(alpha * log_probs - jnp.min(q_values, axis=0))
 
 
@@ -503,8 +505,8 @@ class SACRCAgent:
         actor_state = _with_learning_rate(state.actor_state, hypers.LEARNING_RATE)
         alpha_state = _with_learning_rate(state.alpha_state, hypers.LEARNING_RATE)
 
-        critic_loss, critic_grads = jax.value_and_grad(
-            lambda params: sac_rc_loss_batch(
+        def critic_loss_fn(params: VariableDict) -> jax.Array:
+            return sac_rc_loss_batch(
                 params,
                 critic,
                 actor_state.params,
@@ -518,21 +520,20 @@ class SACRCAgent:
                 critic_key,
                 hypers.BETA,
             )
-        )(critic_state.params)
+
+        critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(critic_state.params)
         critic_state = critic_state.apply_gradients(grads=critic_grads)
 
-        actor_loss, actor_grads = jax.value_and_grad(
-            lambda params: sac_rc_actor_loss(
-                params, critic_state.params, obs, alpha, actor_key, actor=actor, critic=critic
-            )
-        )(actor_state.params)
+        def actor_loss_fn(params: VariableDict) -> jax.Array:
+            return sac_rc_actor_loss(params, critic_state.params, obs, alpha, actor_key, actor=actor, critic=critic)
+
+        actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
-        alpha_loss, alpha_grads = jax.value_and_grad(
-            lambda params: sac_alpha_loss(
-                params, actor_state.params, obs, state.target_entropy, alpha_key, actor=actor
-            )
-        )(alpha_state.params)
+        def alpha_loss_fn(params: VariableDict) -> jax.Array:
+            return sac_alpha_loss(params, actor_state.params, obs, state.target_entropy, alpha_key, actor=actor)
+
+        alpha_loss, alpha_grads = jax.value_and_grad(alpha_loss_fn)(alpha_state.params)
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
         return (
