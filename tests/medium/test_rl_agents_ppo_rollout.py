@@ -39,6 +39,10 @@ _NUM_STEPS = 4
 _GAMMA = 0.99
 _SEED = 0
 
+
+def _select_second_slot(window: jax.Array):
+    return window[1]
+
 _SPEC = EnvSpec(
     id="toy:ppo-rollout",
     observation_shape=(2,),
@@ -105,7 +109,7 @@ class TestRolloutSlotLayout:
         second = agent.step(
             first.state, _timestep(_SECOND_OBSERVATION, reward=2.0, discount=_GAMMA, episode_end=False), jnp.int32(1)
         )
-        slot = jax.tree_util.tree_map(lambda window: window[1], second.state.rollout)
+        slot = jax.tree_util.tree_map(_select_second_slot, second.state.rollout)
 
         assert jnp.array_equal(slot.obs, _FIRST_OBSERVATION), "the slot must hold the state the action was chosen from"
         assert jnp.array_equal(slot.action, first.action), "the slot must hold the action that opened the transition"
@@ -135,7 +139,7 @@ class TestRolloutSlotLayout:
             ),
             jnp.int32(1),
         )
-        slot = jax.tree_util.tree_map(lambda window: window[1], boundary.state.rollout)
+        slot = jax.tree_util.tree_map(_select_second_slot, boundary.state.rollout)
 
         assert jnp.array_equal(slot.bootstrap_value, _value_of(state, _TERMINAL_OBSERVATION))
         assert not jnp.array_equal(_value_of(state, _TERMINAL_OBSERVATION), _value_of(state, _RESET_OBSERVATION)), (
@@ -176,9 +180,11 @@ class ToyEpisodeEnv:
 
 def _drive(steps: int) -> tuple[PPOAgentState, dict[str, jax.Array]]:
     agent = PPOAgent(_config())
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA)
-    )(jax.random.key(_SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(_SEED))
     return final_state.agent_state, metrics
 
 
@@ -254,9 +260,11 @@ class TestUpdateSchedule:
         this test existed, including the golden gate and the learning regression.
         """
         agent = PPOAgent(_config())
-        final_state, metrics = jax.jit(
-            lambda key: run(agent, ToyEpisodeEnv(), key, steps=3 * _NUM_STEPS, gamma=_GAMMA, episode_cutoff=2)
-        )(jax.random.key(_SEED))
+
+        def train_fn(key: jax.Array):
+            return run(agent, ToyEpisodeEnv(), key, steps=3 * _NUM_STEPS, gamma=_GAMMA, episode_cutoff=2)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(_SEED))
         rollout = final_state.agent_state.rollout
 
         # The cutoff fires at step 2, before the environment's own step-3 termination, so the
@@ -333,9 +341,11 @@ class TestContinuousPolicy:
         why this environment is driven end to end rather than probed for the flag.
         """
         agent = PPOAgent(_config())
-        final_state, metrics = jax.jit(
-            lambda key: run(agent, ToyContinuousEnv(), key, steps=2 * _NUM_STEPS, gamma=_GAMMA)
-        )(jax.random.key(_SEED))
+
+        def train_fn(key: jax.Array):
+            return run(agent, ToyContinuousEnv(), key, steps=2 * _NUM_STEPS, gamma=_GAMMA)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(_SEED))
 
         assert final_state.agent_state.last_action.shape == (1,)
         assert int(jnp.sum(metrics["total_loss"] != 0.0)) == 2
@@ -348,9 +358,11 @@ class TestObservationNormalization:
         """Normalization is the whole reason a 1e6 observation does not blow the update up."""
         agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
         steps = 2 * _NUM_STEPS
-        final_state, _ = jax.jit(lambda key: run(agent, LargeMagnitudeEnv(), key, steps=steps, gamma=_GAMMA))(
-            jax.random.key(_SEED)
-        )
+
+        def train_fn(key: jax.Array):
+            return run(agent, LargeMagnitudeEnv(), key, steps=steps, gamma=_GAMMA)
+
+        final_state, _ = jax.jit(train_fn)(jax.random.key(_SEED))
 
         for leaf in jax.tree_util.tree_leaves(final_state.agent_state.train_state.params):
             assert bool(jnp.all(jnp.isfinite(leaf)))
@@ -364,8 +376,10 @@ class TestObservationNormalization:
         """
         steps = 3 * _NUM_STEPS
         agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
-        final_state, _ = jax.jit(lambda key: run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA))(
-            jax.random.key(_SEED)
-        )
+
+        def train_fn(key: jax.Array):
+            return run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA)
+
+        final_state, _ = jax.jit(train_fn)(jax.random.key(_SEED))
 
         assert float(final_state.agent_state.obs_norm_state.observation_count) == float(steps)
