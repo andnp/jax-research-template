@@ -34,6 +34,7 @@ configurable on this agent any more. The discount belongs to
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import Literal
 
 import chex
@@ -158,8 +159,11 @@ def _param_labels(params: VariableDict) -> VariableDict:
     the h-head its own (decoupled) update rule without splitting the
     single shared-trunk parameter tree into two.
     """
+    def constant_label(_: jax.Array, label: str) -> str:
+        return label
+
     labeled = {
-        key: jax.tree.map(lambda _, label=("h" if key == "h_head" else "q"): label, subtree)
+        key: jax.tree.map(partial(constant_label, label="h" if key == "h_head" else "q"), subtree)
         for key, subtree in params["params"].items()
     }
     return {**params, "params": labeled}
@@ -351,9 +355,11 @@ class QRCAgent:
 
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
         h_regularization = self.config.H_REGULARIZATION
-        tx = optax.inject_hyperparams(
-            lambda learning_rate, weight_decay: _make_tx(params, learning_rate, weight_decay, h_regularization)
-        )(
+
+        def make_tx(learning_rate: jax.Array | float, weight_decay: jax.Array | float) -> optax.GradientTransformation:
+            return _make_tx(params, learning_rate, weight_decay, h_regularization)
+
+        tx = optax.inject_hyperparams(make_tx)(
             learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32),
             weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
         )
@@ -474,8 +480,8 @@ class QRCAgent:
         )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
-        loss, grads = jax.value_and_grad(
-            lambda params: qrc_loss_batch(
+        def loss_fn(params: VariableDict) -> jax.Array:
+            return qrc_loss_batch(
                 params,
                 obs,
                 actions,
@@ -487,6 +493,7 @@ class QRCAgent:
                 h_regularization=self.config.H_REGULARIZATION,
                 beta=weight_decay,
             )
-        )(train_state.params)
+
+        loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
 
