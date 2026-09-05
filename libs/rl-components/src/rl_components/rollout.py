@@ -159,7 +159,11 @@ def make_fresh_batched_carry(
     action_shape: tuple[int, ...],
 ) -> BatchedRolloutCarry:
     """Create fresh state using separate reset and rollout RNG streams."""
-    split_keys = jax.vmap(lambda key: jax.random.split(key, 2))(seed_keys)
+
+    def split_two(key: jax.Array) -> jax.Array:
+        return jax.random.split(key, 2)
+
+    split_keys = jax.vmap(split_two)(seed_keys)
     resets = jax.vmap(environment.reset)(split_keys[:, 0])
     batch_size = seed_keys.shape[0]
     return BatchedRolloutCarry(
@@ -228,14 +232,22 @@ def run_batched_rollout(
         )
         if rng_mode == "three-way":
             split_count = 4 if reset_policy == "auto_reset" else 3
-            split_keys = jax.vmap(lambda key: jax.random.split(key, split_count))(rng)
+
+            def split_n(key: jax.Array, split_count: int = split_count) -> jax.Array:
+                return jax.random.split(key, split_count)
+
+            split_keys = jax.vmap(split_n)(rng)
             action_keys = split_keys[:, 0]
             environment_keys = split_keys[:, 1]
             reset_keys = split_keys[:, 2] if reset_policy == "auto_reset" else None
             next_rng = split_keys[:, -1]
         else:
             split_count = 3 if reset_policy == "auto_reset" else 2
-            split_keys = jax.vmap(lambda key: jax.random.split(key, split_count))(rng)
+
+            def split_n(key: jax.Array, split_count: int = split_count) -> jax.Array:
+                return jax.random.split(key, split_count)
+
+            split_keys = jax.vmap(split_n)(rng)
             action_keys = None
             environment_keys = split_keys[:, 0]
             reset_keys = split_keys[:, 1] if reset_policy == "auto_reset" else None
@@ -256,7 +268,10 @@ def run_batched_rollout(
         )
         if reset_policy == "auto_reset":
             assert reset_keys is not None
-            reset_split_keys = jax.vmap(lambda key: jax.random.split(key, 2))(reset_keys)
+            def split_two(key: jax.Array) -> jax.Array:
+                return jax.random.split(key, 2)
+
+            reset_split_keys = jax.vmap(split_two)(reset_keys)
             reset_results = jax.vmap(environment.reset)(reset_split_keys[:, 0])
             reset_states = jax.vmap(reset_controller_state)(reset_split_keys[:, 1])
             done = env_step.terminated | env_step.truncated
