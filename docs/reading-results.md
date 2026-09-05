@@ -42,6 +42,8 @@ in the other database that explains what produced it, which is exactly what
 | A genuinely custom query neither of the above covers | `research_analysis.loader.load_sqlite_query(database_path, query) -> pl.DataFrame` — the escape hatch, not the default |
 | A/B comparison between exactly two conditions, with declared estimand/pairing/missingness | `research_analysis.reporting.compare_pairwise(db_path, experiment_slug, condition_a, condition_b, metric_name, ..., spec=None)` |
 | Hyperparameter sweep sensitivity, with cross-fitted (leave-one-seed-out) selection to avoid overstating the winner | `research_analysis.reporting.analyze_hypers(db_path, experiment_slug, target_hyperparameter, metric_name, group_by=None, ...)` |
+| Confidence interval on one arm's *tuned* performance, modeling both which hyperparameter would be selected under a limited budget and evaluation noise, so the interval doesn't collapse to a point estimate as the evaluation budget grows | `research_analysis.tuning.hierarchical_bootstrap_ci_from_experiment(db_path, experiment_slug, hyperparameter_keys, metric_name, h_samples, e_samples, ...)` |
+| Confidence interval on the *difference* between two independently-tuned arms (each with its own hyperparameter grid), paired by seed | `research_analysis.tuning.hierarchical_bootstrap_difference_ci_from_experiment(db_path, experiment_slug, hyperparameter_keys_a, hyperparameter_keys_b, metric_name, h_samples, e_samples, condition_a=..., condition_b=..., ...)` |
 | Multi-algorithm, multi-environment bakeoff (needs ≥3 algorithms and fixed per-env references) | `research_analysis.reporting.compare_bakeoff(db_path, experiment_slug, algorithms, environments, metric_name, references, spec=None)` |
 | A confidence interval on a scalar or a learning curve, or on the difference between two samples | `research_analysis.bootstrap.bootstrap_ci` / `bootstrap_scalar_ci` / `bootstrap_difference_ci` |
 | Declaring the statistical design once so `compare_pairwise` / `compare_bakeoff` share it | `research_analysis.comparison.ComparisonSpec(estimand="mean", pairing="auto", alpha=0.05, missingness="error", pairing_keys=("seed",), ...)` |
@@ -52,6 +54,15 @@ keys, and both functions read `env_name` off it, not just `condition_name`. `ana
 `compare_bakeoff` key off the literal hyperparameter names `condition_name`/`algorithm`/`env_name`
 inside stored JSON instead, which is why `experiment-efficiency.md` tells you to name sweep axes
 `algorithm`, `env_name`, `learning_rate`, `seed`.
+
+`analyze_hypers` and `research_analysis.tuning`'s hierarchical bootstrap functions both guard
+against overstating a hyperparameter's performance, but via different mechanisms and for different
+questions: `analyze_hypers` cross-fits (leave-one-seed-out) to report *one* hyperparameter's
+corrected sensitivity; the `tuning` functions instead simulate the *selection process itself* under
+a stated budget (`h_samples`) and report a confidence interval that keeps that selection's
+uncertainty even at a large evaluation budget (`e_samples`) — reach for `tuning` when the question
+is "how good is the champion I'd actually pick under this budget," not "how sensitive is the metric
+to this one hyperparameter."
 
 ## The component-version trap
 
