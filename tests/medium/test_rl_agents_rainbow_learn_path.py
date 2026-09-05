@@ -114,9 +114,12 @@ def _run(warmup_fraction: float) -> Run:
         TARGET_NETWORK_UPDATE_PERIOD_FRAMES=16,
         N_STEP=N_STEP,
     )
-    final_state, metrics = jax.jit(
-        lambda key: run(RainbowAgent(config), ToyAtariEpisodeEnv(), key, steps=STEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+    agent = RainbowAgent(config)
+
+    def train_fn(key: jax.Array):
+        return run(agent, ToyAtariEpisodeEnv(), key, steps=STEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
 
     agent_state = final_state.agent_state
     count = int(agent_state.buffer_state.count)
