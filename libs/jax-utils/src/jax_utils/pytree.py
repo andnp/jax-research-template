@@ -70,10 +70,15 @@ def tree_std(tree: object) -> Array:
     return jnp.sqrt(sq_diff_sum / total_count)
 
 
+def tree_sum_of_squares(tree: object) -> Array:
+    """Sum of squared values across all leaves of a pytree (an L2 regularization penalty)."""
+    leaves = jax.tree_util.tree_leaves(tree)
+    return _sum_arrays(jnp.sum(jnp.square(leaf)) for leaf in leaves)
+
+
 def tree_norm(tree: object) -> Array:
     """Global L2 norm across all leaves of a pytree."""
-    leaves = jax.tree_util.tree_leaves(tree)
-    return jnp.sqrt(_sum_arrays(jnp.sum(jnp.square(leaf)) for leaf in leaves))
+    return jnp.sqrt(tree_sum_of_squares(tree))
 
 
 def tree_inner_product(a: object, b: object) -> Array:
