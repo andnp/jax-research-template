@@ -112,14 +112,20 @@ class _ZeroAgent:
 
 
 def _run(env: _CounterEnv, *, episode_cutoff: int = -1) -> tuple[LoopState[_CounterState, _AgentState, jax.Array], dict[str, jax.Array]]:
-    return jax.jit(lambda key: run(_ZeroAgent(), env, key, steps=5, gamma=0.99, episode_cutoff=episode_cutoff))(jax.random.key(0))
+    def train_fn(key: jax.Array):
+        return run(_ZeroAgent(), env, key, steps=5, gamma=0.99, episode_cutoff=episode_cutoff)
+
+    return jax.jit(train_fn)(jax.random.key(0))
 
 
 def test_boundary_reset_receives_prior_state_and_preserves_cumulative_clock_under_jit_vmap() -> None:
     """Boundary resets receive prior state and retain its cumulative clock across episodes."""
     env = _PreservingCounterEnv()
 
-    batched_run = jax.jit(jax.vmap(lambda key: run(_ZeroAgent(), env, key, steps=5, gamma=0.99)))
+    def train_fn(key: jax.Array):
+        return run(_ZeroAgent(), env, key, steps=5, gamma=0.99)
+
+    batched_run = jax.jit(jax.vmap(train_fn))
     final_states, metrics = batched_run(jax.random.split(jax.random.key(0), 2))
 
     assert isinstance(env, BoundaryResetProtocol)
@@ -177,7 +183,10 @@ def test_gymnax_adapter_forwards_opt_in_boundary_reset_under_jit() -> None:
     assert not isinstance(ordinary, BoundaryResetProtocol)
     assert isinstance(env, BoundaryResetProtocol)
 
-    reset = jax.jit(lambda state: env.reset_after_episode(jax.random.key(0), state))(jnp.array(7))
+    def reset_fn(state: jax.Array):
+        return env.reset_after_episode(jax.random.key(0), state)
+
+    reset = jax.jit(reset_fn)(jnp.array(7))
 
     assert int(reset.observation) == 8
     assert int(reset.state) == 7
