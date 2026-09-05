@@ -21,7 +21,7 @@ from rl_agents.sac import SACAgent, SACConfig
 from rl_components import loop
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
-from rl_components.gymnax_bridge import make_gymnax_env
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 
 def _agent() -> SACAgent:

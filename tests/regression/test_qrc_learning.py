@@ -25,8 +25,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from rl_agents.qrc import HRegularization, QRCAgent, QRCConfig
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 GAMMA = 0.99
 LATE_FRACTION = 0.9

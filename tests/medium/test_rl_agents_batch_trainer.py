@@ -22,8 +22,8 @@ from rl_agents.sac_rc import SACRCAgent, SACRCConfig, SACRCHypers
 from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvStep
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.types import PPOConfig
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 
 def _make_env(config: Mapping[str, ParameterValue]):

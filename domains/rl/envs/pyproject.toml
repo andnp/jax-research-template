@@ -10,6 +10,8 @@ dependencies = [
     "ale-py>=0.10",
     "gymnasium[atari]>=1.0",
     "opencv-python-headless>=4.0",
+    "gymnax~=0.0",
+    "process-control",
     "rl-components",
 ]
 
@@ -27,3 +29,4 @@ where = ["src"]
 
 [tool.uv.sources]
 rl-components = { workspace = true }
+process-control = { workspace = true }

@@ -8,7 +8,7 @@ the tuple-returning Gymnax-style ``GymEnv[ContinuousActionSpace]`` still consume
 
 Usage::
 
-    from rl_components.process_control_bridge import make_process_control_env
+    from rl_envs.process_control_bridge import make_process_control_env
 
     env = make_process_control_env("bsm1")
     spec = env.spec()
@@ -24,7 +24,6 @@ import chex
 import jax
 import jax.numpy as jnp
 from process_control.benchmarks.registry import BenchmarkEntry, get_action_bounds, get_benchmark_entry
-
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 

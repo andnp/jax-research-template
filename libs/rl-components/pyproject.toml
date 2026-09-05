@@ -7,10 +7,8 @@ dependencies = [
     "chex~=0.1",
     "distrax>=0.1.8",
     "flax~=0.12",
-    "gymnax~=0.0",
     "jax-nn",
     "jax~=0.9",
-    "process-control",
 ]
 
 [build-system]

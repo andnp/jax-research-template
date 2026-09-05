@@ -11,7 +11,7 @@ CORE_ROOT = Path(__file__).resolve().parents[2]
 def _domain_module_names() -> set[str]:
     domains_root = CORE_ROOT / "domains"
     names = set()
-    for src_dir in domains_root.glob("*/*/src"):
+    for src_dir in [*domains_root.glob("*/*/src"), *domains_root.glob("*/src")]:
         names.update(p.name for p in src_dir.iterdir() if (p / "__init__.py").is_file())
     return names
 

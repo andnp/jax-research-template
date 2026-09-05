@@ -57,9 +57,9 @@ import gymnax
 import jax
 import jax.numpy as jnp
 from rl_agents.ppo import PPOAgent
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
 from rl_components.types import PPOConfig
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 _GOLDEN_PATH = Path(__file__).with_name("ppo_golden_baseline.json")
 

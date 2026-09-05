@@ -6,10 +6,10 @@ from collections.abc import Callable, Mapping
 
 import gymnax
 from experiment_definition import ParameterValue
-
 from rl_components.env_protocol import EnvProtocol
-from rl_components.gymnax_bridge import make_gymnax_env
-from rl_components.process_control_bridge import make_process_control_env
+
+from rl_envs.gymnax_bridge import make_gymnax_env
+from rl_envs.process_control_bridge import make_process_control_env
 
 
 def _resolve_process_control(env: str, **overrides: object) -> tuple[EnvProtocol, None]:

@@ -14,7 +14,7 @@ import gymnax
 import jax
 import jax.numpy as jnp
 from rl_components.env_protocol import EnvSpec
-from rl_components.gymnax_bridge import make_gymnax_env, make_normalized_gymnax_env
+from rl_envs.gymnax_bridge import make_gymnax_env, make_normalized_gymnax_env
 
 
 class _CartPoleState(Protocol):

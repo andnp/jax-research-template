@@ -72,7 +72,8 @@ ml-components = { workspace = true }
 process-control = { workspace = true }
 
 [tool.uv.workspace]
-members = ["libs/*", "cli", "domains/*/*"]
+members = ["libs/*", "cli", "domains/*/*", "domains/process-control"]
+exclude = ["domains/process-control/*"]
 
 [dependency-groups]
 dev = [
@@ -102,23 +103,23 @@ indent-style = "space"
 preset = "strict"
 replace-imports-with-any = ["flax.*", "chex.*", "gymnax.*"]
 search-path = [
-    "libs/jax-nn/src",
-    "libs/jax-replay/src",
-    "libs/jax-utils/src",
-    "libs/research-analysis/src",
-    "libs/research-cluster/src",
-    "libs/research-instrument/src",
-    "libs/research-plot/src",
-    "libs/research-runner/src",
-    "libs/research-store/src",
-    "libs/rl-components/src",
-    "libs/ml-components/src",
-    "domains/rl/agents/src",
-    "domains/rl/networks/src",
-    "domains/rl/envs/src",
-    "libs/process-control/src",
-    "libs/experiment-definition/src",
+    "domains/process-control/src",
     "cli/src",
+    "libs/experiment-definition/src",
+    "domains/rl/envs/src",
+    "domains/rl/networks/src",
+    "domains/rl/agents/src",
+    "libs/ml-components/src",
+    "libs/rl-components/src",
+    "libs/research-store/src",
+    "libs/research-runner/src",
+    "libs/research-plot/src",
+    "libs/research-instrument/src",
+    "libs/research-cluster/src",
+    "libs/research-analysis/src",
+    "libs/jax-utils/src",
+    "libs/jax-replay/src",
+    "libs/jax-nn/src",
 ]
 
 [tool.pyrefly.errors]

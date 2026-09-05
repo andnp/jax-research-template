@@ -18,8 +18,8 @@ from research_instrument.collector import configure
 from research_instrument.sqlite_backend import SQLiteBackend
 from research_store.store import Store
 from rl_agents.dqn import DQNAgent, DQNConfig
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 GAMMA = 0.99
 

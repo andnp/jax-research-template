@@ -11,8 +11,8 @@ import jax
 import jax.numpy as jnp
 from rl_agents.sac import SACAgent, SACConfig
 from rl_components.action_normalization import ActionNormalizationWrapper
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 GAMMA = 0.99
 LATE_EPISODES = 20

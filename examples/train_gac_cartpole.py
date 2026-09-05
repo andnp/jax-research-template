@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from rl_agents.greedy_ac import GACAgent, GACConfig
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
-from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
+from rl_envs.gymnax_bridge import make_gymnax_env
 
 GAMMA = 0.99
 

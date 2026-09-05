@@ -4,7 +4,7 @@ import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
-from rl_components.process_control_bridge import make_adapter, make_process_control_env
+from rl_envs.process_control_bridge import make_adapter, make_process_control_env
 
 
 def test_chlorine_adapter_exposes_native_action_bounds() -> None:

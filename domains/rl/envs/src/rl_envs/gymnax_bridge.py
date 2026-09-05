@@ -11,7 +11,6 @@ from typing import Protocol, cast
 import chex
 import jax
 import jax.numpy as jnp
-
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, EnvReset, EnvSpec, EnvStep
 

@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import pytest
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
-from rl_components.env_registry import ENV_FAMILIES, make_env_factory, resolve_env
+from rl_envs.env_registry import ENV_FAMILIES, make_env_factory, resolve_env
 
 
 def test_process_control_family_resolves_a_working_env() -> None:
