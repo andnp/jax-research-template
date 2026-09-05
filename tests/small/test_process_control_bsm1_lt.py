@@ -90,7 +90,7 @@ class TestBSM1LTBenchmark:
         # Sample 12 months
         for month in range(12):
             day = month * 30
-            step_count = int(day * config.bsm1.steps_per_day)
+            step_count = day * config.bsm1.steps_per_day
             s = dataclasses.replace(state, step_count=jnp.array(step_count, dtype=jnp.int32))
             _, _, _, _, info = step(s, action, jax.random.PRNGKey(month))
             temps.append(float(info["temperature"]))
@@ -119,7 +119,7 @@ class TestBSM1LTBenchmark:
         state, _ = reset(jax.random.PRNGKey(42))
         # Summer start needs higher aeration
         action = jnp.array([8.0, 6.0])
-        day_182 = int(182 * config.bsm1.steps_per_day)
+        day_182 = 182 * config.bsm1.steps_per_day
         state = dataclasses.replace(state, step_count=jnp.array(day_182, dtype=jnp.int32))
         for i in range(500):
             state, obs, reward, done, info = step(state, action, jax.random.PRNGKey(i))
@@ -137,7 +137,7 @@ class TestBSM1LTBenchmark:
             reset, step = make_bsm1_lt_benchmark(config)
             state, _ = reset(jax.random.PRNGKey(42))
             # Summer
-            day_182 = int(182 * config.bsm1.steps_per_day)
+            day_182 = 182 * config.bsm1.steps_per_day
             state = dataclasses.replace(state, step_count=jnp.array(day_182, dtype=jnp.int32))
             for i in range(200):
                 state, _, _, _, info = step(state, action, jax.random.PRNGKey(i))
