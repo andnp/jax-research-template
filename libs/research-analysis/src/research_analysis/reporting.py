@@ -598,7 +598,11 @@ def _compute_hyperparameter_statistics(
         runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
 
     raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
-    winning_val = max(raw_means, key=lambda k: raw_means[k])
+
+    def raw_mean_of(k: Any) -> float:
+        return raw_means[k]
+
+    winning_val = max(raw_means, key=raw_mean_of)
     raw_winner_mean = raw_means[winning_val]
 
     seeds = sorted({int(record["seed"]) for record in records})
@@ -612,10 +616,10 @@ def _compute_hyperparameter_statistics(
             training_by_value.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
         if set(training_by_value) != set(runs_by_val):
             raise ValueError("cross-fitted tuning requires every hyperparameter value in every training fold")
-        winner = max(
-            training_by_value,
-            key=lambda value: float(np.mean([record["value"] for record in training_by_value[value]])),
-        )
+        def training_mean_of(value: Any, training_by_value: dict[Any, list[dict[str, Any]]] = training_by_value) -> float:
+            return float(np.mean([record["value"] for record in training_by_value[value]]))
+
+        winner = max(training_by_value, key=training_mean_of)
         held_out = [
             record["value"]
             for record in runs_by_val[winner]
