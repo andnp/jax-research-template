@@ -40,9 +40,11 @@ def hierarchical_bootstrap_ci(
     n_hypers, n_runs = arr.shape
     if n_hypers < 2:
         raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
-    if n_runs < max(h_samples, e_samples):
+    if n_runs < h_samples:
         raise ValueError(
-            f"n_runs ({n_runs}) must be >= max(h_samples={h_samples}, e_samples={e_samples})"
+            f"n_runs ({n_runs}) must be >= h_samples ({h_samples}): the selection budget is "
+            "sampled without replacement, but evaluation resampling is with replacement, so "
+            "e_samples may exceed n_runs"
         )
     if not 0.0 < confidence < 1.0:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")

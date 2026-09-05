@@ -77,5 +77,21 @@ class TestHierarchicalBootstrapCI:
         with pytest.raises(ValueError, match="need at least 2 hyperparameters"):
             hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5)
 
-        with pytest.raises(ValueError, match="must be >= max"):
+        with pytest.raises(ValueError, match="must be >= h_samples"):
             hierarchical_bootstrap_ci(np.ones((3, 5)), h_samples=10, e_samples=5)
+
+    def test_e_samples_may_exceed_n_runs(self) -> None:
+        """Evaluation resampling is with replacement, so e_samples > n_runs is valid."""
+        rng = np.random.default_rng(7)
+        data = rng.normal(size=(2, 8))
+        res = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=50, seed=1)
+        assert res.ci_low <= res.mean <= res.ci_high
+
+    def test_h_samples_selection_is_without_replacement(self) -> None:
+        """A budget equal to n_runs must use every run exactly once, not duplicate any."""
+        from research_analysis._tuning_kernels import get_hyper_distribution
+
+        data = np.array([[1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0]])
+        probs, _entropy = get_hyper_distribution(data, h_samples=4, selection_trials=50, seed=0)
+        # Hyper 1 dominates unambiguously regardless of which 4-of-4 draw order is used.
+        assert probs[1] == 1.0

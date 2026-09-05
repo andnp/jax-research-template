@@ -6,13 +6,28 @@ from numpy.typing import NDArray
 
 
 @numba.njit(cache=True)
+def _sample_without_replacement(n_runs: int, k: int) -> NDArray[np.int64]:
+    """Draw k distinct indices from range(n_runs) via partial Fisher-Yates."""
+    idxs = np.arange(n_runs)
+    for i in range(k):
+        j = i + np.random.randint(0, n_runs - i)
+        idxs[i], idxs[j] = idxs[j], idxs[i]
+    return idxs[:k]
+
+
+@numba.njit(cache=True)
 def get_hyper_distribution(
     data: NDArray[np.float64],
     h_samples: int,
     selection_trials: int,
     seed: int,
 ) -> tuple[NDArray[np.float64], float]:
-    """Sample empirical probability distribution of argmax hyperparameter."""
+    """Sample empirical probability distribution of argmax hyperparameter.
+
+    Each trial's h_samples budget is drawn without replacement, matching a
+    real "I only ran h_samples distinct seeds" selection procedure rather
+    than allowing the same seed to be counted twice within one trial.
+    """
     np.random.seed(seed)
     n_hypers, n_runs = data.shape
     counts = np.zeros(n_hypers, dtype=np.float64)
@@ -22,8 +37,8 @@ def get_hyper_distribution(
         best_val = -1e30
         for h in range(n_hypers):
             total = 0.0
-            for _ in range(h_samples):
-                idx = np.random.randint(0, n_runs)
+            trial_idxs = _sample_without_replacement(n_runs, h_samples)
+            for idx in trial_idxs:
                 total += data[h, idx]
             mean_val = total / h_samples
             if mean_val > best_val:
