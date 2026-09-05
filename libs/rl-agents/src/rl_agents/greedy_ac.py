@@ -50,6 +50,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.networks import TanhNormalDiag
+from rl_components.regularization import l2_regularizer
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -254,16 +255,6 @@ def _tree_norm(tree: VariableDict) -> jax.Array:
     return jnp.sum(jnp.array(norms))
 
 
-def _h_head_l2(critic_params: VariableDict) -> jax.Array:
-    """Sum of squared h-head parameters (tiny — ~256 weights)."""
-    params_dict = critic_params.get("params", critic_params)
-    h_params = params_dict.get("h_head", {})
-    if not h_params:
-        return jnp.array(0.0)
-    sq_sums = [jnp.sum(jnp.square(p)) for p in jax.tree.leaves(h_params)]
-    return jnp.sum(jnp.array(sq_sums))
-
-
 # ═══════════════════════════════════════════════════════════════
 # QRC Critic Loss (element-wise, batched via vmap)
 # ═══════════════════════════════════════════════════════════════
@@ -351,7 +342,7 @@ def gac_critic_loss(
     )
 
     # L2 regularisation on h-head only (QRC paper §3.2)
-    h_reg = _h_head_l2(critic_params)
+    h_reg = l2_regularizer(critic_params, "h_head")
 
     return jnp.mean(losses) + reg_weight * h_reg, jax.tree.map(jnp.mean, metrics)
 
