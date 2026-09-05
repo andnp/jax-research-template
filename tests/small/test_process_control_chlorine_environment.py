@@ -78,7 +78,7 @@ def test_scenario_disturbance_is_visible_in_step_metadata_and_metrics() -> None:
     result = environment.step(reset.plant_state, 2.0)
 
     assert result.info["active_events"] == ("storm",)
-    assert float(cast(float, result.evaluation_metrics["flow.true"])) > 75.0
+    assert cast(float, result.evaluation_metrics["flow.true"]) > 75.0
     assert "flow.true" not in result.reward_inputs
 
 
