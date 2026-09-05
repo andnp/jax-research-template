@@ -68,7 +68,7 @@ class TestMujocoPlaygroundAdapterTruncation:
 
 @dataclass(frozen=True)
 class FakeMjModel:
-    actuator_ctrlrange: Any
+    actuator_ctrlrange: jax.Array
 
 
 class TestMujocoPlaygroundAdapterActionBounds:
@@ -81,7 +81,7 @@ class TestMujocoPlaygroundAdapterActionBounds:
     """
 
     @staticmethod
-    def _adapter(ctrl_range: Any) -> MujocoPlaygroundAdapter:
+    def _adapter(ctrl_range: jax.Array) -> MujocoPlaygroundAdapter:
         next_state = FakePlaygroundState(
             obs=jnp.zeros((1,), dtype=jnp.float32),
             reward=jnp.array(0.0, dtype=jnp.float32),
