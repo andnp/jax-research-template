@@ -60,12 +60,20 @@ def _run_arm(agent: RainbowAgent, hypers: RainbowHypers, key: jax.Array):
     return state.train_state.params
 
 
+def _stack_leaves(*leaves: jax.Array):
+    return jnp.stack(leaves)
+
+
 def _sweep(arms: list[RainbowHypers]):
     agent = RainbowAgent(_config())
     key = jax.random.key(0)
     keys = jnp.stack([key] * len(arms))
-    batched = jax.tree_util.tree_map(lambda *leaves: jnp.stack(leaves), *arms)
-    return jax.jit(jax.vmap(lambda hypers, k: _run_arm(agent, hypers, k)))(batched, keys)
+    batched = jax.tree_util.tree_map(_stack_leaves, *arms)
+
+    def run_hypers_key(hypers: RainbowHypers, k: jax.Array):
+        return _run_arm(agent, hypers, k)
+
+    return jax.jit(jax.vmap(run_hypers_key))(batched, keys)
 
 
 class TestRainbowVmapZone:
