@@ -25,9 +25,10 @@ def main() -> None:
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
-    train_jit = jax.jit(
-        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
-    )
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+
+    train_jit = jax.jit(train_fn)
 
     print(f"--- Training PPO on {config.ENV_NAME} ---")
     print("Compiling...")
