@@ -33,7 +33,10 @@ def test_dqn_atari_ale_smoke() -> None:
     agent = DQNAtariAgent(config, runtime_config)
     env = make_atari_adapter(AleAtariConfig(game="Pong", frame_skip=config.NUM_ACTION_REPEATS))
 
-    final_state, metrics = jax.jit(lambda key: run(agent, env, key, steps=steps, gamma=GAMMA))(jax.random.key(0))
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=steps, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
     for key_name in ("loss", "epsilon", "loop/reward", "loop/episode_end", "loop/episode_return"):
         assert metrics[key_name].shape == (steps,), key_name
