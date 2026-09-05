@@ -72,9 +72,10 @@ class TestDQNNatureEnvIntegration:
         agent = DQNAgent(config)
         env = FakeAtariLikeEnv()
 
-        final_state, metrics = jax.jit(
-            lambda key: run(agent, env, key, steps=STEPS, gamma=GAMMA)
-        )(jax.random.key(0))
+        def train_fn(key: jax.Array):
+            return run(agent, env, key, steps=STEPS, gamma=GAMMA)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
         for key_name in ("loss", "epsilon", "q_max", "loop/reward", "loop/episode_end"):
             assert metrics[key_name].shape == (STEPS,), key_name
