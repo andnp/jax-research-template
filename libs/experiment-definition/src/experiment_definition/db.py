@@ -347,7 +347,9 @@ def _insert_runs(
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
             )
-            wanted.add(int(cur.lastrowid))
+            new_run_id = cur.lastrowid
+            assert new_run_id is not None, "INSERT into Runs did not assign a rowid"
+            wanted.add(new_run_id)
     return wanted
 
 
