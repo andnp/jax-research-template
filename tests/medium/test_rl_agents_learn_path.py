@@ -227,9 +227,11 @@ def _run_dqn(learning_starts: int) -> Run:
     )
     agent = dqn.DQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -247,9 +249,11 @@ def _run_double_dqn(learning_starts: int) -> Run:
     )
     agent = double_dqn.DoubleDQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -267,9 +271,11 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
     )
     agent = dueling_dqn.DuelingDQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -287,9 +293,11 @@ def _run_qrc(learning_starts: int) -> Run:
     )
     agent = qrc.QRCAgent(config)
     env = ToyDiscreteEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -307,9 +315,11 @@ def _run_sac(learning_starts: int) -> Run:
     )
     agent = sac.SACAgent(config)
     env = ToyContinuousEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -328,9 +338,11 @@ def _run_td3(learning_starts: int) -> Run:
     )
     agent = td3.TD3Agent(config)
     env = ToyContinuousEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -348,9 +360,11 @@ def _run_sac_rc(learning_starts: int) -> Run:
     )
     agent = sac_rc.SACRCAgent(config)
     env = ToyContinuousEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
@@ -370,9 +384,11 @@ def _run_greedy_ac(learning_starts: int) -> Run:
     )
     agent = greedy_ac.GACAgent(config)
     env = ToyContinuousEpisodeEnv()
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=TOTAL_TIMESTEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
         dict(final_state.agent_state),
         metrics,
