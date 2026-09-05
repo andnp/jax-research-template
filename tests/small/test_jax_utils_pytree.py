@@ -11,6 +11,7 @@ from jax_utils.pytree import (
     tree_scalar_mul,
     tree_std,
     tree_sub,
+    tree_sum_of_squares,
     tree_zeros_like,
 )
 
@@ -82,6 +83,20 @@ class TestTreeNorm:
         tree = {"a": jnp.array([1.0]), "b": jnp.array([2.0]), "c": jnp.array([2.0])}
         # sqrt(1 + 4 + 4) = 3
         assert jnp.allclose(tree_norm(tree), 3.0)
+
+
+class TestTreeSumOfSquares:
+    def test_single_leaf(self) -> None:
+        tree = {"w": jnp.array([3.0, 4.0])}
+        assert jnp.allclose(tree_sum_of_squares(tree), 25.0)
+
+    def test_multiple_leaves(self) -> None:
+        tree = {"a": jnp.array([1.0]), "b": jnp.array([2.0]), "c": jnp.array([2.0])}
+        assert jnp.allclose(tree_sum_of_squares(tree), 9.0)
+
+    def test_matches_squared_norm(self) -> None:
+        tree = {"a": jnp.array([1.0, 2.0]), "b": jnp.array([3.0])}
+        assert jnp.allclose(tree_sum_of_squares(tree), tree_norm(tree) ** 2)
 
 
 class TestTreeInnerProduct:
