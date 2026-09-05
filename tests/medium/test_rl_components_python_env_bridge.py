@@ -139,9 +139,10 @@ def test_the_loop_resets_the_frame_stacked_bridge_once_per_boundary() -> None:
     env = FrameStackWrapper(PythonEnvBridge(lambda: gym_env), n_frames=2)
     resets_before = gym_env.reset_count
 
-    _final_state, metrics = jax.jit(
-        lambda key: run(_ConstantActionAgent(), env, key, steps=steps, gamma=GAMMA)
-    )(jax.random.key(0))
+    def train_fn(key: jax.Array):
+        return run(_ConstantActionAgent(), env, key, steps=steps, gamma=GAMMA)
+
+    _final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
     boundaries = int(jnp.sum(metrics["loop/episode_end"]))
     loop_resets = gym_env.reset_count - resets_before
@@ -162,9 +163,10 @@ def test_the_loop_supplies_the_post_reset_observation_the_bridge_no_longer_does(
     gym_env = _FakeGymALE("terminated")
     env = FrameStackWrapper(PythonEnvBridge(lambda: gym_env), n_frames=2)
 
-    final_state, metrics = jax.jit(
-        lambda key: run(_ConstantActionAgent(), env, key, steps=steps, gamma=GAMMA)
-    )(jax.random.key(0))
+    def train_fn(key: jax.Array):
+        return run(_ConstantActionAgent(), env, key, steps=steps, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
     episode_end = metrics["loop/episode_end"].tolist()
     # Frames the agent bootstrapped from, shifted by one: a metric at index i describes the
