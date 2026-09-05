@@ -277,7 +277,7 @@ class TestLatestComponentVersions:
                     (exp_id, env_ver, hyper_id, 0),
                 )
             assert cur.lastrowid is not None
-            run_id = int(cur.lastrowid)
+            run_id = cur.lastrowid
 
             exec_id = db.add_execution()
             db.link_execution_run(exec_id, run_id)
