@@ -7,31 +7,30 @@ in [-1, 1]. The wrapper maps: negative → 0 (left), positive → 1 (right).
 from __future__ import annotations
 
 import time
-from typing import Any
 
 import gymnax
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from rl_agents.greedy_ac import GACAgent, GACConfig
-from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
+from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.loop import run
 
 GAMMA = 0.99
 
 
-class ContinuousCartPole:
+class ContinuousCartPole[StateT, ParamsT]:
     """Wraps a gymnax-bridged CartPole-v1 :class:`EnvProtocol` to accept actions in [-1, 1].
 
     Maps: negative action → discrete action 0 (left),
           positive action → discrete action 1 (right).
     """
 
-    def __init__(self, env: Any) -> None:
+    def __init__(self, env: EnvProtocol[jax.Array, StateT, jax.Array, ParamsT]) -> None:
         self._env = env
 
-    def spec(self, params: Any = None) -> EnvSpec:
+    def spec(self, params: ParamsT | None = None) -> EnvSpec:
         base = self._env.spec(params)
         return EnvSpec(
             id=base.id,
@@ -44,10 +43,10 @@ class ContinuousCartPole:
             truncation_policy=base.truncation_policy,
         )
 
-    def reset(self, key: jax.Array, params: Any = None) -> EnvReset[jax.Array, Any]:
+    def reset(self, key: jax.Array, params: ParamsT | None = None) -> EnvReset[jax.Array, StateT]:
         return self._env.reset(key, params)
 
-    def step(self, key: jax.Array, state: Any, action: jax.Array, params: Any = None) -> EnvStep[jax.Array, Any]:
+    def step(self, key: jax.Array, state: StateT, action: jax.Array, params: ParamsT | None = None) -> EnvStep[jax.Array, StateT]:
         # Map [-1, 1] → {0, 1}
         discrete_action = jnp.where(action[0] < 0, 0, 1).astype(jnp.int32)
         return self._env.step(key, state, discrete_action, params)
