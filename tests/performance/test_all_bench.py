@@ -27,8 +27,9 @@ _sac_env = make_gymnax_env(_sac_raw_env)
 def test_ppo_speed(benchmark: Any) -> None:
     rng = jax.random.PRNGKey(_ppo_config.SEED)
     agent = PPOAgent(_ppo_config)
-    train_jit = jax.jit(
-        lambda key: run(
+
+    def train_fn(key: jax.Array):
+        return run(
             agent,
             _ppo_env,
             key,
@@ -36,7 +37,8 @@ def test_ppo_speed(benchmark: Any) -> None:
             gamma=GAMMA,
             env_params=_ppo_env_params,
         )
-    )
+
+    train_jit = jax.jit(train_fn)
     jax.block_until_ready(train_jit(rng))
     benchmark.pedantic(lambda: jax.block_until_ready(train_jit(rng)), rounds=3)
 
@@ -45,8 +47,9 @@ def test_ppo_speed(benchmark: Any) -> None:
 def test_dqn_speed(benchmark: Any) -> None:
     rng = jax.random.PRNGKey(_dqn_config.SEED)
     agent = DQNAgent(_dqn_config)
-    train_jit = jax.jit(
-        lambda key: run(
+
+    def train_fn(key: jax.Array):
+        return run(
             agent,
             _dqn_env,
             key,
@@ -54,7 +57,8 @@ def test_dqn_speed(benchmark: Any) -> None:
             gamma=GAMMA,
             env_params=_dqn_env_params,
         )
-    )
+
+    train_jit = jax.jit(train_fn)
     jax.block_until_ready(train_jit(rng))
     benchmark.pedantic(lambda: jax.block_until_ready(train_jit(rng)), rounds=3)
 
@@ -63,8 +67,9 @@ def test_dqn_speed(benchmark: Any) -> None:
 def test_sac_speed(benchmark: Any) -> None:
     rng = jax.random.PRNGKey(_sac_config.SEED)
     agent = SACAgent(_sac_config)
-    train_jit = jax.jit(
-        lambda key: run(
+
+    def train_fn(key: jax.Array):
+        return run(
             agent,
             _sac_env,
             key,
@@ -72,6 +77,7 @@ def test_sac_speed(benchmark: Any) -> None:
             gamma=GAMMA,
             env_params=_sac_env_params,
         )
-    )
+
+    train_jit = jax.jit(train_fn)
     jax.block_until_ready(train_jit(rng))
     benchmark.pedantic(lambda: jax.block_until_ready(train_jit(rng)), rounds=2)
