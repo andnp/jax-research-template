@@ -38,10 +38,10 @@ from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.continuous_actions import continuous_action_dim
 from rl_components.env_protocol import EnvSpec
-from rl_components.networks import ActorCritic, ContinuousActorCritic
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_components.types import PPOConfig
+from rl_networks.networks import ActorCritic, ContinuousActorCritic
 
 
 class _ObservationNormState(NamedTuple):

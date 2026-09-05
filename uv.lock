@@ -1885,17 +1885,21 @@ version = "0.1.0"
 source = { editable = "domains/rl/networks" }
 dependencies = [
     { name = "chex" },
+    { name = "distrax" },
     { name = "flax" },
     { name = "jax" },
     { name = "jax-nn" },
+    { name = "rl-components" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "chex", specifier = "~=0.1" },
+    { name = "distrax", specifier = ">=0.1.8" },
     { name = "flax", specifier = "~=0.12" },
     { name = "jax", specifier = "~=0.9" },
     { name = "jax-nn", editable = "libs/jax-nn" },
+    { name = "rl-components", editable = "libs/rl-components" },
 ]
 
 [[package]]

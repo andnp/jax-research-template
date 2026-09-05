@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from rl_agents.ppo import PPOTransition, _sum_action_event_terms, ppo_loss
-from rl_components.networks import ActorCritic, ContinuousActorCritic
+from rl_networks.networks import ActorCritic, ContinuousActorCritic
 
 _CLIP_EPS = jnp.asarray(0.2, dtype=jnp.float32)
 _VF_COEF = jnp.asarray(0.5, dtype=jnp.float32)

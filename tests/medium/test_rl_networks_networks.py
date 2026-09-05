@@ -1,10 +1,10 @@
-"""Medium tests for rl_components.networks — ActorCritic forward pass and JIT."""
+"""Medium tests for rl_networks.networks — ActorCritic forward pass and JIT."""
 
 from typing import Any
 
 import jax
 import jax.numpy as jnp
-from rl_components.networks import ActorCritic, ContinuousActorCritic
+from rl_networks.networks import ActorCritic, ContinuousActorCritic
 
 
 class TestActorCriticForward:
