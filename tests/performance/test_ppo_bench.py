@@ -32,7 +32,7 @@ def test_ppo_speed(benchmark: Any) -> None:
     # Warmup (compilation)
     jax.block_until_ready(train_jit(rng))
 
-    def run_train() -> Any:
+    def run_train():
         out = train_jit(rng)
         jax.block_until_ready(out)
         return out
