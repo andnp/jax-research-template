@@ -79,7 +79,7 @@ def _window(
     episode_end: jax.Array = _EPISODE_END,
 ) -> PPOTransition:
     """Build a rollout window; the acting fields are inert here and stay zero."""
-    length = int(value.shape[0])
+    length = value.shape[0]
     return PPOTransition(
         obs=jnp.zeros((length, 4), dtype=jnp.float32),
         action=jnp.zeros((length,), dtype=jnp.int32),
