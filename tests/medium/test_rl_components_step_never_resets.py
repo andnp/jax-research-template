@@ -165,7 +165,10 @@ class _EndingBraxEnv:
 
 
 def _brax_boundary(monkeypatch: pytest.MonkeyPatch) -> Boundary:
-    monkeypatch.setattr(brax_module, "_make_brax_env", lambda config: _EndingBraxEnv())
+    def make_ending_env(config: BraxConfig):
+        return _EndingBraxEnv()
+
+    monkeypatch.setattr(brax_module, "_make_brax_env", make_ending_env)
     env = BraxAdapter(BraxConfig(env_name="fake"))
     key = jax.random.key(0)
 
@@ -234,14 +237,30 @@ def _frame_stack_boundary() -> Boundary:
     )
 
 
+def _ignore_monkeypatch_gymnax(_monkeypatch: pytest.MonkeyPatch):
+    return _gymnax_boundary()
+
+
+def _ignore_monkeypatch_playground(_monkeypatch: pytest.MonkeyPatch):
+    return _playground_boundary()
+
+
+def _ignore_monkeypatch_process_control(_monkeypatch: pytest.MonkeyPatch):
+    return _process_control_boundary()
+
+
+def _ignore_monkeypatch_frame_stack(_monkeypatch: pytest.MonkeyPatch):
+    return _frame_stack_boundary()
+
+
 @pytest.mark.parametrize(
     "build_boundary",
     [
-        pytest.param(lambda _monkeypatch: _gymnax_boundary(), id="GymnaxEnv"),
+        pytest.param(_ignore_monkeypatch_gymnax, id="GymnaxEnv"),
         pytest.param(_brax_boundary, id="BraxAdapter"),
-        pytest.param(lambda _monkeypatch: _playground_boundary(), id="MujocoPlaygroundAdapter"),
-        pytest.param(lambda _monkeypatch: _process_control_boundary(), id="ProcessControlEnv"),
-        pytest.param(lambda _monkeypatch: _frame_stack_boundary(), id="FrameStackWrapper"),
+        pytest.param(_ignore_monkeypatch_playground, id="MujocoPlaygroundAdapter"),
+        pytest.param(_ignore_monkeypatch_process_control, id="ProcessControlEnv"),
+        pytest.param(_ignore_monkeypatch_frame_stack, id="FrameStackWrapper"),
     ],
 )
 def test_step_returns_the_terminal_state_not_a_fresh_one(
