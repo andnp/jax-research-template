@@ -88,3 +88,44 @@ def resample_two_stage(
         boot_means[b] = total / e_samples
 
     return boot_means
+
+
+@numba.njit(cache=True)
+def resample_two_stage_difference(
+    data_a: NDArray[np.float64],
+    probs_a: NDArray[np.float64],
+    data_b: NDArray[np.float64],
+    probs_b: NDArray[np.float64],
+    e_samples: int,
+    n_resamples: int,
+    seed: int,
+) -> NDArray[np.float64]:
+    """Paired hierarchical bootstrap of the difference mean_a - mean_b.
+
+    Each arm draws its own hyper once per replicate (its own independent
+    selection process), but both arms' e_samples draws reuse the same run
+    index within a replicate -- data_a and data_b must represent the same
+    seed order in the same column positions -- to reduce variance from shared
+    seeds the way research_analysis.reporting.compare_pairwise does.
+    """
+    np.random.seed(seed)
+    n_runs = data_a.shape[1]
+    diffs = np.empty(n_resamples, dtype=np.float64)
+
+    cdf_a = np.cumsum(probs_a)
+    cdf_a[-1] = 1.0
+    cdf_b = np.cumsum(probs_b)
+    cdf_b[-1] = 1.0
+
+    for b in range(n_resamples):
+        h_idx_a = np.searchsorted(cdf_a, np.random.random())
+        h_idx_b = np.searchsorted(cdf_b, np.random.random())
+        total_a = 0.0
+        total_b = 0.0
+        for _ in range(e_samples):
+            run_idx = np.random.randint(0, n_runs)
+            total_a += data_a[h_idx_a, run_idx]
+            total_b += data_b[h_idx_b, run_idx]
+        diffs[b] = total_a / e_samples - total_b / e_samples
+
+    return diffs

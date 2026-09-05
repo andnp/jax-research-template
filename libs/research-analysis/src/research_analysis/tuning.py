@@ -21,6 +21,22 @@ class HierarchicalBootstrapCI:
     selection_entropy: float
 
 
+def _validate_hyper_matrix(arr: NDArray[np.float64], h_samples: int, confidence: float) -> None:
+    if arr.ndim != 2:
+        raise ValueError(f"data must be 2D array of shape (n_hypers, n_runs), got {arr.shape}")
+    n_hypers, n_runs = arr.shape
+    if n_hypers < 2:
+        raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
+    if n_runs < h_samples:
+        raise ValueError(
+            f"n_runs ({n_runs}) must be >= h_samples ({h_samples}): the selection budget is "
+            "sampled without replacement, but evaluation resampling is with replacement, so "
+            "e_samples may exceed n_runs"
+        )
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+
+
 def hierarchical_bootstrap_ci(
     data: NDArray[np.floating],
     h_samples: int,
@@ -38,19 +54,7 @@ def hierarchical_bootstrap_ci(
     from that induced distribution to prevent confidence interval collapse.
     """
     arr = np.asarray(data, dtype=np.float64)
-    if arr.ndim != 2:
-        raise ValueError(f"data must be 2D array of shape (n_hypers, n_runs), got {arr.shape}")
-    n_hypers, n_runs = arr.shape
-    if n_hypers < 2:
-        raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
-    if n_runs < h_samples:
-        raise ValueError(
-            f"n_runs ({n_runs}) must be >= h_samples ({h_samples}): the selection budget is "
-            "sampled without replacement, but evaluation resampling is with replacement, so "
-            "e_samples may exceed n_runs"
-        )
-    if not 0.0 < confidence < 1.0:
-        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    _validate_hyper_matrix(arr, h_samples, confidence)
 
     from research_analysis._tuning_kernels import get_hyper_distribution, resample_two_stage
 
@@ -69,6 +73,72 @@ def hierarchical_bootstrap_ci(
         confidence=confidence,
         hyper_probs=probs,
         selection_entropy=entropy,
+    )
+
+
+@dataclass(frozen=True)
+class HierarchicalBootstrapDifferenceCI:
+    """Result of a paired hierarchical two-stage bootstrap difference evaluation (arm A minus arm B)."""
+
+    mean_diff: float
+    ci_low: float
+    ci_high: float
+    confidence: float
+    hyper_probs_a: NDArray[np.float64]
+    hyper_probs_b: NDArray[np.float64]
+    selection_entropy_a: float
+    selection_entropy_b: float
+
+
+def hierarchical_bootstrap_difference_ci(
+    data_a: NDArray[np.floating],
+    data_b: NDArray[np.floating],
+    h_samples: int,
+    e_samples: int,
+    *,
+    confidence: float = 0.95,
+    n_resamples: int = 10_000,
+    selection_trials: int = 200,
+    seed: int = 42,
+) -> HierarchicalBootstrapDifferenceCI:
+    """Evaluate the difference (arm A minus arm B) between two independently-tuned grids.
+
+    Each arm selects its champion hyperparameter independently (its own
+    stage-1 draw), then evaluation samples are paired by run index across
+    arms, so ``data_a`` and ``data_b`` must have the same number of columns
+    and represent the same seed order -- matching how
+    ``research_analysis.reporting.compare_pairwise`` pairs seeded runs to
+    reduce variance.
+    """
+    arr_a = np.asarray(data_a, dtype=np.float64)
+    arr_b = np.asarray(data_b, dtype=np.float64)
+    _validate_hyper_matrix(arr_a, h_samples, confidence)
+    _validate_hyper_matrix(arr_b, h_samples, confidence)
+    if arr_a.shape[1] != arr_b.shape[1]:
+        raise ValueError(
+            f"data_a and data_b must have the same number of paired runs, got {arr_a.shape[1]} and {arr_b.shape[1]}"
+        )
+
+    from research_analysis._tuning_kernels import get_hyper_distribution, resample_two_stage_difference
+
+    probs_a, entropy_a = get_hyper_distribution(arr_a, h_samples, selection_trials, seed)
+    probs_b, entropy_b = get_hyper_distribution(arr_b, h_samples, selection_trials, seed + 1)
+    diffs = resample_two_stage_difference(arr_a, probs_a, arr_b, probs_b, e_samples, n_resamples, seed + 2)
+
+    alpha = 1.0 - confidence
+    ci_low = float(np.percentile(diffs, 100 * alpha / 2))
+    ci_high = float(np.percentile(diffs, 100 * (1.0 - alpha / 2)))
+    mean_diff = float(np.mean(diffs))
+
+    return HierarchicalBootstrapDifferenceCI(
+        mean_diff=mean_diff,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        confidence=confidence,
+        hyper_probs_a=probs_a,
+        hyper_probs_b=probs_b,
+        selection_entropy_a=entropy_a,
+        selection_entropy_b=entropy_b,
     )
 
 

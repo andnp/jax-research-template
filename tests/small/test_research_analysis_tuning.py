@@ -9,8 +9,10 @@ import pytest
 from experiment_definition.db import DatabaseManager
 from research_analysis.tuning import (
     HierarchicalBootstrapCI,
+    HierarchicalBootstrapDifferenceCI,
     hierarchical_bootstrap_ci,
     hierarchical_bootstrap_ci_from_experiment,
+    hierarchical_bootstrap_difference_ci,
 )
 
 
@@ -174,3 +176,37 @@ class TestHierarchicalBootstrapCIFromExperiment:
             hierarchical_bootstrap_ci_from_experiment(
                 db_path, slug, ["nonexistent_key"], "reward", h_samples=3, e_samples=5
             )
+
+
+class TestHierarchicalBootstrapDifferenceCI:
+    def test_clear_winner_excludes_zero(self) -> None:
+        """A large, unambiguous gap between arms' champions must exclude zero."""
+        rng = np.random.default_rng(1)
+        data_a = np.zeros((2, 200))
+        data_a[0] = rng.normal(loc=5.0, scale=0.5, size=200)  # arm A's champion
+        data_a[1] = rng.normal(loc=0.0, scale=0.5, size=200)
+
+        data_b = np.zeros((2, 200))
+        data_b[0] = rng.normal(loc=0.0, scale=0.5, size=200)
+        data_b[1] = rng.normal(loc=0.0, scale=0.5, size=200)  # arm B's champion, much worse
+
+        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, seed=1)
+        assert isinstance(res, HierarchicalBootstrapDifferenceCI)
+        assert res.ci_low > 0.0
+        assert res.mean_diff == pytest.approx(5.0, abs=1.0)
+
+    def test_no_real_difference_includes_zero(self) -> None:
+        """Two arms drawn from the same distribution must not exclude zero."""
+        rng = np.random.default_rng(2)
+        data_a = rng.normal(loc=0.0, scale=1.0, size=(2, 200))
+        data_b = rng.normal(loc=0.0, scale=1.0, size=(2, 200))
+
+        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, seed=1)
+        assert res.ci_low < 0.0 < res.ci_high
+
+    def test_rejects_mismatched_run_counts(self) -> None:
+        """data_a and data_b must be paired by run index, so column counts must match."""
+        data_a = np.ones((2, 10))
+        data_b = np.ones((2, 8))
+        with pytest.raises(ValueError, match="same number of paired runs"):
+            hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=3, e_samples=5)
