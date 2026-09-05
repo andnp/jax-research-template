@@ -49,6 +49,10 @@ def apply_active(schedule: DisturbanceSchedule, transport: Transport, current_st
     def body_fn(i: int, t: Transport) -> Transport:
         active = (i < schedule.count) & (schedule.start_steps[i] <= current_step) & (current_step < schedule.end_steps[i])
         disturbed = apply_disturbance_type(t, schedule.type_ids[i], schedule.magnitudes[i])
-        return jax.tree.map(lambda d, o: jnp.where(active, d, o), disturbed, t)
+
+        def select_disturbed(d: jax.Array, o: jax.Array) -> jax.Array:
+            return jnp.where(active, d, o)
+
+        return jax.tree.map(select_disturbed, disturbed, t)
 
     return jax.lax.fori_loop(0, max_events, body_fn, transport)
