@@ -48,7 +48,14 @@ def resample_two_stage(
     n_resamples: int,
     seed: int,
 ) -> NDArray[np.float64]:
-    """Resample evaluation seeds according to the hyperparameter probability distribution."""
+    """Resample evaluation seeds according to the hyperparameter probability distribution.
+
+    One hyper is drawn per replicate, not per sample: a real selection process
+    picks one hyper and then evaluates it, so fixing the draw for the whole
+    replicate preserves between-hyper selection variance across replicates.
+    Redrawing per sample would average it away as e_samples grows, collapsing
+    the reported interval regardless of how uncertain the selection actually is.
+    """
     np.random.seed(seed)
     n_runs = data.shape[1]
     boot_means = np.empty(n_resamples, dtype=np.float64)
@@ -57,12 +64,10 @@ def resample_two_stage(
     cdf[-1] = 1.0
 
     for b in range(n_resamples):
+        r = np.random.random()
+        h_idx = np.searchsorted(cdf, r)
         total = 0.0
         for _ in range(e_samples):
-            # Sample hyper from distribution
-            r = np.random.random()
-            h_idx = np.searchsorted(cdf, r)
-            # Sample run for that hyper with replacement
             run_idx = np.random.randint(0, n_runs)
             total += data[h_idx, run_idx]
         boot_means[b] = total / e_samples

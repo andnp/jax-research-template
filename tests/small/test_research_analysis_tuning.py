@@ -44,6 +44,31 @@ class TestHierarchicalBootstrapCI:
         assert res_dom.selection_entropy < res_amb.selection_entropy
         assert res_dom.hyper_probs[0] > 0.95
 
+    def test_ci_width_does_not_collapse_as_e_samples_grows(self) -> None:
+        """Verify selection-uncertainty variance survives large evaluation budgets.
+
+        A hyper drawn once per bootstrap replicate (not once per sample) must
+        leave a non-vanishing floor on CI width as e_samples grows, reflecting
+        the genuine 9.5%/90.5% selection split between two well-separated
+        hypers. A regression to per-sample redraws would shrink this toward 0.
+        """
+        rng = np.random.default_rng(0)
+        data = np.zeros((2, 10_000))
+        data[0] = rng.normal(loc=0.0, scale=1.0, size=10_000)
+        data[1] = rng.normal(loc=1.0, scale=1.0, size=10_000)
+
+        # Both e_samples are already large enough that within-hyper noise is
+        # negligible; a correct implementation's width should be near-stable
+        # between them, while a per-sample-redraw regression keeps shrinking
+        # (0.183 -> 0.057, roughly halving each 10x) because it averages away
+        # the between-hyper selection variance instead of preserving it.
+        medium = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=500, seed=1, n_resamples=20_000)
+        large = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=5_000, seed=1, n_resamples=20_000)
+
+        medium_width = medium.ci_high - medium.ci_low
+        large_width = large.ci_high - large.ci_low
+        assert large_width > 0.8 * medium_width
+
     def test_validation_rejects_invalid_inputs(self) -> None:
         """Reject 1D inputs, single-hyper inputs, and insufficient runs."""
         with pytest.raises(ValueError, match="must be 2D array"):
