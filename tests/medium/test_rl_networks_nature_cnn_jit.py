@@ -6,7 +6,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from jax_nn.layers import NatureCNN
+from rl_networks.layers import NatureCNN
 
 SEED = 42
 

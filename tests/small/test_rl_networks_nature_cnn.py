@@ -7,8 +7,8 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 from flax.core import freeze, unfreeze
-from jax_nn.initializers import legacy_dqn_bound
-from jax_nn.layers import NatureCNN
+from rl_networks.initializers import legacy_dqn_bound
+from rl_networks.layers import NatureCNN
 
 SEED = 42
 

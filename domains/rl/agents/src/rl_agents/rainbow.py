@@ -51,7 +51,7 @@ from jax_nn.distributional import (
     categorical_expected_value,
     categorical_l2_project,
 )
-from jax_nn.layers import NatureCNN, NoisyLinear
+from jax_nn.layers import NoisyLinear
 from jax_nn.typed_module import TypedApply
 from jax_replay.per import init_per_buffer, per_add, per_sample, per_update_priorities
 from jax_replay.types import PERBufferState
@@ -59,6 +59,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.env_protocol import EnvSpec
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
+from rl_networks.layers import NatureCNN
 
 from rl_agents.q_networks import infer_nature_observation_layout, prepare_nature_observations
 

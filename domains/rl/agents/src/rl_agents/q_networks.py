@@ -11,9 +11,9 @@ from typing import Literal, Protocol
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from jax_nn.initializers import legacy_dqn_uniform
-from jax_nn.layers import NatureCNN
 from jax_nn.typed_module import TypedApply
+from rl_networks.initializers import legacy_dqn_uniform
+from rl_networks.layers import NatureCNN
 
 
 class QNetwork(TypedApply[jax.Array], nn.Module):
