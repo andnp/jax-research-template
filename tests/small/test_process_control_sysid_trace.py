@@ -9,7 +9,7 @@ from process_control.sysid.resampling import (
     canonicalize,
     resample_signal,
 )
-from process_control.sysid.trace import SignalRole, SignalSeries, SignalSpec
+from process_control.sysid.trace import SignalRole, SignalSeries, SignalSpec, UniformTraceArrays
 
 
 def _signal(
@@ -120,6 +120,9 @@ def test_uniform_trace_payload_is_jit_compatible() -> None:
     signal = _signal("y", SignalRole.MEASUREMENT, [0.0, 1.0], [1.0, 2.0])
     trace = canonicalize((signal,), jnp.arange(2.0), 1.0)
 
-    measurements = jax.jit(lambda payload: payload.measurements)(trace.jax_payload)
+    def measurements_of(payload: UniformTraceArrays):
+        return payload.measurements
+
+    measurements = jax.jit(measurements_of)(trace.jax_payload)
 
     assert jnp.allclose(measurements[:, 0], jnp.array([1.0, 2.0]))
