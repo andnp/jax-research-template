@@ -17,9 +17,10 @@ def dump_hlo(agent: str = "ppo") -> None:
         raw_env, env_params = gymnax.make(config.ENV_NAME)
         env = make_gymnax_env(raw_env)
         ppo_agent = PPOAgent(config)
-        train_fn = lambda key: run(  # noqa: E731
-            ppo_agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params
-        )
+        def train_fn(key: jax.Array):
+            return run(
+                ppo_agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params
+            )
     else:
         raise ValueError(f"Agent {agent} not supported")
 
