@@ -522,7 +522,7 @@ def test_the_transition_after_a_boundary_starts_the_new_episode(agent: str, lear
     """
     learned = learning_runs[agent]
     terminal = jnp.flatnonzero(learned.discounts == 0.0)
-    count = int(learned.observations.shape[0])
+    count = learned.observations.shape[0]
     following = [int(index) + 1 for index in terminal if int(index) + 1 < count]
 
     assert following, f"{agent} closed no transition after a boundary to check"
