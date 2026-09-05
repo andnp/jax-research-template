@@ -90,18 +90,18 @@ def run_replay[StateT](
             action,
             key,
         )
-        next_state = jax.tree.map(
-            lambda new, old: jnp.where(active, new, old),
-            next_state,
-            state,
-        )
+        def select_active_state(new: jax.Array, old: jax.Array) -> jax.Array:
+            return jnp.where(active, new, old)
+
+        next_state = jax.tree.map(select_active_state, next_state, state)
         observation = jnp.where(active, observation, jnp.zeros_like(observation))
         reward = jnp.where(active, reward, jnp.zeros_like(reward))
         terminated = active & terminated
-        diagnostics = jax.tree.map(
-            lambda value: jnp.where(active, value, jnp.zeros_like(value)),
-            diagnostics,
-        )
+
+        def zero_when_inactive(value: jax.Array) -> jax.Array:
+            return jnp.where(active, value, jnp.zeros_like(value))
+
+        diagnostics = jax.tree.map(zero_when_inactive, diagnostics)
         return (next_state, active & ~terminated), (observation, reward, terminated, diagnostics)
 
     (final_state, _), (observations, rewards, terminated, diagnostics) = jax.lax.scan(
