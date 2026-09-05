@@ -8,7 +8,6 @@ from typing import Protocol, cast
 import chex
 import jax
 import jax.numpy as jnp
-
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.structs import chex_struct
 

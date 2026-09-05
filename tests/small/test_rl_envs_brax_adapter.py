@@ -7,9 +7,9 @@ import chex
 import jax
 import jax.numpy as jnp
 import pytest
-import rl_components.brax as brax_module
-from rl_components.brax import BraxAdapter, BraxConfig
+import rl_envs.brax as brax_module
 from rl_components.env_protocol import EnvSpec
+from rl_envs.brax import BraxAdapter, BraxConfig
 
 
 @dataclass(frozen=True)

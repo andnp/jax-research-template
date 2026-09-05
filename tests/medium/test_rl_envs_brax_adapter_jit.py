@@ -15,11 +15,11 @@ import jax.numpy as jnp
 import pytest
 from rl_components.action_normalization import ActionNormalizationWrapper
 from rl_components.agent_protocol import AgentStep
-from rl_components.brax import BraxConfig, make_brax_adapter
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
+from rl_envs.brax import BraxConfig, make_brax_adapter
 
 STEPS = 2
 

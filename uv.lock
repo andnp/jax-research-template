@@ -1831,7 +1831,6 @@ name = "rl-components"
 version = "0.1.0"
 source = { editable = "libs/rl-components" }
 dependencies = [
-    { name = "brax" },
     { name = "chex" },
     { name = "distrax" },
     { name = "flax" },
@@ -1848,7 +1847,6 @@ playground = [
 
 [package.metadata]
 requires-dist = [
-    { name = "brax", specifier = "~=0.14" },
     { name = "chex", specifier = "~=0.1" },
     { name = "distrax", specifier = ">=0.1.8" },
     { name = "flax", specifier = "~=0.12" },
@@ -1866,6 +1864,7 @@ version = "0.1.0"
 source = { editable = "domains/rl/envs" }
 dependencies = [
     { name = "ale-py" },
+    { name = "brax" },
     { name = "chex" },
     { name = "gymnasium", extra = ["atari"] },
     { name = "jax" },
@@ -1876,6 +1875,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "ale-py", specifier = ">=0.10" },
+    { name = "brax", specifier = "~=0.14" },
     { name = "chex", specifier = "~=0.1" },
     { name = "gymnasium", extras = ["atari"], specifier = ">=1.0" },
     { name = "jax", specifier = "~=0.9" },

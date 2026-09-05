@@ -40,11 +40,11 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import pytest
-import rl_components.brax as brax_module
-from rl_components.brax import BraxAdapter, BraxConfig
+import rl_envs.brax as brax_module
 from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
 from rl_components.process_control_bridge import ProcessControlEnv
+from rl_envs.brax import BraxAdapter, BraxConfig
 from rl_envs.frame_stack import FrameStackWrapper
 
 RESET_OBSERVATION = -99.0
