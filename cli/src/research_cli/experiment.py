@@ -234,9 +234,11 @@ def prune(
             typer.echo(f"Spec '{name}': no orphan runs.")
             continue
 
+        def sort_key(pair: tuple[int | None, int | None]) -> tuple[int, int]:
+            return (pair[0] or 0, pair[1] or 0)
+
         typer.echo(f"Spec '{name}': {len(orphans)} orphan run(s) in '{exp_row.name}'")
-        for algo_vid, env_vid in sorted({(o.algo_version_id, o.env_version_id) for o in orphans},
-                                        key=lambda pair: (pair[0] or 0, pair[1] or 0)):
+        for algo_vid, env_vid in sorted({(o.algo_version_id, o.env_version_id) for o in orphans}, key=sort_key):
             count = sum(1 for o in orphans if (o.algo_version_id, o.env_version_id) == (algo_vid, env_vid))
             typer.echo(f"  algo_version={algo_vid} env_version={env_vid}: {count} run(s)")
         if not yes:
