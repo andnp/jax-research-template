@@ -6,8 +6,6 @@ with pedagogical explanations and diagnostic plotting.
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +13,6 @@ from typing import Any, overload
 
 import numpy as np
 import polars as pl
-from experiment_definition.db import DatabaseManager
 from research_plot.plots import plot_distributions, plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
@@ -32,11 +29,10 @@ from research_analysis.aggregates import (
 )
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import ComparisonSpec
-from research_analysis.experiment import load_experiment_metrics
+from research_analysis.dataset import ExperimentDataset
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
-from research_analysis.schema import AnalysisSchema
 
 
 @dataclass(frozen=True)
@@ -111,61 +107,17 @@ class _PairwiseStatistics:
     difference_ci: tuple[float, float]
 
 
-# ── Database Helpers ─────────────────────────────────────────────────────────
-
-
-def _resolve_metrics_db_path(root_path: str) -> Path:
-    execution_root = Path(root_path)
-    for candidate in (execution_root, *execution_root.parents):
-        db = candidate / "metrics.sqlite"
-        if db.exists():
-            return db
-    return execution_root.parent / "metrics.sqlite"
-
-
-def _load_run_metric(db_path: Path, run_id: int, metric_name: str) -> np.ndarray | None:
-    if not db_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT global_step, value FROM metrics WHERE run_id = ? AND metric_name = ? ORDER BY global_step",
-            (run_id, metric_name),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        if not rows:
-            return None
-        return np.array([float(r[1]) for r in rows], dtype=np.float64)
-    except Exception:
-        return None
-
-
 # ── Entry Points ─────────────────────────────────────────────────────────────
 
 
 def _load_pairwise_data(
-    db_path: Path,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     condition_a: str,
     condition_b: str,
     metric_name: str,
-    schema: AnalysisSchema | None,
     spec: ComparisonSpec,
 ) -> tuple[str, np.ndarray, np.ndarray, bool]:
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-
-    all_metrics = load_experiment_metrics(
-        experiments_db=db_path,
-        slug=experiment_slug,
-        metrics=[metric_name],
-        schema=schema,
-    )
+    all_metrics = dataset.metrics.filter(pl.col("metric") == metric_name).sort("step")
     missing_keys = [key for key in spec.pairing_keys if key not in all_metrics.columns]
     if missing_keys:
         raise ValueError(f"Pairing keys are absent from loaded metrics: {missing_keys}")
@@ -193,7 +145,7 @@ def _load_pairwise_data(
         )
     is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and (same_keys or partial_overlap))
     if not is_paired:
-        return exp_row.name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
+        return dataset.experiment_name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
     if not same_keys and spec.missingness != "complete_case":
         raise ValueError(
             "paired comparison requires identical pairing keys unless missingness='complete_case'"
@@ -201,7 +153,7 @@ def _load_pairwise_data(
     paired = key_a.with_columns(rows_a["value"].alias("value_a")).join(
         key_b.with_columns(rows_b["value"].alias("value_b")), on=keys, how="inner"
     ).sort(keys)
-    return exp_row.name, paired["value_a"].to_numpy(), paired["value_b"].to_numpy(), True
+    return dataset.experiment_name, paired["value_a"].to_numpy(), paired["value_b"].to_numpy(), True
 
 
 def _compute_pairwise_statistics(
@@ -350,46 +302,28 @@ def _present_pairwise(
     )
 
 
-def _load_hyperparameter_records(
-    db_path: Path,
-    experiment_slug: str,
+def _load_dataset_hyperparameter_records(
+    dataset: ExperimentDataset,
     hyperparameter_keys: Sequence[str],
     metric_name: str,
 ) -> list[dict[str, Any]]:
-    """Load completed runs' final metric value plus their full hyperparameter dict.
+    """Return final metric values joined to the dataset's declared sweep axes."""
+    missing_keys = [key for key in hyperparameter_keys if key not in dataset.runs.columns]
+    if missing_keys:
+        raise ValueError(f"No declared sweep axes found for {missing_keys!r}")
 
-    ``hyperparameter_keys`` filters to runs whose config defines every listed
-    key; a run's identity for grouping purposes is the tuple of those keys'
-    values, but the full ``hypers`` dict is kept on each record so callers
-    that only ever needed one key (like ``analyze_hypers``) are unaffected.
-    """
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-        runs = database.list_runs(exp_row.id)
-
+    final_metrics = (
+        dataset.metrics.filter(pl.col("metric") == metric_name)
+        .sort(["run_id", "execution_id", "step"])
+        .group_by(["run_id", "execution_id"])
+        .agg(pl.col("value").last().alias("value"))
+    )
+    run_columns = ["run_id", "seed", *hyperparameter_keys]
+    joined = final_metrics.join(dataset.runs.select(run_columns), on=["run_id"], how="inner")
     records: list[dict[str, Any]] = []
-    with DatabaseManager(db_path) as database:
-        for run in runs:
-            latest_exec = database.get_latest_completed_execution_for_run(run.id)
-            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
-            if latest_exec is None or latest_art is None:
-                continue
-
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                continue
-            hypers = json.loads(hyper_config.json_blob)
-            if any(hypers.get(key) is None for key in hyperparameter_keys):
-                continue
-
-            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
-            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
-            if metric_curve is None:
-                continue
-            records.append({"run_id": run.id, "seed": run.seed, "value": float(metric_curve[-1]), "hypers": hypers})
+    for row in joined.iter_rows(named=True):
+        hypers = {key: row[key] for key in hyperparameter_keys}
+        records.append({"run_id": row["run_id"], "seed": row["seed"], "value": row["value"], "hypers": hypers})
 
     if not records:
         raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
@@ -397,14 +331,12 @@ def _load_hyperparameter_records(
 
 
 def compare_pairwise(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     condition_a: str,
     condition_b: str,
     metric_name: str,
     confidence_level: float = 0.95,
     verbose: bool = True,
-    schema: AnalysisSchema | None = None,
     spec: ComparisonSpec | None = None,
 ) -> ABComparisonReport:
     """Compare exactly two conditions using a declared statistical design."""
@@ -414,14 +346,11 @@ def compare_pairwise(
         spec = ComparisonSpec(alpha=1.0 - confidence_level)
     elif confidence_level != 0.95:
         raise ValueError("pass confidence through spec when spec is provided")
-    db_path = Path(db_path)
     experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
-        db_path,
-        experiment_slug,
+        dataset,
         condition_a,
         condition_b,
         metric_name,
-        schema,
         spec,
     )
 
@@ -439,7 +368,7 @@ def compare_pairwise(
         vals_b,
         condition_a,
         condition_b,
-        experiment_slug,
+        dataset.experiment_name,
     )
 
     report = ABComparisonReport(
@@ -479,8 +408,7 @@ def compare_pairwise(
 
 @overload
 def analyze_hypers(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     target_hyperparameter: str,
     metric_name: str,
     group_by: None = None,
@@ -494,8 +422,7 @@ def analyze_hypers(
 
 @overload
 def analyze_hypers(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     target_hyperparameter: str,
     metric_name: str,
     group_by: list[str],
@@ -508,8 +435,7 @@ def analyze_hypers(
 
 
 def analyze_hypers(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     target_hyperparameter: str,
     metric_name: str,
     group_by: list[str] | None = None,
@@ -526,13 +452,15 @@ def analyze_hypers(
     stored hyperparameter JSON), and a mapping from the group key tuple to its own
     ``HyperparameterSensitivityReport`` is returned instead of a single pooled report.
     """
-    db_path = Path(db_path)
-    records = _load_hyperparameter_records(
-        db_path,
-        experiment_slug,
-        [target_hyperparameter],
-        metric_name,
-    )
+    declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
+    requested_axes = {target_hyperparameter, *(group_by or ())}
+    undeclared_axes = requested_axes - declared_axes
+    if undeclared_axes:
+        raise ValueError(
+            "hyperparameter analysis requires declared typed sweep axes; "
+            f"undeclared keys: {sorted(undeclared_axes)}"
+        )
+    records = _load_dataset_hyperparameter_records(dataset, sorted(requested_axes), metric_name)
 
     if group_by:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -544,7 +472,7 @@ def analyze_hypers(
             group_key: _analyze_hypers_group(
                 group_records,
                 target_hyperparameter=target_hyperparameter,
-                experiment_slug=experiment_slug,
+                experiment_slug=dataset.experiment_name,
                 verbose=verbose,
                 group_label=", ".join(f"{key}={value}" for key, value in zip(group_by, group_key, strict=True)),
                 plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_by, group_key, strict=True)),
@@ -559,7 +487,7 @@ def analyze_hypers(
     return _analyze_hypers_group(
         records,
         target_hyperparameter=target_hyperparameter,
-        experiment_slug=experiment_slug,
+        experiment_slug=dataset.experiment_name,
         verbose=verbose,
         group_label=None,
         plot_suffix="",
@@ -817,48 +745,30 @@ def _analyze_hypers_group(
 
 
 def _load_bakeoff_data(
-    db_path: Path,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     algorithms: list[str],
     environments: list[str],
     metric_name: str,
-    schema: AnalysisSchema | None,
 ) -> dict[tuple[str, str], dict[int, float]]:
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        exp_row = database.get_experiment(experiment_slug)
-        if exp_row is None:
-            raise ValueError(f"Unknown experiment {experiment_slug!r}")
-        runs = database.list_runs(exp_row.id)
+    if "env_name" not in dataset.runs.columns or "env_name" not in dataset.metrics.columns:
+        raise ValueError("bakeoff datasets require an environment dimension")
+
+    final_metrics = (
+        dataset.metrics.filter(pl.col("metric") == metric_name)
+        .sort(["run_id", "execution_id", "step"])
+        .group_by(["run_id", "execution_id"])
+        .agg(pl.col("value").last().alias("value"))
+    )
+    joined = final_metrics.join(
+        dataset.runs.select(["run_id", "seed", "condition_name", "env_name"]),
+        on="run_id",
+        how="inner",
+    ).filter(pl.col("condition_name").is_in(algorithms) & pl.col("env_name").is_in(environments))
 
     data_by_group: dict[tuple[str, str], dict[int, float]] = {}
-    with DatabaseManager(db_path) as database:
-        for run in runs:
-            latest_exec = database.get_latest_completed_execution_for_run(run.id)
-            latest_art = database.get_latest_completed_artifacts_for_run(run.id)
-            if latest_exec is None or latest_art is None:
-                continue
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                continue
-            hypers = json.loads(hyper_config.json_blob)
-            algo = (
-                schema.condition_name(hypers)
-                if schema is not None
-                else str(hypers.get("algorithm", ""))
-            )
-            env = (
-                schema.environment_name(hypers)
-                if schema is not None
-                else str(hypers.get("env_name", ""))
-            )
-            if algo not in algorithms or env not in environments:
-                continue
-            metrics_db = _resolve_metrics_db_path(latest_art.root_path)
-            metric_curve = _load_run_metric(metrics_db, run.id, metric_name)
-            if metric_curve is None:
-                continue
-            data_by_group.setdefault((algo, env), {})[run.seed] = float(metric_curve[-1])
+    for row in joined.iter_rows(named=True):
+        key = (str(row["condition_name"]), str(row["env_name"]))
+        data_by_group.setdefault(key, {})[int(row["seed"])] = float(row["value"])
     return data_by_group
 
 
@@ -1123,13 +1033,11 @@ def _present_bakeoff(
 
 
 def compare_bakeoff(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     algorithms: list[str],
     environments: list[str],
     metric_name: str,
     verbose: bool = True,
-    schema: AnalysisSchema | None = None,
     references: dict[str, ReferenceRange] | None = None,
     spec: ComparisonSpec | None = None,
 ) -> BenchmarkBakeoffReport:
@@ -1145,14 +1053,11 @@ def compare_bakeoff(
         spec = ComparisonSpec(missingness="blockwise")
     elif spec.missingness == "complete_case":
         raise ValueError("bakeoff missingness must be 'blockwise' or 'error'")
-    db_path = Path(db_path)
     data_by_group = _load_bakeoff_data(
-        db_path,
-        experiment_slug,
+        dataset,
         algorithms,
         environments,
         metric_name,
-        schema,
     )
 
     statistics = _compute_bakeoff_statistics(
@@ -1167,7 +1072,7 @@ def compare_bakeoff(
     posthoc = statistics.posthoc_matrix
     score_curves = statistics.score_curves
 
-    plot_path = _plot_bakeoff(score_curves, experiment_slug)
+    plot_path = _plot_bakeoff(score_curves, dataset.experiment_name)
 
     report = BenchmarkBakeoffReport(
         algorithms=algorithms,
@@ -1185,6 +1090,6 @@ def compare_bakeoff(
     )
 
     if verbose:
-        _present_bakeoff(report, environments, experiment_slug)
+        _present_bakeoff(report, environments, dataset.experiment_name)
 
     return report

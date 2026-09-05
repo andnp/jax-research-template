@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
+import polars as pl
 from numpy.typing import NDArray
+
+from research_analysis.dataset import ExperimentDataset
 
 
 @dataclass(frozen=True)
@@ -198,9 +200,45 @@ def _filter_condition(
     return [record for record in records if all(record["hypers"].get(k) == v for k, v in condition.items())]
 
 
+def _dataset_hyperparameter_records(
+    dataset: ExperimentDataset,
+    hyperparameter_keys: Sequence[str],
+    metric_name: str,
+) -> list[dict[str, Any]]:
+    run_columns = {
+        key: "condition_name" if key == dataset.dimensions.condition else key for key in hyperparameter_keys
+    }
+    missing_keys = [key for key, column in run_columns.items() if column not in dataset.runs.columns]
+    if missing_keys:
+        raise ValueError(f"No declared dataset dimensions found for {missing_keys!r}")
+
+    final_metrics = (
+        dataset.metrics.filter(pl.col("metric") == metric_name)
+        .sort(["run_id", "execution_id", "step"])
+        .group_by(["run_id", "execution_id"])
+        .agg(pl.col("value").last().alias("value"))
+    )
+    joined = final_metrics.join(
+        dataset.runs.select(["run_id", "seed", *run_columns.values()]),
+        on="run_id",
+        how="inner",
+    )
+    records = [
+        {
+            "run_id": row["run_id"],
+            "seed": row["seed"],
+            "value": row["value"],
+            "hypers": {key: row[column] for key, column in run_columns.items()},
+        }
+        for row in joined.iter_rows(named=True)
+    ]
+    if not records:
+        raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
+    return records
+
+
 def hierarchical_bootstrap_ci_from_experiment(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     hyperparameter_keys: Sequence[str],
     metric_name: str,
     h_samples: int,
@@ -211,18 +249,8 @@ def hierarchical_bootstrap_ci_from_experiment(
     selection_trials: int = 200,
     seed: int = 42,
 ) -> HierarchicalBootstrapCI:
-    """Load an experiment's hyperparameter grid and evaluate it via hierarchical bootstrap.
-
-    ``hyperparameter_keys`` names the axis (or axes, for a multi-dimensional
-    grid) that define "which hyperparameter configuration" -- distinct
-    combinations of their stored values become the rows tuned over. Matches
-    the ``db_path``/``experiment_slug``/metric-name calling convention used by
-    the rest of this package (e.g. ``analyze_hypers``) instead of requiring
-    the caller to hand-assemble the raw matrix.
-    """
-    from research_analysis.reporting import _load_hyperparameter_records
-
-    records = _load_hyperparameter_records(Path(db_path), experiment_slug, hyperparameter_keys, metric_name)
+    """Evaluate a declared dataset hyperparameter grid via hierarchical bootstrap."""
+    records = _dataset_hyperparameter_records(dataset, hyperparameter_keys, metric_name)
     matrix, _keys, _seeds = _build_hyper_matrix(records, hyperparameter_keys)
     return hierarchical_bootstrap_ci(
         matrix,
@@ -236,8 +264,7 @@ def hierarchical_bootstrap_ci_from_experiment(
 
 
 def hierarchical_bootstrap_difference_ci_from_experiment(
-    db_path: Path | str,
-    experiment_slug: str,
+    dataset: ExperimentDataset,
     hyperparameter_keys_a: Sequence[str],
     hyperparameter_keys_b: Sequence[str],
     metric_name: str,
@@ -251,27 +278,15 @@ def hierarchical_bootstrap_difference_ci_from_experiment(
     selection_trials: int = 200,
     seed: int = 42,
 ) -> HierarchicalBootstrapDifferenceCI:
-    """Load two arms' hyperparameter grids from one experiment and evaluate their paired difference.
-
-    ``condition_a``/``condition_b`` fix the hyperparameter(s) that distinguish
-    which arm a run belongs to (e.g. ``{"algorithm": "adversarial"}``),
-    separate from ``hyperparameter_keys_a``/``hyperparameter_keys_b``, the
-    axis(es) actually tuned within that arm -- so each arm can be tuned over a
-    different, independent hyperparameter grid (e.g. one arm's grid may have
-    axes the other's doesn't). Both arms' matrices are aligned to the seeds
-    completed under every combination of both arms before evaluation, so the
-    pairing ``hierarchical_bootstrap_difference_ci`` requires holds.
-    """
-    from research_analysis.reporting import _load_hyperparameter_records
-
+    """Evaluate two independently tuned dataset arms via paired bootstrap."""
     all_keys_a = _all_keys(hyperparameter_keys_a, condition_a)
     all_keys_b = _all_keys(hyperparameter_keys_b, condition_b)
 
     records_a = _filter_condition(
-        _load_hyperparameter_records(Path(db_path), experiment_slug, all_keys_a, metric_name), condition_a
+        _dataset_hyperparameter_records(dataset, all_keys_a, metric_name), condition_a
     )
     records_b = _filter_condition(
-        _load_hyperparameter_records(Path(db_path), experiment_slug, all_keys_b, metric_name), condition_b
+        _dataset_hyperparameter_records(dataset, all_keys_b, metric_name), condition_b
     )
 
     matrix_a, _keys_a, seeds_a = _build_hyper_matrix(records_a, hyperparameter_keys_a)
@@ -293,4 +308,3 @@ def hierarchical_bootstrap_difference_ci_from_experiment(
         selection_trials=selection_trials,
         seed=seed,
     )
-

@@ -7,6 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 from experiment_definition.db import DatabaseManager
+from research_analysis.dataset import (
+    ExperimentDataset,
+    ExperimentDimensions,
+    SweepAxis,
+    SweepValueType,
+    load_experiment_dataset,
+)
 from research_analysis.tuning import (
     HierarchicalBootstrapCI,
     HierarchicalBootstrapDifferenceCI,
@@ -32,8 +39,8 @@ def _populate_metrics_db(db_path: Path, run_id: int, execution_id: int, metric_n
 
 
 @pytest.fixture
-def tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]:
-    """A tiny experiment with 3 hyper values x 5 seeds, hyper 2 clearly best."""
+def tuning_experiment(tmp_path: Path) -> Generator[ExperimentDataset, None, None]:
+    """A tiny typed dataset with 3 hyper values x 5 seeds, hyper 2 clearly best."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_db_path = tmp_path / "metrics.sqlite"
     slug = "tuning-test-exp"
@@ -47,7 +54,9 @@ def tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]
         for learning_rate in (0.001, 0.01, 0.1):
             for seed in range(5):
                 base = 10.0 if learning_rate == 0.1 else 0.0
-                hyper_id = db.add_hyperparam_config({"learning_rate": learning_rate, "seed": seed})
+                hyper_id = db.add_hyperparam_config(
+                    {"condition_name": "all", "learning_rate": learning_rate, "seed": seed}
+                )
                 run_id = db.add_run(
                     experiment_id=exp_id,
                     algo_version_id=algo_ver_id,
@@ -63,11 +72,17 @@ def tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]
                 )
                 _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", base + seed)
 
-    yield db_path, slug
+    yield load_experiment_dataset(
+        db_path,
+        slug,
+        dimensions=ExperimentDimensions(
+            sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT),),
+        ),
+    )
 
 
 @pytest.fixture
-def two_arm_tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], None, None]:
+def two_arm_tuning_experiment(tmp_path: Path) -> Generator[ExperimentDataset, None, None]:
     """Two arms sharing 5 seeds: 'shared' tuned over learning_rate, 'adversarial' over eta.
 
     Mirrors 002-plan.md's structure: each arm has its own independent
@@ -87,7 +102,7 @@ def two_arm_tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], Non
         for learning_rate in (0.001, 0.01, 0.1):
             for seed in range(5):
                 hyper_id = db.add_hyperparam_config(
-                    {"algorithm": "shared", "learning_rate": learning_rate, "seed": seed}
+                    {"algorithm": "shared", "learning_rate": learning_rate, "eta": 0, "seed": seed}
                 )
                 run_id = db.add_run(
                     experiment_id=exp_id,
@@ -107,7 +122,9 @@ def two_arm_tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], Non
         for eta in (1, 5, 20):
             for seed in range(5):
                 base = 10.0 if eta == 20 else 0.0
-                hyper_id = db.add_hyperparam_config({"algorithm": "adversarial", "eta": eta, "seed": seed})
+                hyper_id = db.add_hyperparam_config(
+                    {"algorithm": "adversarial", "learning_rate": 0.0, "eta": eta, "seed": seed}
+                )
                 run_id = db.add_run(
                     experiment_id=exp_id,
                     algo_version_id=algo_ver_id,
@@ -123,18 +140,26 @@ def two_arm_tuning_experiment(tmp_path: Path) -> Generator[tuple[Path, str], Non
                 )
                 _populate_metrics_db(metrics_db_path, run_id, exec_id, "reward", base + seed)
 
-    yield db_path, slug
+    yield load_experiment_dataset(
+        db_path,
+        slug,
+        dimensions=ExperimentDimensions(
+            condition="algorithm",
+            sweep_axes=(
+                SweepAxis("learning_rate", SweepValueType.FLOAT),
+                SweepAxis("eta", SweepValueType.INTEGER),
+            ),
+        ),
+    )
 
 
 class TestHierarchicalBootstrapDifferenceCIFromExperiment:
     def test_loads_both_arms_and_evaluates_paired_difference(
-        self, two_arm_tuning_experiment: tuple[Path, str]
+        self, two_arm_tuning_experiment: ExperimentDataset
     ) -> None:
         """Verify H3-shaped usage: two independently-tuned arms, one difference CI."""
-        db_path, slug = two_arm_tuning_experiment
         res = hierarchical_bootstrap_difference_ci_from_experiment(
-            db_path,
-            slug,
+            two_arm_tuning_experiment,
             hyperparameter_keys_a=["learning_rate"],
             hyperparameter_keys_b=["eta"],
             metric_name="reward",
@@ -149,19 +174,17 @@ class TestHierarchicalBootstrapDifferenceCIFromExperiment:
         assert res.ci_low < 0.0
         assert res.mean_diff < -5.0
 
-    def test_rejects_no_shared_seeds(self, two_arm_tuning_experiment: tuple[Path, str]) -> None:
-        """No overlap between arms' seed sets must raise, not silently misalign columns."""
-        db_path, slug = two_arm_tuning_experiment
-        with pytest.raises(ValueError, match="Unknown experiment"):
+    def test_rejects_missing_arm_data(self, two_arm_tuning_experiment: ExperimentDataset) -> None:
+        """Missing condition data must raise instead of producing an empty matrix."""
+        with pytest.raises(ValueError, match="at least 2 distinct combinations"):
             hierarchical_bootstrap_difference_ci_from_experiment(
-                db_path,
-                "no-such-experiment",
+                two_arm_tuning_experiment,
                 hyperparameter_keys_a=["learning_rate"],
                 hyperparameter_keys_b=["eta"],
                 metric_name="reward",
                 h_samples=3,
                 e_samples=5,
-                condition_a={"algorithm": "shared"},
+                condition_a={"algorithm": "missing"},
                 condition_b={"algorithm": "adversarial"},
             )
 
@@ -259,23 +282,21 @@ class TestHierarchicalBootstrapCI:
 
 
 class TestHierarchicalBootstrapCIFromExperiment:
-    def test_loads_and_evaluates_the_stored_grid(self, tuning_experiment: tuple[Path, str]) -> None:
-        """Verify the db-driven wrapper reproduces the array-based function's contract."""
-        db_path, slug = tuning_experiment
+    def test_loads_and_evaluates_the_stored_grid(self, tuning_experiment: ExperimentDataset) -> None:
+        """Verify the dataset wrapper reproduces the array-based function's contract."""
         res = hierarchical_bootstrap_ci_from_experiment(
-            db_path, slug, ["learning_rate"], "reward", h_samples=3, e_samples=5, seed=1
+            tuning_experiment, ["learning_rate"], "reward", h_samples=3, e_samples=5, seed=1
         )
         assert isinstance(res, HierarchicalBootstrapCI)
         # learning_rate=0.1 has base reward 10.0 vs 0.0 for the others: unambiguous winner.
         assert res.hyper_probs[-1] > 0.95
         assert res.ci_low <= res.mean <= res.ci_high
 
-    def test_rejects_ungrouped_hyperparameter(self, tuning_experiment: tuple[Path, str]) -> None:
-        """A key absent from every run's config raises, matching _load_hyperparameter_records."""
-        db_path, slug = tuning_experiment
-        with pytest.raises(ValueError, match="No completed runs found"):
+    def test_rejects_ungrouped_hyperparameter(self, tuning_experiment: ExperimentDataset) -> None:
+        """A key absent from the dataset dimensions raises before matrix construction."""
+        with pytest.raises(ValueError, match="No declared dataset dimensions"):
             hierarchical_bootstrap_ci_from_experiment(
-                db_path, slug, ["nonexistent_key"], "reward", h_samples=3, e_samples=5
+                tuning_experiment, ["nonexistent_key"], "reward", h_samples=3, e_samples=5
             )
 
 

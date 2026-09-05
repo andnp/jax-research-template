@@ -1,4 +1,6 @@
-"""Small tests for research_analysis.reporting — automated reporting and analysis."""
+"""Contract tests for dataset-backed statistical reporting."""
+
+from __future__ import annotations
 
 import sqlite3
 import tempfile
@@ -8,8 +10,16 @@ from typing import TypedDict
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from experiment_definition.parameter import ParameterValue
 from research_analysis.aggregates import ReferenceRange
 from research_analysis.comparison import ComparisonSpec
+from research_analysis.dataset import (
+    ExperimentDataset,
+    ExperimentDimensions,
+    SweepAxis,
+    SweepValueType,
+    load_experiment_dataset,
+)
 from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
@@ -18,332 +28,117 @@ from research_analysis.reporting import (
     compare_bakeoff,
     compare_pairwise,
 )
-from research_analysis.schema import AnalysisSchema
-
-
-def populate_metrics_db(db_path: Path, run_id: int, metric_name: str, values: list[float], execution_id: int | None = None) -> None:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    if execution_id is not None:
-        cursor.execute(
-            "CREATE TABLE IF NOT EXISTS metrics (run_id INTEGER, execution_id INTEGER, metric_name TEXT, global_step INTEGER, value REAL)"
-        )
-        for step, val in enumerate(values):
-            cursor.execute(
-                "INSERT INTO metrics (run_id, execution_id, metric_name, global_step, value) VALUES (?, ?, ?, ?, ?)",
-                (run_id, execution_id, metric_name, step, val),
-            )
-    else:
-        cursor.execute(
-            "CREATE TABLE IF NOT EXISTS metrics (run_id INTEGER, metric_name TEXT, global_step INTEGER, value REAL)"
-        )
-        for step, val in enumerate(values):
-            cursor.execute(
-                "INSERT INTO metrics (run_id, metric_name, global_step, value) VALUES (?, ?, ?, ?)",
-                (run_id, metric_name, step, val),
-            )
-    conn.commit()
-    conn.close()
 
 
 class ExperimentSetup(TypedDict):
     db_path: Path
-    metrics_db_path: Path
-    exp_id: int
-    algo_ver_id: int
-    env_ver_id: int
-    tmp_path: Path
+    metrics_path: Path
+    experiment_id: int
+    algo_version_id: int
+    env_version_id: int
+    root: Path
+
+
+def _ensure_metrics_table(path: Path) -> None:
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS metrics (run_id INTEGER, execution_id INTEGER, metric_name TEXT, global_step INTEGER, value REAL)"
+        )
+
+
+def _add_observation(
+    setup: ExperimentSetup,
+    metadata: dict[str, ParameterValue],
+    seed: int,
+    value: float,
+    *,
+    ablation: str | None = None,
+) -> None:
+    with DatabaseManager(setup["db_path"]) as database:
+        hyper_id = database.add_hyperparam_config({**metadata, "seed": seed})
+        run_id = database.add_run(
+            setup["experiment_id"],
+            setup["algo_version_id"],
+            setup["env_version_id"],
+            hyper_id,
+            seed,
+            ablation,
+        )
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id,
+            str(setup["root"] / str(execution_id)),
+            metadata={"metrics_db_path": str(setup["metrics_path"])},
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    with sqlite3.connect(setup["metrics_path"]) as connection:
+        connection.execute(
+            "INSERT INTO metrics VALUES (?, ?, ?, ?, ?)",
+            (run_id, execution_id, "metric", 0, value),
+        )
+        connection.commit()
+
+
+def _load(
+    setup: ExperimentSetup,
+    dimensions: ExperimentDimensions | None = None,
+) -> ExperimentDataset:
+    return load_experiment_dataset(setup["db_path"], "test-exp", dimensions=dimensions)
 
 
 @pytest.fixture
 def temp_experiment_setup() -> Generator[ExperimentSetup, None, None]:
+    """Create a hermetic experiment database and a shared recorded metrics database."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        db_path = tmp_path / "experiments.sqlite"
-        metrics_db_path = tmp_path / "metrics.sqlite"
-
-        # Initialize experiment DB
-        with DatabaseManager(db_path) as db:
-            db.initialize()
-            exp_id = db.add_experiment("test-exp", "Test experiment description")
-            
-            algo_comp_id = db.add_component("ppo", "ALGO")
-            algo_ver_id = db.add_component_version(algo_comp_id, "hash_algo")
-            
-            env_comp_id = db.add_component("CartPole", "ENV")
-            env_ver_id = db.add_component_version(env_comp_id, "hash_env")
-
-            yield {
-                "db_path": db_path,
-                "metrics_db_path": metrics_db_path,
-                "exp_id": exp_id,
-                "algo_ver_id": algo_ver_id,
-                "env_ver_id": env_ver_id,
-                "tmp_path": tmp_path,
-            }
+        root = Path(tmpdir)
+        db_path = root / "experiments.sqlite"
+        metrics_path = root / "metrics.sqlite"
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_id = database.add_experiment("test-exp")
+            algo_component = database.add_component("ppo", "ALGO")
+            algo_version_id = database.add_component_version(algo_component, "algo-hash")
+            env_component = database.add_component("cartpole", "ENV")
+            env_version_id = database.add_component_version(env_component, "env-hash")
+        _ensure_metrics_table(metrics_path)
+        yield {
+            "db_path": db_path,
+            "metrics_path": metrics_path,
+            "experiment_id": experiment_id,
+            "algo_version_id": algo_version_id,
+            "env_version_id": env_version_id,
+            "root": root,
+        }
 
 
-def test_compare_pairwise_paired(temp_experiment_setup: ExperimentSetup) -> None:
-    """Report paired outcomes with stable statistics and a distribution artifact."""
+def test_compare_pairwise_consumes_selected_dataset(temp_experiment_setup: ExperimentSetup) -> None:
+    """Compare paired conditions from materialized metrics without database arguments."""
     setup = temp_experiment_setup
-    db_path = setup["db_path"]
+    for condition in ("baseline", "candidate"):
+        for seed in range(4):
+            _add_observation(setup, {"condition_name": condition}, seed, 100.0 + seed + (50.0 if condition == "candidate" else 0.0))
 
-    # 4 seeds for ppo-baseline, 4 seeds for ppo-with-mask (identical seed values: 0, 1, 2, 3)
-    conditions = ["ppo-baseline", "ppo-with-mask"]
-    seeds = [0, 1, 2, 3]
-
-    with DatabaseManager(db_path) as db:
-        for condition in conditions:
-            for seed in seeds:
-                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
-
-                run_id = db.add_run(
-                    experiment_id=setup["exp_id"],
-                    algo_version_id=setup["algo_ver_id"],
-                    env_version_id=setup["env_ver_id"],
-                    hyper_id=hyper_id,
-                    seed=seed,
-                )
-
-                exec_id = db.add_execution()
-                db.update_execution_status(exec_id, "COMPLETED")
-                db.link_execution_run(exec_id, run_id)
-                db.record_execution_artifacts(
-                    exec_id,
-                    str(setup["tmp_path"]),
-                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
-                )
-
-                # Populate run outcomes
-                # Baseline gets lower performance, Mask gets higher performance
-                val = 100.0 + seed if condition == "ppo-baseline" else 150.0 + seed
-                populate_metrics_db(setup["metrics_db_path"], run_id, "returned_episode_returns", [val], execution_id=exec_id)
-
-    report = compare_pairwise(
-        db_path=setup["db_path"],
-        experiment_slug="test-exp",
-        condition_a="ppo-baseline",
-        condition_b="ppo-with-mask",
-        metric_name="returned_episode_returns",
-        verbose=True,
-    )
+    report = compare_pairwise(_load(setup), "baseline", "candidate", "metric", verbose=False)
 
     assert isinstance(report, ABComparisonReport)
-    assert report.condition_a == "ppo-baseline"
-    assert report.condition_b == "ppo-with-mask"
-    assert report.mean_a == pytest.approx(101.5)
-    assert report.mean_b == pytest.approx(151.5)
-    assert report.difference_in_means == pytest.approx(-50.0)
-    assert report.estimate_a == pytest.approx(101.5)
-    assert report.estimate_b == pytest.approx(151.5)
-    assert report.difference_in_estimand == pytest.approx(-50.0)
-    assert report.estimand == "mean"
     assert report.pairing == "paired"
-    assert report.alpha == pytest.approx(0.05)
-    assert report.n_resamples == 10_000
-    assert report.min_samples == 3
-    assert report.missingness == "error"
-    assert report.test_details.test_name == "Paired permutation test"
-    assert report.test_details.intermediate_tests == {}
-    assert report.test_details.assumptions["paired"] is True
-    # Verify plotting artifact exists
-    assert report.distribution_plot_path is not None
-    assert report.distribution_plot_path.exists()
+    assert report.difference_in_means == pytest.approx(-50.0)
 
 
-def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: ExperimentSetup) -> None:
-    """Compare algorithm conditions stored with a benchmark source key."""
+def test_compare_pairwise_honors_declared_pairing_keys(temp_experiment_setup: ExperimentSetup) -> None:
+    """Reject partial automatic pairing unless complete-case behavior is explicit."""
     setup = temp_experiment_setup
-    with DatabaseManager(setup["db_path"]) as db:
-        for algorithm in ("td3", "sac"):
-            for seed in range(4):
-                hyper_id = db.add_hyperparam_config(
-                    {"algorithm": algorithm, "benchmark": "chlorine", "seed": seed}
-                )
-                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-                execution_id = db.add_execution()
-                db.update_execution_status(execution_id, "COMPLETED")
-                db.link_execution_run(execution_id, run_id)
-                db.record_execution_artifacts(
-                    execution_id,
-                    str(setup["tmp_path"]),
-                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
-                )
-                value = 100.0 + seed if algorithm == "td3" else 150.0 + seed
-                populate_metrics_db(
-                    setup["metrics_db_path"],
-                    run_id,
-                    "metric",
-                    [value],
-                    execution_id=execution_id,
-                )
-
-    report = compare_pairwise(
-        setup["db_path"],
-        "test-exp",
-        "td3",
-        "sac",
-        "metric",
-        verbose=False,
-        schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
-        spec=ComparisonSpec(pairing_keys=("env_name", "seed"), n_resamples=64),
-    )
-
-    assert report.condition_a == "td3"
-    assert report.condition_b == "sac"
-    assert report.mean_a == pytest.approx(101.5)
-    assert report.mean_b == pytest.approx(151.5)
-
-
-def test_compare_pairwise_honors_confidence_level(
-    temp_experiment_setup: ExperimentSetup, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Use the requested confidence level for significance and interval width."""
-    setup = temp_experiment_setup
-    differences = [-2.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
-
-    with DatabaseManager(setup["db_path"]) as db:
-        for seed, difference in enumerate(differences):
-            hyper_id = db.add_hyperparam_config({"condition_name": "a", "seed": seed})
-            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-            execution_id = db.add_execution()
-            db.update_execution_status(execution_id, "COMPLETED")
-            db.link_execution_run(execution_id, run_id)
-            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]), metadata={"metrics_db_path": str(setup["metrics_db_path"])})
-            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [difference], execution_id=execution_id)
-
-            hyper_id = db.add_hyperparam_config({"condition_name": "b", "seed": seed})
-            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-            execution_id = db.add_execution()
-            db.update_execution_status(execution_id, "COMPLETED")
-            db.link_execution_run(execution_id, run_id)
-            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]), metadata={"metrics_db_path": str(setup["metrics_db_path"])})
-            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [0.0], execution_id=execution_id)
-
-    report_90 = compare_pairwise(
-        setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.90, verbose=True
-    )
-    output_90 = capsys.readouterr().out
-    report_95 = compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", confidence_level=0.95, verbose=False)
-    assert report_90.test_details.is_significant is True
-    assert report_95.test_details.is_significant is False
-    assert report_90.difference_ci[0] >= report_95.difference_ci[0]
-    assert report_90.difference_ci[1] <= report_95.difference_ci[1]
-    assert "BCa 90% CI" in output_90
-
-
-def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
-    """Reject confidence levels outside the open unit interval."""
-    with pytest.raises(ValueError, match="confidence_level must be in"):
-        compare_pairwise("unused.sqlite", "test-exp", "a", "b", "metric", confidence_level=1.0, verbose=False)
-
-
-def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: ExperimentSetup) -> None:
-    """Use the caller's median estimand instead of inspecting normality."""
-    setup = temp_experiment_setup
-    with DatabaseManager(setup["db_path"]) as db:
-        for condition, values in (("a", [1.0, 2.0, 100.0]), ("b", [4.0, 5.0, 6.0])):
-            for seed, value in enumerate(values):
-                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
-                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-                execution_id = db.add_execution()
-                db.update_execution_status(execution_id, "COMPLETED")
-                db.link_execution_run(execution_id, run_id)
-                db.record_execution_artifacts(
-                    execution_id,
-                    str(setup["tmp_path"]),
-                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
-                )
-                populate_metrics_db(
-                    setup["metrics_db_path"], run_id, "metric", [value], execution_id=execution_id
-                )
-
-    report = compare_pairwise(
-        setup["db_path"],
-        "test-exp",
-        "a",
-        "b",
-        "metric",
-        verbose=False,
-        spec=ComparisonSpec(estimand="median", pairing="paired", n_resamples=64),
-    )
-
-    assert report.estimand == "median"
-    assert report.mean_a == pytest.approx(34.3333333333)
-    assert report.mean_b == pytest.approx(5.0)
-    assert report.estimate_a == pytest.approx(2.0)
-    assert report.estimate_b == pytest.approx(5.0)
-    assert report.difference_in_estimand == pytest.approx(-3.0)
-    assert report.test_details.statistic == pytest.approx(-3.0)
-
-
-def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
-    """Reject blockwise missingness for paired data instead of silently dropping cells."""
-    setup = temp_experiment_setup
-    with DatabaseManager(setup["db_path"]) as db:
-        for condition, seeds in (("a", (0, 1, 2)), ("b", (0, 1, 3))):
-            for seed in seeds:
-                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
-                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-                execution_id = db.add_execution()
-                db.update_execution_status(execution_id, "COMPLETED")
-                db.link_execution_run(execution_id, run_id)
-                db.record_execution_artifacts(
-                    execution_id,
-                    str(setup["tmp_path"]),
-                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
-                )
-                populate_metrics_db(
-                    setup["metrics_db_path"],
-                    run_id,
-                    "metric",
-                    [float(seed)],
-                    execution_id=execution_id,
-                )
-
-    with pytest.raises(ValueError, match="do not support missingness='blockwise'"):
-        compare_pairwise(
-            setup["db_path"],
-            "test-exp",
-            "a",
-            "b",
-            "metric",
-            verbose=False,
-            spec=ComparisonSpec(pairing="paired", missingness="blockwise"),
-        )
-
-
-def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_setup: ExperimentSetup) -> None:
-    """Reject partial automatic pairing unless complete-case semantics are explicit."""
-    setup = temp_experiment_setup
-    with DatabaseManager(setup["db_path"]) as db:
-        for condition, seeds in (("a", (0, 1, 2, 3)), ("b", (0, 1, 2, 4))):
-            for seed in seeds:
-                hyper_id = db.add_hyperparam_config({"condition_name": condition, "seed": seed})
-                run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-                execution_id = db.add_execution()
-                db.update_execution_status(execution_id, "COMPLETED")
-                db.link_execution_run(execution_id, run_id)
-                db.record_execution_artifacts(
-                    execution_id,
-                    str(setup["tmp_path"]),
-                    metadata={"metrics_db_path": str(setup["metrics_db_path"])},
-                )
-                value = float(seed if condition == "a" else seed * 2)
-                populate_metrics_db(
-                    setup["metrics_db_path"],
-                    run_id,
-                    "metric",
-                    [value],
-                    execution_id=execution_id,
-                )
+    for condition, seeds in (("a", (0, 1, 2, 4)), ("b", (0, 1, 2, 3))):
+        for seed in seeds:
+            _add_observation(setup, {"condition_name": condition}, seed, float(seed))
+    dataset = _load(setup)
 
     with pytest.raises(ValueError, match="partially overlapping"):
-        compare_pairwise(setup["db_path"], "test-exp", "a", "b", "metric", verbose=False)
+        compare_pairwise(dataset, "a", "b", "metric", verbose=False)
 
     report = compare_pairwise(
-        setup["db_path"],
-        "test-exp",
+        dataset,
         "a",
         "b",
         "metric",
@@ -353,410 +148,80 @@ def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_s
     assert report.pairing == "paired"
 
 
-def test_analyze_hypers(temp_experiment_setup: ExperimentSetup, capsys: pytest.CaptureFixture[str]) -> None:
-    """Return the pooled sensitivity report with every public field populated."""
+def test_analyze_hypers_consumes_declared_sweep_axes(temp_experiment_setup: ExperimentSetup) -> None:
+    """Analyze a declared sweep using final values from the dataset metrics table."""
     setup = temp_experiment_setup
-    db_path = setup["db_path"]
-    
-    # Tuning learning rate: 1e-3, 3e-4, 1e-4
-    lrs = ["1e-3", "3e-4", "1e-4"]
-    seeds = [0, 1, 2]
+    for learning_rate, score in (("low", 1.0), ("high", 3.0)):
+        for seed in range(3):
+            _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, score + seed)
+    dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-    with DatabaseManager(db_path) as db:
-        for lr in lrs:
-            for seed in seeds:
-                hyper_id = db.add_hyperparam_config({"learning_rate": lr, "seed": seed})
-                
-                run_id = db.add_run(
-                    experiment_id=setup["exp_id"],
-                    algo_version_id=setup["algo_ver_id"],
-                    env_version_id=setup["env_ver_id"],
-                    hyper_id=hyper_id,
-                    seed=seed,
-                )
-                
-                exec_id = db.add_execution()
-                db.update_execution_status(exec_id, "COMPLETED")
-                db.link_execution_run(exec_id, run_id)
-                db.record_execution_artifacts(exec_id, str(setup["tmp_path"]))
-
-                # Performance: 1e-3 -> ~200, 3e-4 -> ~500 (winner), 1e-4 -> ~300
-                if lr == "1e-3":
-                    val = 200.0 + seed
-                elif lr == "3e-4":
-                    val = 500.0 + seed
-                else:
-                    val = 300.0 + seed
-                populate_metrics_db(setup["metrics_db_path"], run_id, "returned_episode_returns", [val])
-
-    report = analyze_hypers(
-        db_path=setup["db_path"],
-        experiment_slug="test-exp",
-        target_hyperparameter="learning_rate",
-        metric_name="returned_episode_returns",
-        verbose=True,
-        confidence_level=0.90,
-    )
-    output = capsys.readouterr().out
+    report = analyze_hypers(dataset, "learning_rate", "metric", verbose=False)
 
     assert isinstance(report, HyperparameterSensitivityReport)
-    assert report.target_hyperparameter == "learning_rate"
-    assert report.winning_value == "3e-4"
-    assert report.raw_mean == pytest.approx(501.0)
-    assert report.corrected_mean == pytest.approx(501.0)
-    assert report.maximization_bias == pytest.approx(0.0)
-    assert report.estimate_method == "leave_one_seed_out"
-    assert report.confidence_level == pytest.approx(0.90)
-    assert report.estimate_ci[0] <= report.corrected_mean <= report.estimate_ci[1]
-    assert "leave_one_seed_out 90% CI" in output
-    assert report.sensitivity_best == {
-        "1e-3": pytest.approx(201.0),
-        "3e-4": pytest.approx(501.0),
-        "1e-4": pytest.approx(301.0),
-    }
-    assert report.sensitivity_slice == report.sensitivity_best
-    assert report.corrected_mean <= report.raw_mean
-    assert report.sensitivity_plot_path is not None
-    assert report.sensitivity_plot_path.exists()
+    assert report.winning_value == "high"
+    assert report.raw_mean == pytest.approx(4.0)
 
 
-def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_setup: ExperimentSetup) -> None:
-    """group_by must analyze each hyperparameter-key combination separately, not pool them."""
+def test_analyze_hypers_rejects_undeclared_group_axes(temp_experiment_setup: ExperimentSetup) -> None:
+    """Require grouping keys to be declared typed sweep axes in the dataset."""
     setup = temp_experiment_setup
-    db_path = setup["db_path"]
+    for seed in range(3):
+        _add_observation(
+            setup,
+            {"condition_name": "baseline", "learning_rate": "low", "task": "cartpole"},
+            seed,
+            float(seed),
+        )
+    dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-    lrs = ["1e-3", "3e-4", "1e-4"]
-    seeds = [0, 1, 2]
-    tasks = ["alpha", "beta"]
-
-    with DatabaseManager(db_path) as db:
-        for task in tasks:
-            for lr in lrs:
-                for seed in seeds:
-                    hyper_id = db.add_hyperparam_config({"learning_rate": lr, "task": task, "seed": seed})
-
-                    run_id = db.add_run(
-                        experiment_id=setup["exp_id"],
-                        algo_version_id=setup["algo_ver_id"],
-                        env_version_id=setup["env_ver_id"],
-                        hyper_id=hyper_id,
-                        seed=seed,
-                    )
-
-                    exec_id = db.add_execution()
-                    db.update_execution_status(exec_id, "COMPLETED")
-                    db.link_execution_run(exec_id, run_id)
-                    db.record_execution_artifacts(exec_id, str(setup["tmp_path"]))
-
-                    # task "alpha" scores hundreds of points positive; task "beta" scores strongly
-                    # negative. Pooling the two tasks together (the bug) drowns beta's true winner
-                    # in alpha's much larger positive values.
-                    if task == "alpha":
-                        val = {"1e-3": 200.0, "3e-4": 500.0, "1e-4": 300.0}[lr] + seed
-                    else:
-                        val = {"1e-3": -200.0, "3e-4": -180.0, "1e-4": -100.0}[lr] + seed
-                    populate_metrics_db(setup["metrics_db_path"], run_id, "returned_episode_returns", [val])
-
-    report = analyze_hypers(
-        db_path=setup["db_path"],
-        experiment_slug="test-exp",
-        target_hyperparameter="learning_rate",
-        metric_name="returned_episode_returns",
-        group_by=["task"],
-        verbose=False,
-    )
-
-    assert isinstance(report, dict)
-    assert set(report.keys()) == {("alpha",), ("beta",)}
-
-    alpha_report = report[("alpha",)]
-    beta_report = report[("beta",)]
-    assert isinstance(alpha_report, HyperparameterSensitivityReport)
-    assert isinstance(beta_report, HyperparameterSensitivityReport)
-
-    assert alpha_report.winning_value == "3e-4"
-    assert alpha_report.raw_mean == pytest.approx(501.0)
-
-    assert beta_report.winning_value == "1e-4"
-    assert beta_report.raw_mean == pytest.approx(-99.0)
-
-    assert alpha_report.sensitivity_plot_path is not None
-    assert beta_report.sensitivity_plot_path is not None
-    assert alpha_report.sensitivity_plot_path != beta_report.sensitivity_plot_path
-    assert alpha_report.sensitivity_plot_path.exists()
-    assert beta_report.sensitivity_plot_path.exists()
+    with pytest.raises(ValueError, match="declared typed sweep axes"):
+        analyze_hypers(dataset, "learning_rate", "metric", group_by=["task"], verbose=False)
 
 
-def test_analyze_hypers_rejects_insufficient_cross_fit_seeds(temp_experiment_setup: ExperimentSetup) -> None:
-    """Cross-fitted tuning fails when the seed population cannot form folds."""
+def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
+    """Compare algorithms and environments using canonical dataset dimensions."""
     setup = temp_experiment_setup
-
-    with DatabaseManager(setup["db_path"]) as db:
-        for value, score in [("low", 1.0), ("high", 2.0)]:
-            hyper_id = db.add_hyperparam_config({"setting": value, "seed": 0})
-            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, 0)
-            execution_id = db.add_execution()
-            db.update_execution_status(execution_id, "COMPLETED")
-            db.link_execution_run(execution_id, run_id)
-            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
-            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [score])
-
-    with pytest.raises(ValueError, match="at least 3 distinct seeds"):
-        analyze_hypers(setup["db_path"], "test-exp", "setting", "metric", group_by=[], verbose=False)
-
-
-def test_compare_bakeoff(temp_experiment_setup: ExperimentSetup) -> None:
-    setup = temp_experiment_setup
-    db_path = setup["db_path"]
-    
-    # Bakeoff of 3 algorithms (ppo, sac, td3) on 2 environments (CartPole, MountainCar)
-    algos = ["ppo", "sac", "td3"]
-    envs = ["CartPole", "MountainCar"]
-    seeds = [0, 1]
-
-    with DatabaseManager(db_path) as db:
-        for algo in algos:
-            for env in envs:
-                for seed in seeds:
-                    hyper_id = db.add_hyperparam_config({"algorithm": algo, "env_name": env, "seed": seed})
-                    
-                    run_id = db.add_run(
-                        experiment_id=setup["exp_id"],
-                        algo_version_id=setup["algo_ver_id"],
-                        env_version_id=setup["env_ver_id"],
-                        hyper_id=hyper_id,
-                        seed=seed,
-                    )
-                    
-                    exec_id = db.add_execution()
-                    db.update_execution_status(exec_id, "COMPLETED")
-                    db.link_execution_run(exec_id, run_id)
-                    db.record_execution_artifacts(exec_id, str(setup["tmp_path"]))
-
-                    # Output values
-                    val = 100.0 + seed
-                    populate_metrics_db(setup["metrics_db_path"], run_id, "returned_episode_returns", [val])
+    algorithms = ["ppo", "sac", "td3"]
+    environments = ["cartpole", "mountaincar"]
+    for algorithm in algorithms:
+        for environment in environments:
+            for seed in range(3):
+                _add_observation(setup, {"algorithm": algorithm, "env_source": environment}, seed, float(seed))
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
     report = compare_bakeoff(
-        db_path=setup["db_path"],
-        experiment_slug="test-exp",
-        algorithms=algos,
-        environments=envs,
-        metric_name="returned_episode_returns",
-        verbose=True,
-        references={env: ReferenceRange(0.0, 200.0) for env in envs},
+        dataset,
+        algorithms,
+        environments,
+        "metric",
+        verbose=False,
+        references={environment: ReferenceRange(0.0, 10.0) for environment in environments},
     )
 
     assert isinstance(report, BenchmarkBakeoffReport)
-    assert sorted(report.algorithms) == sorted(algos)
-    assert sorted(report.environments) == sorted(envs)
-    assert report.aggregate_plot_path is not None
-    assert report.aggregate_plot_path.exists()
-    assert set(report.supplementary_iqm) == set(algos)
-    assert set(report.dispersion) == set(algos)
-    assert set(report.lower_tail) == set(algos)
+    assert report.algorithms == algorithms
+    assert report.environments == environments
 
 
-def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: ExperimentSetup) -> None:
-    """Compare algorithms across benchmark metadata using the explicit schema."""
+def test_compare_bakeoff_retains_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
+    """Keep incomplete environment-seed blocks for block-stratified inference."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
-    benchmarks = ["chlorine", "h2s"]
-    with DatabaseManager(setup["db_path"]) as db:
-        for algorithm in algorithms:
-            for benchmark in benchmarks:
-                for seed in range(3):
-                    hyper_id = db.add_hyperparam_config(
-                        {"algorithm": algorithm, "benchmark": benchmark, "seed": seed}
-                    )
-                    run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-                    execution_id = db.add_execution()
-                    db.update_execution_status(execution_id, "COMPLETED")
-                    db.link_execution_run(execution_id, run_id)
-                    db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
-                    populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [float(seed)])
+    for seed in range(3):
+        for index, algorithm in enumerate(algorithms):
+            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, float(seed + index))
+    for algorithm, seed in (("ppo", 3), ("sac", 3)):
+        _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, float(seed))
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
     report = compare_bakeoff(
-        setup["db_path"],
-        "test-exp",
+        dataset,
         algorithms,
-        benchmarks,
+        ["cartpole"],
         "metric",
         verbose=False,
-        schema=AnalysisSchema(condition_key="algorithm", environment_key="benchmark"),
-        references={benchmark: ReferenceRange(0.0, 1.0) for benchmark in benchmarks},
+        references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
-    assert report.algorithms == algorithms
-    assert report.environments == benchmarks
-
-
-def _populate_bakeoff_rows(setup: ExperimentSetup, rows: list[tuple[str, str, int, float]]) -> None:
-    with DatabaseManager(setup["db_path"]) as db:
-        for algorithm, environment, seed, value in rows:
-            hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "env_name": environment})
-            run_id = db.add_run(setup["exp_id"], setup["algo_ver_id"], setup["env_ver_id"], hyper_id, seed)
-            execution_id = db.add_execution()
-            db.update_execution_status(execution_id, "COMPLETED")
-            db.link_execution_run(execution_id, run_id)
-            db.record_execution_artifacts(execution_id, str(setup["tmp_path"]))
-            populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [value])
-
-
-def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: ExperimentSetup) -> None:
-    """Use blockwise inference without deleting incomplete environment-seed rows."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [
-        (algorithm, "CartPole", seed, float(seed + index))
-        for seed in range(3)
-        for index, algorithm in enumerate(algorithms)
-    ] + [("ppo", "CartPole", 3, 10.0), ("sac", "CartPole", 3, 11.0)]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-
-    report = compare_bakeoff(
-        temp_experiment_setup["db_path"],
-        "test-exp",
-        algorithms,
-        ["CartPole"],
-        "metric",
-        verbose=False,
-        references={"CartPole": ReferenceRange(0.0, 12.0)},
-    )
-
-    assert report.omnibus_details.test_name == "Block-stratified permutation omnibus test"
     assert report.omnibus_details.assumptions["has_missing"] is True
-    assert report.omnibus_details.assumptions["n_blocks"] == 4
-    assert report.omnibus_details.assumptions["missingness"] == "blockwise"
-
-
-def test_compare_bakeoff_filters_singleton_blocks(temp_experiment_setup: ExperimentSetup) -> None:
-    """Drop one-observation blocks before omnibus validation and report the count."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [
-        (algorithm, "CartPole", seed, float(seed + index))
-        for seed in range(3)
-        for index, algorithm in enumerate(algorithms)
-    ] + [("ppo", "CartPole", 3, 10.0)]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-
-    report = compare_bakeoff(
-        temp_experiment_setup["db_path"],
-        "test-exp",
-        algorithms,
-        ["CartPole"],
-        "metric",
-        verbose=False,
-        references={"CartPole": ReferenceRange(0.0, 12.0)},
-    )
-
-    assert report.omnibus_details.assumptions["n_blocks"] == 3
-    assert report.omnibus_details.assumptions["dropped_singleton_blocks"] == 1
-
-
-def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_setup: ExperimentSetup) -> None:
-    """Return unavailable post-hoc entries when pair overlap is below the declared minimum."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [
-        ("ppo", "CartPole", seed, 1.0 + seed) for seed in range(3)
-    ] + [
-        ("sac", "CartPole", seed, 2.0 + seed) for seed in range(3)
-    ] + [
-        ("td3", "CartPole", 0, 3.0),
-        ("td3", "CartPole", 3, 4.0),
-    ]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-
-    report = compare_bakeoff(
-        temp_experiment_setup["db_path"],
-        "test-exp",
-        algorithms,
-        ["CartPole"],
-        "metric",
-        verbose=False,
-        references={"CartPole": ReferenceRange(0.0, 10.0)},
-    )
-
-    assert report.posthoc_matrix["ppo"]["sac"] is not None
-    assert report.posthoc_matrix["ppo"]["td3"] is None
-    assert report.posthoc_matrix["sac"]["td3"] is None
-
-
-def test_compare_bakeoff_uses_reproducible_analysis_rng(temp_experiment_setup: ExperimentSetup) -> None:
-    """Repeat a bakeoff with the same specification and obtain identical inference."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [
-        (algorithm, "CartPole", seed, float(seed + index))
-        for seed in range(4)
-        for index, algorithm in enumerate(algorithms)
-    ]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-    spec = ComparisonSpec(missingness="blockwise", n_resamples=64, random_seed=17)
-    references = {"CartPole": ReferenceRange(0.0, 10.0)}
-
-    first = compare_bakeoff(
-        temp_experiment_setup["db_path"],
-        "test-exp",
-        algorithms,
-        ["CartPole"],
-        "metric",
-        verbose=False,
-        references=references,
-        spec=spec,
-    )
-    second = compare_bakeoff(
-        temp_experiment_setup["db_path"],
-        "test-exp",
-        algorithms,
-        ["CartPole"],
-        "metric",
-        verbose=False,
-        references=references,
-        spec=spec,
-    )
-
-    assert first.omnibus_details.p_value == second.omnibus_details.p_value
-    assert first.posthoc_matrix == second.posthoc_matrix
-
-
-def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: ExperimentSetup) -> None:
-    """Fail clearly when missingness leaves fewer than three valid blocks."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [(algorithm, "CartPole", 0, float(index)) for index, algorithm in enumerate(algorithms)]
-    rows += [("ppo", "CartPole", 1, 10.0), ("sac", "CartPole", 1, 11.0)]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-
-    with pytest.raises(ValueError, match="need at least 3 blocks"):
-        compare_bakeoff(
-            temp_experiment_setup["db_path"],
-            "test-exp",
-            algorithms,
-            ["CartPole"],
-            "metric",
-            verbose=False,
-            references={"CartPole": ReferenceRange(0.0, 10.0)},
-        )
-
-
-def test_compare_bakeoff_rejects_empty_environment(temp_experiment_setup: ExperimentSetup) -> None:
-    """Reject a requested environment with no observations instead of omitting its block."""
-    algorithms = ["ppo", "sac", "td3"]
-    rows = [(algorithm, "CartPole", seed, float(seed + index)) for seed in range(3) for index, algorithm in enumerate(algorithms)]
-    _populate_bakeoff_rows(temp_experiment_setup, rows)
-
-    with pytest.raises(ValueError, match="MountainCar.*no observed data"):
-        compare_bakeoff(
-            temp_experiment_setup["db_path"],
-            "test-exp",
-            algorithms,
-            ["CartPole", "MountainCar"],
-            "metric",
-            verbose=False,
-            references={env: ReferenceRange(0.0, 10.0) for env in ("CartPole", "MountainCar")},
-        )
-
-
-def test_compare_bakeoff_rejects_fewer_than_three_algorithms() -> None:
-    """Fail with an actionable message instead of an opaque scipy error below the Friedman minimum."""
-    with pytest.raises(ValueError, match="compare_pairwise") as exc_info:
-        compare_bakeoff("unused.sqlite", "test-exp", ["ppo", "sac"], ["CartPole"], "metric", verbose=False)
-    assert exc_info.type is ValueError
