@@ -7,7 +7,6 @@ class TestPublicAPI:
     def test_submodule_imports(self) -> None:
         from jax_nn.distributional import CategoricalValueHead, categorical_cross_entropy, categorical_expected_value, categorical_l2_project
         from jax_nn.initializers import output_orthogonal, stable_orthogonal
-        from jax_nn.layers import NoisyLinear
 
         for obj in (
             CategoricalValueHead,
@@ -16,6 +15,5 @@ class TestPublicAPI:
             categorical_l2_project,
             output_orthogonal,
             stable_orthogonal,
-            NoisyLinear,
         ):
             assert obj is not None

@@ -6,7 +6,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jax import Array
-
 from jax_nn.typed_module import TypedApply
 
 

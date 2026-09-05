@@ -7,7 +7,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
-from jax_nn.layers import NoisyLinear
+from rl_components.layers import NoisyLinear
 
 SEED = 42
 
