@@ -22,6 +22,7 @@ import jax.numpy as jnp
 import pytest
 from rl_agents.dqn_atari import (
     DQNAtariAgent,
+    DQNAtariAgentState,
     DQNAtariConfig,
     DQNAtariRuntimeConfig,
     dqn_atari_runtime_from_dqn_zoo,
@@ -179,7 +180,10 @@ def _compiled_run[AgentStateT](
     env: EnvProtocol[jax.Array, object, jax.Array, None],
     steps: int,
 ) -> Callable[[jax.Array], object]:
-    return jax.jit(lambda key: run(agent, env, key, steps=steps, gamma=GAMMA))
+    def train_fn(key: jax.Array):
+        return run(agent, env, key, steps=steps, gamma=GAMMA)
+
+    return jax.jit(train_fn)
 
 
 def _fake_replay_buffer_state(capacity: int) -> ReplayBufferState:
@@ -212,7 +216,10 @@ def _agent_step_target(*, learning: bool) -> Callable[[], object]:
         episode_end=jnp.bool_(False),
         observation=observation,
     )
-    compiled = jax.jit(lambda agent_state, step_index: agent.step(agent_state, timestep, step_index))
+    def step_fn(agent_state: DQNAtariAgentState, step_index: jax.Array):
+        return agent.step(agent_state, timestep, step_index)
+
+    compiled = jax.jit(step_fn)
     step_index = jnp.asarray(4, dtype=jnp.int32)
     return lambda: compiled(state, step_index)
 
@@ -277,7 +284,11 @@ def test_fake_replay_sampling_only_speed(benchmark: object) -> None:
         jnp.dtype(jnp.uint8),
     )
     buffer_state = _fake_replay_buffer_state(LEARNER_REPLAY_CAPACITY)
-    compiled = jax.jit(lambda state, key: buffer.sample(state, key, LEARNER_BATCH_SIZE))
+
+    def sample_fn(state: ReplayBufferState, key: jax.Array):
+        return buffer.sample(state, key, LEARNER_BATCH_SIZE)
+
+    compiled = jax.jit(sample_fn)
     _benchmark_compiled(
         benchmark,
         lambda: compiled(buffer_state, REPLAY_SAMPLE_KEY),
