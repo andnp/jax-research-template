@@ -96,7 +96,11 @@ class TestMujocoPlaygroundAdapterActionBounds:
     def _spec_read_under_jit(adapter: MujocoPlaygroundAdapter) -> list[EnvSpec]:
         """Collect the spec built while a trace is active, not the returned one."""
         traced: list[EnvSpec] = []
-        jax.jit(lambda key: (traced.append(adapter.spec()), key)[1])(jax.random.key(0))
+
+        def record_spec(key: jax.Array):
+            return (traced.append(adapter.spec()), key)[1]
+
+        jax.jit(record_spec)(jax.random.key(0))
         return traced
 
     def test_declared_bounds_are_concrete_inside_a_trace(self) -> None:
