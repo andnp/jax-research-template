@@ -19,8 +19,9 @@ def test_ppo_cartpole_learns() -> None:
     raw_env, env_params = gymnax.make(_config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(_config)
-    train_jit = jax.jit(
-        lambda key: run(
+
+    def train_fn(key: jax.Array):
+        return run(
             agent,
             env,
             key,
@@ -28,7 +29,8 @@ def test_ppo_cartpole_learns() -> None:
             gamma=GAMMA,
             env_params=env_params,
         )
-    )
+
+    train_jit = jax.jit(train_fn)
 
     _, metrics = train_jit(jax.random.PRNGKey(_config.SEED))
 
