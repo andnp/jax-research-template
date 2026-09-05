@@ -26,7 +26,10 @@ class TestPytreeOpsJIT:
     def test_tree_lerp_jit(self) -> None:
         a = {"w": jnp.array([0.0])}
         b = {"w": jnp.array([10.0])}
-        result = jax.jit(lambda a, b: tree_lerp(a, b, 0.3))(a, b)
+        def lerp(a: dict[str, jax.Array], b: dict[str, jax.Array]):
+            return tree_lerp(a, b, 0.3)
+
+        result = jax.jit(lerp)(a, b)
         assert jnp.allclose(result["w"], jnp.array([3.0]))
 
     def test_tree_zeros_like_in_scan(self) -> None:
@@ -38,7 +41,10 @@ class TestPytreeOpsJIT:
             carry = tree_add(carry, z)
             return carry, None
 
-        final, _ = jax.jit(lambda t: jax.lax.scan(step, t, None, length=3))(tree)
+        def scan_tree(t: dict[str, jax.Array]):
+            return jax.lax.scan(step, t, None, length=3)
+
+        final, _ = jax.jit(scan_tree)(tree)
         assert jnp.allclose(final["w"], tree["w"])
 
 
