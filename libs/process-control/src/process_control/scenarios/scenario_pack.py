@@ -315,7 +315,10 @@ class ScenarioPack:
             if forecast.available_from_step >= self.horizon_steps:
                 raise ValueError("forecast availability must be inside the scenario horizon")
 
-        ordered_events = tuple(sorted(self.events, key=lambda event: (event.start_step, event.name)))
+        def event_sort_key(event: TimedEvent) -> tuple[int, str]:
+            return (event.start_step, event.name)
+
+        ordered_events = tuple(sorted(self.events, key=event_sort_key))
         if ordered_events != self.events:
             raise ValueError("scenario events must be ordered by start_step then name")
         _require_unique(tuple(event.name for event in self.events), "scenario event names")
