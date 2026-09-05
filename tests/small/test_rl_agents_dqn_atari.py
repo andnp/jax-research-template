@@ -207,9 +207,10 @@ class TestDQNAtariAgent:
         steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
         agent = DQNAtariAgent(config, runtime_config)
 
-        final_state, metrics = jax.jit(
-            lambda key: run(agent, _ToyAtariEnv(), key, steps=steps, gamma=GAMMA)
-        )(jax.random.key(0))
+        def train_fn(key: jax.Array):
+            return run(agent, _ToyAtariEnv(), key, steps=steps, gamma=GAMMA)
+
+        final_state, metrics = jax.jit(train_fn)(jax.random.key(0))
 
         for key_name in ("loss", "epsilon", "loop/reward", "loop/episode_end"):
             assert metrics[key_name].shape == (steps,), key_name
