@@ -62,3 +62,14 @@ To log metrics from JIT-compiled JAX execution traces, `research-instrument` use
 Checkpoints are serialized using Orbax and managed by `research-store`.
 - **Temp-and-Rename writes:** To prevent database or file corruption during training crashes, weights are written to a temporary folder on the same storage volume and then renamed atomically.
 - **Storage Abstraction:** The storage layer generates `research://` URIs, allowing runners to seamlessly write to local folders or remote S3 buckets by changing environment variables.
+
+---
+
+## 5. Package Tiers: `libs/` vs `domains/` (ADR-011)
+
+`core` splits shared packages into two dependency tiers instead of one flat `core/libs/`:
+
+- **`libs/`** — domain-agnostic code, or domain-specific primitives with no fixed hyperparameters/environment assumptions (e.g. `jax-nn`, `rl-components`, `ml-components`). `libs` packages may depend on other `libs` packages only.
+- **`domains/`** — code tied to one paper's or one environment family's specific implementation, reused across multiple projects (e.g. `domains/rl/{agents,networks,envs}`, `domains/process-control`). `domains` packages may depend on other `domains` packages and any `libs` package.
+
+`libs` must never import from `domains` — this is the one dependency-direction rule the whole split exists to enforce. See ADR-011 for the tier test and full rationale.
