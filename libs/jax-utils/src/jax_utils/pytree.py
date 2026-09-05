@@ -43,7 +43,11 @@ def tree_sub[T](a: T, b: T) -> T:
 
 def tree_scalar_mul[T](scalar: float | Array, tree: T) -> T:
     """Multiply every leaf in *tree* by *scalar*."""
-    return jax.tree_util.tree_map(lambda x: scalar * x, tree)
+
+    def scale(x: Array) -> Array:
+        return scalar * x
+
+    return jax.tree_util.tree_map(scale, tree)
 
 
 def tree_mean(tree: object) -> Array:
@@ -94,4 +98,7 @@ def tree_lerp[T](a: T, b: T, t: float | Array) -> T:
     Useful for soft target network updates:
     ``target = tree_lerp(target, online, tau)``.
     """
-    return jax.tree_util.tree_map(lambda x, y: x + t * (y - x), a, b)
+    def lerp(x: Array, y: Array) -> Array:
+        return x + t * (y - x)
+
+    return jax.tree_util.tree_map(lerp, a, b)
