@@ -25,6 +25,7 @@ members = [
     "research-store",
     "rl-agents",
     "rl-components",
+    "rl-envs",
     "rl-networks",
 ]
 
@@ -1645,6 +1646,7 @@ dependencies = [
     { name = "rich" },
     { name = "rl-agents" },
     { name = "rl-components", extra = ["playground"] },
+    { name = "rl-envs" },
     { name = "rl-networks" },
     { name = "scipy" },
 ]
@@ -1689,6 +1691,7 @@ requires-dist = [
     { name = "rich" },
     { name = "rl-agents", editable = "libs/rl-agents" },
     { name = "rl-components", extras = ["playground"], editable = "libs/rl-components" },
+    { name = "rl-envs", editable = "domains/rl/envs" },
     { name = "rl-networks", editable = "domains/rl/networks" },
     { name = "scipy", specifier = ">=1.14" },
 ]
@@ -1840,6 +1843,21 @@ requires-dist = [
     { name = "process-control", editable = "libs/process-control" },
 ]
 provides-extras = ["playground"]
+
+[[package]]
+name = "rl-envs"
+version = "0.1.0"
+source = { editable = "domains/rl/envs" }
+dependencies = [
+    { name = "chex" },
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chex", specifier = "~=0.1" },
+    { name = "jax", specifier = "~=0.9" },
+]
 
 [[package]]
 name = "rl-networks"
