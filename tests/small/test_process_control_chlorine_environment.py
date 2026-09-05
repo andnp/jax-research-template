@@ -21,6 +21,10 @@ from process_control.scenarios.scenario_pack import (
 )
 
 
+def _event_sort_key(event: TimedEvent):
+    return event.start_step, event.name
+
+
 def _scenario(*events: TimedEvent, horizon_steps: int = 4) -> ScenarioPack:
     return ScenarioPack(
         spec=ScenarioSpec(SpecIdentity("chlorine.test", "1.0.0"), "1.0.0"),
@@ -31,7 +35,7 @@ def _scenario(*events: TimedEvent, horizon_steps: int = 4) -> ScenarioPack:
             SignalSpec("influent.demand", "mg/L"),
         ),
         initial_conditions=(InitialCondition("nominal", (InitialValue("flow", "m3/h", 75.0),)),),
-        events=tuple(sorted(events, key=lambda event: (event.start_step, event.name))),
+        events=tuple(sorted(events, key=_event_sort_key)),
     )
 
 
