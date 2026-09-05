@@ -193,7 +193,11 @@ def actor_sample(
     mean, log_std = _actor_apply(actor, params, x)
     dist = _make_dist(mean, log_std, sigma_min)
     keys = jax.random.split(rng, n)
-    actions = jax.vmap(lambda k: dist.sample(seed=k))(keys)
+
+    def sample_action(k: jax.Array) -> jax.Array:
+        return dist.sample(seed=k)
+
+    actions = jax.vmap(sample_action)(keys)
     log_probs = jax.vmap(dist.log_prob)(actions)
     return actions, log_probs
 
@@ -398,9 +402,10 @@ def _propose_and_rank_topk(
     flat_proposals = proposals.reshape(total, action_dim)
     flat_obs = jnp.repeat(obs, num_samples, axis=0)
 
-    flat_q, _ = jax.vmap(
-        lambda s, a: _critic_apply(critic, critic_params, s, a),
-    )(flat_obs, flat_proposals)
+    def critic_q(s: jax.Array, a: jax.Array) -> tuple[jax.Array, jax.Array]:
+        return _critic_apply(critic, critic_params, s, a)
+
+    flat_q, _ = jax.vmap(critic_q)(flat_obs, flat_proposals)
 
     q_values = flat_q.reshape(B, num_samples)
     # STATIC BY NECESSITY: k is jax.lax.top_k's shape-determining argument, so it must be a
@@ -409,7 +414,11 @@ def _propose_and_rank_topk(
     # here, so it stays on GACConfig.
     k = max(1, min(int(actor_percentile * num_samples), num_samples))
     _, top_idxs = jax.lax.top_k(q_values, k)
-    return jax.vmap(lambda p, idx: p[idx])(proposals, top_idxs)
+
+    def gather_top(p: jax.Array, idx: jax.Array) -> jax.Array:
+        return p[idx]
+
+    return jax.vmap(gather_top)(proposals, top_idxs)
 
 
 def _select_best_next_action(
@@ -441,13 +450,18 @@ def _select_best_next_action(
     flat_proposals = proposals.reshape(total, action_dim)
     flat_obs = jnp.repeat(next_obs, N, axis=0)
 
-    flat_q, _ = jax.vmap(
-        lambda s, a: _critic_apply(critic, critic_params, s, a),
-    )(flat_obs, flat_proposals)
+    def critic_q(s: jax.Array, a: jax.Array) -> tuple[jax.Array, jax.Array]:
+        return _critic_apply(critic, critic_params, s, a)
+
+    flat_q, _ = jax.vmap(critic_q)(flat_obs, flat_proposals)
 
     q_values = flat_q.reshape(B, N)
     best_idxs = jnp.argmax(q_values, axis=-1)
-    return jax.vmap(lambda p, idx: p[idx])(proposals, best_idxs)
+
+    def gather_best(p: jax.Array, idx: jax.Array) -> jax.Array:
+        return p[idx]
+
+    return jax.vmap(gather_best)(proposals, best_idxs)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -482,9 +496,11 @@ def gac_actor_loss(
     actor: GACActor,
 ) -> jax.Array:
     """Mean actor loss across a batch of states."""
-    losses, _ = jax.vmap(
-        lambda sf, ta: _actor_loss(actor_params, sf, ta, entropy_weight, sigma_min, actor=actor),
-    )(state_features, top_actions_batch)
+
+    def per_state_loss(sf: jax.Array, ta: jax.Array) -> tuple[jax.Array, dict[str, jax.Array]]:
+        return _actor_loss(actor_params, sf, ta, entropy_weight, sigma_min, actor=actor)
+
+    losses, _ = jax.vmap(per_state_loss)(state_features, top_actions_batch)
     return jnp.mean(losses)
 
 
@@ -816,8 +832,9 @@ class GACAgent:
         )
 
         actor_state = _inject_learning_rate(state.actor_state, hypers.ACTOR_LEARNING_RATE)
-        actor_loss, actor_grads = jax.value_and_grad(
-            lambda params: gac_actor_loss(
+
+        def actor_loss_fn(params: VariableDict) -> jax.Array:
+            return gac_actor_loss(
                 params,
                 obs,
                 top_actions_batch,
@@ -825,7 +842,8 @@ class GACAgent:
                 hypers.TRAINING_SIGMA_MIN,
                 actor=actor,
             )
-        )(actor_state.params)
+
+        actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
         return (
