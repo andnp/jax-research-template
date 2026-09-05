@@ -24,9 +24,10 @@ def test_sac_pendulum_learns() -> None:
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = ActionNormalizationWrapper(make_gymnax_env(raw_env))
     agent = SACAgent(config)
-    train_jit = jax.jit(
-        lambda key: run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
-    )
+    def _train(key: jax.Array):
+        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+
+    train_jit = jax.jit(_train)
     _, metrics = train_jit(jax.random.key(config.SEED))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
