@@ -35,6 +35,10 @@ from rl_agents.rainbow import (
 from rl_components.env_protocol import EnvSpec
 
 
+def _assert_allclose_leaf(left: jax.Array, right: jax.Array):
+    npt.assert_allclose(left, right, atol=1e-7)
+
+
 def _toy_atari_spec() -> EnvSpec:
     """The only thing the agent ever learns about its environment."""
     return EnvSpec(
@@ -347,11 +351,14 @@ class TestRainbowOptimizerParity:
             rainbow_updates, rainbow_state = rainbow_tx.update(grads, rainbow_state, params)
             dqn_updates, dqn_state = dqn_tx.update(grads, dqn_state, params)
             jax.tree_util.tree_map(
-                lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+                _assert_allclose_leaf,
                 rainbow_updates,
                 dqn_updates,
             )
-            params = jax.tree_util.tree_map(lambda value, update: value + update, params, rainbow_updates)
+            def add_update(value: jax.Array, update: jax.Array):
+                return value + update
+
+            params = jax.tree_util.tree_map(add_update, params, rainbow_updates)
 
     def test_agent_init_wires_rmsprop_builder(self) -> None:
         config = RainbowConfig(
@@ -372,12 +379,12 @@ class TestRainbowOptimizerParity:
         expected_updates, expected_state = expected_tx.update(grads, expected_state, train_state.params)
 
         jax.tree_util.tree_map(
-            lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+            _assert_allclose_leaf,
             actual_updates,
             expected_updates,
         )
         jax.tree_util.tree_map(
-            lambda left, right: npt.assert_allclose(left, right, atol=1e-7),
+            _assert_allclose_leaf,
             actual_state,
             expected_state,
         )
