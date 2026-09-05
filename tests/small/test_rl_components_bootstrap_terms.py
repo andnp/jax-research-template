@@ -132,7 +132,10 @@ class TestBootstrapTermsUnderJit:
             expected_episode_end,
             expected_is_truncated,
         ) = case
-        jitted = jax.jit(lambda t, tr, c: bootstrap_terms(t, tr, c, gamma=GAMMA, truncation_policy=policy))
+        def bootstrap_fn(t: jax.Array, tr: jax.Array, c: jax.Array):
+            return bootstrap_terms(t, tr, c, gamma=GAMMA, truncation_policy=policy)
+
+        jitted = jax.jit(bootstrap_fn)
         discount, episode_end, is_truncated = jitted(
             jnp.asarray(terminated, jnp.bool_),
             jnp.asarray(truncated, jnp.bool_),
