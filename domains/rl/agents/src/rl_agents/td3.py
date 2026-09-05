@@ -119,7 +119,10 @@ class Actor(TypedApply[jax.Array], nn.Module):
 
 
 def _soft_update(tau: jax.Array | float, target: VariableDict, online: VariableDict) -> VariableDict:
-    return jax.tree_util.tree_map(lambda tp, p: tau * p + (1.0 - tau) * tp, target, online)
+    def polyak_average(tp: jax.Array, p: jax.Array) -> jax.Array:
+        return tau * p + (1.0 - tau) * tp
+
+    return jax.tree_util.tree_map(polyak_average, target, online)
 
 
 def td3_critic_loss(
@@ -207,10 +210,11 @@ def td3_actor_loss(
         The scalar loss.
     """
     new_actions = actor.apply(actor_params, obs)
-    q_values = jax.vmap(
-        lambda p, o, a: critic.apply(p, o, a),
-        in_axes=(0, None, None),
-    )(critic_params, obs, new_actions)
+
+    def member_q(p: VariableDict, o: jax.Array, a: jax.Array) -> jax.Array:
+        return critic.apply(p, o, a)
+
+    q_values = jax.vmap(member_q, in_axes=(0, None, None))(critic_params, obs, new_actions)
     return -jnp.mean(q_values[0])
 
 
