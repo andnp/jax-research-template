@@ -52,11 +52,11 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
-from rl_agents.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_agents.sac import Actor, sac_alpha_loss
 
 
@@ -303,7 +303,7 @@ class SACRCAgent:
     """SAC with the QRC gradient correction and no target network.
 
     The policy is tanh-squashed, so the environment's action space must already be
-    normalized to ``[-1, 1]``; see :mod:`rl_agents.continuous_actions`.
+    normalized to ``[-1, 1]``; see :mod:`rl_components.continuous_actions`.
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
