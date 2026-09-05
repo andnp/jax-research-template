@@ -5,6 +5,7 @@ from process_control.actuators.dosing_system import (
     DIRECT,
     FEEDFORWARD,
     DosingSystemParams,
+    DosingSystemState,
     reset,
     step,
 )
@@ -108,7 +109,10 @@ class TestDosingSystem:
         state = reset(7.0, 50.0, jax.random.PRNGKey(0))
         dt = jnp.array(0.02)
 
-        jitted = jax.jit(lambda s, sp, pv, k: step(s, sp, pv, params, dt, k))
+        def step_fn(s: DosingSystemState, sp: jax.Array, pv: jax.Array, k: jax.Array):
+            return step(s, sp, pv, params, dt, k)
+
+        jitted = jax.jit(step_fn)
         new_state, sensed, pump, pi_out = jitted(state, jnp.array(9.5), jnp.array(7.0), jax.random.PRNGKey(1))
         assert sensed.shape == ()
         assert pump.shape == ()
