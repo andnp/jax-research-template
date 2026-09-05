@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import pytest
 from experiment_definition.db import DatabaseManager
@@ -46,8 +46,17 @@ def populate_metrics_db(db_path: Path, run_id: int, metric_name: str, values: li
     conn.close()
 
 
+class ExperimentSetup(TypedDict):
+    db_path: Path
+    metrics_db_path: Path
+    exp_id: int
+    algo_ver_id: int
+    env_ver_id: int
+    tmp_path: Path
+
+
 @pytest.fixture
-def temp_experiment_setup() -> Generator[dict[str, Any], None, None]:
+def temp_experiment_setup() -> Generator[ExperimentSetup, None, None]:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         db_path = tmp_path / "experiments.sqlite"
@@ -74,7 +83,7 @@ def temp_experiment_setup() -> Generator[dict[str, Any], None, None]:
             }
 
 
-def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_paired(temp_experiment_setup: ExperimentSetup) -> None:
     """Report paired outcomes with stable statistics and a distribution artifact."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
@@ -142,7 +151,7 @@ def test_compare_pairwise_paired(temp_experiment_setup: dict[str, Any]) -> None:
     assert report.distribution_plot_path.exists()
 
 
-def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: ExperimentSetup) -> None:
     """Compare algorithm conditions stored with a benchmark source key."""
     setup = temp_experiment_setup
     with DatabaseManager(setup["db_path"]) as db:
@@ -187,7 +196,7 @@ def test_compare_pairwise_maps_project_metadata(temp_experiment_setup: dict[str,
 
 
 def test_compare_pairwise_honors_confidence_level(
-    temp_experiment_setup: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    temp_experiment_setup: ExperimentSetup, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Use the requested confidence level for significance and interval width."""
     setup = temp_experiment_setup
@@ -229,7 +238,7 @@ def test_compare_pairwise_rejects_invalid_confidence_level() -> None:
         compare_pairwise("unused.sqlite", "test-exp", "a", "b", "metric", confidence_level=1.0, verbose=False)
 
 
-def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: ExperimentSetup) -> None:
     """Use the caller's median estimand instead of inspecting normality."""
     setup = temp_experiment_setup
     with DatabaseManager(setup["db_path"]) as db:
@@ -268,7 +277,7 @@ def test_compare_pairwise_accepts_explicit_median_spec(temp_experiment_setup: di
     assert report.test_details.statistic == pytest.approx(-3.0)
 
 
-def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
     """Reject blockwise missingness for paired data instead of silently dropping cells."""
     setup = temp_experiment_setup
     with DatabaseManager(setup["db_path"]) as db:
@@ -304,7 +313,7 @@ def test_compare_pairwise_rejects_blockwise_missingness(temp_experiment_setup: d
         )
 
 
-def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_setup: ExperimentSetup) -> None:
     """Reject partial automatic pairing unless complete-case semantics are explicit."""
     setup = temp_experiment_setup
     with DatabaseManager(setup["db_path"]) as db:
@@ -344,7 +353,7 @@ def test_compare_pairwise_auto_requires_explicit_complete_case(temp_experiment_s
     assert report.pairing == "paired"
 
 
-def test_analyze_hypers(temp_experiment_setup: dict[str, Any], capsys: pytest.CaptureFixture[str]) -> None:
+def test_analyze_hypers(temp_experiment_setup: ExperimentSetup, capsys: pytest.CaptureFixture[str]) -> None:
     """Return the pooled sensitivity report with every public field populated."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
@@ -411,7 +420,7 @@ def test_analyze_hypers(temp_experiment_setup: dict[str, Any], capsys: pytest.Ca
     assert report.sensitivity_plot_path.exists()
 
 
-def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_setup: dict[str, Any]) -> None:
+def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_setup: ExperimentSetup) -> None:
     """group_by must analyze each hyperparameter-key combination separately, not pool them."""
     setup = temp_experiment_setup
     db_path = setup["db_path"]
@@ -478,7 +487,7 @@ def test_analyze_hypers_group_by_partitions_instead_of_pooling(temp_experiment_s
     assert beta_report.sensitivity_plot_path.exists()
 
 
-def test_analyze_hypers_rejects_insufficient_cross_fit_seeds(temp_experiment_setup: dict[str, Any]) -> None:
+def test_analyze_hypers_rejects_insufficient_cross_fit_seeds(temp_experiment_setup: ExperimentSetup) -> None:
     """Cross-fitted tuning fails when the seed population cannot form folds."""
     setup = temp_experiment_setup
 
@@ -496,7 +505,7 @@ def test_analyze_hypers_rejects_insufficient_cross_fit_seeds(temp_experiment_set
         analyze_hypers(setup["db_path"], "test-exp", "setting", "metric", group_by=[], verbose=False)
 
 
-def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff(temp_experiment_setup: ExperimentSetup) -> None:
     setup = temp_experiment_setup
     db_path = setup["db_path"]
     
@@ -548,7 +557,7 @@ def test_compare_bakeoff(temp_experiment_setup: dict[str, Any]) -> None:
     assert set(report.lower_tail) == set(algos)
 
 
-def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: ExperimentSetup) -> None:
     """Compare algorithms across benchmark metadata using the explicit schema."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
@@ -582,7 +591,7 @@ def test_compare_bakeoff_maps_project_metadata(temp_experiment_setup: dict[str, 
     assert report.environments == benchmarks
 
 
-def _populate_bakeoff_rows(setup: dict[str, Any], rows: list[tuple[str, str, int, float]]) -> None:
+def _populate_bakeoff_rows(setup: ExperimentSetup, rows: list[tuple[str, str, int, float]]) -> None:
     with DatabaseManager(setup["db_path"]) as db:
         for algorithm, environment, seed, value in rows:
             hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "env_name": environment})
@@ -594,7 +603,7 @@ def _populate_bakeoff_rows(setup: dict[str, Any], rows: list[tuple[str, str, int
             populate_metrics_db(setup["metrics_db_path"], run_id, "metric", [value])
 
 
-def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: ExperimentSetup) -> None:
     """Use blockwise inference without deleting incomplete environment-seed rows."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [
@@ -620,7 +629,7 @@ def test_compare_bakeoff_retains_missing_blocks(temp_experiment_setup: dict[str,
     assert report.omnibus_details.assumptions["missingness"] == "blockwise"
 
 
-def test_compare_bakeoff_filters_singleton_blocks(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_filters_singleton_blocks(temp_experiment_setup: ExperimentSetup) -> None:
     """Drop one-observation blocks before omnibus validation and report the count."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [
@@ -644,7 +653,7 @@ def test_compare_bakeoff_filters_singleton_blocks(temp_experiment_setup: dict[st
     assert report.omnibus_details.assumptions["dropped_singleton_blocks"] == 1
 
 
-def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_setup: ExperimentSetup) -> None:
     """Return unavailable post-hoc entries when pair overlap is below the declared minimum."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [
@@ -672,7 +681,7 @@ def test_compare_bakeoff_marks_underpowered_posthoc_unavailable(temp_experiment_
     assert report.posthoc_matrix["sac"]["td3"] is None
 
 
-def test_compare_bakeoff_uses_reproducible_analysis_rng(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_uses_reproducible_analysis_rng(temp_experiment_setup: ExperimentSetup) -> None:
     """Repeat a bakeoff with the same specification and obtain identical inference."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [
@@ -709,7 +718,7 @@ def test_compare_bakeoff_uses_reproducible_analysis_rng(temp_experiment_setup: d
     assert first.posthoc_matrix == second.posthoc_matrix
 
 
-def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setup: ExperimentSetup) -> None:
     """Fail clearly when missingness leaves fewer than three valid blocks."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [(algorithm, "CartPole", 0, float(index)) for index, algorithm in enumerate(algorithms)]
@@ -728,7 +737,7 @@ def test_compare_bakeoff_rejects_insufficient_complete_data(temp_experiment_setu
         )
 
 
-def test_compare_bakeoff_rejects_empty_environment(temp_experiment_setup: dict[str, Any]) -> None:
+def test_compare_bakeoff_rejects_empty_environment(temp_experiment_setup: ExperimentSetup) -> None:
     """Reject a requested environment with no observations instead of omitting its block."""
     algorithms = ["ppo", "sac", "td3"]
     rows = [(algorithm, "CartPole", seed, float(seed + index)) for seed in range(3) for index, algorithm in enumerate(algorithms)]
