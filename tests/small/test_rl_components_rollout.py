@@ -182,7 +182,11 @@ def test_rollout_preserves_three_way_rng_streams_under_jit() -> None:
     ) -> tuple[jax.Array, object]:
         del observations, controller_state, previous_action, step_index
         assert action_key is not None
-        return jax.vmap(lambda key: jax.random.uniform(key, shape=(1,)))(action_key), None
+
+        def sample_action(key: jax.Array):
+            return jax.random.uniform(key, shape=(1,))
+
+        return jax.vmap(sample_action)(action_key), None
 
     carry = make_fresh_batched_carry(
         environment,
@@ -190,8 +194,8 @@ def test_rollout_preserves_three_way_rng_streams_under_jit() -> None:
         previous_action=jnp.zeros((2, 1), dtype=jnp.float32),
         action_shape=(1,),
     )
-    result = jax.jit(
-        lambda initial: run_batched_rollout(
+    def run_rollout(initial: BatchedRolloutCarry[jax.Array, object]):
+        return run_batched_rollout(
             environment,
             initial,
             steps=3,
@@ -202,7 +206,8 @@ def test_rollout_preserves_three_way_rng_streams_under_jit() -> None:
             action_shape=(1,),
             step_offset=0,
         )
-    )(carry)
+
+    result = jax.jit(run_rollout)(carry)
 
     expected_actions = []
     expected_keys = []
@@ -268,9 +273,18 @@ def test_rollout_continuation_matches_uninterrupted_scan() -> None:
             step_offset=offset,
         )
 
-    first = jax.jit(lambda carry: run(carry, 1, 0))(initial)
-    continuation = jax.jit(lambda carry: run(carry, 1, 1))(first.final_carry)
-    uninterrupted = jax.jit(lambda carry: run(carry, 2, 0))(initial)
+    def run_first(carry: BatchedRolloutCarry[jax.Array, object]):
+        return run(carry, 1, 0)
+
+    def run_continuation(carry: BatchedRolloutCarry[jax.Array, object]):
+        return run(carry, 1, 1)
+
+    def run_uninterrupted(carry: BatchedRolloutCarry[jax.Array, object]):
+        return run(carry, 2, 0)
+
+    first = jax.jit(run_first)(initial)
+    continuation = jax.jit(run_continuation)(first.final_carry)
+    uninterrupted = jax.jit(run_uninterrupted)(initial)
 
     assert jnp.array_equal(
         continuation.metrics["action"], uninterrupted.metrics["action"][1:]
@@ -368,8 +382,8 @@ def test_auto_reset_is_explicit_and_resets_environment_and_controller() -> None:
         del observations, previous_action, step_index, action_key
         return controller_state[:, None], controller_state + 1.0
 
-    result = jax.jit(
-        lambda carry: run_batched_rollout(
+    def run_rollout(carry: BatchedRolloutCarry[jax.Array, jax.Array]):
+        return run_batched_rollout(
             environment,
             carry,
             steps=2,
@@ -382,7 +396,8 @@ def test_auto_reset_is_explicit_and_resets_environment_and_controller() -> None:
             reset_policy="auto_reset",
             controller_reset=lambda key: jnp.array(10.0),
         )
-    )(initial)
+
+    result = jax.jit(run_rollout)(initial)
 
     assert jnp.array_equal(result.metrics["action"], jnp.array([[0.0, 0.0], [10.0, 10.0]]))
     assert jnp.array_equal(result.info["state"], jnp.ones((2, 2)))
