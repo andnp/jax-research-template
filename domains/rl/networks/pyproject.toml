@@ -7,6 +7,7 @@ dependencies = [
     "chex~=0.1",
     "flax~=0.12",
     "jax~=0.9",
+    "jax-nn",
 ]
 
 [build-system]
@@ -15,3 +16,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+jax-nn = { workspace = true }

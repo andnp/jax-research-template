@@ -1885,6 +1885,7 @@ dependencies = [
     { name = "chex" },
     { name = "flax" },
     { name = "jax" },
+    { name = "jax-nn" },
 ]
 
 [package.metadata]
@@ -1892,6 +1893,7 @@ requires-dist = [
     { name = "chex", specifier = "~=0.1" },
     { name = "flax", specifier = "~=0.12" },
     { name = "jax", specifier = "~=0.9" },
+    { name = "jax-nn", editable = "libs/jax-nn" },
 ]
 
 [[package]]
