@@ -4,7 +4,7 @@ import importlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import typer
 
@@ -328,7 +328,11 @@ def _probe_jax():
     compute_verified = False
     try:
         jnp = importlib.import_module("jax.numpy")
-        result = jax.jit(lambda x: x + 1)(jnp.array(1.0))
+
+        def increment(x: Any) -> Any:
+            return x + 1
+
+        result = jax.jit(increment)(jnp.array(1.0))
         float(result)
         compute_verified = True
     except Exception:
