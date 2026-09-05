@@ -522,10 +522,19 @@ def _advance_n_step_accumulator(
     appended_is_full = appended.size == jnp.asarray(config.N_STEP, dtype=appended.size.dtype)
     insert_mask = jnp.where(episode_end, indices < appended.size, jnp.logical_and(appended_is_full, indices == 0))
 
+    def reset_accumulator(value: _NStepAccumulatorState) -> _NStepAccumulatorState:
+        return jax.tree_util.tree_map(jnp.zeros_like, value)
+
+    def identity_accumulator(inner: _NStepAccumulatorState) -> _NStepAccumulatorState:
+        return inner
+
+    def shift_if_full(value: _NStepAccumulatorState) -> _NStepAccumulatorState:
+        return jax.lax.cond(appended_is_full, _shift_n_step_accumulator_left, identity_accumulator, value)
+
     next_accumulator = jax.lax.cond(
         episode_end,
-        lambda value: jax.tree_util.tree_map(jnp.zeros_like, value),
-        lambda value: jax.lax.cond(appended_is_full, _shift_n_step_accumulator_left, lambda inner: inner, value),
+        reset_accumulator,
+        shift_if_full,
         appended,
     )
     return next_accumulator, transitions, insert_mask
@@ -538,12 +547,14 @@ def _per_add_batched_transitions(
 ) -> PERBufferState:
     def _add_one(state: PERBufferState, xs: tuple[RainbowTransition, jax.Array]) -> tuple[PERBufferState, None]:
         transition, should_add = xs
-        state = jax.lax.cond(
-            should_add,
-            lambda args: per_add(args[0], args[1]),
-            lambda args: args[0],
-            (state, transition),
-        )
+
+        def add(args: tuple[PERBufferState, RainbowTransition]) -> PERBufferState:
+            return per_add(args[0], args[1])
+
+        def skip(args: tuple[PERBufferState, RainbowTransition]) -> PERBufferState:
+            return args[0]
+
+        state = jax.lax.cond(should_add, add, skip, (state, transition))
         return state, None
 
     buffer_state, _ = jax.lax.scan(_add_one, buffer_state, (transitions, insert_mask))
