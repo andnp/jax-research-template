@@ -1,0 +1,16 @@
+[project]
+name = "ml-components"
+version = "0.1.0"
+description = "Domain-agnostic ML training-objective components"
+requires-python = ">=3.13"
+dependencies = [
+    "chex~=0.1",
+    "jax~=0.9",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

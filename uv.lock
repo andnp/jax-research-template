@@ -14,6 +14,7 @@ members = [
     "jax-nn",
     "jax-replay",
     "jax-utils",
+    "ml-components",
     "process-control",
     "research-analysis",
     "research-cli",
@@ -925,6 +926,21 @@ wheels = [
 ]
 
 [[package]]
+name = "ml-components"
+version = "0.1.0"
+source = { editable = "libs/ml-components" }
+dependencies = [
+    { name = "chex" },
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chex", specifier = "~=0.1" },
+    { name = "jax", specifier = "~=0.9" },
+]
+
+[[package]]
 name = "ml-dtypes"
 version = "0.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1632,6 +1648,7 @@ dependencies = [
     { name = "jaxtyping" },
     { name = "matplotlib" },
     { name = "ml-collections" },
+    { name = "ml-components" },
     { name = "numpy" },
     { name = "optax" },
     { name = "pandas" },
@@ -1677,6 +1694,7 @@ requires-dist = [
     { name = "jaxtyping", specifier = "~=0.3" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "ml-collections", specifier = "~=1.1" },
+    { name = "ml-components", editable = "libs/ml-components" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "optax", specifier = "~=0.2" },
     { name = "pandas", specifier = ">=2.0" },

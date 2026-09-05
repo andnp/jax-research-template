@@ -38,6 +38,7 @@ dependencies = [
     "rl-components[playground]",
     "rl-networks",
     "rl-envs",
+    "ml-components",
     "process-control",
 ]
 
@@ -67,6 +68,7 @@ rl-agents = { workspace = true }
 rl-components = { workspace = true }
 rl-networks = { workspace = true }
 rl-envs = { workspace = true }
+ml-components = { workspace = true }
 process-control = { workspace = true }
 
 [tool.uv.workspace]
@@ -111,6 +113,7 @@ search-path = [
     "libs/research-store/src",
     "libs/rl-agents/src",
     "libs/rl-components/src",
+    "libs/ml-components/src",
     "domains/rl/networks/src",
     "domains/rl/envs/src",
     "libs/process-control/src",
