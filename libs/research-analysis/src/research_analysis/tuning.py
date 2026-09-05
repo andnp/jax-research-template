@@ -180,6 +180,15 @@ def _build_hyper_matrix(
     return matrix, keys_sorted, seeds_sorted
 
 
+def _all_keys(primary: Sequence[str], condition: Mapping[str, Any] | None) -> list[str]:
+    """Union of the tuned keys and any fixed-condition keys, tuned keys first, no duplicates."""
+    keys: list[str] = list(primary)
+    for key in condition or {}:
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
 def _filter_condition(
     records: list[dict[str, Any]], condition: Mapping[str, Any] | None
 ) -> list[dict[str, Any]]:
@@ -255,8 +264,8 @@ def hierarchical_bootstrap_difference_ci_from_experiment(
     """
     from research_analysis.reporting import _load_hyperparameter_records
 
-    all_keys_a = list(dict.fromkeys([*hyperparameter_keys_a, *(condition_a or {})]))
-    all_keys_b = list(dict.fromkeys([*hyperparameter_keys_b, *(condition_b or {})]))
+    all_keys_a = _all_keys(hyperparameter_keys_a, condition_a)
+    all_keys_b = _all_keys(hyperparameter_keys_b, condition_b)
 
     records_a = _filter_condition(
         _load_hyperparameter_records(Path(db_path), experiment_slug, all_keys_a, metric_name), condition_a
