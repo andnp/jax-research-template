@@ -134,9 +134,10 @@ def _run(warmup_fraction: float) -> Run:
     steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
     agent = DQNAtariAgent(config, runtime_config)
 
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, ToyAtariEpisodeEnv(), key, steps=steps, gamma=GAMMA)
-    )(jax.random.key(SEED))
+    def train_fn(key: jax.Array):
+        return run(agent, ToyAtariEpisodeEnv(), key, steps=steps, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
 
     agent_state = final_state.agent_state
     count = int(agent_state.buffer_state.count)
