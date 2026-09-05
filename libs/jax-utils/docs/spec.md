@@ -11,8 +11,8 @@
 ## 2. Core Features
 
 ### 2.1 Typed JAX Transformations
-- **`typed_jit`**: A wrapper around `jax.jit` that respects and enforces `jaxtyping` annotations on inputs and outputs.
-- **`typed_vmap`**: A version of `jax.vmap` that preserves type information and provides clearer error messages for axis mismatches.
+- **`jit`**: A wrapper around `jax.jit` that respects and enforces `jaxtyping` annotations on inputs and outputs.
+- **`vmap`**: A version of `jax.vmap` that preserves type information and provides clearer error messages for axis mismatches.
 
 ### 2.2 Tree-Level Operations
 - **Tree Math:** Support for basic arithmetic and statistical operations (Mean, Std, Norm) that operate recursively on all leaves of a Pytree.
@@ -30,10 +30,11 @@
 ## 4. Proposed Usage
 
 ```python
-from jax_utils import typed_jit, tree_norm
+import jax_utils.wrappers as jax_u
+from jax_utils import tree_norm
 from jaxtyping import Float, Array
 
-@typed_jit
+@jax_u.jit
 def my_pure_function(x: Float[Array, "batch dim"]) -> Float[Array, "batch"]:
     return x.sum(axis=-1)
 
