@@ -438,8 +438,14 @@ class InstrumentationProfile:
 
         sensor_root = jax.random.fold_in(seeds.key(RandomStream.SENSOR, channel_index), channel_index)
         fault_root = jax.random.fold_in(seeds.key(RandomStream.FAULT, channel_index), channel_index)
-        sensor_keys = jax.vmap(lambda step: jax.random.fold_in(sensor_root, step))(indices)
-        fault_keys = jax.vmap(lambda step: jax.random.fold_in(fault_root, step))(indices)
+        def fold_sensor_key(step: jax.Array) -> jax.Array:
+            return jax.random.fold_in(sensor_root, step)
+
+        def fold_fault_key(step: jax.Array) -> jax.Array:
+            return jax.random.fold_in(fault_root, step)
+
+        sensor_keys = jax.vmap(fold_sensor_key)(indices)
+        fault_keys = jax.vmap(fold_fault_key)(indices)
         noise = jax.vmap(jax.random.normal)(sensor_keys) * channel.noise_std
         dropout = jax.vmap(jax.random.uniform)(fault_keys) < channel.dropout_probability
         fault_active = jnp.asarray(
