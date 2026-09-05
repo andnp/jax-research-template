@@ -87,8 +87,8 @@ def main() -> None:
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = DQNAgent(config)
-    train_fn = jax.jit(
-        lambda key: run(
+    def train_one_key(key: jax.Array):
+        return run(
             agent,
             env,
             key,
@@ -96,7 +96,8 @@ def main() -> None:
             gamma=GAMMA,
             env_params=env_params,
         )
-    )
+
+    train_fn = jax.jit(train_one_key)
 
     print("Training DQN on CartPole-v1 (100k steps)...")
     rng = jax.random.key(config.SEED)
