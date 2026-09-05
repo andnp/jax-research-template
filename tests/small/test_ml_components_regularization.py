@@ -1,7 +1,7 @@
-"""Small tests for rl_components.regularization — L2 penalty on a named params head."""
+"""Small tests for ml_components.regularization — L2 penalty on a named params head."""
 
 import jax.numpy as jnp
-from rl_components.regularization import l2_regularizer
+from ml_components.regularization import l2_regularizer
 
 
 class TestL2Regularizer:
