@@ -320,13 +320,12 @@ class ReplayQAgent:
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
+        def polyak_average(target: jax.Array, online: jax.Array) -> jax.Array:
+            return hypers.TAU * online + (1.0 - hypers.TAU) * target
+
         target_params = jax.lax.cond(
             step_index % hypers.TARGET_NETWORK_FREQUENCY == 0,
-            lambda: jax.tree_util.tree_map(
-                lambda target, online: hypers.TAU * online + (1.0 - hypers.TAU) * target,
-                state.target_params,
-                train_state.params,
-            ),
+            lambda: jax.tree_util.tree_map(polyak_average, state.target_params, train_state.params),
             lambda: state.target_params,
         )
 
@@ -380,8 +379,8 @@ class ReplayQAgent:
         )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
-        loss, grads = jax.value_and_grad(
-            lambda params: self.loss_fn(
+        def loss_fn(params: VariableDict) -> jax.Array:
+            return self.loss_fn(
                 params,
                 target_params,
                 obs,
@@ -391,5 +390,6 @@ class ReplayQAgent:
                 discounts,
                 apply_fn=train_state.apply_fn,
             )
-        )(train_state.params)
+
+        loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
