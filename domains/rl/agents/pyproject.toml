@@ -9,6 +9,7 @@ dependencies = [
     "gymnax~=0.0",
     "jax-nn",
     "rl-components",
+    "rl-networks",
     "research-runner",
 ]
 
@@ -22,5 +23,6 @@ where = ["src"]
 [tool.uv.sources]
 jax-nn = { workspace = true }
 rl-components = { workspace = true }
+rl-networks = { workspace = true }
 research-runner = { workspace = true }
 

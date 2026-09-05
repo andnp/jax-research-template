@@ -1808,6 +1808,7 @@ dependencies = [
     { name = "jax-nn" },
     { name = "research-runner" },
     { name = "rl-components" },
+    { name = "rl-networks" },
 ]
 
 [package.metadata]
@@ -1818,6 +1819,7 @@ requires-dist = [
     { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "research-runner", editable = "libs/research-runner" },
     { name = "rl-components", editable = "libs/rl-components" },
+    { name = "rl-networks", editable = "domains/rl/networks" },
 ]
 
 [[package]]
