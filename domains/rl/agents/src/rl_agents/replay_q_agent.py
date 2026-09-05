@@ -54,6 +54,7 @@ from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
+from rl_components.exploration import linear_epsilon_schedule
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -329,12 +330,13 @@ class ReplayQAgent:
             lambda: state.target_params,
         )
 
-        epsilon = jnp.maximum(
+        epsilon = linear_epsilon_schedule(
+            step_index,
+            hypers.TOTAL_TIMESTEPS,
+            hypers.EPSILON_START,
             hypers.EPSILON_END,
-            hypers.EPSILON_START
-            - (hypers.EPSILON_START - hypers.EPSILON_END)
-            * (step_index / (hypers.TOTAL_TIMESTEPS * hypers.EPSILON_FRACTION)),
-        ).astype(jnp.float32)
+            hypers.EPSILON_FRACTION,
+        )
         q_values = jnp.asarray(train_state.apply_fn(train_state.params, timestep.observation))
         chose_random = jax.random.uniform(action_key, ()) < epsilon
         random_action = jax.random.randint(action_key, (), 0, state.num_actions)
