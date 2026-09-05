@@ -60,7 +60,10 @@ class TestAgentVmapZone:
         key = jax.random.key(0)
         keys = jnp.stack([key, key])
 
-        params = jax.jit(jax.vmap(lambda lr, k: _run_agent_arm(agent, base_hypers, lr, k)))(learning_rates, keys)
+        def run_lr_key(lr: jax.Array, k: jax.Array):
+            return _run_agent_arm(agent, base_hypers, lr, k)
+
+        params = jax.jit(jax.vmap(run_lr_key))(learning_rates, keys)
 
         leaves = jax.tree_util.tree_leaves(params)
         assert leaves, "expected at least one parameter leaf"
@@ -81,7 +84,10 @@ class TestAgentVmapZone:
         key = jax.random.key(0)
         keys = jnp.stack([key, key])
 
-        params = jax.jit(jax.vmap(lambda lr, k: _run_agent_arm(agent, base_hypers, lr, k)))(learning_rates, keys)
+        def run_lr_key(lr: jax.Array, k: jax.Array):
+            return _run_agent_arm(agent, base_hypers, lr, k)
+
+        params = jax.jit(jax.vmap(run_lr_key))(learning_rates, keys)
 
         leaf = jax.tree_util.tree_leaves(params)[0]
         assert jnp.allclose(leaf[0], leaf[1])
