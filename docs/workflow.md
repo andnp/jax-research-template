@@ -103,7 +103,7 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
    uv run research eject ppo-cartpole-sweep rl-agents
    ```
    **What happens under the hood:**
-   - The contents of `libs/rl-agents/src/rl_agents/` are copied to `projects/ppo-cartpole-sweep/components/rl_agents/`.
+   - The contents of `domains/rl/agents/src/rl_agents/` are copied to `projects/ppo-cartpole-sweep/components/rl_agents/`.
    - The CLI automatically scans Python files in `projects/ppo-cartpole-sweep/` and rewrites imports. For example, `from rl_agents.ppo import make_train` becomes `from components.rl_agents.ppo import make_train`.
    - The project is now fully decoupled from the core library.
 
@@ -116,7 +116,7 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
    uv run research harvest ppo-cartpole-sweep rl-agents
    ```
    **What happens under the hood:**
-   - The component is moved from the project folder back to `libs/rl-agents/src/rl_agents/`.
+   - The component is moved from the project folder back to `domains/rl/agents/src/rl_agents/`.
    - The CLI automatically rewrites import statements back to the global name: `components.rl_agents.ppo` becomes `rl_agents.ppo` in both the project files and the library files.
    - The CLI registers the library in the root workspace `pyproject.toml` dependencies, workspace sources, and `pyrefly` analysis paths.
 
