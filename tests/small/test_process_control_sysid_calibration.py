@@ -62,6 +62,9 @@ def test_parameter_space_rejects_duplicate_names_and_unknown_groups() -> None:
 def test_parameter_views_work_inside_jit() -> None:
     """Keep ordered parameter metadata usable by compiled numeric consumers."""
     space = _space()
-    scaled = jax.jit(lambda values: values / space.scales)(space.initial_vector)
+    def scale_values(values: jax.Array):
+        return values / space.scales
+
+    scaled = jax.jit(scale_values)(space.initial_vector)
 
     assert jnp.allclose(scaled, jnp.array([1.0, 3.0]))
