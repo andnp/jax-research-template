@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
+from rl_envs.atari_ale import AleAtariConfig, make_atari_adapter
 
 FRAME_STACK = 4
 SCREEN_SIZE = 84

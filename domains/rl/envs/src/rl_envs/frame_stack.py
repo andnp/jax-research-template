@@ -12,7 +12,6 @@ from __future__ import annotations
 import chex
 import jax
 import jax.numpy as jnp
-
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.structs import chex_struct
 

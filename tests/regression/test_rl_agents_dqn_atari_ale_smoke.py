@@ -10,8 +10,8 @@ from rl_agents.dqn_atari import (
     dqn_atari_runtime_from_dqn_zoo,
     dqn_zoo_atari_total_train_env_steps,
 )
-from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
 from rl_components.loop import run
+from rl_envs.atari_ale import AleAtariConfig, make_atari_adapter
 
 GAMMA = 0.99
 

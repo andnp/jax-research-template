@@ -92,7 +92,7 @@ jobs:
           uv run pip install "autorom[accept-rom-license]"
           uv run AutoROM --accept-license --quiet
       - name: Run ALE Atari smoke tests
-        run: uv run pytest tests/regression/test_rl_components_atari_ale_smoke.py tests/regression/test_rl_agents_dqn_atari_ale_smoke.py -x -q
+        run: uv run pytest tests/regression/test_rl_envs_atari_ale_smoke.py tests/regression/test_rl_agents_dqn_atari_ale_smoke.py -x -q
 
   benchmarks:
     needs: [lint, typecheck, test-small, test-medium]

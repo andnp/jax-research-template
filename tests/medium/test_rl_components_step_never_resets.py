@@ -25,7 +25,7 @@ test of ``BraxAdapter``, ``MujocoPlaygroundAdapter`` and ``ProcessControlEnv``, 
 those tests read the returned flags rather than the returned observation.
 
 ``PythonEnvBridge`` is deliberately absent: its emulator lives in mutable Python, so
-``tests/medium/test_rl_components_python_env_bridge.py`` pins the same invariant more
+``tests/medium/test_rl_envs_python_env_bridge.py`` pins the same invariant more
 strongly still, by counting the real resets the environment performs.
 """
 
@@ -42,10 +42,10 @@ import jax.numpy as jnp
 import pytest
 import rl_components.brax as brax_module
 from rl_components.brax import BraxAdapter, BraxConfig
-from rl_components.frame_stack import FrameStackWrapper
 from rl_components.gymnax_bridge import make_gymnax_env
 from rl_components.mujoco_playground_bridge import MujocoPlaygroundAdapter
 from rl_components.process_control_bridge import ProcessControlEnv
+from rl_envs.frame_stack import FrameStackWrapper
 
 RESET_OBSERVATION = -99.0
 """A value no double's ``step`` ever produces, so a fused reset is unmistakable."""

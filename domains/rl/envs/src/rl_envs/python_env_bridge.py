@@ -7,7 +7,6 @@ import gymnasium
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 

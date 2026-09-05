@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 from rl_components.agent_protocol import AgentStep
 from rl_components.env_protocol import EnvSpec
-from rl_components.frame_stack import FrameStackWrapper
 from rl_components.loop import run
-from rl_components.python_env_bridge import PythonEnvBridge
 from rl_components.timestep import Timestep
+from rl_envs.frame_stack import FrameStackWrapper
+from rl_envs.python_env_bridge import PythonEnvBridge
 
 EPISODE_LENGTH = 2
 """The fake env ends its episode on its second step, so a short run crosses two boundaries."""

@@ -4,10 +4,10 @@ import ale_py  # noqa: F401  # registers ALE namespace with gymnasium
 import gymnasium
 import jax
 from gymnasium.wrappers import AtariPreprocessing
-
-from rl_components.frame_stack import FrameStackWrapper
-from rl_components.python_env_bridge import PythonEnvBridge
 from rl_components.structs import chex_struct
+
+from rl_envs.frame_stack import FrameStackWrapper
+from rl_envs.python_env_bridge import PythonEnvBridge
 
 
 @chex_struct(frozen=True)

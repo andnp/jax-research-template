@@ -122,7 +122,7 @@ def _require_real_benchmarks() -> None:
 
 def _make_real_env_or_skip() -> EnvProtocol[jax.Array, object, jax.Array, None]:
     _require_real_benchmarks()
-    from rl_components.atari_ale import AleAtariConfig, make_atari_adapter
+    from rl_envs.atari_ale import AleAtariConfig, make_atari_adapter
 
     try:
         return cast(
