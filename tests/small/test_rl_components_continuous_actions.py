@@ -1,6 +1,6 @@
 """The action-space contract every ported continuous agent shares.
 
-``rl_agents.continuous_actions`` is the one place that contract is stated, and each of
+``rl_components.continuous_actions`` is the one place that contract is stated, and each of
 the four continuous agents calls it from ``init``. Its rejections are the loud failures
 that stand in for four silent ones: a discrete spec would crash later inside a network, a
 rank-2 action would index the wrong axis, and unnormalized bounds would not fail at all --
@@ -13,7 +13,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import pytest
-from rl_agents.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
 
 
