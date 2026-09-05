@@ -121,9 +121,11 @@ def _run(*, truncates: bool) -> Replay:
         N_STEP=N_STEP,
     )
     agent = RainbowAgent(config)
-    final_state, metrics = jax.jit(
-        lambda key: run(agent, CounterEnv(truncates=truncates), key, steps=STEPS, gamma=GAMMA)
-    )(jax.random.key(SEED))
+
+    def train_fn(key: jax.Array):
+        return run(agent, CounterEnv(truncates=truncates), key, steps=STEPS, gamma=GAMMA)
+
+    final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
 
     buffer_state = final_state.agent_state.buffer_state
     count = int(buffer_state.count)
