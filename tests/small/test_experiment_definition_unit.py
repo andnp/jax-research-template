@@ -15,7 +15,7 @@ from experiment_definition.parameter import ParameterSpec
 
 class TestComponent:
     def test_defaults(self) -> None:
-        c = Component(name="PPO", path=Path("libs/rl-agents/src/rl_agents/ppo.py"))
+        c = Component(name="PPO", path=Path("domains/rl/agents/src/rl_agents/ppo.py"))
         assert c.type == ComponentType.OTHER
 
     def test_explicit_type(self) -> None:
