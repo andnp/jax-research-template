@@ -34,6 +34,14 @@ def jit[**P, R](
     return cast(Callable[P, R], jax.jit(fn, donate_argnums=donate_argnums))
 
 
+def cond_apply[T](pred: jax.Array | bool, fn: Callable[[T], T], x: T) -> T:
+    """Apply *fn* to *x* under ``pred``, else return *x* unchanged.
+
+    A thin wrapper around ``jax.lax.cond(pred, lambda: fn(x), lambda: x)``.
+    """
+    return jax.lax.cond(pred, lambda: fn(x), lambda: x)
+
+
 def vmap[**P, R](
     fn: Callable[P, R],
     *,
