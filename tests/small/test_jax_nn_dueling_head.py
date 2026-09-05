@@ -77,22 +77,29 @@ def _raise_every_advantage(variables: VariableDict) -> VariableDict:
     Returns:
         A new variable tree; ``variables`` is unchanged.
     """
-    return jax.tree.map(
-        lambda leaf: leaf + SHIFT if leaf.shape == _ADVANTAGE_KERNEL_SHAPE else leaf, variables
-    )
+
+    def shift_advantage(leaf: jax.Array):
+        return leaf + SHIFT if leaf.shape == _ADVANTAGE_KERNEL_SHAPE else leaf
+
+    return jax.tree.map(shift_advantage, variables)
 
 
 def _raise_one_advantage(variables: VariableDict) -> VariableDict:
     """The same surgery on a single action's column, which the head must *not* absorb."""
-    return jax.tree.map(
-        lambda leaf: leaf.at[:, 0].add(SHIFT) if leaf.shape == _ADVANTAGE_KERNEL_SHAPE else leaf,
-        variables,
-    )
+
+    def shift_one_advantage(leaf: jax.Array):
+        return leaf.at[:, 0].add(SHIFT) if leaf.shape == _ADVANTAGE_KERNEL_SHAPE else leaf
+
+    return jax.tree.map(shift_one_advantage, variables)
 
 
 def _raise_the_value(variables: VariableDict) -> VariableDict:
     """Add ``SHIFT`` to the state value, which the head must pass through untouched."""
-    return jax.tree.map(lambda leaf: leaf + SHIFT if leaf.shape == _VALUE_BIAS_SHAPE else leaf, variables)
+
+    def shift_value(leaf: jax.Array):
+        return leaf + SHIFT if leaf.shape == _VALUE_BIAS_SHAPE else leaf
+
+    return jax.tree.map(shift_value, variables)
 
 
 class TestDuelingRecombination:
