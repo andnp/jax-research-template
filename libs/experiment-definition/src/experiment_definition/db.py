@@ -831,8 +831,13 @@ class DatabaseManager:
             )
             grouped_runs.setdefault(batch_key, []).append(run.id)
 
+        def batch_key_of(
+            item: tuple[tuple[int | None, int | None, str | None, str, str | None], list[int]],
+        ) -> tuple[int | None, int | None, str | None, str, str | None]:
+            return item[0]
+
         batches: list[RunBatch] = []
-        for batch_key, run_ids in sorted(grouped_runs.items(), key=lambda item: item[0]):
+        for batch_key, run_ids in sorted(grouped_runs.items(), key=batch_key_of):
             chunk_size = len(run_ids) if max_runs_per_batch is None else max_runs_per_batch
             for start in range(0, len(run_ids), chunk_size):
                 batches.append(RunBatch(*batch_key, run_ids[start : start + chunk_size]))
