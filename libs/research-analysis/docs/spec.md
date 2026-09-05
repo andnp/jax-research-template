@@ -33,15 +33,36 @@
 ### 2.4 Baseline Construction
 - Utilities for creating and managing statistically sound baselines for comparative studies.
 
-### 2.5 Experiment Metadata Mapping
-- Analysis loaders use `condition_name` and `env_name` as canonical dimensions.
-- Callers with different stored keys may pass an `AnalysisSchema` mapping, such as
-  `condition_key="algorithm"` and `environment_key="benchmark"`.
-- Mapped loading preserves the canonical output names while retaining the stored
-  seed, step, metric, and value fields.
-- Omitting the schema preserves the legacy loader output and default key behavior.
-- Explicit mappings fail when a required dimension is absent instead of silently
-  collapsing runs into an empty condition.
+### 2.5 Canonical Experiment Dataset
+`research_analysis.dataset.load_experiment_dataset` is the only boundary between
+the experiment database, recorded metric artifacts, and statistical reporting.
+It returns an `ExperimentDataset` containing typed `runs` and long-form `metrics`
+Polars frames, component provenance, selected dimensions, and structured
+diagnostics. Reporting functions consume that object; they do not open SQLite
+databases or resolve execution paths themselves.
+
+Callers declare source dimensions and sweep axes explicitly:
+
+```python
+dataset = load_experiment_dataset(
+    experiments_db,
+    "study-slug",
+    dimensions=ExperimentDimensions(
+        condition="algorithm",
+        environment="environment",
+        sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT),),
+    ),
+    version_selection=VersionSelection.latest_completed(),
+)
+report = compare_pairwise(dataset, "baseline", "candidate", "reward")
+```
+
+The loader selects one coherent completed component-version set by default.
+Historical selection requires qualified component identity plus a version row ID
+or recorded code hash. It retains ablation and run/execution identity, reads
+metrics only from recorded `metadata_json["metrics_db_path"]`, and fails in
+strict mode for ambiguous cohorts or missing artifacts. `partial=True` returns
+valid rows with `DatasetDiagnostic` records for the omitted data.
 
 ## 3. Technical Constraints
 - **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.

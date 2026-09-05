@@ -4,9 +4,24 @@
 
 Reinforcement Learning (RL) researchers—especially graduate students—frequently face challenges when conducting rigorous statistical analysis of experiment data. Common issues include hyperparameter maximization bias, using statistically invalid averages across heterogeneous tasks, and misapplying hypothesis tests (e.g., performing unpaired tests on paired seed runs).
 
-The `research-analysis` reporting API introduces specialized entry points to automate statistical decision-making, enforce monorepo standards defined in the [Empirical Design & Analysis Guide (science_guide.md)](file:///home/andy/Projects/research/research-monorepo/core/docs/science_guide.md), and produce both structured dataclass outputs and human-readable, pedagogical console outputs using `rich`.
+The `research-analysis` reporting API introduces specialized entry points to automate statistical decision-making, enforce monorepo standards defined in the [Empirical Design & Analysis Guide](../science_guide.md), and produce both structured dataclass outputs and human-readable, pedagogical console outputs using `rich`.
 
-This API lives in a new module: [reporting.py](file:///home/andy/Projects/research/research-monorepo/core/libs/research-analysis/src/research_analysis/reporting.py).
+The data boundary lives in [dataset.py](../../libs/research-analysis/src/research_analysis/dataset.py); reporting lives in [reporting.py](../../libs/research-analysis/src/research_analysis/reporting.py).
+
+## 2.1 Dataset boundary
+
+Callers first build an `ExperimentDataset` with
+`load_experiment_dataset(experiments_db, slug, *, dimensions, version_selection,
+cohort, metrics, partial)`. The dataset owns run selection, component
+provenance, artifact lookup, metric materialization, and diagnostics. Reporting
+does not accept database paths, experiment slugs, `AnalysisSchema`, or execution
+roots.
+
+The canonical tables contain `condition_name`, `seed`, `run_id`,
+`execution_id`, and `ablation`; `metrics` additionally contains `step`,
+`metric`, and `value`. An optional `env_name` and declared typed sweep-axis
+columns are included when requested. Curves may impose additional step-grid
+requirements for operations that need aligned trajectories.
 
 ---
 
@@ -18,7 +33,7 @@ This API lives in a new module: [reporting.py](file:///home/andy/Projects/resear
 - **Statistical Rigor:** Directly integrate monorepo primitives such as BCa
   confidence intervals, permutation tests, Holm correction, fixed-reference
   aggregates, and cross-fitted tuning.
-- **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](file:///home/andy/Projects/research/research-monorepo/core/docs/adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
+- **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](../adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
 
 `ComparisonSpec` is the canonical design contract. Callers can set the
 estimand (`mean` or `median`), pairing (`auto`, `paired`, or `independent`),
@@ -40,19 +55,17 @@ Used to compare exactly two experimental arms (e.g., a baseline and a proposed m
 - **Function Signature:**
   ```python
   def compare_pairwise(
-      db_path: Path | str,
-      experiment_slug: str,
+      dataset: ExperimentDataset,
       condition_a: str,
       condition_b: str,
       metric_name: str,
       confidence_level: float = 0.95,
       verbose: bool = True,
-      schema: AnalysisSchema | None = None,
       spec: ComparisonSpec | None = None,
   ) -> ABComparisonReport: ...
   ```
 - **Analysis Steps:**
-  1. Detect if random seeds are shared across the two arms.
+  1. Select final observations from the already materialized dataset.
   2. Use a paired or independent permutation test for the declared estimand.
   3. Compute a scalar BCa bootstrap interval with explicit confidence and
      resample settings.
@@ -64,8 +77,7 @@ Used to evaluate hyperparameter tuning sweeps, identify optimal configurations, 
 - **Function Signature:**
   ```python
   def analyze_hypers(
-      db_path: Path | str,
-      experiment_slug: str,
+      dataset: ExperimentDataset,
       target_hyperparameter: str,
       metric_name: str,
       group_by: list[str] | None = None,
@@ -77,7 +89,7 @@ Used to evaluate hyperparameter tuning sweeps, identify optimal configurations, 
   ) -> HyperparameterSensitivityReport: ...
   ```
 - **Analysis Steps:**
-  1. Retrieve all tuning configurations from `HyperparamConfigs` for the experiment.
+  1. Read declared typed sweep axes and final observations from the dataset.
   2. Select each fold's winner on training seeds and estimate it on the held-out seed.
   3. Compute the raw winner mean, corrected winner mean, and estimated maximization bias.
   4. Generate sensitivity curve data using both the **Best** and **Slice** strategies described in the science guide.
@@ -89,19 +101,17 @@ Used to compare multiple algorithms ($K \ge 3$) across a benchmark suite of seve
 - **Function Signature:**
   ```python
   def compare_bakeoff(
-      db_path: Path | str,
-      experiment_slug: str,
+      dataset: ExperimentDataset,
       algorithms: list[str],
       environments: list[str],
       metric_name: str,
       verbose: bool = True,
-      schema: AnalysisSchema | None = None,
       references: dict[str, ReferenceRange] | None = None,
       spec: ComparisonSpec | None = None,
   ) -> BenchmarkBakeoffReport: ...
   ```
 - **Analysis Steps:**
-  1. Retrieve curves across all tasks and algorithms.
+  1. Select the requested algorithms and environments from the dataset.
   2. Apply caller-supplied fixed-reference normalization to scale returns across environments with different boundaries.
   3. Detect missing run data (e.g., if certain seeds/tasks failed or are incomplete).
   4. Perform a block-stratified permutation omnibus test equivalent in purpose

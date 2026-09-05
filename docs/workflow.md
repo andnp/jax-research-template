@@ -149,6 +149,11 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    agent's source invalidates nothing on its own, and re-identifying a study re-runs all of it.
 
 5. **Read the results:**
-   Reporting and analysis are library functions, not CLI subcommands — use `research_analysis` (e.g. `research_analysis.reporting.analyze_hypers`, `compare_bakeoff`, `compare_pairwise`, and `research_analysis.bootstrap.bootstrap_ci`) against the two SQLite databases.
+   Reporting and analysis are library functions, not CLI subcommands. First call
+   `research_analysis.dataset.load_experiment_dataset` with the experiment
+   database and explicit dimensions/version policy, then pass the resulting
+   `ExperimentDataset` to `research_analysis.reporting.analyze_hypers`,
+   `compare_bakeoff`, `compare_pairwise`, or a bootstrap helper. Reporting does
+   not open the two SQLite databases itself.
 
 For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and metrics together, see `core/examples/run_experiment.py`.
