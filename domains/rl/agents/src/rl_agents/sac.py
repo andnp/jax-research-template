@@ -135,10 +135,11 @@ def _networks(action_dim: int) -> tuple[Actor, Critic]:
 
 def _ensemble_q(critic: Critic, critic_params: VariableDict, obs: jax.Array, actions: jax.Array) -> jax.Array:
     """Every ensemble member's Q-value for one batch, shaped ``(members, batch)``."""
-    return jax.vmap(
-        lambda params, o, a: _critic_apply(critic, params, o, a),
-        in_axes=(0, None, None),
-    )(critic_params, obs, actions)
+
+    def member_q(params: VariableDict, o: jax.Array, a: jax.Array) -> jax.Array:
+        return _critic_apply(critic, params, o, a)
+
+    return jax.vmap(member_q, in_axes=(0, None, None))(critic_params, obs, actions)
 
 
 def sac_critic_loss(
@@ -528,11 +529,10 @@ class SACAgent:
         )
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
-        critic_target_params = jax.tree_util.tree_map(
-            lambda target, online: hypers.TAU * online + (1.0 - hypers.TAU) * target,
-            state.critic_target_params,
-            critic_state.params,
-        )
+        def polyak_average(target: jax.Array, online: jax.Array) -> jax.Array:
+            return hypers.TAU * online + (1.0 - hypers.TAU) * target
+
+        critic_target_params = jax.tree_util.tree_map(polyak_average, state.critic_target_params, critic_state.params)
 
         return (
             actor_state,
