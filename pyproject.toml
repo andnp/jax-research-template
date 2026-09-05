@@ -36,6 +36,7 @@ dependencies = [
     "research-store",
     "rl-agents",
     "rl-components[playground]",
+    "rl-networks",
     "process-control",
 ]
 
@@ -63,10 +64,11 @@ research-runner = { workspace = true }
 research-store = { workspace = true }
 rl-agents = { workspace = true }
 rl-components = { workspace = true }
+rl-networks = { workspace = true }
 process-control = { workspace = true }
 
 [tool.uv.workspace]
-members = ["libs/*", "cli"]
+members = ["libs/*", "cli", "domains/*/*"]
 
 [dependency-groups]
 dev = [
@@ -107,6 +109,7 @@ search-path = [
     "libs/research-store/src",
     "libs/rl-agents/src",
     "libs/rl-components/src",
+    "domains/rl/networks/src",
     "libs/process-control/src",
     "libs/experiment-definition/src",
     "cli/src",
