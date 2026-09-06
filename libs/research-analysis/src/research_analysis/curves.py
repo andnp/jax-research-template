@@ -19,7 +19,7 @@ from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci
 from research_analysis.statistics import (
     pointwise_tolerance_interval,
-    select_median_run_index,
+    select_quantile_run_index,
     tolerance_interval_order_indices,
 )
 
@@ -148,10 +148,20 @@ def median_run_curve(df: pl.DataFrame, metric: str) -> pl.DataFrame:
 
     Returns a DataFrame with columns: ``condition_name | step | value``.
     """
+    return quantile_run_curve(df, metric, quantile=0.5)
+
+
+def quantile_run_curve(
+    df: pl.DataFrame,
+    metric: str,
+    *,
+    quantile: float,
+) -> pl.DataFrame:
+    """Learning curve of the seed closest to a performance quantile, per condition."""
     frames: list[pl.DataFrame] = []
     for condition in _conditions_with_metric(df, metric):
         steps, array = _condition_curve_array(df, metric, condition)
-        idx = select_median_run_index(array)
+        idx = select_quantile_run_index(array, quantile=quantile)
         frames.append(
             pl.DataFrame(
                 {

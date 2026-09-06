@@ -89,9 +89,12 @@ def pointwise_tolerance_interval(
     )
 
 
-def select_median_run_index(data: NDArray[np.floating]) -> int:
-    """Select the index of the seed closest to median performance, breaking ties by lower index."""
+def select_quantile_run_index(data: NDArray[np.floating], *, quantile: float) -> int:
+    """Select the run closest to a performance quantile, breaking ties by lower index."""
     array = np.asarray(data, dtype=np.float64)
+    if not 0.0 <= quantile <= 1.0:
+        raise ValueError(f"quantile must be in [0, 1], got {quantile}.")
+
     if array.ndim == 1:
         mean_scores = array
     elif array.ndim == 2:
@@ -102,15 +105,19 @@ def select_median_run_index(data: NDArray[np.floating]) -> int:
     if mean_scores.size == 0:
         raise ValueError("Input data must not be empty.")
 
-    median_score = np.median(mean_scores)
+    quantile_score = np.quantile(mean_scores, quantile)
 
-    # Select the index of the run closest to the median score, breaking ties stably.
     min_diff = np.inf
     best_index = -1
     for idx, score in enumerate(mean_scores):
-        diff = abs(score - median_score)
+        diff = abs(score - quantile_score)
         if diff < min_diff:
             min_diff = diff
             best_index = idx
 
     return best_index
+
+
+def select_median_run_index(data: NDArray[np.floating]) -> int:
+    """Select the run closest to median performance, breaking ties by lower index."""
+    return select_quantile_run_index(data, quantile=0.5)

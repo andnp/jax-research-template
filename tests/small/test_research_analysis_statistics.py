@@ -6,6 +6,7 @@ from research_analysis.statistics import (
     ToleranceInterval,
     pointwise_tolerance_interval,
     select_median_run_index,
+    select_quantile_run_index,
     tolerance_interval_confidence,
     tolerance_interval_order_indices,
 )
@@ -93,3 +94,22 @@ class TestSelectMedianRunIndex:
     def test_invalid_ndim_raises(self) -> None:
         with pytest.raises(ValueError, match="Expected 1-D or 2-D array"):
             select_median_run_index(np.ones((2, 2, 2)))
+
+
+class TestSelectQuantileRunIndex:
+    def test_selects_lower_quantile_run(self) -> None:
+        """Select the run nearest the requested lower-tail performance quantile."""
+        data = np.array([1.0, 5.0, 9.0])
+
+        assert select_quantile_run_index(data, quantile=0.1) == 0
+
+    def test_selects_upper_quantile_run(self) -> None:
+        """Select the run nearest the requested upper-tail performance quantile."""
+        data = np.array([1.0, 5.0, 9.0])
+
+        assert select_quantile_run_index(data, quantile=0.9) == 2
+
+    def test_rejects_invalid_quantile(self) -> None:
+        """Reject quantiles outside the closed unit interval."""
+        with pytest.raises(ValueError, match="quantile must be in"):
+            select_quantile_run_index(np.array([1.0, 2.0]), quantile=1.1)

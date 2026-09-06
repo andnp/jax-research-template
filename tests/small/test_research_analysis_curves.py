@@ -11,6 +11,7 @@ from research_analysis.curves import (
     final_values,
     mean_curves,
     median_run_curve,
+    quantile_run_curve,
     tolerance_bands,
 )
 
@@ -137,6 +138,30 @@ class TestMedianRunCurve:
         b_val = result.filter(pl.col("condition_name") == "B")["value"][0]
         assert a_val == pytest.approx(10.0)
         assert b_val == pytest.approx(20.0)
+
+
+class TestQuantileRunCurve:
+    def test_selects_requested_quantile_seed(self) -> None:
+        """Return the curve of the seed nearest the requested performance quantile."""
+        df = _make_df(
+            ["A"],
+            [0, 1, 2],
+            [0, 1],
+            "r",
+            lambda c, s, t: float(s * 4 + 1),
+        )
+
+        result = quantile_run_curve(df, "r", quantile=0.1)
+
+        assert result["value"].to_list() == pytest.approx([1.0, 1.0])
+
+    def test_median_curve_matches_quantile_half(self) -> None:
+        """Keep the median curve equivalent to the general quantile contract."""
+        df = _make_df(["A"], [0, 1, 2], [0, 1], "r", lambda c, s, t: float(s + t))
+
+        assert median_run_curve(df, "r").equals(
+            quantile_run_curve(df, "r", quantile=0.5)
+        )
 
 
 class TestToleranceBands:
