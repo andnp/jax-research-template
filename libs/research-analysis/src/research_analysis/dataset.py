@@ -17,6 +17,7 @@ from experiment_definition.db import (
     RunRow,
 )
 
+from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import (
     FATAL_DIAGNOSTIC_CODES,
     DatasetDiagnostic,
@@ -167,15 +168,6 @@ class ExperimentDataset:
             raise TypeError(f"metrics table is missing columns: {sorted(missing_metrics)}")
 
 
-def _diagnostic(
-    code: DiagnosticCode,
-    message: str,
-    run_id: int | None = None,
-    execution_id: int | None = None,
-) -> DatasetDiagnostic:
-    return DatasetDiagnostic(code, message, run_id, execution_id)
-
-
 def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance | None:
     row = database.conn.execute(
         "SELECT c.id, c.name, c.type, cv.id, cv.version_number, cv.code_snapshot_hash "
@@ -264,9 +256,8 @@ RunCandidate = tuple[RunRow, ExecutionRow, ExecutionArtifactRow | None, tuple[in
 
 
 def _select_version_sets(
-    candidates: list[RunCandidate], selection: VersionSelection
-) -> tuple[frozenset[tuple[int | None, int | None]], dict[int, ComponentVersionProvenance], list[DatasetDiagnostic]]:
-    diagnostics: list[DatasetDiagnostic] = []
+    candidates: list[RunCandidate], selection: VersionSelection, diagnostics: DiagnosticAccumulator
+) -> tuple[frozenset[tuple[int | None, int | None]], dict[int, ComponentVersionProvenance]]:
     available_sets = {item[3] for item in candidates}
     selected_sets = available_sets
     if selection.kind is VersionSelectionKind.LATEST_COMPLETED and available_sets:
@@ -274,18 +265,18 @@ def _select_version_sets(
     elif selection.kind is VersionSelectionKind.EXACT:
         selected_sets = {item[3] for item in candidates if _version_matches(item[4], selection.exact_versions)}
         if not selected_sets:
-            diagnostics.append(_diagnostic(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs"))
+            diagnostics.add(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs")
 
     for version_set in sorted(available_sets, key=_version_sort_key):
         if version_set not in selected_sets:
-            diagnostics.append(_diagnostic(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}"))
+            diagnostics.add(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}")
 
     all_provenance: dict[int, ComponentVersionProvenance] = {}
     for _, _, _, version_set, items in candidates:
         if version_set in selected_sets:
             all_provenance.update({item.version_id: item for item in items})
 
-    return frozenset(selected_sets), all_provenance, diagnostics
+    return frozenset(selected_sets), all_provenance
 
 
 def _cohort_matches(row: dict[str, object], selection: CohortSelection) -> bool:
@@ -305,14 +296,12 @@ def _build_run_row(
     items: tuple[ComponentVersionProvenance, ...],
     hyperparameters: Mapping[str, object],
     dimensions: ExperimentDimensions,
-) -> tuple[dict[str, object] | None, list[DatasetDiagnostic]]:
-    diagnostics: list[DatasetDiagnostic] = []
+    diagnostics: DiagnosticAccumulator,
+) -> dict[str, object] | None:
     condition_value = hyperparameters.get(dimensions.condition)
     if condition_value is None:
-        diagnostics.append(
-            _diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {dimensions.condition!r}", run.id, execution.id)
-        )
-        return None, diagnostics
+        diagnostics.add(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {dimensions.condition!r}", run.id, execution.id)
+        return None
     row: dict[str, object] = {
         "condition_name": str(condition_value),
         "seed": run.seed,
@@ -324,62 +313,50 @@ def _build_run_row(
     if dimensions.environment is not None:
         environment_value = hyperparameters.get(dimensions.environment)
         if environment_value is None:
-            diagnostics.append(
-                _diagnostic(
-                    DiagnosticCode.MISSING_DIMENSION, f"missing environment key {dimensions.environment!r}", run.id, execution.id
-                )
+            diagnostics.add(
+                DiagnosticCode.MISSING_DIMENSION, f"missing environment key {dimensions.environment!r}", run.id, execution.id
             )
-            return None, diagnostics
+            return None
         row["env_name"] = str(environment_value)
     for axis in dimensions.sweep_axes:
         applies = _axis_applicability(axis, hyperparameters)
         if applies is None:
-            diagnostics.append(
-                _diagnostic(
+            diagnostics.add(
+                DiagnosticCode.INVALID_DIMENSION,
+                f"cannot evaluate applicability for sweep axis {axis.name!r}",
+                run.id,
+                execution.id,
+            )
+            return None
+        if not applies:
+            if axis.name in hyperparameters:
+                diagnostics.add(
                     DiagnosticCode.INVALID_DIMENSION,
-                    f"cannot evaluate applicability for sweep axis {axis.name!r}",
+                    f"sweep axis {axis.name!r} is present outside its applicability condition",
                     run.id,
                     execution.id,
                 )
-            )
-            return None, diagnostics
-        if not applies:
-            if axis.name in hyperparameters:
-                diagnostics.append(
-                    _diagnostic(
-                        DiagnosticCode.INVALID_DIMENSION,
-                        f"sweep axis {axis.name!r} is present outside its applicability condition",
-                        run.id,
-                        execution.id,
-                    )
-                )
-                return None, diagnostics
+                return None
             row[axis.name] = None
             continue
         if axis.name not in hyperparameters:
-            diagnostics.append(
-                _diagnostic(
-                    DiagnosticCode.MISSING_DIMENSION,
-                    f"missing sweep axis {axis.name!r} for an applicable run",
-                    run.id,
-                    execution.id,
-                )
+            diagnostics.add(
+                DiagnosticCode.MISSING_DIMENSION,
+                f"missing sweep axis {axis.name!r} for an applicable run",
+                run.id,
+                execution.id,
             )
-            return None, diagnostics
+            return None
         raw_value = hyperparameters[axis.name]
         value = _coerce_axis_value(raw_value, axis)
         if value is None:
-            diagnostics.append(
-                _diagnostic(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id)
-            )
-            return None, diagnostics
+            diagnostics.add(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id)
+            return None
         row[axis.name] = value
     metadata: object = json.loads(artifact.metadata_json) if artifact is not None and artifact.metadata_json else {}
     if not isinstance(metadata, dict) or not isinstance(metadata.get("metrics_db_path"), str):
-        diagnostics.append(
-            _diagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
-        )
-        return None, diagnostics
+        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
+        return None
     row["metrics_db_path"] = metadata["metrics_db_path"]
     for item in items:
         prefix = "algo" if item.component_type == "ALGO" else "env"
@@ -388,7 +365,7 @@ def _build_run_row(
         row[f"{prefix}_version_id"] = item.version_id
         row[f"{prefix}_version_number"] = item.version_number
         row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
-    return row, diagnostics
+    return row
 
 
 def _metric_query_pairs(pairs: list[tuple[int, int]], metrics: tuple[str, ...] | None) -> str:
@@ -416,7 +393,7 @@ def load_experiment_dataset(
     """Load one typed experiment dataset from its recorded artifacts."""
     selected_dimensions = dimensions or ExperimentDimensions()
     selected_versions = version_selection or VersionSelection.latest_completed()
-    diagnostics: list[DatasetDiagnostic] = []
+    diagnostics = DiagnosticAccumulator()
     rows: list[dict[str, object]] = []
     provenance_by_version: dict[int, ComponentVersionProvenance] = {}
     candidates: list[RunCandidate] = []
@@ -430,9 +407,7 @@ def load_experiment_dataset(
         for run in database.list_runs(experiment.id):
             execution = database.get_latest_completed_execution_for_run(run.id)
             if execution is None:
-                diagnostics.append(
-                    _diagnostic(DiagnosticCode.INCOMPLETE_EXECUTION, "run has no completed execution", run.id)
-                )
+                diagnostics.add(DiagnosticCode.INCOMPLETE_EXECUTION, "run has no completed execution", run.id)
                 continue
             artifact = database.get_latest_completed_artifacts_for_run(run.id)
             version_items: list[ComponentVersionProvenance] = []
@@ -447,32 +422,28 @@ def load_experiment_dataset(
                 if item is not None:
                     version_items.append(item)
             if run.algo_version_id is None:
-                diagnostics.append(
-                    _diagnostic(
-                        DiagnosticCode.UNKNOWN_COMPONENT_PROVENANCE,
-                        "run has NULL algorithm provenance because multiple ALGO components are declared",
-                        run.id,
-                        execution.id,
-                    )
+                diagnostics.add(
+                    DiagnosticCode.UNKNOWN_COMPONENT_PROVENANCE,
+                    "run has NULL algorithm provenance because multiple ALGO components are declared",
+                    run.id,
+                    execution.id,
                 )
             candidates.append((run, execution, artifact, _version_key(run.algo_version_id, run.env_version_id), tuple(version_items)))
 
-        selected_sets, all_provenance, version_diagnostics = _select_version_sets(candidates, selected_versions)
-        diagnostics.extend(version_diagnostics)
+        selected_sets, all_provenance = _select_version_sets(candidates, selected_versions, diagnostics)
 
         for run, execution, artifact, version_set, items in candidates:
             if version_set not in selected_sets:
                 continue
             hyper_config = database.get_hyperparam_config(run.hyper_id)
             if hyper_config is None:
-                diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, "run has no hyperparameter configuration", run.id, execution.id))
+                diagnostics.add(DiagnosticCode.MISSING_DIMENSION, "run has no hyperparameter configuration", run.id, execution.id)
                 continue
             hyperparameters = hyper_config.hyperparameters
             if not isinstance(hyperparameters, dict):
-                diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id))
+                diagnostics.add(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id)
                 continue
-            row, row_diagnostics = _build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions)
-            diagnostics.extend(row_diagnostics)
+            row = _build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions, diagnostics)
             if row is not None and (cohort is None or _cohort_matches(row, cohort)):
                 rows.append(row)
 
@@ -491,12 +462,12 @@ def load_experiment_dataset(
             metric_path = Path(path)
             if not metric_path.exists():
                 for run_id, execution_id in pairs:
-                    diagnostics.append(_diagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"metrics database does not exist: {metric_path}", run_id, execution_id))
+                    diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"metrics database does not exist: {metric_path}", run_id, execution_id)
                 continue
             frame = load_sqlite_query(metric_path, _metric_query_pairs(pairs, metrics))
             if frame.is_empty():
                 for run_id, execution_id in pairs:
-                    diagnostics.append(_diagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, "metrics database has no requested rows", run_id, execution_id))
+                    diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "metrics database has no requested rows", run_id, execution_id)
                 continue
             metadata = pl.DataFrame([run_rows[pair] for pair in pairs])
             metric_frames.append(
@@ -548,7 +519,7 @@ def load_experiment_dataset(
             }
         )
 
-    fatal = tuple(item for item in diagnostics if item.code in FATAL_DIAGNOSTIC_CODES)
+    fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
     if fatal and not partial:
         raise DatasetLoadError(fatal)
     return ExperimentDataset(
@@ -557,5 +528,5 @@ def load_experiment_dataset(
         runs=run_frame,
         metrics=metric_frame,
         provenance=tuple(all_provenance.values()),
-        diagnostics=tuple(diagnostics),
+        diagnostics=diagnostics.as_tuple(),
     )
