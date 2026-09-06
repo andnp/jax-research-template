@@ -287,7 +287,7 @@ class TestConfigKwargsResolution:
 
     def test_requires_environment_name(self) -> None:
         batch = BoundBatch(static_config={}, dynamic_axes={}, seeds=(0,), points=())
-        with pytest.raises(ValueError, match="missing static parameter 'env_name'"):
+        with pytest.raises(ValueError, match="missing parameter 'env_name'"):
             _config_kwargs(DQNConfig, batch, {})
 
     def test_optional_field_distinguishes_missing_explicit_none_and_value(self) -> None:
