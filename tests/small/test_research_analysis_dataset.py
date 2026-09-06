@@ -95,6 +95,39 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     assert dataset.runs["algo_version_id"].to_list() == [fixture["algo_version"], fixture["algo_version"]]
 
 
+def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> None:
+    """Environment dimension resolves to env_name and stamps env component provenance."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("environment-dimension-test")
+        algo_version = database.add_component_version(database.add_component("ppo", "ALGO"), "algo-v1")
+        env_component = database.add_component("cartpole", "ENV")
+        env_version = database.add_component_version(env_component, "env-v1")
+        hyper_id = database.add_hyperparam_config(
+            {"condition_name": "baseline", "env_id": "cartpole-v1", "seed": 0}
+        )
+        run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, 0)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(metrics_path)}
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
+
+    dataset = load_experiment_dataset(
+        db_path,
+        "environment-dimension-test",
+        dimensions=ExperimentDimensions(environment="env_id"),
+    )
+
+    assert dataset.runs["env_name"].to_list() == ["cartpole-v1"]
+    assert dataset.runs["env_component_name"].to_list() == ["cartpole"]
+    assert dataset.runs["env_version_id"].to_list() == [env_version]
+
+
 def test_missing_applicable_sweep_axis_fails(tmp_path: Path) -> None:
     """An applicable axis without a value fails instead of becoming nullable."""
     db_path = tmp_path / "experiments.sqlite"
