@@ -8,12 +8,12 @@ from process_control._jax_dataclass import jax_dataclass
 
 @dataclass(frozen=True)
 class PIControllerParams:
-    kp: float
-    ki: float
-    ff: float
-    output_min: float
-    output_max: float
-    max_integral: float
+    kp: float | jax.Array
+    ki: float | jax.Array
+    ff: float | jax.Array
+    output_min: float | jax.Array
+    output_max: float | jax.Array
+    max_integral: float | jax.Array
 
 
 @jax_dataclass
