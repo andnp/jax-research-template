@@ -15,11 +15,10 @@ from experiment_definition.db import (
     RunRow,
 )
 
-from research_analysis.dataset.candidates import RunCandidate, fetch_run_candidates
+from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionProvenance,
-    ComponentVersionRef,
     ExperimentDataset,
     ExperimentDimensions,
     RunArtifacts,
@@ -27,8 +26,8 @@ from research_analysis.dataset.types import (
     SweepValue,
     SweepValueType,
     VersionSelection,
-    VersionSelectionKind,
 )
+from research_analysis.dataset.versions import select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetLoadError, DiagnosticCode
 from research_analysis.loader import load_sqlite_query
@@ -67,56 +66,10 @@ def _axis_applicability(axis: SweepAxis, hyperparameters: Mapping[str, object]) 
     return True
 
 
-def _version_sort_key(version_set: tuple[int | None, int | None]) -> tuple[int, int]:
-    return version_set[0] or -1, version_set[1] or -1
-
-
 def _required_int(value: object) -> int:
     if not isinstance(value, int):
         raise TypeError(f"expected integer dataset identity, got {value!r}")
     return value
-
-
-def _version_matches(
-    provenance: tuple[ComponentVersionProvenance, ...], refs: tuple[ComponentVersionRef, ...]
-) -> bool:
-    for ref in refs:
-        matches = [
-            item
-            for item in provenance
-            if item.component_name == ref.component_name and item.component_type == ref.component_type
-        ]
-        if ref.version_id is not None:
-            matches = [item for item in matches if item.version_id == ref.version_id]
-        if ref.code_snapshot_hash is not None:
-            matches = [item for item in matches if item.code_snapshot_hash == ref.code_snapshot_hash]
-        if not matches:
-            return False
-    return True
-
-
-def _select_version_sets(
-    candidates: list[RunCandidate], selection: VersionSelection, diagnostics: DiagnosticAccumulator
-) -> tuple[frozenset[tuple[int | None, int | None]], dict[int, ComponentVersionProvenance]]:
-    available_sets = {item[3] for item in candidates}
-    selected_sets = available_sets
-    if selection.kind is VersionSelectionKind.LATEST_COMPLETED and available_sets:
-        selected_sets = {max(available_sets, key=_version_sort_key)}
-    elif selection.kind is VersionSelectionKind.EXACT:
-        selected_sets = {item[3] for item in candidates if _version_matches(item[4], selection.exact_versions)}
-        if not selected_sets:
-            diagnostics.add(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs")
-
-    for version_set in sorted(available_sets, key=_version_sort_key):
-        if version_set not in selected_sets:
-            diagnostics.add(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}")
-
-    all_provenance: dict[int, ComponentVersionProvenance] = {}
-    for _, _, _, version_set, items in candidates:
-        if version_set in selected_sets:
-            all_provenance.update({item.version_id: item for item in items})
-
-    return frozenset(selected_sets), all_provenance
 
 
 def _cohort_matches(row: dict[str, object], selection: CohortSelection) -> bool:
@@ -294,7 +247,7 @@ def load_experiment_dataset(
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
         candidates = fetch_run_candidates(database, experiment, diagnostics)
-        selected_sets, all_provenance = _select_version_sets(candidates, selected_versions, diagnostics)
+        selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
 
         for run, execution, artifact, version_set, items in candidates:
             if version_set not in selected_sets:
