@@ -585,10 +585,14 @@ version = "0.1.0"
 source = { editable = "libs/jax-eval" }
 dependencies = [
     { name = "jax" },
+    { name = "jax-utils" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "jax", specifier = "~=0.9" }]
+requires-dist = [
+    { name = "jax", specifier = "~=0.9" },
+    { name = "jax-utils", editable = "libs/jax-utils" },
+]
 
 [[package]]
 name = "jax-nn"
