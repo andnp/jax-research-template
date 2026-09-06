@@ -34,14 +34,13 @@ def build_rows(
                 DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", candidate.run.id, candidate.execution.id
             )
             continue
-        built = build_run_row(
-            candidate.run, candidate.execution, candidate.artifact, candidate.provenance, hyperparameters, dimensions, diagnostics
+        row = build_run_row(
+            candidate.run, candidate.execution, candidate.metrics_db_path, candidate.provenance, hyperparameters, dimensions, diagnostics
         )
-        if built is None:
+        if row is None:
             continue
-        row, run_artifacts = built
         if cohort is not None and not cohort_matches(row, cohort):
             continue
         rows.append(row)
-        artifacts[(candidate.run.id, candidate.execution.id)] = run_artifacts
+        artifacts[(candidate.run.id, candidate.execution.id)] = candidate.artifacts
     return rows, artifacts

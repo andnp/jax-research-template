@@ -23,7 +23,10 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, 0)
         execution_id = database.add_execution()
         database.link_execution_run(execution_id, run_id)
-        database.record_execution_artifacts(execution_id, str(tmp_path / "execution"))
+        metrics_path = tmp_path / "metrics.sqlite"
+        database.record_execution_artifacts(
+            execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(metrics_path)}
+        )
         database.update_execution_status(execution_id, "COMPLETED")
 
         experiment = database.get_experiment("candidate-test")
@@ -35,6 +38,7 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         candidate = candidates[0]
         assert candidate.run.id == run_id
         assert candidate.execution.id == execution_id
+        assert candidate.metrics_db_path == str(metrics_path)
         assert candidate.version_set.algo_version_id == algo_version
         assert candidate.version_set.env_version_id == env_version
         assert len(candidate.provenance) == 2

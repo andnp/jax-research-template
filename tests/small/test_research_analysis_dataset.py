@@ -400,6 +400,42 @@ def test_exact_version_selection_without_matches_fails(tmp_path: Path) -> None:
     assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_VERSION_SELECTION
 
 
+def test_missing_artifact_excludes_run_before_version_selection(tmp_path: Path) -> None:
+    """A run with no recorded artifact is excluded before version selection, not after it."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("broken-latest-test")
+        algo_component = database.add_component("ppo", "ALGO")
+        older_algo = database.add_component_version(algo_component, "algo-v1")
+        newer_algo = database.add_component_version(algo_component, "algo-v2")
+        env_version = database.add_component_version(database.add_component("cartpole", "ENV"), "env-v1")
+
+        older_hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "seed": 0})
+        older_run_id = database.add_run(experiment_id, older_algo, env_version, older_hyper_id, 0)
+        older_execution_id = database.add_execution()
+        database.link_execution_run(older_execution_id, older_run_id)
+        database.record_execution_artifacts(
+            older_execution_id, str(tmp_path / "execution-older"), metadata={"metrics_db_path": str(metrics_path)}
+        )
+        database.update_execution_status(older_execution_id, "COMPLETED")
+
+        newer_hyper_id = database.add_hyperparam_config({"condition_name": "broken", "seed": 1})
+        newer_run_id = database.add_run(experiment_id, newer_algo, env_version, newer_hyper_id, 1)
+        newer_execution_id = database.add_execution()
+        database.link_execution_run(newer_execution_id, newer_run_id)
+        database.update_execution_status(newer_execution_id, "COMPLETED")
+        # Deliberately never record artifacts for the newer run.
+    _write_metrics(metrics_path, [(older_run_id, older_execution_id, "reward", 0, 1.0)])
+
+    dataset = load_experiment_dataset(db_path, "broken-latest-test", partial=True)
+
+    assert dataset.runs["run_id"].to_list() == [older_run_id]
+    assert any(item.code is DiagnosticCode.MISSING_METRIC_ARTIFACT for item in dataset.diagnostics)
+    assert not any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
+
+
 def test_missing_recorded_metric_path_fails_without_root_fallback(tmp_path: Path) -> None:
     """Fail strict loading when metadata omits the metric path even if root has a database."""
     db_path = tmp_path / "experiments.sqlite"

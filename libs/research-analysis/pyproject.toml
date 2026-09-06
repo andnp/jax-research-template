@@ -8,6 +8,7 @@ dependencies = [
     "numba~=0.61",
     "numpy~=2.0",
     "polars~=1.22",
+    "pydantic~=2.12",
     "scipy~=1.14",
     "rich",
     "research-plot",

@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
-from pathlib import Path
 
-from experiment_definition.db import ExecutionArtifactRow, ExecutionRow, RunRow
+from experiment_definition.db import ExecutionRow, RunRow
 
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionProvenance,
     ExperimentDimensions,
-    RunArtifacts,
     SweepAxis,
     SweepValue,
     SweepValueType,
@@ -57,12 +54,12 @@ def cohort_matches(row: dict[str, object], selection: CohortSelection) -> bool:
 def build_run_row(
     run: RunRow,
     execution: ExecutionRow,
-    artifact: ExecutionArtifactRow | None,
+    metrics_db_path: str,
     items: tuple[ComponentVersionProvenance, ...],
     hyperparameters: Mapping[str, object],
     dimensions: ExperimentDimensions,
     diagnostics: DiagnosticAccumulator,
-) -> tuple[dict[str, object], RunArtifacts] | None:
+) -> dict[str, object] | None:
     condition_value = hyperparameters.get(dimensions.condition)
     if condition_value is None:
         diagnostics.add(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {dimensions.condition!r}", run.id, execution.id)
@@ -118,14 +115,7 @@ def build_run_row(
             diagnostics.add(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id)
             return None
         row[axis.name] = value
-    if artifact is None:
-        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no artifact record", run.id, execution.id)
-        return None
-    metadata: object = json.loads(artifact.metadata_json) if artifact.metadata_json else {}
-    if not isinstance(metadata, dict) or not isinstance(metadata.get("metrics_db_path"), str):
-        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
-        return None
-    row["metrics_db_path"] = metadata["metrics_db_path"]
+    row["metrics_db_path"] = metrics_db_path
     for item in items:
         prefix = "algo" if item.component_type == "ALGO" else "env"
         row[f"{prefix}_component_name"] = item.component_name
@@ -133,8 +123,4 @@ def build_run_row(
         row[f"{prefix}_version_id"] = item.version_id
         row[f"{prefix}_version_number"] = item.version_number
         row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
-    return row, RunArtifacts(
-        root_path=Path(artifact.root_path),
-        manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
-        metadata=metadata,
-    )
+    return row

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NamedTuple
 
 from experiment_definition.db import (
@@ -12,10 +13,12 @@ from experiment_definition.db import (
     ExperimentRow,
     RunRow,
 )
+from pydantic import BaseModel, ConfigDict
 
-from research_analysis.dataset.types import ComponentVersionProvenance
+from research_analysis.dataset.types import ComponentVersionProvenance, RunArtifacts
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
+from research_analysis.validation import validate_json
 
 
 class VersionSet(NamedTuple):
@@ -25,15 +28,42 @@ class VersionSet(NamedTuple):
     env_version_id: int | None
 
 
+class _ArtifactMetadata(BaseModel):
+    """Required shape of an execution artifact's recorded metadata."""
+
+    model_config = ConfigDict(extra="allow")
+
+    metrics_db_path: str
+
+
 @dataclass(frozen=True)
 class RunCandidate:
-    """One run considered for dataset loading, with its resolved version identity and provenance."""
+    """One run considered for dataset loading, with its resolved version identity, provenance, and artifact."""
 
     run: RunRow
     execution: ExecutionRow
-    artifact: ExecutionArtifactRow | None
+    metrics_db_path: str
+    artifacts: RunArtifacts
     version_set: VersionSet
     provenance: tuple[ComponentVersionProvenance, ...]
+
+
+def _resolve_artifact(
+    artifact: ExecutionArtifactRow | None, run: RunRow, execution: ExecutionRow, diagnostics: DiagnosticAccumulator
+) -> tuple[str, RunArtifacts] | None:
+    if artifact is None:
+        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no artifact record", run.id, execution.id)
+        return None
+    metadata = validate_json(_ArtifactMetadata, artifact.metadata_json or "{}")
+    if metadata is None:
+        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
+        return None
+    run_artifacts = RunArtifacts(
+        root_path=Path(artifact.root_path),
+        manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
+        metadata=metadata.model_dump(),
+    )
+    return metadata.metrics_db_path, run_artifacts
 
 
 def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance | None:
@@ -63,7 +93,10 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, d
         if execution is None:
             diagnostics.add(DiagnosticCode.INCOMPLETE_EXECUTION, "run has no completed execution", run.id)
             continue
-        artifact = database.get_latest_completed_artifacts_for_run(run.id)
+        resolved_artifact = _resolve_artifact(database.get_latest_completed_artifacts_for_run(run.id), run, execution, diagnostics)
+        if resolved_artifact is None:
+            continue
+        metrics_db_path, run_artifacts = resolved_artifact
         version_items: list[ComponentVersionProvenance] = []
         for version_id in (run.algo_version_id, run.env_version_id):
             if version_id is None:
@@ -86,7 +119,8 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, d
             RunCandidate(
                 run=run,
                 execution=execution,
-                artifact=artifact,
+                metrics_db_path=metrics_db_path,
+                artifacts=run_artifacts,
                 version_set=VersionSet(run.algo_version_id, run.env_version_id),
                 provenance=tuple(version_items),
             )
