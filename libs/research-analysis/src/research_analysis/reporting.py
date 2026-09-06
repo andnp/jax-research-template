@@ -30,6 +30,7 @@ from research_analysis.aggregates import (
 from research_analysis.bootstrap import bootstrap_difference_ci
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.dataset.types import ExperimentDataset
+from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
@@ -1014,6 +1015,54 @@ def _slice_hypers_group(
         _present_slice_hypers(report, experiment_slug, group_label)
 
     return report
+
+
+def boundary_warning(
+    report: HyperparameterSliceReport,
+    *,
+    condition: str | None = None,
+    cell: tuple[tuple[str, object], ...] = (),
+    higher_is_better: bool = True,
+) -> BakeoffWarning | None:
+    """Flag a champion hyperparameter sitting at the edge of its swept grid while
+    performance is still trending toward that edge over the grid's outer half, not
+    merely plateaued there. A champion at the edge with an interior peak elsewhere
+    (or a plateau right at the edge) is not flagged: only a still-climbing trend
+    means the true optimum may lie outside the swept range.
+    """
+    values = report.values
+    performance = report.best_performance
+    if len(values) < 2:
+        return None
+
+    champion_idx = int(np.argmax(performance)) if higher_is_better else int(np.argmin(performance))
+    if champion_idx == 0:
+        edge_label, edge_value = "lower", values[0]
+    elif champion_idx == len(values) - 1:
+        edge_label, edge_value = "upper", values[-1]
+    else:
+        return None
+
+    half = max(1, len(values) // 2)
+    outer = performance[-half - 1 :] if edge_label == "upper" else performance[: half + 1]
+    trend = np.diff(outer)
+    if not higher_is_better:
+        trend = -trend
+    if edge_label == "lower":
+        trend = -trend
+    if float(np.mean(trend)) <= 0:
+        return None
+
+    return BakeoffWarning(
+        code=BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY,
+        message=(
+            f"{report.vary}={edge_value!r} sits at the {edge_label} edge of the swept grid "
+            "and performance is still trending toward it; the true optimum may lie outside "
+            "the swept range."
+        ),
+        condition=condition,
+        cell=cell,
+    )
 
 
 def _load_bakeoff_data(
