@@ -51,14 +51,27 @@ ALGORITHM_TRAINERS: Mapping[str, AlgorithmSpec] = {
 class AlgorithmBatchTrainer:
     """Dispatch a batch of runs to the trainer named by its ``algorithm`` parameter."""
 
-    def __init__(self, env_factory: EnvFactory, algorithms: Sequence[str]) -> None:
+    def __init__(
+        self,
+        env_factory: EnvFactory,
+        algorithms: Sequence[str],
+        *,
+        extra_specs: Mapping[str, AlgorithmSpec] = {},
+        report_returned_episode_returns: bool = False,
+    ) -> None:
         algorithms = tuple(algorithms)
         if not algorithms:
             raise ValueError("an algorithm dispatch needs at least one algorithm")
-        unknown = sorted(set(algorithms) - set(ALGORITHM_TRAINERS))
+        specs = {**ALGORITHM_TRAINERS, **extra_specs}
+        unknown = sorted(set(algorithms) - set(specs))
         if unknown:
-            raise ValueError(f"no batch trainer registered for {unknown}; known: {sorted(ALGORITHM_TRAINERS)}")
-        self._trainers = {name: make_batch_trainer(ALGORITHM_TRAINERS[name], env_factory) for name in algorithms}
+            raise ValueError(f"no batch trainer registered for {unknown}; known: {sorted(specs)}")
+        self._trainers = {
+            name: make_batch_trainer(
+                specs[name], env_factory, report_returned_episode_returns=report_returned_episode_returns
+            )
+            for name in algorithms
+        }
 
     @property
     def parameter_schema(self) -> ParameterSchema:
@@ -86,6 +99,22 @@ class AlgorithmBatchTrainer:
         return trainer(context)
 
 
-def make_algorithm_batch_trainer(env_factory: EnvFactory, algorithms: Sequence[str]) -> BatchTrainer:
-    """Build a trainer that serves every algorithm in ``algorithms``."""
-    return AlgorithmBatchTrainer(env_factory, algorithms)
+def make_algorithm_batch_trainer(
+    env_factory: EnvFactory,
+    algorithms: Sequence[str],
+    *,
+    extra_specs: Mapping[str, AlgorithmSpec] = {},
+    report_returned_episode_returns: bool = False,
+) -> BatchTrainer:
+    """Build a trainer that serves every algorithm in ``algorithms``.
+
+    ``extra_specs`` lets a project register its own :class:`AlgorithmSpec`\\ s (e.g. a
+    project-local algorithm variant) alongside the built-in registry without forking it;
+    a name present in both wins from ``extra_specs``.
+    """
+    return AlgorithmBatchTrainer(
+        env_factory,
+        algorithms,
+        extra_specs=extra_specs,
+        report_returned_episode_returns=report_returned_episode_returns,
+    )
