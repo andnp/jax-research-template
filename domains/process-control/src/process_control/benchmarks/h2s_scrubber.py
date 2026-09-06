@@ -165,6 +165,8 @@ class H2SScrubberConfig:
     contactor_recirc_weight: float = 0.02
     contactor_recirc_half_sat: float = 5.0
     contactor_gas_flow_exponent: float = -0.005
+    contactor_temp_reference: float = 15.0
+    contactor_temp_coefficient: float = 0.98
     recirc_flow: float = 50.0  # m³/h, fixed recirculation rate
 
     # ── Gas source ────────────────────────────────────────────────
@@ -259,6 +261,8 @@ def make_h2s_scrubber_benchmark(
         recirc_weight=config.contactor_recirc_weight,
         recirc_half_sat=config.contactor_recirc_half_sat,
         gas_flow_exponent=config.contactor_gas_flow_exponent,
+        temp_reference=config.contactor_temp_reference,
+        temp_coefficient=config.contactor_temp_coefficient,
     )
 
     caustic_params = DosingSystemParams(
