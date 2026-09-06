@@ -256,9 +256,12 @@ def _axis_dtype(axis: SweepAxis):
 def _axis_applicability(axis: SweepAxis, hyperparameters: dict[str, object]) -> bool | None:
     if axis.when is None:
         return True
-    if any(key not in hyperparameters for key in axis.when):
-        return None
-    return all(hyperparameters[key] == value for key, value in axis.when.items())
+    for key, value in axis.when.items():
+        if key not in hyperparameters:
+            return None
+        if hyperparameters[key] != value:
+            return False
+    return True
 
 
 def _version_key(algo_version_id: int | None, env_version_id: int | None) -> tuple[int | None, int | None]:
@@ -462,7 +465,7 @@ def load_experiment_dataset(
                 raw_value = hyperparameters[axis.name]
                 value = _coerce_axis_value(raw_value, axis)
                 if value is None:
-                    diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing or invalid sweep axis {axis.name!r}", run.id, execution.id))
+                    diagnostics.append(_diagnostic(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id))
                     break
                 row[axis.name] = value
             else:
@@ -524,7 +527,10 @@ def load_experiment_dataset(
             )
 
         if rows:
-            run_frame = pl.DataFrame(rows)
+            run_frame = pl.DataFrame(
+                rows,
+                schema_overrides={axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
+            )
         else:
             run_schema = {
                 "condition_name": pl.String,

@@ -167,6 +167,18 @@ def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path
     by_condition = dict(zip(dataset.runs["condition_name"], dataset.runs["eta"], strict=True))
     assert by_condition["shared"] is None
     assert by_condition["adversarial"] == 5.0
+    shared_only = load_experiment_dataset(
+        db_path,
+        "optional-axis-test",
+        dimensions=ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("lr", SweepValueType.FLOAT),
+                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
+            ),
+        ),
+        cohort=CohortSelection(condition_name="shared"),
+    )
+    assert shared_only.runs["eta"].dtype.is_float()
 
 
 def test_inapplicable_sweep_axis_with_value_fails(tmp_path: Path) -> None:
@@ -198,6 +210,22 @@ def test_inapplicable_sweep_axis_with_value_fails(tmp_path: Path) -> None:
                 sweep_axes=(
                     SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
                 ),
+            ),
+        )
+
+    assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_DIMENSION
+
+
+def test_missing_applicability_key_fails(tmp_path: Path) -> None:
+    """Reject an applicability rule that cannot be evaluated from run metadata."""
+    fixture = _create_experiment(tmp_path)
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(
+            fixture["db_path"],
+            "dataset-test",
+            dimensions=ExperimentDimensions(
+                sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
             ),
         )
 
