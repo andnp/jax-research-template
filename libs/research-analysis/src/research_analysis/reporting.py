@@ -7,7 +7,7 @@ with pedagogical explanations and diagnostic plotting.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, overload
 
@@ -30,8 +30,9 @@ from research_analysis.aggregates import (
 )
 from research_analysis.bootstrap import bootstrap_difference_ci
 from research_analysis.comparison import ComparisonSpec
+from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
-from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
+from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningAccumulator, BakeoffWarningCode
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
@@ -1539,3 +1540,218 @@ def compare_bakeoff(
         _present_bakeoff(report, environments, dataset.experiment_name)
 
     return report
+
+
+@dataclass(frozen=True)
+class BakeoffReport:
+    """A repeatable bakeoff analysis: champion selection, comparison, and caveats in one call.
+
+    ``champions`` is ``None`` when ``select_champion_over`` was not given (the metric is
+    already one value per condition per seed per block, nothing to select over).
+    """
+
+    conditions: list[str]
+    metric_name: str
+    seed_counts: dict[str, dict[str, int]]
+    cell_means: dict[str, dict[str, float]]
+    cell_variances: dict[str, dict[str, float]]
+    champions: dict[str, dict[str, HyperparameterConfigReport]] | None
+    comparison: BenchmarkBakeoffReport
+    warnings: tuple[BakeoffWarning, ...]
+
+
+def _block_predicate(block_key: BlockKey) -> pl.Expr:
+    predicate = pl.lit(True)
+    for column, value in block_key:
+        predicate = predicate & (pl.col(column) == value)
+    return predicate
+
+
+def _filter_dataset(dataset: ExperimentDataset, predicate: pl.Expr) -> ExperimentDataset:
+    runs = dataset.runs.filter(predicate)
+    metrics = dataset.metrics.join(runs.select("run_id"), on="run_id", how="inner")
+    return replace(dataset, runs=runs, metrics=metrics)
+
+
+def _filter_to_champions(dataset: ExperimentDataset, champions: dict[str, dict[str, Any]]) -> ExperimentDataset:
+    """Restrict runs to each condition's champion hyperparameter combination."""
+    condition_column = pl.col("condition_name")
+    selected = pl.any_horizontal(
+        *[
+            condition_column.eq(condition) & pl.all_horizontal(*[pl.col(key) == value for key, value in config.items()])
+            for condition, config in champions.items()
+        ]
+    )
+    return _filter_dataset(dataset, selected)
+
+
+def bakeoff_report(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    conditions: list[str],
+    *,
+    select_champion_over: list[str] | None = None,
+    block_by: list[str] | None = None,
+    references: dict[str, ReferenceRange] | None = None,
+    spec: ComparisonSpec | None = None,
+    higher_is_better: bool = True,
+    confidence_level: float = 0.95,
+    min_seeds: int = 5,
+    verbose: bool = True,
+) -> BakeoffReport:
+    """Champion selection, comparison, and statistical caveats, in one repeatable call.
+
+    Generalizes ``compare_pairwise`` (``block_by=[]``, two conditions) and
+    ``compare_bakeoff`` (``block_by=["env_name"]`` or similar, three or more
+    conditions) into one entry point, with an optional champion-selection stage
+    (``select_champion_over``, run via :func:`best_hypers` per block so a swept axis
+    like UTD never gets silently pooled across blocks) and a warnings layer covering
+    edge-of-grid champions, unstable selection, non-normal cells, flatlined curves,
+    and zero/extreme cross-seed variance.
+    """
+    if len(conditions) < 2:
+        raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
+    block_by = block_by or []
+    if spec is None:
+        spec = ComparisonSpec(missingness="blockwise" if block_by else "error")
+    missing_block_columns = [column for column in block_by if column not in dataset.runs.columns]
+    if missing_block_columns:
+        raise ValueError(f"block_by columns not present in the dataset: {missing_block_columns}")
+    declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
+    if select_champion_over is not None and set(select_champion_over) != declared_axes:
+        raise ValueError(
+            f"select_champion_over must name exactly the dataset's declared sweep axes "
+            f"{sorted(declared_axes)}, got {sorted(select_champion_over)}"
+        )
+
+    block_keys: list[BlockKey] = (
+        [tuple((column, row[column]) for column in block_by) for row in dataset.runs.select(block_by).unique().sort(block_by).iter_rows(named=True)]
+        if block_by
+        else [()]
+    )
+
+    warnings = BakeoffWarningAccumulator()
+    champions: dict[str, dict[str, HyperparameterConfigReport]] = {}
+    comparison_runs: list[pl.DataFrame] = []
+    comparison_metrics: list[pl.DataFrame] = []
+
+    for block_key in block_keys:
+        block_dataset = _filter_dataset(dataset, _block_predicate(block_key)) if block_key else dataset
+        cell = block_key
+
+        if select_champion_over is None:
+            comparison_runs.append(block_dataset.runs)
+            comparison_metrics.append(block_dataset.metrics)
+            continue
+
+        raw_champions = best_hypers(
+            block_dataset,
+            metric_name,
+            group_by=[dataset.dimensions.condition],
+            higher_is_better=higher_is_better,
+            verbose=False,
+            confidence_level=confidence_level,
+        )
+        block_champions = {key[0]: report for key, report in raw_champions.items() if key[0] in conditions}
+        champions[_block_label(block_key)] = block_champions
+
+        for axis in select_champion_over:
+            # Raw per-value means, not best_hypers/slice_hypers: those require at least one
+            # OTHER declared axis to search over while vary is grouped out, which a
+            # single-axis sweep (very common) can never satisfy.
+            records = _load_dataset_hyperparameter_records(block_dataset, [dataset.dimensions.condition, axis], metric_name)
+            curves: dict[str, dict[Any, list[float]]] = {}
+            for record in records:
+                cond = record["hypers"][dataset.dimensions.condition]
+                if cond not in conditions:
+                    continue
+                curves.setdefault(cond, {}).setdefault(record["hypers"][axis], []).append(record["value"])
+            for cond, value_map in curves.items():
+                sorted_values = sorted(value_map)
+                means = [float(np.mean(value_map[value])) for value in sorted_values]
+                slice_report = HyperparameterSliceReport(
+                    vary=axis, values=sorted_values, best_performance=means, slice_performance=means, plot_path=None
+                )
+                warning = boundary_warning(slice_report, condition=cond, cell=cell, higher_is_better=higher_is_better)
+                if warning is not None:
+                    warnings.add(warning.code, warning.message, warning.condition, warning.cell)
+
+        champion_dataset = _filter_to_champions(
+            block_dataset, {condition: report.winning_config for condition, report in block_champions.items()}
+        )
+        comparison_runs.append(champion_dataset.runs)
+        comparison_metrics.append(champion_dataset.metrics)
+
+    combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
+    data_by_group = _load_bakeoff_data(combined, conditions, block_by, metric_name)
+    comparison_statistics = _compute_bakeoff_statistics(data_by_group, conditions, block_keys, references, spec)
+
+    seed_counts: dict[str, dict[str, int]] = {condition: {} for condition in conditions}
+    cell_means: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
+    cell_variances: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
+    all_values = [value for seed_map in data_by_group.values() for value in seed_map.values()]
+    cross_condition_range = float(max(all_values) - min(all_values)) if all_values else 0.0
+
+    for block_key in block_keys:
+        label = _block_label(block_key)
+        for condition in conditions:
+            seed_map = data_by_group.get((condition, block_key), {})
+            values = list(seed_map.values())
+            seed_counts[condition][label] = len(values)
+            cell_means[condition][label] = float(np.mean(values)) if values else float("nan")
+            cell_variances[condition][label] = float(np.var(values, ddof=1)) if len(values) > 1 else 0.0
+
+            if not values:
+                continue
+            variance_issue = variance_warning(values, condition=condition, cell=block_key, reference_range=cross_condition_range)
+            if variance_issue is not None:
+                warnings.add(variance_issue.code, variance_issue.message, variance_issue.condition, variance_issue.cell)
+            if variance_issue is None or variance_issue.code != BakeoffWarningCode.ZERO_VARIANCE:
+                # Shapiro-Wilk is undefined (and noisy) on constant data; zero variance
+                # is already reported above, so skip the redundant, degenerate check.
+                normality_issue = non_normality_warning(values, condition=condition, cell=block_key)
+                if normality_issue is not None:
+                    warnings.add(normality_issue.code, normality_issue.message, normality_issue.condition, normality_issue.cell)
+            if condition in champions.get(label, {}):
+                seeds_issue = insufficient_seeds_warning(
+                    champions[label][condition], len(values), condition=condition, cell=block_key, min_seeds=min_seeds
+                )
+                if seeds_issue is not None:
+                    warnings.add(seeds_issue.code, seeds_issue.message, seeds_issue.condition, seeds_issue.cell)
+
+        block_metrics = combined.metrics.filter(_block_predicate(block_key)) if block_key else combined.metrics
+        flat = flatline_flags(block_metrics, metric_name)
+        for row in flat.filter(pl.col("flatlined")).iter_rows(named=True):
+            if row["condition_name"] not in conditions:
+                continue
+            warnings.add(
+                BakeoffWarningCode.FLATLINED_LEARNING_CURVE,
+                f"mean curve stops moving well before the run ends (tail range "
+                f"{row['tail_range']:.4g} of whole range {row['whole_range']:.4g}).",
+                row["condition_name"],
+                block_key,
+            )
+
+    return BakeoffReport(
+        conditions=conditions,
+        metric_name=metric_name,
+        seed_counts=seed_counts,
+        cell_means=cell_means,
+        cell_variances=cell_variances,
+        champions=champions or None,
+        comparison=BenchmarkBakeoffReport(
+            algorithms=conditions,
+            environments=[_block_label(block_key) for block_key in block_keys],
+            normalized_scores=comparison_statistics.normalized_scores,
+            performance_profiles=comparison_statistics.performance_profiles,
+            probability_of_improvement=comparison_statistics.probability_of_improvement,
+            optimality_gaps=comparison_statistics.optimality_gaps,
+            dispersion=comparison_statistics.dispersion,
+            lower_tail=comparison_statistics.lower_tail,
+            supplementary_iqm=comparison_statistics.supplementary_iqm,
+            omnibus_details=comparison_statistics.omnibus_details,
+            posthoc_matrix=comparison_statistics.posthoc_matrix,
+            aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
+        ),
+        warnings=warnings.as_tuple(),
+    )
