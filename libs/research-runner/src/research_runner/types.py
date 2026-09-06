@@ -90,11 +90,7 @@ class BoundBatch:
         )
 
     def static(self, name: str, expected_type: type[_T]) -> _T:
-        try:
-            value = self.static_config[name]
-        except KeyError as error:
-            raise ValueError(f"missing static parameter {name!r}") from error
-        return _coerce(value, expected_type, name)
+        return get_parameter(self.static_config, name, expected_type)
 
     def static_or(self, name: str, expected_type: type[_T], default: _T) -> _T:
         if name not in self.static_config:
@@ -107,6 +103,15 @@ class BoundBatch:
         except KeyError as error:
             raise ValueError(f"missing dynamic parameter {name!r}") from error
         return tuple(_coerce(value, expected_type, name) for value in values)
+
+
+def get_parameter(parameters: Mapping[str, ParameterValue], name: str, expected_type: type[_T]) -> _T:
+    """Extract and type-check one named parameter from a hyperparameter/static-config mapping."""
+    try:
+        value = parameters[name]
+    except KeyError as error:
+        raise ValueError(f"missing parameter {name!r}") from error
+    return _coerce(value, expected_type, name)
 
 
 def _coerce(value: ParameterValue, expected_type: type[_T], name: str) -> _T:
