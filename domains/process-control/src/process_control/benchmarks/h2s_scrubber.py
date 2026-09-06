@@ -196,6 +196,25 @@ class H2SScrubberState:
     makeup_loop: DosingSystemState
 
 
+@jax_dataclass
+class H2SDynamicParams:
+    """The subset of H2SScrubberConfig calibration can vary, bundled as one pytree.
+
+    Passing this explicitly to `reset`/`step` (instead of relying on the
+    values `make_h2s_scrubber_benchmark` closed over from `config`) lets a
+    caller that varies these values across many calls — e.g. a calibration
+    loop — JIT-compile `reset`/`step` once and reuse that compilation, rather
+    than rebuilding the benchmark (and retracing from scratch) on every call.
+    """
+
+    sump: ScrubberSumpParams
+    contactor: ContactorParams
+    caustic: DosingSystemParams
+    bleach: DosingSystemParams
+    makeup: DosingSystemParams
+    ph_amplitude: jax.Array
+
+
 # ── Benchmark Factory ─────────────────────────────────────────────────
 
 
@@ -290,6 +309,15 @@ def make_h2s_scrubber_benchmark(
         max_ramp_down=config.makeup_max_ramp,
     )
 
+    default_dynamic = H2SDynamicParams(
+        sump=sump_params,
+        contactor=contactor_params,
+        caustic=caustic_params,
+        bleach=bleach_params,
+        makeup=makeup_params,
+        ph_amplitude=jnp.array(config.sump_ph_amplitude),
+    )
+
     # Cost per pump unit per step
     caustic_cost = jnp.array(config.caustic_unit_cost)
     bleach_cost = jnp.array(config.bleach_unit_cost)
@@ -303,16 +331,10 @@ def make_h2s_scrubber_benchmark(
     flow_scale = jnp.array(config.mean_gas_flow)
     steps_per_day = jnp.array(config.steps_per_day, dtype=jnp.float32)
 
-    # Pre-compute initial sensor values from default sump state (outside JIT)
-    _init_sump = ScrubberSumpState.create(
-        oxidant=config.sump_initial_oxidant * scenario.load_shift_multiplier,
-        alkalinity=config.sump_initial_alkalinity,
-        volume=config.sump_nominal_volume,
-    )
-    _init_ph = float(compute_ph(_init_sump, config.sump_ph_amplitude))
-    _init_orp = float(compute_orp(_init_sump))
-
-    def reset(rng_key: jax.Array) -> tuple[H2SScrubberState, jax.Array]:
+    def reset(
+        rng_key: jax.Array,
+        dynamic: H2SDynamicParams = default_dynamic,
+    ) -> tuple[H2SScrubberState, jax.Array]:
         k1, k3, k4, k5 = jax.random.split(rng_key, 4)
 
         gas_state = gas_reset(k1)
@@ -321,19 +343,21 @@ def make_h2s_scrubber_benchmark(
             alkalinity=config.sump_initial_alkalinity,
             volume=config.sump_nominal_volume,
         )
+        init_ph = compute_ph(sump_state, dynamic.ph_amplitude)
+        init_orp = compute_orp(sump_state)
         caustic_state = dosing_reset(
-            _init_ph,
-            config.caustic_ff,
+            init_ph,
+            dynamic.caustic.ff,
             k3,
         )
         bleach_state = dosing_reset(
-            _init_orp,
-            config.bleach_ff,
+            init_orp,
+            dynamic.bleach.ff,
             k4,
         )
         makeup_state = dosing_reset(
-            config.makeup_ff,
-            config.makeup_ff,
+            dynamic.makeup.ff,
+            dynamic.makeup.ff,
             k5,
         )
 
@@ -353,6 +377,7 @@ def make_h2s_scrubber_benchmark(
         state: H2SScrubberState,
         action: jax.Array,
         rng_key: jax.Array,
+        dynamic: H2SDynamicParams = default_dynamic,
     ) -> tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
         k_gas, k_caustic, k_bleach, k_makeup = jax.random.split(rng_key, 4)
 
@@ -382,11 +407,11 @@ def make_h2s_scrubber_benchmark(
             oxidant=state.sump.oxidant,
             alkalinity=state.sump.alkalinity,
             recirc_flow=recirc_flow,
-            params=contactor_params,
+            params=dynamic.contactor,
         )
 
         # ── 4. Dosing loops: process true PVs from sump ──────────
-        true_ph = compute_ph(state.sump, config.sump_ph_amplitude)
+        true_ph = compute_ph(state.sump, dynamic.ph_amplitude)
         true_orp = compute_orp(state.sump)
         true_level = state.sump.volume
         true_makeup_flow = state.makeup_loop.pump_output
@@ -395,7 +420,7 @@ def make_h2s_scrubber_benchmark(
             state.caustic_loop,
             ph_sp,
             true_ph,
-            caustic_params,
+            dynamic.caustic,
             dt,
             k_caustic,
         )
@@ -403,7 +428,7 @@ def make_h2s_scrubber_benchmark(
             state.bleach_loop,
             orp_sp,
             true_orp,
-            bleach_params,
+            dynamic.bleach,
             dt,
             k_bleach,
         )
@@ -411,7 +436,7 @@ def make_h2s_scrubber_benchmark(
             state.makeup_loop,
             makeup_flow_sp,
             true_makeup_flow,
-            makeup_params,
+            dynamic.makeup,
             dt,
             k_makeup,
         )
@@ -423,7 +448,7 @@ def make_h2s_scrubber_benchmark(
             makeup_flow=makeup_pump,
             sulfide_load=contactor_result.sulfide_load,
         )
-        new_sump = sump_step(state.sump, sump_inputs, sump_params, dt)
+        new_sump = sump_step(state.sump, sump_inputs, dynamic.sump, dt)
 
         # ── 6. Observation ────────────────────────────────────────
         obs = _build_obs(
