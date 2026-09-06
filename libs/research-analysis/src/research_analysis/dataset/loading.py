@@ -15,6 +15,7 @@ from experiment_definition.db import (
     RunRow,
 )
 
+from research_analysis.dataset.candidates import RunCandidate, fetch_run_candidates
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionProvenance,
@@ -31,25 +32,6 @@ from research_analysis.dataset.types import (
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetLoadError, DiagnosticCode
 from research_analysis.loader import load_sqlite_query
-
-
-def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance | None:
-    row = database.conn.execute(
-        "SELECT c.id, c.name, c.type, cv.id, cv.version_number, cv.code_snapshot_hash "
-        "FROM ComponentVersions cv INNER JOIN Components c ON c.id = cv.component_id "
-        "WHERE cv.id = ?",
-        (version_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    return ComponentVersionProvenance(
-        component_id=int(row[0]),
-        component_name=str(row[1]),
-        component_type=str(row[2]),
-        version_id=int(row[3]),
-        version_number=int(row[4]),
-        code_snapshot_hash=str(row[5]),
-    )
 
 
 def _coerce_axis_value(value: object, axis: SweepAxis) -> SweepValue | None:
@@ -85,10 +67,6 @@ def _axis_applicability(axis: SweepAxis, hyperparameters: Mapping[str, object]) 
     return True
 
 
-def _version_key(algo_version_id: int | None, env_version_id: int | None) -> tuple[int | None, int | None]:
-    return algo_version_id, env_version_id
-
-
 def _version_sort_key(version_set: tuple[int | None, int | None]) -> tuple[int, int]:
     return version_set[0] or -1, version_set[1] or -1
 
@@ -115,9 +93,6 @@ def _version_matches(
         if not matches:
             return False
     return True
-
-
-RunCandidate = tuple[RunRow, ExecutionRow, ExecutionArtifactRow | None, tuple[int | None, int | None], tuple[ComponentVersionProvenance, ...]]
 
 
 def _select_version_sets(
@@ -310,9 +285,7 @@ def load_experiment_dataset(
     selected_versions = version_selection or VersionSelection.latest_completed()
     diagnostics = DiagnosticAccumulator()
     rows: list[dict[str, object]] = []
-    provenance_by_version: dict[int, ComponentVersionProvenance] = {}
     artifacts: dict[tuple[int, int], RunArtifacts] = {}
-    candidates: list[RunCandidate] = []
 
     with DatabaseManager(Path(experiments_db)) as database:
         database.initialize()
@@ -320,32 +293,7 @@ def load_experiment_dataset(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        for run in database.list_runs(experiment.id):
-            execution = database.get_latest_completed_execution_for_run(run.id)
-            if execution is None:
-                diagnostics.add(DiagnosticCode.INCOMPLETE_EXECUTION, "run has no completed execution", run.id)
-                continue
-            artifact = database.get_latest_completed_artifacts_for_run(run.id)
-            version_items: list[ComponentVersionProvenance] = []
-            for version_id in (run.algo_version_id, run.env_version_id):
-                if version_id is None:
-                    continue
-                item = provenance_by_version.get(version_id)
-                if item is None:
-                    item = _component_provenance(database, version_id)
-                    if item is not None:
-                        provenance_by_version[version_id] = item
-                if item is not None:
-                    version_items.append(item)
-            if run.algo_version_id is None:
-                diagnostics.add(
-                    DiagnosticCode.UNKNOWN_COMPONENT_PROVENANCE,
-                    "run has NULL algorithm provenance because multiple ALGO components are declared",
-                    run.id,
-                    execution.id,
-                )
-            candidates.append((run, execution, artifact, _version_key(run.algo_version_id, run.env_version_id), tuple(version_items)))
-
+        candidates = fetch_run_candidates(database, experiment, diagnostics)
         selected_sets, all_provenance = _select_version_sets(candidates, selected_versions, diagnostics)
 
         for run, execution, artifact, version_set, items in candidates:
