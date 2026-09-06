@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from scipy import stats as scipy_stats
 
 from research_analysis.aggregates import (
     ReferenceRange,
@@ -1060,6 +1061,33 @@ def boundary_warning(
             "and performance is still trending toward it; the true optimum may lie outside "
             "the swept range."
         ),
+        condition=condition,
+        cell=cell,
+    )
+
+
+def non_normality_warning(
+    values: Sequence[float] | np.ndarray,
+    *,
+    condition: str | None = None,
+    cell: tuple[tuple[str, object], ...] = (),
+    alpha: float = 0.05,
+) -> BakeoffWarning | None:
+    """Shapiro-Wilk normality check against one cell's raw values, informational only.
+
+    Per ADR-010, no normality pretest may select which statistical test runs; this
+    never gates anything, it only surfaces a caveat for the reader to weigh (e.g.
+    whether a median estimand would be more appropriate than a mean).
+    """
+    array = np.asarray(values, dtype=np.float64)
+    if array.size < 3:
+        return None
+    _statistic, p_value = scipy_stats.shapiro(array)
+    if p_value >= alpha:
+        return None
+    return BakeoffWarning(
+        code=BakeoffWarningCode.NON_NORMAL_DISTRIBUTION,
+        message=f"Shapiro-Wilk rejects normality (p={p_value:.4f} < alpha={alpha}); consider a robust estimand.",
         condition=condition,
         cell=cell,
     )
