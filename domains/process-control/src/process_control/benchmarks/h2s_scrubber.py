@@ -222,8 +222,8 @@ def make_h2s_scrubber_benchmark(
     config: H2SScrubberConfig,
     gas_trajectory: GasSourceTrajectory | None = None,
 ) -> tuple[
-    Callable[[jax.Array], tuple[H2SScrubberState, jax.Array]],
-    Callable[[H2SScrubberState, jax.Array, jax.Array], tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
+    Callable[..., tuple[H2SScrubberState, jax.Array]],
+    Callable[..., tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
     scenario = H2S_SCENARIO_CONTRACTS[config.scenario]
     dt = jnp.array(config.dt)
