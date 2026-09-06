@@ -110,6 +110,26 @@ def test_chlorine_adapter_tracks_configured_action_bounds() -> None:
     assert jnp.array_equal(action_space.action_high, jnp.array([10.0], dtype=jnp.float32))
 
 
+@pytest.mark.parametrize(
+    ("benchmark_name", "expected_low", "expected_high"),
+    [
+        ("ph_neutralization", 0.0, 10.0),
+        ("equalization_tank", 0.0, 150.0),
+    ],
+)
+def test_initial_tranche_benchmarks_expose_native_action_bounds(
+    benchmark_name: str,
+    expected_low: float,
+    expected_high: float,
+) -> None:
+    spec = make_process_control_env(benchmark_name).spec()
+
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([expected_low], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([expected_high], dtype=jnp.float32))
+
+
 def test_chlorine_non_direct_mode_omits_native_action_bounds() -> None:
     action_space = make_adapter("chlorine", control_mode=SUPERVISORY).action_space()
 

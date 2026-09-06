@@ -65,6 +65,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         1,
         "pH neutralisation",
         scalar_action=True,
+        action_low_config="pump_min_dose",
+        action_high_config="pump_max_dose",
     ),
     BenchmarkEntry(
         "equalization_tank",
@@ -75,6 +77,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         1,
         "Equalization tank level control",
         scalar_action=True,
+        action_low_config="pump_min_flow",
+        action_high_config="pump_max_flow",
     ),
     BenchmarkEntry(
         "bsm1",
