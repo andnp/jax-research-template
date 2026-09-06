@@ -210,6 +210,22 @@ def test_best_hypers_optimizes_jointly_over_multiple_axes(temp_experiment_setup:
     assert report.raw_mean == pytest.approx(5.0)
 
 
+def test_best_hypers_higher_is_better_false_finds_the_minimizer(temp_experiment_setup: ExperimentSetup) -> None:
+    """For an error-like metric, the champion is the lowest raw mean, reported in its own units."""
+    setup = temp_experiment_setup
+    for learning_rate, score in (("low", 1.0), ("high", 3.0)):
+        for seed in range(3):
+            _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, score + seed)
+    dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+    report = best_hypers(dataset, "metric", higher_is_better=False, verbose=False)
+
+    assert report.winning_config == {"learning_rate": "low"}
+    assert report.raw_mean == pytest.approx(2.0)
+    ci_low, ci_high = report.estimate_ci
+    assert ci_low <= report.corrected_mean <= ci_high
+
+
 def test_slice_hypers_pins_champion_config_while_varying_one_axis(
     temp_experiment_setup: ExperimentSetup,
 ) -> None:
@@ -292,6 +308,36 @@ def test_best_hypers_difference_pairs_by_seed_across_two_groups(temp_experiment_
     assert report.minuend_config == {"learning_rate": "high"}
     assert report.subtrahend_config == {"learning_rate": "high"}
     assert report.mean_diff > 0
+    ci_low, ci_high = report.estimate_ci
+    assert ci_low <= report.mean_diff <= ci_high
+
+
+def test_best_hypers_difference_higher_is_better_false_finds_minimizers(
+    temp_experiment_setup: ExperimentSetup,
+) -> None:
+    """For an error-like metric, each side's champion is its own minimizer, in original units."""
+    setup = temp_experiment_setup
+    arm_a = {("low",): (1.0, 2.0, 3.0), ("high",): (4.0, 5.0, 6.0)}
+    arm_b = {("low",): (1.0, 1.0, 1.0), ("high",): (2.0, 2.0, 2.0)}
+    for (learning_rate,), values in arm_a.items():
+        for seed, value in enumerate(values):
+            _add_arm_observation(setup, "a", learning_rate, seed, value)
+    for (learning_rate,), values in arm_b.items():
+        for seed, value in enumerate(values):
+            _add_arm_observation(setup, "b", learning_rate, seed, value)
+    dataset = _load(
+        setup,
+        ExperimentDimensions(sweep_axes=(SweepAxis("algorithm", SweepValueType.STRING), SweepAxis("learning_rate", SweepValueType.STRING))),
+    )
+
+    report = best_hypers(
+        dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), higher_is_better=False, verbose=False
+    )
+
+    assert isinstance(report, HyperparameterDifferenceReport)
+    assert report.minuend_config == {"learning_rate": "low"}
+    assert report.subtrahend_config == {"learning_rate": "low"}
+    assert report.mean_diff == pytest.approx(1.0, abs=0.5)
     ci_low, ci_high = report.estimate_ci
     assert ci_low <= report.mean_diff <= ci_high
 

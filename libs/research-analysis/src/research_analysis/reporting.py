@@ -433,6 +433,7 @@ def best_hypers(
     group_by: None = None,
     *,
     difference_between: None = None,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -448,6 +449,7 @@ def best_hypers(
     group_by: list[str],
     *,
     difference_between: None = None,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -463,6 +465,7 @@ def best_hypers(
     group_by: list[str],
     *,
     difference_between: tuple[Any, Any],
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -477,6 +480,7 @@ def best_hypers(
     group_by: list[str] | None = None,
     *,
     difference_between: tuple[Any, Any] | None = None,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -491,6 +495,8 @@ def best_hypers(
     from the group key tuple to its own ``HyperparameterConfigReport`` is returned
     instead of a single pooled report. An empty or absent ``group_by`` jointly
     optimizes every declared sweep axis and returns one report for the whole grid.
+    Set ``higher_is_better=False`` for error-like metrics where the champion is the
+    minimizer.
 
     When ``difference_between`` is given (as ``(minuend_value, subtrahend_value)``),
     ``group_by`` must name exactly one axis, and the paired difference between the two
@@ -516,6 +522,7 @@ def best_hypers(
             minuend=difference_between[0],
             subtrahend=difference_between[1],
             declared_axes=declared_axes,
+            higher_is_better=higher_is_better,
             verbose=verbose,
             confidence_level=confidence_level,
             n_resamples=n_resamples,
@@ -542,6 +549,7 @@ def best_hypers(
                 experiment_slug=dataset.experiment_name,
                 verbose=verbose,
                 group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
+                higher_is_better=higher_is_better,
                 confidence_level=confidence_level,
                 n_resamples=n_resamples,
                 min_samples=min_samples,
@@ -556,6 +564,7 @@ def best_hypers(
         experiment_slug=dataset.experiment_name,
         verbose=verbose,
         group_label=None,
+        higher_is_better=higher_is_better,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
         min_samples=min_samples,
@@ -618,6 +627,11 @@ def _raw_best_config(records: list[dict[str, Any]], free_axes: list[str]) -> tup
     return dict(zip(free_axes, winning_key, strict=True)), raw_means[winning_key]
 
 
+def _negate_record_values(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flip the sign of every record's metric value, so a maximizer finds the minimizer."""
+    return [{**record, "value": -record["value"]} for record in records]
+
+
 def _best_hypers_group(
     records: list[dict[str, Any]],
     *,
@@ -625,6 +639,7 @@ def _best_hypers_group(
     experiment_slug: str,
     verbose: bool,
     group_label: str | None,
+    higher_is_better: bool,
     confidence_level: float,
     n_resamples: int,
     min_samples: int,
@@ -638,9 +653,10 @@ def _best_hypers_group(
     if min_samples < 3:
         raise ValueError("min_samples must be at least 3")
 
-    winning_config, raw_winner_mean = _raw_best_config(records, free_axes)
+    search_records = records if higher_is_better else _negate_record_values(records)
+    winning_config, raw_winner_mean = _raw_best_config(search_records, free_axes)
 
-    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(records, free_axes)
+    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(search_records, free_axes)
     if len(matrix_seeds) < min_samples:
         raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter configuration")
     n_runs = matrix.shape[1]
@@ -656,6 +672,11 @@ def _best_hypers_group(
     corrected_mean = bootstrap.mean
     interval = (bootstrap.ci_low, bootstrap.ci_high)
     maximization_bias = float(raw_winner_mean - corrected_mean)
+
+    if not higher_is_better:
+        raw_winner_mean = -raw_winner_mean
+        corrected_mean = -corrected_mean
+        interval = (-interval[1], -interval[0])
 
     report = HyperparameterConfigReport(
         winning_config=winning_config,
@@ -707,6 +728,7 @@ def _best_hypers_difference(
     minuend: Any,
     subtrahend: Any,
     declared_axes: set[str],
+    higher_is_better: bool,
     verbose: bool,
     confidence_level: float,
     n_resamples: int,
@@ -733,6 +755,10 @@ def _best_hypers_difference(
     if not records_b:
         raise ValueError(f"no runs found with {group_axis}={subtrahend!r}")
 
+    if not higher_is_better:
+        records_a = _negate_record_values(records_a)
+        records_b = _negate_record_values(records_b)
+
     minuend_config, _minuend_raw_mean = _raw_best_config(records_a, free_axes)
     subtrahend_config, _subtrahend_raw_mean = _raw_best_config(records_b, free_axes)
 
@@ -754,12 +780,17 @@ def _best_hypers_difference(
         n_resamples=n_resamples,
         seed=random_seed,
     )
+    mean_diff = diff.mean_diff
+    interval = (diff.ci_low, diff.ci_high)
+    if not higher_is_better:
+        mean_diff = -mean_diff
+        interval = (-interval[1], -interval[0])
 
     report = HyperparameterDifferenceReport(
         minuend_config=minuend_config,
         subtrahend_config=subtrahend_config,
-        mean_diff=diff.mean_diff,
-        estimate_ci=(diff.ci_low, diff.ci_high),
+        mean_diff=mean_diff,
+        estimate_ci=interval,
         confidence_level=confidence_level,
     )
 
@@ -775,6 +806,8 @@ def slice_hypers(
     metric_name: str,
     vary: str,
     group_by: None = None,
+    *,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -789,6 +822,8 @@ def slice_hypers(
     metric_name: str,
     vary: str,
     group_by: list[str],
+    *,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -802,6 +837,8 @@ def slice_hypers(
     metric_name: str,
     vary: str,
     group_by: list[str] | None = None,
+    *,
+    higher_is_better: bool = True,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -814,7 +851,7 @@ def slice_hypers(
     every other axis is pinned at for the slice curve, and once with ``vary`` added to
     ``group_by`` to get each of its values' own best-achievable performance -- rather than
     computing any new statistics. The pinned slice itself is a plain per-value mean, since
-    nothing is being selected there.
+    nothing is being selected there. Set ``higher_is_better=False`` for error-like metrics.
     """
     declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
     group_keys = list(group_by or ())
@@ -827,6 +864,7 @@ def slice_hypers(
         dataset,
         metric_name,
         group_by=group_keys,
+        higher_is_better=higher_is_better,
         verbose=False,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
@@ -837,6 +875,7 @@ def slice_hypers(
         dataset,
         metric_name,
         group_by=[*group_keys, vary],
+        higher_is_better=higher_is_better,
         verbose=False,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
