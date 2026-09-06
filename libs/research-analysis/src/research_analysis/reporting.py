@@ -1170,14 +1170,23 @@ def variance_warning(
     return None
 
 
+BlockKey = tuple[tuple[str, object], ...]
+"""A block's coordinates as (column, value) pairs; empty when a report has no blocking axes."""
+
+
+def _block_label(block_key: BlockKey) -> str:
+    return "|".join(str(value) for _column, value in block_key)
+
+
 def _load_bakeoff_data(
     dataset: ExperimentDataset,
-    algorithms: list[str],
-    environments: list[str],
+    conditions: list[str],
+    block_by: list[str],
     metric_name: str,
-) -> dict[tuple[str, str], dict[int, float]]:
-    if "env_name" not in dataset.runs.columns or "env_name" not in dataset.metrics.columns:
-        raise ValueError("bakeoff datasets require an environment dimension")
+) -> dict[tuple[str, BlockKey], dict[int, float]]:
+    missing = [column for column in block_by if column not in dataset.runs.columns]
+    if missing:
+        raise ValueError(f"block_by columns not present in the dataset: {missing}")
 
     final_metrics = (
         dataset.metrics.filter(pl.col("metric") == metric_name)
@@ -1186,14 +1195,15 @@ def _load_bakeoff_data(
         .agg(pl.col("value").last().alias("value"))
     )
     joined = final_metrics.join(
-        dataset.runs.select(["run_id", "seed", "condition_name", "env_name"]),
+        dataset.runs.select(["run_id", "seed", "condition_name", *block_by]),
         on="run_id",
         how="inner",
-    ).filter(pl.col("condition_name").is_in(algorithms) & pl.col("env_name").is_in(environments))
+    ).filter(pl.col("condition_name").is_in(conditions))
 
-    data_by_group: dict[tuple[str, str], dict[int, float]] = {}
+    data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     for row in joined.iter_rows(named=True):
-        key = (str(row["condition_name"]), str(row["env_name"]))
+        block_key: BlockKey = tuple((column, row[column]) for column in block_by)
+        key = (str(row["condition_name"]), block_key)
         data_by_group.setdefault(key, {})[int(row["seed"])] = float(row["value"])
     return data_by_group
 
@@ -1213,44 +1223,54 @@ class _BakeoffStatistics:
 
 
 def _compute_bakeoff_statistics(
-    data_by_group: dict[tuple[str, str], dict[int, float]],
-    algorithms: list[str],
-    environments: list[str],
-    references: dict[str, ReferenceRange],
+    data_by_group: dict[tuple[str, BlockKey], dict[int, float]],
+    conditions: list[str],
+    block_keys: list[BlockKey],
+    references: dict[str, ReferenceRange] | None,
     spec: ComparisonSpec,
 ) -> _BakeoffStatistics:
-    normalized: dict[tuple[str, str], dict[int, float]] = {}
-    for (algo, env), seed_map in data_by_group.items():
-        if env not in references:
-            raise ValueError(f"missing fixed reference for environment {env!r}")
-        values = normalize_scores(np.array(list(seed_map.values())), references[env])
-        for seed in seed_map:
-            normalized.setdefault((algo, env), {})[seed] = float(values[list(seed_map).index(seed)])
+    if references is None and len(block_keys) > 1:
+        raise ValueError(
+            "pooling raw (unnormalized) scores across more than one block requires "
+            "references; supply references or narrow block_by to a single block"
+        )
 
-    for env in environments:
-        if not any(normalized.get((algo, env)) for algo in algorithms):
-            raise ValueError(f"bakeoff environment {env!r} has no observed data")
+    if references is not None:
+        normalized: dict[tuple[str, BlockKey], dict[int, float]] = {}
+        for (condition, block_key), seed_map in data_by_group.items():
+            label = _block_label(block_key)
+            if label not in references:
+                raise ValueError(f"missing fixed reference for block {label!r}")
+            values = normalize_scores(np.array(list(seed_map.values())), references[label])
+            for seed, value in zip(seed_map, values, strict=True):
+                normalized.setdefault((condition, block_key), {})[seed] = float(value)
+    else:
+        normalized = data_by_group
+
+    for block_key in block_keys:
+        if not any(normalized.get((condition, block_key)) for condition in conditions):
+            raise ValueError(f"bakeoff block {_block_label(block_key)!r} has no observed data")
 
     estimator = np.median if spec.estimand == "median" else np.mean
-    normalized_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
-    for algo in algorithms:
-        for env in environments:
-            values = normalized.get((algo, env), {}).values()
-            normalized_means[algo][env] = float(estimator(list(values))) if values else float("nan")
+    normalized_means: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
+    for condition in conditions:
+        for block_key in block_keys:
+            values = normalized.get((condition, block_key), {}).values()
+            normalized_means[condition][_block_label(block_key)] = float(estimator(list(values))) if values else float("nan")
 
     row_keys = []
-    for env in environments:
-        all_seeds_for_env = set()
-        for algo in algorithms:
-            all_seeds_for_env.update(normalized.get((algo, env), {}).keys())
-        for seed in sorted(all_seeds_for_env):
-            row_keys.append((env, seed))
+    for block_key in block_keys:
+        all_seeds_for_block = set()
+        for condition in conditions:
+            all_seeds_for_block.update(normalized.get((condition, block_key), {}).keys())
+        for seed in sorted(all_seeds_for_block):
+            row_keys.append((block_key, seed))
 
     matrix = []
-    for env, seed in row_keys:
+    for block_key, seed in row_keys:
         row = []
-        for algo in algorithms:
-            val = normalized.get((algo, env), {}).get(seed)
+        for condition in conditions:
+            val = normalized.get((condition, block_key), {}).get(seed)
             row.append(val)
         matrix.append(row)
 
@@ -1277,22 +1297,22 @@ def _compute_bakeoff_statistics(
 
     raw_posthoc: dict[tuple[str, str], float] = {}
     pair_data: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
-    for i, algo_a in enumerate(algorithms):
-        for j, algo_b in enumerate(algorithms):
+    for i, condition_a in enumerate(conditions):
+        for j, condition_b in enumerate(conditions):
             if i >= j:
                 continue
             paired_a = []
             paired_b = []
-            for env, seed in row_keys:
-                va = normalized.get((algo_a, env), {}).get(seed)
-                vb = normalized.get((algo_b, env), {}).get(seed)
+            for block_key, seed in row_keys:
+                va = normalized.get((condition_a, block_key), {}).get(seed)
+                vb = normalized.get((condition_b, block_key), {}).get(seed)
                 if va is not None and vb is not None:
                     paired_a.append(va)
                     paired_b.append(vb)
             values_a = np.array(paired_a)
             values_b = np.array(paired_b)
-            pair_data[(algo_a, algo_b)] = (values_a, values_b)
-            pair_data[(algo_b, algo_a)] = (values_b, values_a)
+            pair_data[(condition_a, condition_b)] = (values_a, values_b)
+            pair_data[(condition_b, condition_a)] = (values_b, values_a)
             if len(paired_a) < spec.min_samples:
                 continue
             result = run_permutation_test(
@@ -1305,16 +1325,16 @@ def _compute_bakeoff_statistics(
                 min_samples=spec.min_samples,
                 rng=rng,
             )
-            raw_posthoc[(algo_a, algo_b)] = result.p_value
+            raw_posthoc[(condition_a, condition_b)] = result.p_value
 
     adjusted_values = holm_step_down(list(raw_posthoc.values()))
     posthoc = {
-        algo: {other: 1.0 if algo == other else None for other in algorithms}
-        for algo in algorithms
+        condition: {other: 1.0 if condition == other else None for other in conditions}
+        for condition in conditions
     }
-    for (algo_a, algo_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
-        posthoc[algo_a][algo_b] = adjusted
-        posthoc[algo_b][algo_a] = adjusted
+    for (condition_a, condition_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
+        posthoc[condition_a][condition_b] = adjusted
+        posthoc[condition_b][condition_a] = adjusted
 
     threshold_values = (0.0, 0.25, 0.5, 0.75, 1.0)
     profiles: dict[str, dict[float, float]] = {}
@@ -1323,29 +1343,32 @@ def _compute_bakeoff_statistics(
     lower_tails: dict[str, float] = {}
     iqms: dict[str, float] = {}
     score_curves = {}
-    for algo in algorithms:
+    for condition in conditions:
         all_vals = []
-        for env in environments:
-            all_vals.extend(normalized.get((algo, env), {}).values())
+        for block_key in block_keys:
+            all_vals.extend(normalized.get((condition, block_key), {}).values())
         if all_vals:
             sorted_vals = sorted(all_vals)
             proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
-            score_curves[algo] = (sorted_vals, proportions)
-            profiles[algo] = performance_profile(
-                np.array(all_vals)[:, np.newaxis], threshold_values, [algo]
-            )[algo]
-            gaps[algo] = optimality_gap(np.array(all_vals))
-            dispersions[algo] = float(np.std(all_vals, ddof=1)) if len(all_vals) > 1 else 0.0
-            lower_tails[algo] = float(np.quantile(all_vals, 0.1))
-            iqms[algo] = interquartile_mean(np.array(all_vals))
+            score_curves[condition] = (sorted_vals, proportions)
+            if references is not None:
+                # performance_profile/optimality_gap assume a normalized [0, 1]-ish
+                # scale; without references there is no anchor to interpret them against.
+                profiles[condition] = performance_profile(
+                    np.array(all_vals)[:, np.newaxis], threshold_values, [condition]
+                )[condition]
+                gaps[condition] = optimality_gap(np.array(all_vals))
+            dispersions[condition] = float(np.std(all_vals, ddof=1)) if len(all_vals) > 1 else 0.0
+            lower_tails[condition] = float(np.quantile(all_vals, 0.1))
+            iqms[condition] = interquartile_mean(np.array(all_vals))
 
-    probabilities: dict[str, dict[str, float | None]] = {algo: {} for algo in algorithms}
-    for algo_a in algorithms:
-        for algo_b in algorithms:
-            if algo_a == algo_b:
+    probabilities: dict[str, dict[str, float | None]] = {condition: {} for condition in conditions}
+    for condition_a in conditions:
+        for condition_b in conditions:
+            if condition_a == condition_b:
                 continue
-            values_a, values_b = pair_data[(algo_a, algo_b)]
-            probabilities[algo_a][algo_b] = (
+            values_a, values_b = pair_data[(condition_a, condition_b)]
+            probabilities[condition_a][condition_b] = (
                 probability_of_improvement(values_a, values_b) if len(values_a) else None
             )
 
@@ -1468,14 +1491,9 @@ def compare_bakeoff(
     references: dict[str, ReferenceRange] | None = None,
     spec: ComparisonSpec | None = None,
 ) -> BenchmarkBakeoffReport:
-    """Compare algorithms with fixed-reference normalization and blockwise inference."""
-    if len(algorithms) < 3:
-        raise ValueError(
-            f"compare_bakeoff requires at least 3 algorithms for the omnibus test, got "
-            f"{len(algorithms)} ({algorithms!r}). For a two-condition comparison, use compare_pairwise instead."
-        )
-    if references is None:
-        raise ValueError("compare_bakeoff requires fixed references for every environment")
+    """Compare algorithms across environments, with optional fixed-reference normalization."""
+    if len(algorithms) < 2:
+        raise ValueError(f"compare_bakeoff requires at least 2 algorithms, got {len(algorithms)} ({algorithms!r})")
     if spec is None:
         spec = ComparisonSpec(missingness="blockwise")
     elif spec.missingness == "complete_case":
@@ -1483,14 +1501,15 @@ def compare_bakeoff(
     data_by_group = _load_bakeoff_data(
         dataset,
         algorithms,
-        environments,
+        ["env_name"],
         metric_name,
     )
+    block_keys: list[BlockKey] = [(("env_name", env),) for env in environments]
 
     statistics = _compute_bakeoff_statistics(
         data_by_group,
         algorithms,
-        environments,
+        block_keys,
         references,
         spec,
     )
