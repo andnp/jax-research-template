@@ -22,7 +22,10 @@ class TestExperimentDefinitionPublicApi:
             "MetricFrequency",
             "MetricType",
             "ParameterValue",
+            "Sweep",
             "metric_whitelist",
+            "values",
+            "when",
         }
 
 

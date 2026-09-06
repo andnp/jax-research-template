@@ -161,7 +161,6 @@ class TestExperimentBuilder:
 
 
 class TestConditionalSweepAPI:
-    @pytest.mark.xfail(reason="The standalone conditional Sweep API is not implemented yet", strict=True)
     def test_resolves_only_valid_conditional_configurations(self) -> None:
         """Expand conditional axes without emitting invalid combinations."""
         from experiment_definition import Sweep, values, when

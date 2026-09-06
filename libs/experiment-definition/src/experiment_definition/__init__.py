@@ -7,6 +7,7 @@ from .component import Component, ComponentType
 from .experiment import Experiment
 from .metric import MetricFrequency, MetricType
 from .parameter import ParameterValue
+from .sweep import Sweep, values, when
 
 __all__ = [
     "Component",
@@ -15,5 +16,8 @@ __all__ = [
     "MetricFrequency",
     "MetricType",
     "ParameterValue",
+    "Sweep",
     "metric_whitelist",
+    "values",
+    "when",
 ]
