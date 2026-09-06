@@ -15,6 +15,9 @@ class RunPoint:
     run_id: int
     hyperparameters: Mapping[str, ParameterValue]
 
+    def get(self, name: str, expected_type: type[_T]) -> _T:
+        return get_parameter(self.hyperparameters, name, expected_type)
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionContext:
@@ -28,6 +31,9 @@ class ExecutionContext:
 
     def bind(self, schema: "ParameterSchema") -> "BoundBatch":
         return BoundBatch.from_context(self, schema)
+
+    def get_static(self, name: str, expected_type: type[_T]) -> _T:
+        return get_parameter(self.static_config, name, expected_type)
 
     def axes(self) -> dict[str, list[ParameterValue]]:
         """Parameters that vary across the batch, stacked in `points` order.

@@ -49,6 +49,7 @@ class TestResearchRunnerPublicApi:
             "ParameterSchema",
             "RunPoint",
             "execute_batch",
+            "get_parameter",
             "registered_specs",
             "run_experiment",
             "spec",
