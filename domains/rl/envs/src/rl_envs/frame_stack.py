@@ -43,6 +43,7 @@ class FrameStackWrapper[ObsT: jax.Array, StateT, ActionT, ParamsT]:
             num_actions=inner_spec.num_actions,
             action_low=inner_spec.action_low,
             action_high=inner_spec.action_high,
+            truncation_policy=inner_spec.truncation_policy,
         )
 
     def reset(
