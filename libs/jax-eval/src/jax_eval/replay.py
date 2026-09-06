@@ -27,14 +27,42 @@ def priority_utilization(priorities: jax.Array, *, epsilon: float = 1e-8) -> jax
     return jnp.sum(terms, dtype=jnp.float32) / jnp.log(jnp.float32(capacity))
 
 
+def _step_difference(current: jax.Array, sampled: jax.Array) -> jax.Array:
+    if jnp.issubdtype(current.dtype, jnp.unsignedinteger) and jnp.issubdtype(sampled.dtype, jnp.unsignedinteger):
+        current_unsigned = jnp.asarray(current, dtype=jnp.uint32)
+        sampled_unsigned = jnp.asarray(sampled, dtype=jnp.uint32)
+        nonnegative = current_unsigned >= sampled_unsigned
+        magnitude = jnp.where(
+            nonnegative,
+            current_unsigned - sampled_unsigned,
+            sampled_unsigned - current_unsigned,
+        )
+        magnitude_float = jnp.asarray(magnitude, dtype=jnp.float32)
+        return jnp.where(nonnegative, magnitude_float, -magnitude_float)
+
+    if jnp.issubdtype(current.dtype, jnp.signedinteger) and jnp.issubdtype(sampled.dtype, jnp.signedinteger):
+        current_signed = jnp.asarray(current, dtype=jnp.int32)
+        sampled_signed = jnp.asarray(sampled, dtype=jnp.int32)
+        nonnegative = current_signed >= sampled_signed
+        magnitude = jnp.where(
+            nonnegative,
+            current_signed - sampled_signed,
+            sampled_signed - current_signed,
+        )
+        magnitude_float = jnp.asarray(magnitude, dtype=jnp.float32)
+        return jnp.where(nonnegative, magnitude_float, -magnitude_float)
+
+    return jnp.asarray(current, dtype=jnp.float32) - jnp.asarray(sampled, dtype=jnp.float32)
+
+
 def sample_staleness(
     current_step: jax.Array,
     sampled_steps: jax.Array,
     valid_mask: jax.Array | None = None,
 ) -> jax.Array:
     """Return the mean age of valid sampled transitions."""
-    current = jnp.asarray(current_step, dtype=jnp.float32)
-    sampled = jnp.asarray(sampled_steps, dtype=jnp.float32)
+    current = jnp.asarray(current_step)
+    sampled = jnp.asarray(sampled_steps)
     mask = None
     if valid_mask is not None:
         mask = jnp.asarray(valid_mask, dtype=bool)
@@ -43,7 +71,7 @@ def sample_staleness(
     if sampled.size == 0:
         return jnp.float32(0.0)
 
-    ages = current - sampled
+    ages = _step_difference(current, sampled)
     if mask is None:
         return jnp.mean(ages, dtype=jnp.float32)
 
