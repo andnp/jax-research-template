@@ -8,6 +8,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TypedDict
 
+import numpy as np
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
@@ -26,6 +27,7 @@ from research_analysis.reporting import (
     boundary_warning,
     compare_bakeoff,
     compare_pairwise,
+    non_normality_warning,
     slice_hypers,
 )
 
@@ -324,6 +326,25 @@ class TestBoundaryWarning:
         return HyperparameterSliceReport(
             vary="learning_rate", values=values, best_performance=performance, slice_performance=performance, plot_path=None
         )
+
+
+class TestNonNormalityWarning:
+    """Informational Shapiro-Wilk check; never gates which test runs (ADR-010)."""
+
+    def test_flags_a_heavily_skewed_sample(self) -> None:
+        values = [0.0] * 29 + [1000.0]
+        warning = non_normality_warning(values, condition="sac_rc")
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.NON_NORMAL_DISTRIBUTION
+        assert warning.condition == "sac_rc"
+
+    def test_does_not_flag_a_normal_sample(self) -> None:
+        rng = np.random.default_rng(0)
+        values = rng.normal(size=30)
+        assert non_normality_warning(values) is None
+
+    def test_no_warning_below_the_minimum_sample_size(self) -> None:
+        assert non_normality_warning([1.0, 2.0]) is None
 
 
 def _add_arm_observation(setup: ExperimentSetup, algorithm: str, learning_rate: str, seed: int, value: float) -> None:
