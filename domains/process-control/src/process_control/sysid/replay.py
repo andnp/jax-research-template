@@ -17,6 +17,11 @@ def _names(specs: tuple[SignalSpec, ...]) -> tuple[str, ...]:
     return tuple(spec.name for spec in specs)
 
 
+def column_indices(specs: tuple[SignalSpec, ...], names: tuple[str, ...]) -> tuple[int, ...]:
+    indices = {spec.name: index for index, spec in enumerate(specs)}
+    return tuple(indices[name] for name in names)
+
+
 @dataclass(frozen=True, slots=True)
 class ReplayCase:
     """Immutable selection and validation policy for one trace replay."""
@@ -58,6 +63,23 @@ class ReplayCase:
         segment_ids = self.trace.arrays.segment_id[self.start:stop]
         if not bool(jnp.all(segment_ids == segment_ids[0])):
             raise ValueError("replay range must not cross a trace segment boundary")
+
+        rows = slice(self.start, stop)
+        control_indices = column_indices(self.trace.schema.controls, tuple(required_controls))
+        if control_indices:
+            control_valid = self.trace.arrays.valid[rows, jnp.asarray(control_indices)]
+            if not bool(jnp.all(control_valid)):
+                raise ValueError("replay inputs contain invalid required samples")
+        disturbance_indices = column_indices(
+            self.trace.schema.disturbances, tuple(required_disturbances)
+        )
+        if disturbance_indices:
+            offset = len(self.trace.schema.controls)
+            disturbance_valid = self.trace.arrays.valid[
+                rows, jnp.asarray(disturbance_indices) + offset
+            ]
+            if not bool(jnp.all(disturbance_valid)):
+                raise ValueError("replay inputs contain invalid required samples")
 
         object.__setattr__(self, "stop", stop)
         object.__setattr__(self, "required_controls", tuple(required_controls))

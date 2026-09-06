@@ -114,11 +114,9 @@ def test_replay_is_deterministic_for_a_seed() -> None:
 
 
 def test_replay_rejects_invalid_required_inputs() -> None:
-    """Fail before simulation when a required control sample is invalid."""
-    case = ReplayCase(_trace(invalid_control=True))
-
+    """Fail at construction, before any replay call, when a required sample is invalid."""
     with pytest.raises(ValueError, match="invalid required samples"):
-        run_replay(case, _factory)
+        ReplayCase(_trace(invalid_control=True))
 
 
 def test_replay_masks_rows_after_termination() -> None:

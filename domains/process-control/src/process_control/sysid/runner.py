@@ -10,13 +10,9 @@ from process_control.sysid.replay import (
     ReplayEnvironmentFactory,
     ReplayResult,
     ReplayResultArrays,
+    column_indices,
 )
 from process_control.sysid.trace import SignalSpec
-
-
-def _column_indices(specs: tuple[SignalSpec, ...], names: Sequence[str]) -> tuple[int, ...]:
-    indices = {spec.name: index for index, spec in enumerate(specs)}
-    return tuple(indices[name] for name in names)
 
 
 def _select_columns(
@@ -26,39 +22,29 @@ def _select_columns(
     rows: slice,
 ) -> jax.Array:
     selected = values[rows]
-    indices = _column_indices(specs, names)
+    indices = column_indices(specs, tuple(names))
     if not indices:
         return jnp.zeros((selected.shape[0], 0), dtype=selected.dtype)
     return selected[:, jnp.asarray(indices)]
-
-
-def _require_valid(
-    case: ReplayCase,
-    specs: tuple[SignalSpec, ...],
-    names: Sequence[str],
-    offset: int,
-) -> None:
-    indices = _column_indices(specs, names)
-    if not indices:
-        return
-    valid = case.trace.arrays.valid[case.rows, jnp.asarray(indices) + offset]
-    if not bool(jnp.all(valid)):
-        raise ValueError("replay inputs contain invalid required samples")
 
 
 def run_replay[StateT](
     case: ReplayCase,
     environment_factory: ReplayEnvironmentFactory[StateT],
 ) -> ReplayResult[StateT]:
-    """Run one canonical trace through a benchmark-specific replay adapter."""
+    """Run one canonical trace through a benchmark-specific replay adapter.
+
+    Required-sample validity and segment-boundary checks already happened at
+    `ReplayCase` construction (eager, since they depend only on the static
+    trace, never on this call's `environment_factory`) so this stays safe to
+    call from inside a `jax.jit`-traced function.
+    """
     control_specs = case.trace.schema.controls
     disturbance_specs = case.trace.schema.disturbances
     if case.required_controls is None or case.required_disturbances is None:
         raise RuntimeError("replay requirements were not initialized")
     required_controls = case.required_controls
     required_disturbances = case.required_disturbances
-    _require_valid(case, control_specs, required_controls, 0)
-    _require_valid(case, disturbance_specs, required_disturbances, len(control_specs))
 
     controls = _select_columns(
         case.trace.arrays.controls,
