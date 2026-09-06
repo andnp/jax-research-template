@@ -57,9 +57,11 @@ def test_gradient_snr_handles_empty_and_zero_batches() -> None:
 
 
 def test_gradient_snr_rejects_scalar_and_inconsistent_batch_leaves() -> None:
-    """Reject scalar gradients and leaves with different leading batch sizes."""
+    """Reject scalar gradients, including raw Python leaves, and inconsistent batches."""
     with pytest.raises(ValueError):
         gradient_snr({"weight": jnp.array(1.0)})
+    with pytest.raises(ValueError):
+        gradient_snr({"weight": 1.0})
     with pytest.raises(ValueError):
         gradient_snr({"weight": jnp.ones((2, 1)), "bias": jnp.ones((3, 1))})
 
