@@ -11,7 +11,13 @@ import pytest
 from experiment_definition import ParameterValue
 from research_runner import BoundBatch, ExecutionContext, RunPoint
 from rl_agents.batch_registry import ALGORITHM_TRAINERS, make_algorithm_batch_trainer
-from rl_agents.batch_trainer import AlgorithmSpec, _config_kwargs, make_batch_trainer
+from rl_agents.batch_trainer import (
+    AlgorithmSpec,
+    _config_kwargs,
+    extract_train_state_params,
+    make_batch_trainer,
+    project_policy_metrics,
+)
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.greedy_ac import GACAgent, GACConfig, GACHypers
 from rl_agents.ppo import PPOAgent, PPOHypers
@@ -76,7 +82,15 @@ def _make_diagnostic_env(config: Mapping[str, ParameterValue]):
 
 DQN_SPEC = AlgorithmSpec("dqn", DQNAgent, DQNConfig, ReplayQHypers)
 GAC_SPEC = AlgorithmSpec("gac", GACAgent, GACConfig, GACHypers)
-PPO_SPEC = AlgorithmSpec("ppo", PPOAgent, PPOConfig, PPOHypers)
+PPO_SPEC = AlgorithmSpec(
+    "ppo",
+    PPOAgent,
+    PPOConfig,
+    PPOHypers,
+    metric_projector=project_policy_metrics,
+    artifact_projector=extract_train_state_params,
+    report_returned_episode_returns=True,
+)
 QRC_SPEC = AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers)
 SAC_SPEC = AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers)
 SAC_RC_SPEC = AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers)
@@ -678,6 +692,44 @@ class TestAlgorithmRegistry:
         result = trainer(context)
 
         assert set(result.metric_curves) == {"reward", "loss", "epsilon", "q_max"}
+
+    def test_custom_output_projectors_control_a_non_ppo_named_spec(self, tmp_path: Path) -> None:
+        """Output shape follows the spec contract rather than the algorithm name."""
+        local_spec = AlgorithmSpec(
+            "policy-variant",
+            PPOAgent,
+            PPOConfig,
+            PPOHypers,
+            metric_projector=project_policy_metrics,
+            artifact_projector=extract_train_state_params,
+            report_returned_episode_returns=True,
+        )
+        static_config = {
+            "algorithm": "policy-variant",
+            "env_name": "CartPole-v1",
+            "num_steps": 4,
+            "total_timesteps": 4,
+            "update_epochs": 1,
+            "num_minibatches": 1,
+            "gamma": 0.99,
+            "reward_scale": 1.0,
+            "normalize_observations": False,
+        }
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name="custom-output-projectors-test",
+            static_config=static_config,
+            points=(RunPoint(0, {**static_config, "learning_rate": 1e-4, "seed": 0}),),
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / "metrics.sqlite",
+        )
+
+        result = make_batch_trainer(local_spec, _make_env)(context)
+
+        assert "reward" not in result.metric_curves
+        assert "returned_episode_returns" in result.metric_curves
+        assert "final_policy_params" in result.artifacts
 
     def test_extra_specs_reports_returned_episode_returns_when_asked(self, tmp_path: Path) -> None:
         """The flag added for GenericBatchTrainer must reach callers of the dispatcher too."""

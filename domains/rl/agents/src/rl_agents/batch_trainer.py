@@ -25,16 +25,12 @@ Two exceptions this module encodes rather than derives:
   QRC's a categorical ``"adamw"``/``"l2"`` optimizer choice -- which only matters once a
   mixed-algorithm dispatch (``batch_registry.py``) has to reconcile the two. That reconciliation
   is out of scope here; each algorithm's own derivation is unambiguous in isolation.
-- PPO reports its return curve under ``"returned_episode_returns"``, held from
-  ``loop/episode_return`` by :func:`rl_components.metrics.episode_return_curve`, rather than
-  under ``"reward"`` from ``loop/reward``: PPO is on-policy and its horizon spans many
-  episodes, so a per-step reward is not the return anyone wants plotted. It also returns its
-  final policy parameters as an artifact, which no other algorithm here does. Both are
-  encoded by name (``spec.name == "ppo"``) rather than derived, matching how the other named
-  exceptions in this module are handled.
-
 SAC is no longer absent: ``SACConfig.LR`` was renamed to ``LEARNING_RATE``, so the uniform
 upcase rule now holds for it too.
+
+Metric and artifact differences belong to :class:`AlgorithmSpec` output projectors. The
+generic trainer only executes those declared policies; it does not identify algorithms by
+name to decide what a result should contain.
 """
 
 from __future__ import annotations
@@ -56,6 +52,11 @@ EnvFactory = Callable[
     [Mapping[str, ParameterValue]],
     tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None],
 ]
+MetricProjector = Callable[
+    [Mapping[str, jax.Array], tuple[str, ...], tuple[str, ...], bool],
+    dict[str, jax.Array],
+]
+ArtifactProjector = Callable[[object], dict[str, object]]
 
 GAMMA = "gamma"
 ENV_NAME = "env_name"
@@ -72,6 +73,50 @@ there fails to compile. The scan boundary wins, so it is resolved statically.
 """
 
 
+def project_standard_metrics(
+    metrics: Mapping[str, jax.Array],
+    reported_metrics: tuple[str, ...],
+    extra_metric_names: tuple[str, ...],
+    report_returned_episode_returns: bool,
+) -> dict[str, jax.Array]:
+    """Project standard reward, agent, and selected environment metrics."""
+    projected = project_metrics(metrics)
+    curves = {
+        "reward": projected["reward"],
+        **{name: projected[name] for name in reported_metrics},
+        **{name: metrics[name] for name in extra_metric_names},
+    }
+    if report_returned_episode_returns:
+        curves["returned_episode_returns"] = episode_return_curve(metrics)
+    return curves
+
+
+def project_policy_metrics(
+    metrics: Mapping[str, jax.Array],
+    reported_metrics: tuple[str, ...],
+    extra_metric_names: tuple[str, ...],
+    report_returned_episode_returns: bool,
+) -> dict[str, jax.Array]:
+    """Project policy diagnostics whose return curve replaces per-step reward."""
+    curves = {
+        **{name: metrics[name] for name in reported_metrics},
+        **{name: metrics[name] for name in extra_metric_names},
+    }
+    if report_returned_episode_returns:
+        curves["returned_episode_returns"] = episode_return_curve(metrics)
+    return curves
+
+
+def no_artifacts(_: object) -> dict[str, object]:
+    """Return no artifacts for an algorithm without a persisted policy."""
+    return {}
+
+
+def extract_train_state_params(state: object) -> dict[str, object]:
+    """Extract parameters from an agent state with one train state."""
+    return {"final_policy_params": cast(Any, state).agent_state.train_state.params}
+
+
 @dataclass(frozen=True, slots=True)
 class AlgorithmSpec:
     """The three classes an algorithm already declares, from which everything else follows."""
@@ -80,6 +125,9 @@ class AlgorithmSpec:
     agent_cls: type
     config_cls: type
     hypers_cls: type
+    metric_projector: MetricProjector = project_standard_metrics
+    artifact_projector: ArtifactProjector = no_artifacts
+    report_returned_episode_returns: bool = False
 
     @property
     def parameter_schema(self) -> ParameterSchema:
@@ -150,10 +198,6 @@ def _config_kwargs(config_cls: type, batch: BoundBatch, dynamic: Mapping[str, ja
     return kwargs
 
 
-_PPO = "ppo"
-"""The one algorithm whose report shape genuinely differs -- see the module docstring."""
-
-
 class GenericBatchTrainer:
     """Bind an :class:`AlgorithmSpec` to an environment factory and run its seeded batch."""
 
@@ -169,7 +213,7 @@ class GenericBatchTrainer:
         self.parameter_schema = spec.parameter_schema
         self._env_factory = env_factory
         self._extra_metric_names = extra_metric_names
-        self._report_returned_episode_returns = report_returned_episode_returns or spec.name == _PPO
+        self._report_returned_episode_returns = report_returned_episode_returns or spec.report_returned_episode_returns
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         spec = self._spec
@@ -183,7 +227,6 @@ class GenericBatchTrainer:
             for key in self.parameter_schema.dynamic_keys
             if key in batch.dynamic_axes
         }
-        is_ppo = spec.name == _PPO
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
             config = spec.config_cls(**_config_kwargs(spec.config_cls, batch, dynamic))
@@ -195,32 +238,19 @@ class GenericBatchTrainer:
                 gamma=cast(float, dynamic.get(GAMMA, batch.static_or(GAMMA, float, 0.99))),
                 env_params=env_params,
             )
-            reported: tuple[str, ...] = spec.agent_cls.REPORTED_METRICS
-            if is_ppo:
-                curves = {
-                    **{name: metrics[name] for name in reported},
-                    **{name: metrics[name] for name in self._extra_metric_names},
-                }
-            else:
-                projected = project_metrics(metrics)
-                curves = {
-                    "reward": projected["reward"],
-                    **{name: projected[name] for name in reported},
-                    **{name: metrics[name] for name in self._extra_metric_names},
-                }
-            if self._report_returned_episode_returns:
-                curves["returned_episode_returns"] = episode_return_curve(cast(Mapping[str, jax.Array], metrics))
-            if is_ppo:
-                return cast(Any, final_state).agent_state.train_state.params, curves
-            return curves
+            curves = spec.metric_projector(
+                metrics,
+                spec.agent_cls.REPORTED_METRICS,
+                self._extra_metric_names,
+                self._report_returned_episode_returns,
+            )
+            return curves, spec.artifact_projector(final_state)
 
         result = run_batch(train_one, dynamic_axes, batch.seeds)
-        if is_ppo:
-            final_params, curves = cast(tuple[object, Mapping[str, jax.Array]], result)
-            artifacts: dict[str, object] = {"final_policy_params": final_params}
-        else:
-            curves = cast(Mapping[str, jax.Array], result)
-            artifacts = {}
+        curves, artifacts = cast(
+            tuple[Mapping[str, jax.Array], Mapping[str, object]],
+            result,
+        )
         return ExecutionResult(
             metadata={
                 "algorithm": spec.name,
@@ -228,7 +258,7 @@ class GenericBatchTrainer:
                 "seed_values": list(batch.seeds),
             },
             metric_curves={name: values.tolist() for name, values in curves.items()},
-            artifacts=artifacts,
+            artifacts=dict(artifacts),
         )
 
 

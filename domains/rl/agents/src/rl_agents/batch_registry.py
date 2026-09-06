@@ -19,7 +19,12 @@ from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, Par
 from rl_components.env_protocol import EnvProtocol
 from rl_components.types import PPOConfig
 
-from rl_agents.batch_trainer import AlgorithmSpec, make_batch_trainer
+from rl_agents.batch_trainer import (
+    AlgorithmSpec,
+    extract_train_state_params,
+    make_batch_trainer,
+    project_policy_metrics,
+)
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.greedy_ac import GACAgent, GACConfig, GACHypers
 from rl_agents.ppo import PPOAgent, PPOHypers
@@ -40,7 +45,15 @@ ALGORITHM_PARAMETER = "algorithm"
 ALGORITHM_TRAINERS: Mapping[str, AlgorithmSpec] = {
     "dqn": AlgorithmSpec("dqn", DQNAgent, DQNConfig, ReplayQHypers),
     "gac": AlgorithmSpec("gac", GACAgent, GACConfig, GACHypers),
-    "ppo": AlgorithmSpec("ppo", PPOAgent, PPOConfig, PPOHypers),
+    "ppo": AlgorithmSpec(
+        "ppo",
+        PPOAgent,
+        PPOConfig,
+        PPOHypers,
+        metric_projector=project_policy_metrics,
+        artifact_projector=extract_train_state_params,
+        report_returned_episode_returns=True,
+    ),
     "qrc": AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers),
     "sac": AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers),
     "sac-rc": AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers),
