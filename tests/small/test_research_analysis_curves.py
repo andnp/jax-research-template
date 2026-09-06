@@ -9,6 +9,7 @@ import pytest
 from research_analysis.curves import (
     event_response,
     final_values,
+    flatline_flags,
     mean_curves,
     median_run_curve,
     quantile_run_curve,
@@ -247,3 +248,36 @@ class TestEventResponse:
         result = event_response(df, "mask", "r")
         assert result["drop"][0] == pytest.approx(0.0)
         assert result["steps_to_recovery"][0] == 0
+
+
+class TestFlatlineFlags:
+    def test_flags_a_curve_that_stalls_at_the_reward_floor(self) -> None:
+        """A curve that never moves off a constant floor is flatlined from the start."""
+        df = _make_df(["stuck"], [0, 1, 2], list(range(10)), "r", lambda c, s, t: -1.0)
+        result = flatline_flags(df, "r")
+        row = result.filter(pl.col("condition_name") == "stuck")
+        assert row["flatlined"][0] is True
+        assert row["whole_range"][0] == pytest.approx(0.0)
+
+    def test_does_not_flag_a_curve_still_improving_at_the_end(self) -> None:
+        """A curve still moving in its last half is not flatlined."""
+        df = _make_df(["learning"], [0, 1, 2], list(range(10)), "r", lambda c, s, t: float(t))
+        result = flatline_flags(df, "r")
+        row = result.filter(pl.col("condition_name") == "learning")
+        assert row["flatlined"][0] is False
+
+    def test_flags_a_curve_that_plateaus_before_the_run_ends(self) -> None:
+        """Improves for the first half, then plateaus for the second -- the tail is flat."""
+        def value_fn(c: str, s: int, t: int) -> float:
+            return float(min(t, 4))
+
+        df = _make_df(["plateaus"], [0, 1, 2], list(range(10)), "r", value_fn)
+        result = flatline_flags(df, "r")
+        row = result.filter(pl.col("condition_name") == "plateaus")
+        assert row["flatlined"][0] is True
+
+    def test_returns_empty_frame_for_no_matching_conditions(self) -> None:
+        df = _make_df(["A"], [0], [0, 1], "other", lambda c, s, t: 0.0)
+        result = flatline_flags(df, "r")
+        assert result.is_empty()
+        assert result.schema.names() == ["condition_name", "flatlined", "tail_range", "whole_range"]
