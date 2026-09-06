@@ -165,6 +165,7 @@ def test_gas_trajectory_replay_replaces_generated_influent() -> None:
     trajectory = GasSourceTrajectory(
         gas_flow=jnp.array([101.0, 202.0]),
         h2s_ppm=jnp.array([11.0, 22.0]),
+        temperature=jnp.array([12.0, 15.0]),
     )
     reset_fn, step_fn = make_h2s_scrubber_benchmark(
         H2SScrubberConfig(

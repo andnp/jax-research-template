@@ -392,15 +392,18 @@ def make_h2s_scrubber_benchmark(
                 gas_params,
                 k_gas,
             )
+            # No measured ambient temperature exists for the synthetic
+            # scenario, so fall back to the sump's own liquid temperature.
+            gas_temperature = state.sump.temperature
         else:
             new_gas = state.gas_source
-            gas_flow, h2s_ppm = trajectory_step(gas_trajectory, state.step_count)
+            gas_flow, h2s_ppm, gas_temperature = trajectory_step(gas_trajectory, state.step_count)
 
         # ── 3. Contactor: removal based on current sump chemistry ─
         gas_inlet = GasInlet(
             gas_flow=gas_flow,
             h2s_ppm=h2s_ppm,
-            temperature=state.sump.temperature,
+            temperature=gas_temperature,
         )
         contactor_result = compute_removal(
             gas_inlet,

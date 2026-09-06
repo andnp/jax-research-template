@@ -52,18 +52,21 @@ class GasSourceTrajectory:
 
     gas_flow: jax.Array
     h2s_ppm: jax.Array
+    temperature: jax.Array
 
     def __post_init__(self) -> None:
         gas_flow = jnp.asarray(self.gas_flow)
         h2s_ppm = jnp.asarray(self.h2s_ppm)
-        if gas_flow.ndim != 1 or h2s_ppm.ndim != 1:
+        temperature = jnp.asarray(self.temperature)
+        if gas_flow.ndim != 1 or h2s_ppm.ndim != 1 or temperature.ndim != 1:
             raise ValueError("gas replay trajectories must be one-dimensional")
-        if gas_flow.shape != h2s_ppm.shape:
+        if gas_flow.shape != h2s_ppm.shape or gas_flow.shape != temperature.shape:
             raise ValueError("gas replay trajectories must have equal lengths")
         if gas_flow.shape[0] == 0:
             raise ValueError("gas replay trajectories must not be empty")
         object.__setattr__(self, "gas_flow", gas_flow)
         object.__setattr__(self, "h2s_ppm", h2s_ppm)
+        object.__setattr__(self, "temperature", temperature)
 
 
 def reset(rng_key: jax.Array) -> GasSourceState:
@@ -76,10 +79,10 @@ def reset(rng_key: jax.Array) -> GasSourceState:
 def trajectory_step(
     trajectory: GasSourceTrajectory,
     step_count: jax.Array,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Return replay inputs, holding the final sample after exhaustion."""
     index = jnp.minimum(step_count, trajectory.gas_flow.shape[0] - 1)
-    return trajectory.gas_flow[index], trajectory.h2s_ppm[index]
+    return trajectory.gas_flow[index], trajectory.h2s_ppm[index], trajectory.temperature[index]
 
 
 def step(
