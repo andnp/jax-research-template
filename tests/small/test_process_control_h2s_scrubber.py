@@ -121,14 +121,14 @@ class TestActions:
 
     def test_sump_caustic_yield_changes_ph_response_to_dosing(self, rng: jax.Array) -> None:
         """Confirm sump_caustic_yield is actually wired into the sump chemistry, not ignored."""
-        low_config = H2SScrubberConfig(sump_caustic_yield=0.1)
-        high_config = H2SScrubberConfig(sump_caustic_yield=5.0)
+        low_config = H2SScrubberConfig(sump_caustic_yield=0.1, sump_initial_alkalinity=0.0)
+        high_config = H2SScrubberConfig(sump_caustic_yield=5.0, sump_initial_alkalinity=0.0)
         high_action = jnp.array([low_config.ph_sp_max, low_config.orp_sp_max, low_config.makeup_flow_sp_max])
 
         def run(config: H2SScrubberConfig) -> jax.Array:
             reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
             state, _ = reset_fn(rng)
-            for i in range(50):
+            for i in range(3):
                 k = jax.random.fold_in(rng, i)
                 state, _, _, _, info = step_fn(state, high_action, k)
             return info["true_ph"]

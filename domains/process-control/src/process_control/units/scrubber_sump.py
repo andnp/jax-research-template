@@ -148,16 +148,20 @@ def _derivatives(
     dilution_oxidant = makeup_m3_h / vol * state.oxidant
     d_oxidant = bleach_addition - oxidant_consumed - natural_decay - dilution_oxidant
 
+    # ── Sulfide absorption (needed by the alkalinity balance below) ──
+    # sulfide_load is mg/min → mg/L/h: × 60 / (vol_L)
+    sulfide_addition = inputs.sulfide_load * 60.0 / (vol * 1000.0)
+
     # ── Alkalinity balance ────────────────────────────────────────
     # caustic_flow is mL/min → mL/h: × 60
     caustic_addition = params.caustic_yield * inputs.caustic_flow * 60.0 / vol
-    alk_consumed = params.alkalinity_consumption * oxidation
+    # H2S(g) + OH- -> HS- + H2O: absorbing H2S directly neutralizes caustic,
+    # independent of whether bleach later oxidises the dissolved sulfide.
+    alk_consumed = params.alkalinity_consumption * sulfide_addition
     dilution_alk = makeup_m3_h / vol * state.alkalinity
     d_alkalinity = caustic_addition - alk_consumed - dilution_alk
 
     # ── Sulfide balance ───────────────────────────────────────────
-    # sulfide_load is mg/min → mg/L/h: × 60 / (vol_L)
-    sulfide_addition = inputs.sulfide_load * 60.0 / (vol * 1000.0)
     sulfide_oxidised = oxidation
     sulfide_stripped = params.stripping_rate * state.sulfide
     dilution_sulfide = makeup_m3_h / vol * state.sulfide
