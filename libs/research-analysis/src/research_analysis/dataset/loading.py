@@ -4,33 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import polars as pl
 from experiment_definition.db import DatabaseManager
 
 from research_analysis.dataset.candidates import fetch_run_candidates
+from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
 from research_analysis.dataset.rows import build_rows
-from research_analysis.dataset.types import (
-    CohortSelection,
-    ExperimentDataset,
-    ExperimentDimensions,
-    SweepAxis,
-    SweepValueType,
-    VersionSelection,
-)
+from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
 from research_analysis.dataset.versions import select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetLoadError
-
-
-def _axis_dtype(axis: SweepAxis):
-    if axis.value_type is SweepValueType.STRING:
-        return pl.String
-    if axis.value_type is SweepValueType.INTEGER:
-        return pl.Int64
-    if axis.value_type is SweepValueType.FLOAT:
-        return pl.Float64
-    return pl.Boolean
 
 
 def load_experiment_dataset(
@@ -59,37 +42,7 @@ def load_experiment_dataset(
         rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort, diagnostics)
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)
-
-    if rows:
-        run_frame = pl.DataFrame(
-            rows,
-            schema_overrides={axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
-        )
-    else:
-        run_schema = {
-            "condition_name": pl.String,
-            **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
-            "seed": pl.Int64,
-            "run_id": pl.Int64,
-            "execution_id": pl.Int64,
-            "ablation": pl.String,
-            "metrics_db_path": pl.String,
-            **{axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
-        }
-        run_frame = pl.DataFrame(schema=run_schema)
-    metric_frame = pl.concat(metric_frames).sort(["condition_name", "seed", "step", "metric"]) if metric_frames else pl.DataFrame(
-        schema={
-            "condition_name": pl.String,
-            **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
-            "seed": pl.Int64,
-            "run_id": pl.Int64,
-            "execution_id": pl.Int64,
-            "ablation": pl.String,
-            "step": pl.Int64,
-            "metric": pl.String,
-            "value": pl.Float64,
-        }
-    )
+    run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)
 
     fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
     if fatal and not partial:
