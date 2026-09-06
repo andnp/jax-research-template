@@ -40,8 +40,14 @@ def test_gradient_snr_runs_inside_lax_scan() -> None:
 
 def test_update_ratio_runs_under_jit_and_vmap() -> None:
     """Compile independent update ratios under jit and vmap."""
-    params = {"weight": jnp.array([[3.0, 4.0], [0.0, 0.0]])}
-    updates = {"weight": jnp.array([[0.0, 3.0], [1.0, 0.0]])}
+    params = {
+        "weight": jnp.array([[3.0, 4.0], [0.0, 0.0]]),
+        "nested": {"bias": jnp.zeros((2, 1))},
+    }
+    updates = {
+        "weight": jnp.array([[0.0, 3.0], [1.0, 0.0]]),
+        "nested": {"bias": jnp.zeros((2, 1))},
+    }
 
     result = jax.jit(jax.vmap(update_ratio))(params, updates)
 
