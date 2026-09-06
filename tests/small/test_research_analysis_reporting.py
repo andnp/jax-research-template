@@ -15,6 +15,7 @@ from research_analysis.aggregates import ReferenceRange
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
+from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
@@ -22,6 +23,7 @@ from research_analysis.reporting import (
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
     best_hypers,
+    boundary_warning,
     compare_bakeoff,
     compare_pairwise,
     slice_hypers,
@@ -275,6 +277,53 @@ def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: Expe
 
     with pytest.raises(ValueError, match="cannot be both varied and grouped by"):
         slice_hypers(dataset, "metric", vary="eta", group_by=["eta"], verbose=False)
+
+
+class TestBoundaryWarning:
+    """Champion hyperparameters at the edge of their swept grid, still trending toward it."""
+
+    LRS = [3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
+
+    def test_flags_a_champion_still_climbing_at_the_upper_edge(self) -> None:
+        """Monotonically improving all the way to the top of the grid."""
+        report = self._slice(self.LRS, [-151.8, -143.3, -141.3, -140.3, -138.9])
+        warning = boundary_warning(report, condition="sac")
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY
+        assert warning.condition == "sac"
+
+    def test_does_not_flag_an_interior_peak(self) -> None:
+        """Peaks in the middle of the grid and declines toward the upper edge."""
+        report = self._slice(self.LRS, [-193.1, -144.9, -143.4, -144.8, -160.1])
+        assert boundary_warning(report, condition="gi_sac") is None
+
+    def test_does_not_flag_a_flat_champion(self) -> None:
+        """A tie/plateau at the max is not a boundary concern -- argmax picks the first."""
+        report = self._slice(self.LRS, [-6.1, -0.8, -0.8, -0.8, -0.8])
+        assert boundary_warning(report) is None
+
+    def test_flags_a_champion_still_climbing_at_the_lower_edge(self) -> None:
+        """Mirrors the upper-edge case in the other direction."""
+        report = self._slice(self.LRS, [-138.9, -140.3, -141.3, -143.3, -151.8])
+        warning = boundary_warning(report)
+        assert warning is not None
+        assert "3e-05" in warning.message
+
+    def test_respects_higher_is_better_false(self) -> None:
+        """A minimizer whose champion is at the edge and still descending is flagged the same way."""
+        report = self._slice(self.LRS, [151.8, 143.3, 141.3, 140.3, 138.9])
+        warning = boundary_warning(report, higher_is_better=False)
+        assert warning is not None
+
+    def test_no_warning_for_a_single_swept_value(self) -> None:
+        report = self._slice([3e-4], [-140.0])
+        assert boundary_warning(report) is None
+
+    @staticmethod
+    def _slice(values: list[float], performance: list[float]) -> HyperparameterSliceReport:
+        return HyperparameterSliceReport(
+            vary="learning_rate", values=values, best_performance=performance, slice_performance=performance, plot_path=None
+        )
 
 
 def _add_arm_observation(setup: ExperimentSetup, algorithm: str, learning_rate: str, seed: int, value: float) -> None:
