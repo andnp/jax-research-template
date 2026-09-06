@@ -104,8 +104,8 @@ class MultiHeadReadout(TypedApply[Array], nn.Module):
         kernel = self.param(
             "kernel", _init_multi_head_kernel(self.num_heads, self.head_shape), (width, self.num_heads, *self.head_shape)
         )
-        out = jnp.einsum("f,fh->h", phi, kernel.reshape(width, self.num_heads * flat))
-        out = out.reshape((self.num_heads, *self.head_shape))
+        out = jnp.einsum("...f,fh->...h", phi, kernel.reshape(width, self.num_heads * flat))
+        out = out.reshape((*phi.shape[:-1], self.num_heads, *self.head_shape))
         if self.use_bias:
             out = out + self.param("bias", nn.initializers.zeros, (self.num_heads, *self.head_shape))
         return out

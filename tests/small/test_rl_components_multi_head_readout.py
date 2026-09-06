@@ -26,6 +26,18 @@ class TestMultiHeadReadoutShape:
         out = model.apply(variables, phi)
         assert out.shape == (5, 3)
 
+    def test_batched_input_keeps_leading_dims(self) -> None:
+        """Every current caller vmaps over unbatched transitions, but the module itself must
+        accept a leading batch dimension like any other Flax layer."""
+        model = MultiHeadReadout(num_heads=5, head_shape=(3,))
+        phi = jnp.ones((WIDTH,))
+        variables = model.init(jax.random.key(SEED), phi)
+
+        batched_phi = jnp.ones((7, WIDTH))
+        out = model.apply(variables, batched_phi)
+        assert out.shape == (7, 5, 3)
+        assert jnp.allclose(out[0], model.apply(variables, phi))
+
 
 class TestMultiHeadReadoutBias:
     def test_use_bias_false_omits_bias_param(self) -> None:
