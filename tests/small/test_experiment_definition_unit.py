@@ -160,6 +160,29 @@ class TestExperimentBuilder:
             exp.add_metric("x", kind="float", frequency="invalid")
 
 
+class TestConditionalSweepAPI:
+    @pytest.mark.xfail(reason="The standalone conditional Sweep API is not implemented yet", strict=True)
+    def test_resolves_only_valid_conditional_configurations(self) -> None:
+        """Expand conditional axes without emitting invalid combinations."""
+        from experiment_definition import Sweep, values, when
+
+        sweep = Sweep(
+            axes={
+                "agent": values("dqn", "ppo"),
+                "learning_rate": values(1e-3, 3e-4),
+            },
+            constraints=[
+                when("agent", "dqn").require("learning_rate", 1e-3),
+            ],
+        )
+
+        assert sweep.resolve() == [
+            {"agent": "dqn", "learning_rate": 1e-3},
+            {"agent": "ppo", "learning_rate": 1e-3},
+            {"agent": "ppo", "learning_rate": 3e-4},
+        ]
+
+
 # ── Component provenance ──────────────────────────────────────────────────────
 
 
