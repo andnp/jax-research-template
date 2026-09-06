@@ -5,8 +5,8 @@ import jax.numpy as jnp
 from jax_eval.replay import priority_utilization, sample_staleness
 
 
-def _staleness_pair(current: jax.Array, sampled: jax.Array) -> jax.Array:
-    return sample_staleness(current, sampled)
+def _staleness_pair(current: jax.Array, sampled: jax.Array, mask: jax.Array) -> jax.Array:
+    return sample_staleness(current, sampled, mask)
 
 
 def test_priority_utilization_runs_under_jit_and_vmap() -> None:
@@ -42,11 +42,12 @@ def test_priority_utilization_runs_inside_lax_scan() -> None:
 def test_sample_staleness_runs_under_jit_and_vmap() -> None:
     """Compile independent sample-age reductions under jit and vmap."""
     current = jnp.array([10, 20], dtype=jnp.uint32)
-    sampled = jnp.array([[9, 11], [15, 18]], dtype=jnp.uint32)
+    sampled = jnp.array([[9, 11], [15, 25]], dtype=jnp.uint32)
+    masks = jnp.array([[True, False], [True, False]])
 
-    result = jax.jit(jax.vmap(_staleness_pair))(current, sampled)
+    result = jax.jit(jax.vmap(_staleness_pair))(current, sampled, masks)
 
-    assert jnp.allclose(result, jnp.array([0.0, 3.5]))
+    assert jnp.allclose(result, jnp.array([1.0, 5.0]))
 
 
 def test_sample_staleness_runs_inside_lax_scan() -> None:
