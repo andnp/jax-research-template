@@ -349,6 +349,22 @@ def test_exact_versions_require_qualified_component_identity(tmp_path: Path) -> 
     assert dataset.runs.height == 2
 
 
+def test_exact_version_selection_without_matches_fails(tmp_path: Path) -> None:
+    """No completed run qualifies under an exact selector that matches nothing."""
+    fixture = _create_experiment(tmp_path)
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(
+            fixture["db_path"],
+            "dataset-test",
+            version_selection=VersionSelection.exact(
+                (ComponentVersionRef("ppo", "ALGO", code_snapshot_hash="algo-v-nonexistent"),)
+            ),
+        )
+
+    assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_VERSION_SELECTION
+
+
 def test_missing_recorded_metric_path_fails_without_root_fallback(tmp_path: Path) -> None:
     """Fail strict loading when metadata omits the metric path even if root has a database."""
     db_path = tmp_path / "experiments.sqlite"
