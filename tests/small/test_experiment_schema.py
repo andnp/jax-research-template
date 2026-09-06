@@ -16,8 +16,6 @@ from experiment_definition.schema import (
     CREATE_EXPERIMENTS,
     CREATE_HYPERPARAM_CONFIGS,
     CREATE_LATEST_VERSIONS_VIEW,
-    CREATE_METRIC_SPECS,
-    CREATE_PARAMETER_SPECS,
     CREATE_RUNS,
     DEFAULT_DB_NAME,
     EXECUTION_STATUSES,
@@ -53,8 +51,6 @@ def test_execution_statuses_complete() -> None:
         (CREATE_EXECUTION_RUNS, ["ExecutionRuns", "execution_id", "run_id", "PRIMARY KEY"]),
         (CREATE_EXECUTION_ARTIFACTS, ["ExecutionArtifacts", "execution_id", "root_path", "manifest_path", "metadata_json"]),
         (CREATE_LATEST_VERSIONS_VIEW, ["ComponentLatestVersions", "MAX(version_number)", "GROUP BY component_id"]),
-        (CREATE_PARAMETER_SPECS, ["ParameterSpecs", "experiment_id", "values_json", "conditions_json"]),
-        (CREATE_METRIC_SPECS, ["MetricSpecs", "experiment_id", "name", "type", "frequency", "UNIQUE(experiment_id, name)"]),
     ],
 )
 def test_ddl_contains_expected_fragments(ddl: str, expected_fragments: list[str]) -> None:
@@ -78,8 +74,6 @@ def test_all_ddl_covers_all_seven_tables() -> None:
         "Executions",
         "ExecutionRuns",
         "ExecutionArtifacts",
-        "ParameterSpecs",
-        "MetricSpecs",
     ]
     combined = "\n".join(ALL_DDL)
     for table in required:

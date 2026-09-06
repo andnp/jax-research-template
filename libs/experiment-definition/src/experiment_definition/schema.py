@@ -151,32 +151,6 @@ INNER JOIN (
 """
 
 # ---------------------------------------------------------------------------
-# ParameterSpecs & MetricSpecs (experiment-scoped metadata)
-# ---------------------------------------------------------------------------
-
-CREATE_PARAMETER_SPECS = """
-CREATE TABLE IF NOT EXISTS ParameterSpecs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id   INTEGER NOT NULL REFERENCES Experiments(id),
-    name            TEXT    NOT NULL,
-    values_json     TEXT    NOT NULL,
-    component_id    INTEGER REFERENCES Components(id),
-    conditions_json TEXT    NOT NULL DEFAULT '{}'
-);
-"""
-
-CREATE_METRIC_SPECS = """
-CREATE TABLE IF NOT EXISTS MetricSpecs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id   INTEGER NOT NULL REFERENCES Experiments(id),
-    name            TEXT    NOT NULL,
-    type            TEXT    NOT NULL,
-    frequency       TEXT    NOT NULL,
-    UNIQUE(experiment_id, name)
-);
-"""
-
-# ---------------------------------------------------------------------------
 # Default database filename
 # ---------------------------------------------------------------------------
 
@@ -195,8 +169,6 @@ ALL_DDL: list[str] = [
     CREATE_EXECUTIONS,
     CREATE_EXECUTION_RUNS,
     CREATE_EXECUTION_ARTIFACTS,
-    CREATE_PARAMETER_SPECS,
-    CREATE_METRIC_SPECS,
     *CREATE_INDEXES,
     CREATE_LATEST_VERSIONS_VIEW,
 ]

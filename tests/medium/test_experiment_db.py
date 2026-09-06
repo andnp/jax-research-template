@@ -49,7 +49,7 @@ def test_initialize_creates_all_tables(db: DatabaseManager) -> None:
         row[0]
         for row in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
-    required = {"Components", "ComponentVersions", "HyperparamConfigs", "Experiments", "Runs", "Executions", "ExecutionRuns", "ParameterSpecs", "MetricSpecs"}
+    required = {"Components", "ComponentVersions", "HyperparamConfigs", "Experiments", "Runs", "Executions", "ExecutionRuns"}
     assert required.issubset(tables)
 
 

@@ -115,31 +115,6 @@ def _upsert_experiment(cur: sqlite3.Cursor, name: str, description: str | None) 
     return int(cur.lastrowid)
 
 
-def _upsert_parameter_spec(
-    cur: sqlite3.Cursor,
-    *,
-    experiment_id: int,
-    name: str,
-    values_json: str,
-    component_id: int | None,
-    conditions_json: str,
-) -> None:
-    row = cur.execute(
-        "SELECT 1 FROM ParameterSpecs "
-        "WHERE experiment_id = ? AND name = ? AND values_json = ? "
-        "AND component_id IS ? AND conditions_json = ?",
-        (experiment_id, name, values_json, component_id, conditions_json),
-    ).fetchone()
-    if row is not None:
-        return
-
-    cur.execute(
-        "INSERT INTO ParameterSpecs(experiment_id, name, values_json, component_id, conditions_json) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (experiment_id, name, values_json, component_id, conditions_json),
-    )
-
-
 def sync_to_db(
     db_path: Path | str,
     state: "_ExperimentState",
@@ -173,30 +148,9 @@ def sync_to_db(
 
             # ── Components ───────────────────────────────────────────────────
             comp_version_ids: dict[str, int] = {}  # component.name → version_id
-            comp_ids: dict[str, int] = {}  # component.name → component_id
             for comp in state.components:
-                cid, vid = _upsert_component(cur, comp.name, comp.type.value, comp.code_hash())
-                comp_ids[comp.name] = cid
+                _, vid = _upsert_component(cur, comp.name, comp.type.value, comp.code_hash())
                 comp_version_ids[comp.name] = vid
-
-            # ── ParameterSpecs ───────────────────────────────────────────────
-            for p in state.parameters:
-                cid = comp_ids.get(p.component.name) if p.component else None
-                _upsert_parameter_spec(
-                    cur,
-                    experiment_id=exp_id,
-                    name=p.name,
-                    values_json=_json_stable(p.values),
-                    component_id=cid,
-                    conditions_json=_json_stable(p.conditions),
-                )
-
-            # ── MetricSpecs ──────────────────────────────────────────────────
-            for m in state.metrics:
-                cur.execute(
-                    "INSERT OR IGNORE INTO MetricSpecs(experiment_id, name, type, frequency) VALUES (?, ?, ?, ?)",
-                    (exp_id, m.name, m.type.value, m.frequency.value),
-                )
 
             # ── Generate runs ─────────────────────────────────────────────────
             configs = _generate_configs(state)

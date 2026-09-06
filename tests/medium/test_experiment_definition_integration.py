@@ -101,15 +101,6 @@ class TestSyncToDb:
         assert all('"static_keys": ["arch"]' in row[1] for row in rows)
         assert all('"dynamic_keys": ["lr"]' in row[1] for row in rows)
 
-    def test_metric_specs_stored(self, db_path: Path) -> None:
-        exp = Experiment("Test")
-        exp.add_metric("reward", kind="float", frequency="per_episode")
-        exp.add_metric("value_loss", kind="float", frequency="per_update")
-        exp.sync(db_path)
-        with sqlite3.connect(db_path) as con:
-            rows = {r[0] for r in con.execute("SELECT name FROM MetricSpecs").fetchall()}
-        assert rows == {"reward", "value_loss"}
-
     def test_runs_created_for_seeds(self, db_path: Path) -> None:
         exp = Experiment("Test")
         exp.add_parameter("seed", [0, 1, 2])
@@ -227,8 +218,6 @@ class TestSyncToDb:
             "Runs",
             "Executions",
             "ExecutionRuns",
-            "ParameterSpecs",
-            "MetricSpecs",
         }
         with sqlite3.connect(db_path) as con:
             tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
