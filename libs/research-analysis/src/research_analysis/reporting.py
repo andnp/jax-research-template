@@ -13,7 +13,7 @@ from typing import Any, overload
 
 import numpy as np
 import polars as pl
-from research_plot.plots import plot_distributions, plot_ecdf
+from research_plot.plots import plot_distributions, plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -81,6 +81,17 @@ class HyperparameterConfigReport:
     maximization_bias: float
     estimate_ci: tuple[float, float]
     confidence_level: float = 0.95
+
+
+@dataclass(frozen=True)
+class HyperparameterSliceReport:
+    """Sensitivity curve for one hyperparameter: best-achievable performance vs. a champion-pinned slice."""
+
+    vary: str
+    values: list[Any]
+    best_performance: list[float]
+    slice_performance: list[float]
+    plot_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -597,6 +608,201 @@ def _best_hypers_group(
 
     if verbose:
         _present_best_hypers(report, experiment_slug, group_label)
+
+    return report
+
+
+@overload
+def slice_hypers(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    vary: str,
+    group_by: None = None,
+    verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
+) -> HyperparameterSliceReport: ...
+
+
+@overload
+def slice_hypers(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    vary: str,
+    group_by: list[str],
+    verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
+) -> dict[tuple[Any, ...], HyperparameterSliceReport]: ...
+
+
+def slice_hypers(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    vary: str,
+    group_by: list[str] | None = None,
+    verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
+) -> HyperparameterSliceReport | dict[tuple[Any, ...], HyperparameterSliceReport]:
+    """Sensitivity curve for one hyperparameter: best-achievable vs. champion-pinned slice.
+
+    Composes ``best_hypers`` twice -- once without ``vary`` to find the configuration
+    every other axis is pinned at for the slice curve, and once with ``vary`` added to
+    ``group_by`` to get each of its values' own best-achievable performance -- rather than
+    computing any new statistics. The pinned slice itself is a plain per-value mean, since
+    nothing is being selected there.
+    """
+    declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
+    group_keys = list(group_by or ())
+    if vary not in declared_axes:
+        raise ValueError(f"{vary!r} is not a declared swept hyperparameter")
+    if vary in group_keys:
+        raise ValueError(f"{vary!r} cannot be both varied and grouped by")
+
+    champions = best_hypers(
+        dataset,
+        metric_name,
+        group_by=group_keys,
+        verbose=False,
+        confidence_level=confidence_level,
+        n_resamples=n_resamples,
+        min_samples=min_samples,
+        random_seed=random_seed,
+    )
+    profiles = best_hypers(
+        dataset,
+        metric_name,
+        group_by=[*group_keys, vary],
+        verbose=False,
+        confidence_level=confidence_level,
+        n_resamples=n_resamples,
+        min_samples=min_samples,
+        random_seed=random_seed,
+    )
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+
+    if group_keys:
+        assert isinstance(champions, dict)
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+        for record in records:
+            group_key = tuple(record["hypers"].get(key) for key in group_keys)
+            groups.setdefault(group_key, []).append(record)
+
+        return {
+            group_key: _slice_hypers_group(
+                group_records,
+                vary=vary,
+                champion=champions[group_key],
+                profile_by_value={key[-1]: report for key, report in profiles.items() if key[:-1] == group_key},
+                experiment_slug=dataset.experiment_name,
+                group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
+                plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_keys, group_key, strict=True)),
+                verbose=verbose,
+            )
+            for group_key, group_records in groups.items()
+        }
+
+    assert isinstance(champions, HyperparameterConfigReport)
+    return _slice_hypers_group(
+        records,
+        vary=vary,
+        champion=champions,
+        profile_by_value={key[0]: report for key, report in profiles.items()},
+        experiment_slug=dataset.experiment_name,
+        group_label=None,
+        plot_suffix="",
+        verbose=verbose,
+    )
+
+
+def _plot_hypers(
+    target_hyperparameter: str,
+    sorted_keys: list[Any],
+    slice_perf_sorted: list[float],
+    best_perf_sorted: list[float],
+    experiment_slug: str,
+    plot_suffix: str,
+) -> Path:
+    plot_path = Path("results/analysis") / experiment_slug / f"hyper_sensitivity{plot_suffix}.png"
+    plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
+    return plot_path
+
+
+def _present_slice_hypers(
+    report: HyperparameterSliceReport,
+    experiment_slug: str,
+    group_label: str | None,
+) -> None:
+    console = Console()
+    console.print()
+    subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
+    console.print(
+        Panel(
+            Text(f"📊 HYPERPARAMETER SENSITIVITY: {report.vary}", style="bold cyan"),
+            subtitle=subtitle,
+        )
+    )
+
+    table = Table(title="Sensitivity Matrix", show_header=True, header_style="bold magenta")
+    table.add_column("Value", style="dim")
+    table.add_column("Best Achievable Mean", justify="right")
+    table.add_column("Champion-Pinned Slice Mean", justify="right")
+    for value, best, slice_val in zip(report.values, report.best_performance, report.slice_performance, strict=True):
+        table.add_row(str(value), f"{best:.2f}", f"{slice_val:.2f}")
+    console.print(table)
+
+    console.print(
+        Panel(
+            Text(f"Saved sensitivity visual artifact to: {report.plot_path}", style="italic green"),
+            title="Artifact Outputs Panel",
+        )
+    )
+
+
+def _slice_hypers_group(
+    records: list[dict[str, Any]],
+    *,
+    vary: str,
+    champion: HyperparameterConfigReport,
+    profile_by_value: dict[Any, HyperparameterConfigReport],
+    experiment_slug: str,
+    group_label: str | None,
+    plot_suffix: str,
+    verbose: bool,
+) -> HyperparameterSliceReport:
+    pinned = {key: value for key, value in champion.winning_config.items() if key != vary}
+    matching = [record for record in records if all(record["hypers"].get(k) == v for k, v in pinned.items())]
+
+    slice_by_value: dict[Any, list[float]] = {}
+    for record in matching:
+        slice_by_value.setdefault(record["hypers"][vary], []).append(record["value"])
+
+    sorted_values = sorted(profile_by_value)
+    best_performance = [profile_by_value[value].raw_mean for value in sorted_values]
+    slice_performance = [
+        float(np.mean(slice_by_value[value])) if value in slice_by_value else profile_by_value[value].raw_mean
+        for value in sorted_values
+    ]
+
+    plot_path = _plot_hypers(vary, sorted_values, slice_performance, best_performance, experiment_slug, plot_suffix)
+
+    report = HyperparameterSliceReport(
+        vary=vary,
+        values=sorted_values,
+        best_performance=best_performance,
+        slice_performance=slice_performance,
+        plot_path=plot_path,
+    )
+
+    if verbose:
+        _present_slice_hypers(report, experiment_slug, group_label)
 
     return report
 

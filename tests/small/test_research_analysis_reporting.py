@@ -24,9 +24,11 @@ from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
     HyperparameterConfigReport,
+    HyperparameterSliceReport,
     best_hypers,
     compare_bakeoff,
     compare_pairwise,
+    slice_hypers,
 )
 
 
@@ -177,6 +179,90 @@ def test_best_hypers_rejects_undeclared_group_axes(temp_experiment_setup: Experi
 
     with pytest.raises(ValueError, match="declared typed sweep axes"):
         best_hypers(dataset, "metric", group_by=["task"], verbose=False)
+
+
+def test_best_hypers_optimizes_jointly_over_multiple_axes(temp_experiment_setup: ExperimentSetup) -> None:
+    """A grid champion is the best joint combination, not a per-axis marginal pick."""
+    setup = temp_experiment_setup
+    combos = {("low", 1): 4.0, ("low", 2): 2.0, ("high", 1): 3.0, ("high", 2): 5.0}
+    for (learning_rate, eta), value in combos.items():
+        for seed in range(3):
+            _add_observation(
+                setup,
+                {"condition_name": "baseline", "learning_rate": learning_rate, "eta": eta},
+                seed,
+                value,
+            )
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("learning_rate", SweepValueType.STRING),
+                SweepAxis("eta", SweepValueType.INTEGER),
+            )
+        ),
+    )
+
+    report = best_hypers(dataset, "metric", verbose=False)
+
+    assert report.winning_config == {"learning_rate": "high", "eta": 2}
+    assert report.raw_mean == pytest.approx(5.0)
+
+
+def test_slice_hypers_pins_champion_config_while_varying_one_axis(
+    temp_experiment_setup: ExperimentSetup,
+) -> None:
+    """The best-achievable curve re-optimizes lr per eta; the slice curve pins lr at the champion's value."""
+    setup = temp_experiment_setup
+    combos = {("low", 1): 4.0, ("low", 2): 2.0, ("high", 1): 3.0, ("high", 2): 5.0}
+    for (learning_rate, eta), value in combos.items():
+        for seed in range(3):
+            _add_observation(
+                setup,
+                {"condition_name": "baseline", "learning_rate": learning_rate, "eta": eta},
+                seed,
+                value,
+            )
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("learning_rate", SweepValueType.STRING),
+                SweepAxis("eta", SweepValueType.INTEGER),
+            )
+        ),
+    )
+
+    report = slice_hypers(dataset, "metric", vary="eta", verbose=False)
+
+    assert isinstance(report, HyperparameterSliceReport)
+    assert report.values == [1, 2]
+    assert report.best_performance == pytest.approx([4.0, 5.0])
+    assert report.slice_performance == pytest.approx([3.0, 5.0])
+
+
+def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: ExperimentSetup) -> None:
+    """vary and group_by must name disjoint axes."""
+    setup = temp_experiment_setup
+    for seed in range(3):
+        _add_observation(
+            setup,
+            {"condition_name": "baseline", "learning_rate": "low", "eta": 1},
+            seed,
+            float(seed),
+        )
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("learning_rate", SweepValueType.STRING),
+                SweepAxis("eta", SweepValueType.INTEGER),
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="cannot be both varied and grouped by"):
+        slice_hypers(dataset, "metric", vary="eta", group_by=["eta"], verbose=False)
 
 
 def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
