@@ -83,6 +83,9 @@ class HyperparameterConfigReport:
     maximization_bias: float
     estimate_ci: tuple[float, float]
     confidence_level: float = 0.95
+    # 0 when the same config wins under every resample; approaches 1 as the winner
+    # becomes as unpredictable as a uniform draw over every candidate config.
+    normalized_selection_entropy: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -687,6 +690,8 @@ def _best_hypers_group(
     corrected_mean = bootstrap.mean
     interval = (bootstrap.ci_low, bootstrap.ci_high)
     maximization_bias = float(raw_winner_mean - corrected_mean)
+    n_candidates = matrix.shape[0]
+    normalized_entropy = float(bootstrap.selection_entropy / np.log(n_candidates)) if n_candidates > 1 else 0.0
 
     if not higher_is_better:
         raw_winner_mean = -raw_winner_mean
@@ -700,6 +705,7 @@ def _best_hypers_group(
         maximization_bias=maximization_bias,
         estimate_ci=interval,
         confidence_level=confidence_level,
+        normalized_selection_entropy=normalized_entropy,
     )
 
     if verbose:
@@ -1091,6 +1097,77 @@ def non_normality_warning(
         condition=condition,
         cell=cell,
     )
+
+
+def insufficient_seeds_warning(
+    report: HyperparameterConfigReport,
+    n_seeds: int,
+    *,
+    condition: str | None = None,
+    cell: tuple[tuple[str, object], ...] = (),
+    min_seeds: int = 5,
+    max_normalized_entropy: float = 0.5,
+) -> BakeoffWarning | None:
+    """Flag a champion pick backed by too few seeds, or unstable under resampling.
+
+    Fires on either signal: fewer than ``min_seeds`` raw seeds, or a
+    ``normalized_selection_entropy`` above ``max_normalized_entropy`` -- a low seed
+    count can still bootstrap a stable pick, and a high entropy can occur even with
+    many seeds when several configurations perform near-identically.
+    """
+    if n_seeds < min_seeds:
+        return BakeoffWarning(
+            code=BakeoffWarningCode.INSUFFICIENT_SEEDS,
+            message=f"only {n_seeds} seed(s) backing this champion, fewer than the recommended {min_seeds}.",
+            condition=condition,
+            cell=cell,
+        )
+    if report.normalized_selection_entropy > max_normalized_entropy:
+        return BakeoffWarning(
+            code=BakeoffWarningCode.INSUFFICIENT_SEEDS,
+            message=(
+                f"champion selection is unstable under resampling (normalized entropy "
+                f"{report.normalized_selection_entropy:.2f} > {max_normalized_entropy}); "
+                "several configurations perform near-identically."
+            ),
+            condition=condition,
+            cell=cell,
+        )
+    return None
+
+
+def variance_warning(
+    values: Sequence[float] | np.ndarray,
+    *,
+    condition: str | None = None,
+    cell: tuple[tuple[str, object], ...] = (),
+    reference_range: float | None = None,
+    extreme_relative_std: float = 1.0,
+) -> BakeoffWarning | None:
+    """Flag a cell with zero cross-seed variance, or variance extreme relative to the
+    metric's own cross-condition range (``reference_range``, typically max minus min
+    across every condition and cell in the same report).
+    """
+    array = np.asarray(values, dtype=np.float64)
+    std = float(np.std(array, ddof=1)) if array.size > 1 else 0.0
+    if std == 0.0:
+        return BakeoffWarning(
+            code=BakeoffWarningCode.ZERO_VARIANCE,
+            message="every seed produced an identical value; check for a fixed seed or a saturated metric.",
+            condition=condition,
+            cell=cell,
+        )
+    if reference_range is not None and reference_range > 0 and std > extreme_relative_std * reference_range:
+        return BakeoffWarning(
+            code=BakeoffWarningCode.EXTREME_VARIANCE,
+            message=(
+                f"cross-seed std ({std:.4g}) exceeds {extreme_relative_std:.0%} of the metric's own "
+                f"cross-condition range ({reference_range:.4g})."
+            ),
+            condition=condition,
+            cell=cell,
+        )
+    return None
 
 
 def _load_bakeoff_data(
