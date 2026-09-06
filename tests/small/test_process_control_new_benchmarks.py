@@ -22,6 +22,24 @@ class TestPhNeutralizationBenchmark:
         assert config.pi_ff == 175.0
         assert config.pi_output_max == config.pump_max_dose
 
+    def test_calibrated_midpoint_stays_off_pH_rails(self) -> None:
+        """The calibrated nominal action avoids persistent pH rail saturation."""
+        config = PhNeutralizationBenchmarkConfig()
+        reset_fn, step_fn = make_ph_neutralization_benchmark(config)
+        key = jax.random.PRNGKey(42)
+        key, reset_key = jax.random.split(key)
+        state, _ = reset_fn(reset_key)
+        midpoint = jnp.array((config.pump_min_dose + config.pump_max_dose) / 2.0)
+        measured_values = []
+
+        for _ in range(256):
+            key, step_key = jax.random.split(key)
+            state, _, _, _, info = step_fn(state, midpoint, step_key)
+            measured_values.append(info["measured_ph"])
+
+        measured_ph = jnp.asarray(measured_values)[128:]
+        assert jnp.all((measured_ph > 0.5) & (measured_ph < 13.5))
+
     def test_reset_returns_state_and_obs(self) -> None:
         config = PhNeutralizationBenchmarkConfig()
         reset_fn, _step_fn = make_ph_neutralization_benchmark(config)

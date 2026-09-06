@@ -49,7 +49,7 @@ class PhNeutralizationBenchmarkConfig:
     ph_lag_coefficient: float = 0.3
 
     # pH model
-    ph_sensitivity: float = 0.01  # mol/L half-transition width
+    ph_sensitivity: float = 16.0  # mol/L half-transition width
 
     # Acid inlet source (repurposes DiurnalSourceState)
     # flow → inlet flow (L/min), demand → acid concentration (mol/L proxy)
