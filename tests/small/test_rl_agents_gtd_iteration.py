@@ -34,13 +34,23 @@ class TestBootstrapIndex:
 class TestFirstBootstrapReference:
     def test_target_free_chain_masks_only_the_duplicate(self) -> None:
         """Head 1 shares head 0's bootstrap source (both reference index 0); only head 0 corrects it."""
-        mask = _first_bootstrap_reference(bootstrap_index(NUM_HEADS))
+        active = jnp.ones((NUM_HEADS,), dtype=bool)
+        mask = _first_bootstrap_reference(bootstrap_index(NUM_HEADS), active)
         assert jnp.array_equal(mask, jnp.array([True, False, True, True]))
 
     def test_anchored_chain_has_no_duplicates_to_mask(self) -> None:
         """An anchored chain's identity boot_idx has no repeated source, so nothing is masked."""
-        mask = _first_bootstrap_reference(jnp.arange(NUM_HEADS, dtype=jnp.int32))
+        active = jnp.ones((NUM_HEADS,), dtype=bool)
+        mask = _first_bootstrap_reference(jnp.arange(NUM_HEADS, dtype=jnp.int32), active)
         assert jnp.all(mask)
+
+    def test_an_inactive_earlier_reference_does_not_block_a_later_active_one(self) -> None:
+        """An inactive head has no H-estimator to have already corrected the shared source,
+        so the next (active) head referencing it must still get to correct it."""
+        boot_idx = jnp.array([0, 0, 1, 2], dtype=jnp.int32)
+        active = jnp.array([False, True, True, True])
+        mask = _first_bootstrap_reference(boot_idx, active)
+        assert jnp.array_equal(mask, jnp.array([True, True, True, True]))
 
 
 class TestGtdIterationCorrectionShape:

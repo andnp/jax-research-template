@@ -17,8 +17,8 @@ import jax
 import jax.numpy as jnp
 
 
-def _first_bootstrap_reference(boot_idx: jax.Array) -> jax.Array:
-    """Marks the first head, in index order, to bootstrap off each ``own_next_value`` source.
+def _first_bootstrap_reference(boot_idx: jax.Array, active: jax.Array) -> jax.Array:
+    """Marks the first *active* head, in index order, to bootstrap off each ``own_next_value`` source.
 
     A later head sharing that source (e.g. head 1 also bootstrapping off head 0's own value
     in a target-free chain, since head 0 self-bootstraps *and* feeds head 1's target) must
@@ -26,10 +26,15 @@ def _first_bootstrap_reference(boot_idx: jax.Array) -> jax.Array:
     source's own residual do not add the way two chain-rule terms would, and doubling the
     correction there doubles the effective TDC coefficient (``c=2`` instead of ``c=1``),
     which can flip local stability. Masking every later reference to an already-corrected
-    source keeps exactly one correction per dependency.
+    source keeps exactly one correction per dependency. Only an active earlier reference
+    blocks a later one: an inactive head has no H-estimator to have already corrected the
+    source, so skipping it here would silently drop the only correction that source gets.
     """
-    earlier_match = (boot_idx[:, None] == boot_idx[None, :]) & (jnp.arange(boot_idx.shape[0])[None, :] < jnp.arange(boot_idx.shape[0])[:, None])
-    return ~jnp.any(earlier_match, axis=1)
+    n = boot_idx.shape[0]
+    earlier_active_match = (
+        (boot_idx[:, None] == boot_idx[None, :]) & (jnp.arange(n)[None, :] < jnp.arange(n)[:, None]) & active[None, :]
+    )
+    return ~jnp.any(earlier_active_match, axis=1)
 
 
 def bootstrap_index(num_heads: int) -> jax.Array:
@@ -89,7 +94,7 @@ def gtd_iteration_correction(
     delta = sg(y) - q_online
     q_loss = jnp.sum(0.5 * delta**2)
 
-    corrects = active & _first_bootstrap_reference(boot_idx)
+    corrects = active & _first_bootstrap_reference(boot_idx, active)
     correction = gamma * jnp.sum(jnp.where(corrects, bootstrap_value * sg(h_online), 0.0))
     h_loss = jnp.sum(jnp.where(active, 0.5 * (sg(delta) - h_online) ** 2, 0.0))
 
