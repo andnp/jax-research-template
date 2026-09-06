@@ -19,7 +19,7 @@ def _subtract_mean(leaf: jax.Array, mean: jax.Array) -> jax.Array:
     return leaf - mean
 
 
-def _validate_structure(param: jax.Array, update: jax.Array) -> jax.Array:
+def _validate_leaf_shape(param: jax.Array, update: jax.Array) -> jax.Array:
     if param.shape != update.shape:
         raise ValueError("params and updates must have matching leaf shapes")
     return param
@@ -49,5 +49,5 @@ def update_ratio(params: object, updates: object, *, epsilon: float = 1e-8) -> j
     """Return the global update norm relative to the global parameter norm."""
     params_float = jax.tree_util.tree_map(_as_float32, params)
     updates_float = jax.tree_util.tree_map(_as_float32, updates)
-    validated_params = jax.tree_util.tree_map(_validate_structure, params_float, updates_float)
+    validated_params = jax.tree_util.tree_map(_validate_leaf_shape, params_float, updates_float)
     return tree_norm(updates_float) / (tree_norm(validated_params) + epsilon)
