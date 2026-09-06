@@ -51,11 +51,15 @@ def test_sample_staleness_casts_before_signed_subtraction() -> None:
     result = sample_staleness(current, jnp.array([2**24], dtype=jnp.uint32))
     unsigned_negative = sample_staleness(jnp.uint32(2), jnp.array([3], dtype=jnp.uint32))
     signed_negative = sample_staleness(jnp.int32(2), jnp.array([3], dtype=jnp.int32))
+    mixed_positive = sample_staleness(jnp.int32(2**24 + 1), jnp.array([2**24], dtype=jnp.uint32))
+    mixed_negative = sample_staleness(jnp.uint32(2**24), jnp.array([2**24 + 1], dtype=jnp.int32))
 
     assert result.dtype == jnp.float32
     assert jnp.allclose(result, 1.0)
     assert jnp.allclose(unsigned_negative, -1.0)
     assert jnp.allclose(signed_negative, -1.0)
+    assert jnp.allclose(mixed_positive, 1.0)
+    assert jnp.allclose(mixed_negative, -1.0)
 
 
 def test_sample_staleness_applies_same_shape_mask() -> None:
