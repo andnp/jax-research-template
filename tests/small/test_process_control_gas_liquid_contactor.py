@@ -1,5 +1,7 @@
 """Tests for the gas-liquid contactor module."""
 
+from dataclasses import replace
+
 import jax.numpy as jnp
 import pytest
 from process_control.units.gas_liquid_contactor import (
@@ -114,6 +116,49 @@ def test_higher_gas_flow_reduces_removal(params: ContactorParams):
         params=params,
     )
     assert float(r_low.removal_efficiency) > float(r_high.removal_efficiency)
+
+
+def test_higher_temperature_reduces_removal(params: ContactorParams):
+    cool = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(10.0))
+    warm = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(25.0))
+
+    r_cool = compute_removal(
+        cool,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        params=params,
+    )
+    r_warm = compute_removal(
+        warm,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        params=params,
+    )
+    assert float(r_cool.removal_efficiency) > float(r_warm.removal_efficiency)
+
+
+def test_temp_coefficient_one_disables_temperature_effect(params: ContactorParams):
+    flat_params = replace(params, temp_coefficient=1.0)
+    cool = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(10.0))
+    warm = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(25.0))
+
+    r_cool = compute_removal(
+        cool,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        params=flat_params,
+    )
+    r_warm = compute_removal(
+        warm,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        params=flat_params,
+    )
+    assert float(r_cool.removal_efficiency) == pytest.approx(float(r_warm.removal_efficiency))
 
 
 def test_higher_recirc_improves_removal(params: ContactorParams, nominal_gas: GasInlet):

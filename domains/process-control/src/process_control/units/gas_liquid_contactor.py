@@ -13,6 +13,8 @@ Removal efficiency depends on:
   - alkalinity (caustic) — affects gas-liquid equilibrium and absorption
   - gas flow rate — higher flow reduces contact time, lowers efficiency
   - liquid recirculation rate — higher recirc improves mass transfer
+  - gas temperature — H₂S solubility falls as temperature rises (Henry's
+    law), so absorption efficiency does too
 """
 
 from dataclasses import dataclass
@@ -47,6 +49,13 @@ class ContactorParams:
     nominal_recirc: float | jax.Array = 50.0  # m³/h – design recirculation rate
     recirc_weight: float | jax.Array = 0.2  # relative importance (0–1)
     recirc_half_sat: float | jax.Array = 25.0  # m³/h – half-saturation
+
+    # ── Temperature effect ────────────────────────────────────────
+    # Van't Hoff/Arrhenius-style decay, mirroring ScrubberSumpParams'
+    # reaction-rate temperature term but inverted: absorption efficiency
+    # falls (not rises) as temperature climbs above the reference point.
+    temp_reference: float | jax.Array = 15.0  # °C – reference gas temperature
+    temp_coefficient: float | jax.Array = 0.98  # efficiency multiplier per °C above reference
 
 
 @dataclass(frozen=True)
@@ -96,13 +105,18 @@ def compute_removal(
     # ── Recirculation factor: Monod saturation ────────────────────
     f_recirc = recirc_flow / (recirc_flow + params.recirc_half_sat)
 
+    # ── Temperature factor: Van't Hoff/Arrhenius-style decay ──────
+    # H₂S gas-liquid solubility falls with rising temperature (Henry's
+    # law), so absorption efficiency does too; see module docstring.
+    f_temperature = jnp.power(params.temp_coefficient, gas_inlet.temperature - params.temp_reference)
+
     # ── Weighted combination ──────────────────────────────────────
     # Chemistry factors (oxidant + alkalinity) and hydraulic factors (gas, recirc)
     chem_factor = (params.oxidant_weight * f_oxidant + params.alkalinity_weight * f_alkalinity) / (params.oxidant_weight + params.alkalinity_weight)
 
     hydraulic_factor = f_gas * ((1.0 - params.recirc_weight) + params.recirc_weight * f_recirc)
 
-    efficiency = params.base_efficiency * chem_factor * hydraulic_factor
+    efficiency = params.base_efficiency * chem_factor * hydraulic_factor * f_temperature
     efficiency = jnp.clip(efficiency, 0.0, params.max_efficiency)
 
     # ── Outlet H₂S ───────────────────────────────────────────────
