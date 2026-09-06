@@ -27,12 +27,13 @@ from research_analysis.aggregates import (
     performance_profile,
     probability_of_improvement,
 )
-from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
+from research_analysis.bootstrap import bootstrap_difference_ci
 from research_analysis.comparison import ComparisonSpec
 from research_analysis.dataset import ExperimentDataset
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
+from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci
 
 
 @dataclass(frozen=True)
@@ -540,42 +541,21 @@ def _compute_hyperparameter_statistics(
     winning_val = max(raw_means, key=raw_mean_of)
     raw_winner_mean = raw_means[winning_val]
 
-    seeds = sorted({int(record["seed"]) for record in records})
-    if len(seeds) < min_samples:
-        raise ValueError(f"need at least {min_samples} distinct seeds for cross-fitted tuning")
-    held_out_values: list[float] = []
-    for held_out_seed in seeds:
-        training = [record for record in records if record["seed"] != held_out_seed]
-        training_by_value: dict[Any, list[dict[str, Any]]] = {}
-        for record in training:
-            training_by_value.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
-        if set(training_by_value) != set(runs_by_val):
-            raise ValueError("cross-fitted tuning requires every hyperparameter value in every training fold")
-        def training_mean_of(value: Any, training_by_value: dict[Any, list[dict[str, Any]]] = training_by_value) -> float:
-            return float(np.mean([record["value"] for record in training_by_value[value]]))
+    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(records, [target_hyperparameter])
+    if len(matrix_seeds) < min_samples:
+        raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter value")
+    n_runs = matrix.shape[1]
 
-        winner = max(training_by_value, key=training_mean_of)
-        held_out = [
-            record["value"]
-            for record in runs_by_val[winner]
-            if record["seed"] == held_out_seed
-        ]
-        if len(held_out) != 1:
-            raise ValueError("cross-fitted tuning requires exactly one held-out result per selected value")
-        held_out_values.append(float(held_out[0]))
-
-    corrected_mean = float(np.mean(held_out_values))
-    if len(set(held_out_values)) == 1:
-        interval = (held_out_values[0], held_out_values[0])
-    else:
-        bootstrap = bootstrap_scalar_ci(
-            np.array(held_out_values),
-            confidence=confidence_level,
-            n_resamples=n_resamples,
-            min_samples=min_samples,
-            rng=np.random.default_rng(random_seed),
-        )
-        interval = (bootstrap.ci_low, bootstrap.ci_high)
+    bootstrap = hierarchical_bootstrap_ci(
+        matrix,
+        n_runs,
+        n_runs,
+        confidence=confidence_level,
+        n_resamples=n_resamples,
+        seed=random_seed,
+    )
+    corrected_mean = bootstrap.mean
+    interval = (bootstrap.ci_low, bootstrap.ci_high)
     maximization_bias = float(raw_winner_mean - corrected_mean)
 
     best_config = runs_by_val[winning_val][0]["hypers"]
@@ -606,7 +586,7 @@ def _compute_hyperparameter_statistics(
         sorted_slice=[slice_perf[k] for k in sorted_keys],
         sorted_best=[best_perf[k] for k in sorted_keys],
         correction_ci=interval,
-        estimate_method="leave_one_seed_out",
+        estimate_method="hierarchical_bootstrap",
     )
 
 
