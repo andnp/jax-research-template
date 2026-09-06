@@ -9,12 +9,11 @@ import polars as pl
 from experiment_definition.db import DatabaseManager
 
 from research_analysis.dataset.candidates import fetch_run_candidates
-from research_analysis.dataset.dimensions import build_run_row, cohort_matches
+from research_analysis.dataset.rows import build_rows
 from research_analysis.dataset.types import (
     CohortSelection,
     ExperimentDataset,
     ExperimentDimensions,
-    RunArtifacts,
     SweepAxis,
     SweepValueType,
     VersionSelection,
@@ -110,8 +109,6 @@ def load_experiment_dataset(
     selected_dimensions = dimensions or ExperimentDimensions()
     selected_versions = version_selection or VersionSelection.latest_completed()
     diagnostics = DiagnosticAccumulator()
-    rows: list[dict[str, object]] = []
-    artifacts: dict[tuple[int, int], RunArtifacts] = {}
 
     with DatabaseManager(Path(experiments_db)) as database:
         database.initialize()
@@ -121,23 +118,7 @@ def load_experiment_dataset(
 
         candidates = fetch_run_candidates(database, experiment, diagnostics)
         selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
-
-        for run, execution, artifact, version_set, items in candidates:
-            if version_set not in selected_sets:
-                continue
-            hyper_config = database.get_hyperparam_config(run.hyper_id)
-            if hyper_config is None:
-                diagnostics.add(DiagnosticCode.MISSING_DIMENSION, "run has no hyperparameter configuration", run.id, execution.id)
-                continue
-            hyperparameters = hyper_config.hyperparameters
-            if not isinstance(hyperparameters, dict):
-                diagnostics.add(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id)
-                continue
-            built = build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions, diagnostics)
-            if built is not None and (cohort is None or cohort_matches(built[0], cohort)):
-                row, run_artifacts = built
-                rows.append(row)
-                artifacts[(run.id, execution.id)] = run_artifacts
+        rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort, diagnostics)
 
     metric_frames = _load_metric_frames(rows, metrics, diagnostics)
 
