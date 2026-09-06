@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -34,14 +35,12 @@ class SweepValueType(StrEnum):
 class SweepAxis:
     """A typed hyperparameter axis declared by an experiment.
 
-    ``optional`` marks an axis that only applies to a subset of runs (e.g. a
-    parameter declared under ``experiment.when(...)``): a run missing it is
-    materialized with a null value for that axis instead of being excluded.
+    ``when`` identifies the source hyperparameter values for which the axis applies.
     """
 
     name: str
     value_type: SweepValueType
-    optional: bool = False
+    when: Mapping[str, SweepValue] | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +134,7 @@ class DiagnosticCode(StrEnum):
     AMBIGUOUS_COHORT = "ambiguous_cohort"
     UNKNOWN_COMPONENT_PROVENANCE = "unknown_component_provenance"
     MISSING_DIMENSION = "missing_dimension"
+    INVALID_DIMENSION = "invalid_dimension"
     INVALID_VERSION_SELECTION = "invalid_version_selection"
 
 
@@ -197,6 +197,7 @@ _FATAL_CODES = frozenset(
         DiagnosticCode.AMBIGUOUS_COHORT,
         DiagnosticCode.MISSING_METRIC_ARTIFACT,
         DiagnosticCode.MISSING_DIMENSION,
+        DiagnosticCode.INVALID_DIMENSION,
         DiagnosticCode.INVALID_VERSION_SELECTION,
     }
 )
@@ -250,6 +251,14 @@ def _axis_dtype(axis: SweepAxis):
     if axis.value_type is SweepValueType.FLOAT:
         return pl.Float64
     return pl.Boolean
+
+
+def _axis_applicability(axis: SweepAxis, hyperparameters: dict[str, object]) -> bool | None:
+    if axis.when is None:
+        return True
+    if any(key not in hyperparameters for key in axis.when):
+        return None
+    return all(hyperparameters[key] == value for key, value in axis.when.items())
 
 
 def _version_key(algo_version_id: int | None, env_version_id: int | None) -> tuple[int | None, int | None]:
@@ -416,10 +425,41 @@ def load_experiment_dataset(
                     continue
                 row["env_name"] = str(environment_value)
             for axis in selected_dimensions.sweep_axes:
-                raw_value = hyperparameters.get(axis.name)
-                if raw_value is None and axis.optional:
+                applies = _axis_applicability(axis, hyperparameters)
+                if applies is None:
+                    diagnostics.append(
+                        _diagnostic(
+                            DiagnosticCode.INVALID_DIMENSION,
+                            f"cannot evaluate applicability for sweep axis {axis.name!r}",
+                            run.id,
+                            execution.id,
+                        )
+                    )
+                    break
+                if not applies:
+                    if axis.name in hyperparameters:
+                        diagnostics.append(
+                            _diagnostic(
+                                DiagnosticCode.INVALID_DIMENSION,
+                                f"sweep axis {axis.name!r} is present outside its applicability condition",
+                                run.id,
+                                execution.id,
+                            )
+                        )
+                        break
                     row[axis.name] = None
                     continue
+                if axis.name not in hyperparameters:
+                    diagnostics.append(
+                        _diagnostic(
+                            DiagnosticCode.MISSING_DIMENSION,
+                            f"missing sweep axis {axis.name!r} for an applicable run",
+                            run.id,
+                            execution.id,
+                        )
+                    )
+                    break
+                raw_value = hyperparameters[axis.name]
                 value = _coerce_axis_value(raw_value, axis)
                 if value is None:
                     diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing or invalid sweep axis {axis.name!r}", run.id, execution.id))

@@ -57,6 +57,14 @@ dataset = load_experiment_dataset(
 report = compare_pairwise(dataset, "baseline", "candidate", "reward")
 ```
 
+For a parameter declared only under an experiment condition, declare the same
+applicability rule on its axis. Applicable runs must contain a correctly typed
+value; other runs receive a null value, and unexpected values fail loading:
+
+```python
+SweepAxis("eta", SweepValueType.FLOAT, when={"algorithm": "adversarial"})
+```
+
 The loader selects one coherent completed component-version set by default.
 Historical selection requires qualified component identity plus a version row ID
 or recorded code hash. It retains ablation and run/execution identity, reads
