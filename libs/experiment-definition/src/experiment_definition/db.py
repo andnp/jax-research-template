@@ -376,8 +376,8 @@ class ComponentVersionRow(NamedTuple):
 class HyperparamConfigRow(NamedTuple):
     id: int
     hash: str
-    json_blob: str
-    vmap_zone_json: str | None
+    hyperparameters: Mapping[str, ParameterValue]
+    vmap_zone: Mapping[str, list[str]] | None
 
 
 class ExperimentRow(NamedTuple):
@@ -649,7 +649,15 @@ class DatabaseManager:
             "SELECT id, hash, json_blob, vmap_zone_json FROM HyperparamConfigs WHERE id = ?",
             (config_id,),
         ).fetchone()
-        return HyperparamConfigRow(*row) if row else None
+        if row is None:
+            return None
+        row_id, config_hash, json_blob, vmap_zone_json = row
+        return HyperparamConfigRow(
+            row_id,
+            config_hash,
+            json.loads(json_blob),
+            json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
+        )
 
     # ------------------------------------------------------------------
     # Experiments
@@ -1328,7 +1336,7 @@ class DatabaseManager:
         config = self.get_hyperparam_config(hyper_id)
         if config is None:
             return False
-        params = json.loads(config.json_blob)
+        params = config.hyperparameters
         return all(key in params and str(params[key]) == value for key, value in where.items())
 
     def list_executions(

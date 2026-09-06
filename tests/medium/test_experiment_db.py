@@ -188,10 +188,9 @@ def test_add_hyperparam_config_with_vmap_zone(db: DatabaseManager) -> None:
     hid = db.add_hyperparam_config({"lr": 1e-3, "arch": "mlp"}, vmap_zone=vmap_zone)
     row = db.get_hyperparam_config(hid)
     assert row is not None
-    assert row.vmap_zone_json is not None
-    parsed = json.loads(row.vmap_zone_json)
-    assert parsed["static_keys"] == ["arch", "env_name"]
-    assert parsed["dynamic_keys"] == ["lr", "seed"]
+    assert row.vmap_zone is not None
+    assert row.vmap_zone["static_keys"] == ["arch", "env_name"]
+    assert row.vmap_zone["dynamic_keys"] == ["lr", "seed"]
 
 
 def test_hyperparam_config_hash_is_canonical(db: DatabaseManager) -> None:
