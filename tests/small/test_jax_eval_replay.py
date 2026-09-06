@@ -1,6 +1,7 @@
 """Small behavioral tests for jax-eval replay diagnostics."""
 
 import jax.numpy as jnp
+import pytest
 from jax_eval.replay import priority_utilization, sample_staleness
 
 
@@ -19,6 +20,29 @@ def test_priority_utilization_ignores_zero_probability_entries() -> None:
     result = priority_utilization(jnp.array([1.0, 0.0, 1.0, 0.0]))
 
     assert jnp.allclose(result, 0.5)
+
+
+def test_priority_utilization_rejects_non_vector_inputs() -> None:
+    """Reject scalar and batched priorities instead of inferring an axis."""
+    with pytest.raises(ValueError):
+        priority_utilization(jnp.array(1.0))
+    with pytest.raises(ValueError):
+        priority_utilization(jnp.ones((2, 2)))
+
+
+def test_priority_utilization_handles_empty_and_concentrated_inputs() -> None:
+    """Return finite float32 zero for degenerate and concentrated distributions."""
+    empty = priority_utilization(jnp.empty((0,)))
+    capacity_one = priority_utilization(jnp.ones((1,)))
+    concentrated = priority_utilization(jnp.array([1.0, 0.0, 0.0, 0.0]))
+    zero = priority_utilization(jnp.zeros((4,)))
+
+    assert empty.dtype == jnp.float32
+    assert empty == 0.0
+    assert capacity_one == 0.0
+    assert concentrated == 0.0
+    assert jnp.isfinite(zero)
+    assert zero == 0.0
 
 
 def test_sample_staleness_casts_before_signed_subtraction() -> None:
