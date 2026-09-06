@@ -1769,7 +1769,7 @@ def bakeoff_report(
                 block_key,
             )
 
-    return BakeoffReport(
+    report = BakeoffReport(
         conditions=conditions,
         metric_name=metric_name,
         seed_counts=seed_counts,
@@ -1794,3 +1794,67 @@ def bakeoff_report(
         ),
         warnings=warnings.as_tuple(),
     )
+
+    if verbose:
+        _present_bakeoff_report(report, dataset.experiment_name)
+
+    return report
+
+
+def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None:
+    console = Console()
+    console.print()
+    console.print(Panel(Text(f"🏆 BAKEOFF REPORT: {report.conditions}", style="bold cyan"), subtitle=f"Experiment: {experiment_slug}"))
+
+    blocks = sorted({label for per_condition in report.seed_counts.values() for label in per_condition})
+    table = Table(title=f"Cells ({report.metric_name})", show_header=True, header_style="bold magenta")
+    table.add_column("Condition")
+    for label in blocks:
+        table.add_column(label or "(no blocking)", justify="right")
+    for condition in report.conditions:
+        row = [condition]
+        for label in blocks:
+            n = report.seed_counts[condition].get(label, 0)
+            mean = report.cell_means[condition].get(label, float("nan"))
+            var = report.cell_variances[condition].get(label, float("nan"))
+            row.append(f"{mean:.3g} ± {var:.2g} (n={n})")
+        table.add_row(*row)
+    console.print(table)
+
+    if report.champions is not None:
+        champ_table = Table(title="Champion configurations", show_header=True, header_style="bold magenta")
+        champ_table.add_column("Block")
+        champ_table.add_column("Condition")
+        champ_table.add_column("Config")
+        champ_table.add_column("Corrected mean")
+        for label, per_condition in report.champions.items():
+            for condition, champion in per_condition.items():
+                config_desc = ", ".join(f"{key}={value}" for key, value in champion.winning_config.items())
+                champ_table.add_row(label or "(no blocking)", condition, config_desc, f"{champion.corrected_mean:.3g}")
+        console.print(champ_table)
+
+    if report.warnings:
+        lines = [f"• [{w.code.value}] {w.condition or '(all)'} {dict(w.cell) or ''}: {w.message}" for w in report.warnings]
+        console.print(Panel(Text("\n".join(lines)), title=f"⚠ Warnings ({len(report.warnings)})", style="yellow"))
+    else:
+        console.print(Panel(Text("No warnings."), style="green"))
+
+    diff_table = Table(title="Pairwise differences", show_header=True, header_style="bold magenta")
+    diff_table.add_column("A")
+    diff_table.add_column("B")
+    diff_table.add_column("A − B")
+    diff_table.add_column("95% CI")
+    diff_table.add_column("Holm p")
+    seen: set[tuple[str, str]] = set()
+    for condition_a in report.conditions:
+        for condition_b in report.conditions:
+            if condition_a == condition_b or (condition_b, condition_a) in seen:
+                continue
+            seen.add((condition_a, condition_b))
+            diff = report.comparison.difference_estimate[condition_a][condition_b]
+            ci = report.comparison.difference_ci[condition_a][condition_b]
+            p_value = report.comparison.posthoc_matrix[condition_a][condition_b]
+            if diff is None or ci is None:
+                continue
+            diff_table.add_row(condition_a, condition_b, f"{diff:+.3g}", f"[{ci[0]:+.3g}, {ci[1]:+.3g}]", f"{p_value:.4f}" if p_value is not None else "—")
+    console.print(diff_table)
