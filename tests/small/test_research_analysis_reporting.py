@@ -27,8 +27,10 @@ from research_analysis.reporting import (
     boundary_warning,
     compare_bakeoff,
     compare_pairwise,
+    insufficient_seeds_warning,
     non_normality_warning,
     slice_hypers,
+    variance_warning,
 )
 
 
@@ -345,6 +347,54 @@ class TestNonNormalityWarning:
 
     def test_no_warning_below_the_minimum_sample_size(self) -> None:
         assert non_normality_warning([1.0, 2.0]) is None
+
+
+def _config_report(*, normalized_selection_entropy: float = 0.0) -> HyperparameterConfigReport:
+    return HyperparameterConfigReport(
+        winning_config={"learning_rate": 3e-4},
+        raw_mean=1.0,
+        corrected_mean=1.0,
+        maximization_bias=0.0,
+        estimate_ci=(0.5, 1.5),
+        normalized_selection_entropy=normalized_selection_entropy,
+    )
+
+
+class TestInsufficientSeedsWarning:
+    def test_flags_too_few_raw_seeds(self) -> None:
+        warning = insufficient_seeds_warning(_config_report(), 3, condition="gi_sac", min_seeds=5)
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.INSUFFICIENT_SEEDS
+        assert warning.condition == "gi_sac"
+
+    def test_flags_unstable_selection_despite_enough_seeds(self) -> None:
+        warning = insufficient_seeds_warning(_config_report(normalized_selection_entropy=0.9), 10, min_seeds=5)
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.INSUFFICIENT_SEEDS
+
+    def test_no_warning_with_enough_stable_seeds(self) -> None:
+        warning = insufficient_seeds_warning(_config_report(normalized_selection_entropy=0.1), 10, min_seeds=5)
+        assert warning is None
+
+
+class TestVarianceWarning:
+    def test_flags_zero_variance(self) -> None:
+        warning = variance_warning([1.0, 1.0, 1.0], condition="sac")
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.ZERO_VARIANCE
+
+    def test_flags_extreme_variance_relative_to_the_metric_range(self) -> None:
+        warning = variance_warning([-500.0, 500.0, -500.0, 500.0], reference_range=100.0)
+        assert warning is not None
+        assert warning.code == BakeoffWarningCode.EXTREME_VARIANCE
+
+    def test_no_warning_for_ordinary_variance(self) -> None:
+        warning = variance_warning([98.0, 100.0, 102.0], reference_range=1000.0)
+        assert warning is None
+
+    def test_no_extreme_check_without_a_reference_range(self) -> None:
+        warning = variance_warning([-500.0, 500.0, -500.0, 500.0])
+        assert warning is None
 
 
 def _add_arm_observation(setup: ExperimentSetup, algorithm: str, learning_rate: str, seed: int, value: float) -> None:
