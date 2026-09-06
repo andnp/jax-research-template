@@ -32,7 +32,8 @@ def _step_difference(current: jax.Array, sampled: jax.Array) -> jax.Array:
         common_unsigned = jnp.dtype("uint64" if jax.config.x64_enabled else "uint32")
 
         def split_sign(value: jax.Array) -> tuple[jax.Array, jax.Array]:
-            local_unsigned = jnp.dtype(f"uint{value.dtype.itemsize * 8}")
+            bits = min(value.dtype.itemsize * 8, 64 if jax.config.x64_enabled else 32)
+            local_unsigned = jnp.dtype(f"uint{bits}")
             bits = jnp.asarray(value, dtype=local_unsigned)
             if jnp.issubdtype(value.dtype, jnp.signedinteger):
                 negative = value < 0
@@ -54,16 +55,17 @@ def _step_difference(current: jax.Array, sampled: jax.Array) -> jax.Array:
             ),
             ~current_negative,
         )
-        magnitude = jnp.where(
-            same_sign,
-            jnp.where(
-                nonnegative,
-                jnp.where(current_negative, sampled_magnitude - current_magnitude, current_magnitude - sampled_magnitude),
-                jnp.where(current_negative, current_magnitude - sampled_magnitude, sampled_magnitude - current_magnitude),
-            ),
-            current_magnitude + sampled_magnitude,
+        same_sign_magnitude = jnp.where(
+            nonnegative,
+            jnp.where(current_negative, sampled_magnitude - current_magnitude, current_magnitude - sampled_magnitude),
+            jnp.where(current_negative, current_magnitude - sampled_magnitude, sampled_magnitude - current_magnitude),
         )
-        magnitude_float = jnp.asarray(magnitude, dtype=jnp.float32)
+        magnitude_float = jnp.where(
+            same_sign,
+            jnp.asarray(same_sign_magnitude, dtype=jnp.float32),
+            jnp.asarray(current_magnitude, dtype=jnp.float32)
+            + jnp.asarray(sampled_magnitude, dtype=jnp.float32),
+        )
         return jnp.where(nonnegative, magnitude_float, -magnitude_float)
 
     return jnp.asarray(current, dtype=jnp.float32) - jnp.asarray(sampled, dtype=jnp.float32)
