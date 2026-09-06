@@ -1,5 +1,6 @@
 """Typed, array-oriented traces for process-control system identification."""
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -132,7 +133,7 @@ class UniformTrace:
 
     def __post_init__(self) -> None:
         arrays = self.arrays
-        if not jnp.isfinite(self.sample_period) or self.sample_period <= 0.0:
+        if not math.isfinite(self.sample_period) or self.sample_period <= 0.0:
             raise ValueError("sample_period must be finite and positive")
         if arrays.time.ndim != 1 or arrays.time.shape[0] == 0:
             raise ValueError("uniform trace time must be a non-empty vector")
