@@ -27,6 +27,7 @@ dependencies = [
     "experiment-definition",
     "jax-nn",
     "jax-replay",
+    "jax-eval",
     "jax-utils",
     "research-analysis",
     "research-cli",
@@ -56,6 +57,7 @@ packages = []
 experiment-definition = { workspace = true }
 jax-nn = { workspace = true }
 jax-replay = { workspace = true }
+jax-eval = { workspace = true }
 jax-utils = { workspace = true }
 research-analysis = { workspace = true }
 research-cli = { workspace = true }
@@ -119,6 +121,7 @@ search-path = [
     "libs/research-analysis/src",
     "libs/jax-utils/src",
     "libs/jax-replay/src",
+    "libs/jax-eval/src",
     "libs/jax-nn/src",
 ]
 

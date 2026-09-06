@@ -582,7 +582,13 @@ wheels = [
 [[package]]
 name = "jax-eval"
 version = "0.1.0"
-source = { virtual = "libs/jax-eval" }
+source = { editable = "libs/jax-eval" }
+dependencies = [
+    { name = "jax" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jax", specifier = "~=0.9" }]
 
 [[package]]
 name = "jax-nn"
@@ -1580,6 +1586,7 @@ dependencies = [
     { name = "flax" },
     { name = "gymnax" },
     { name = "jax" },
+    { name = "jax-eval" },
     { name = "jax-nn" },
     { name = "jax-replay" },
     { name = "jax-utils" },
@@ -1625,6 +1632,7 @@ requires-dist = [
     { name = "flax", specifier = "~=0.12" },
     { name = "gymnax", specifier = "~=0.0" },
     { name = "jax", specifier = "~=0.9" },
+    { name = "jax-eval", editable = "libs/jax-eval" },
     { name = "jax-nn", editable = "libs/jax-nn" },
     { name = "jax-replay", editable = "libs/jax-replay" },
     { name = "jax-utils", editable = "libs/jax-utils" },
