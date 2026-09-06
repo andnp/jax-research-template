@@ -17,6 +17,21 @@ import jax
 import jax.numpy as jnp
 
 
+def _first_bootstrap_reference(boot_idx: jax.Array) -> jax.Array:
+    """Marks the first head, in index order, to bootstrap off each ``own_next_value`` source.
+
+    A later head sharing that source (e.g. head 1 also bootstrapping off head 0's own value
+    in a target-free chain, since head 0 self-bootstraps *and* feeds head 1's target) must
+    not independently correct it too: two H-estimators each calibrated to correct one
+    source's own residual do not add the way two chain-rule terms would, and doubling the
+    correction there doubles the effective TDC coefficient (``c=2`` instead of ``c=1``),
+    which can flip local stability. Masking every later reference to an already-corrected
+    source keeps exactly one correction per dependency.
+    """
+    earlier_match = (boot_idx[:, None] == boot_idx[None, :]) & (jnp.arange(boot_idx.shape[0])[None, :] < jnp.arange(boot_idx.shape[0])[:, None])
+    return ~jnp.any(earlier_match, axis=1)
+
+
 def bootstrap_index(num_heads: int) -> jax.Array:
     """``m(k)``: which head's own next-value head ``k`` bootstraps off, for a target-free chain.
 
@@ -59,9 +74,12 @@ def gtd_iteration_correction(
 
     Each active head ``k``'s correction term ``gamma * own_next_value[boot_idx[k]] *
     sg(h_online[k])`` reintroduces the gradient ``sg(y[k])`` in the semi-gradient
-    q-loss discards, scaled by ``h_online[k]``'s regressed estimate of that error.
-    ``active`` masks out heads with no live H-estimator -- e.g. an anchored chain's
-    head 0, whose bootstrap source is a frozen target with no gradient to correct.
+    q-loss discards, scaled by ``h_online[k]``'s regressed estimate of that error --
+    except when a later head shares an earlier head's bootstrap source (see
+    :func:`_first_bootstrap_reference`), where only the first correction counts;
+    every active head's H is still trained via ``h_loss`` regardless. ``active`` masks
+    out heads with no live H-estimator at all -- e.g. an anchored chain's head 0, whose
+    bootstrap source is a frozen target with no gradient to correct.
     """
     chex.assert_equal_shape([q_online, h_online, active, boot_idx])
     sg = jax.lax.stop_gradient
@@ -71,7 +89,8 @@ def gtd_iteration_correction(
     delta = sg(y) - q_online
     q_loss = jnp.sum(0.5 * delta**2)
 
-    correction = gamma * jnp.sum(jnp.where(active, bootstrap_value * sg(h_online), 0.0))
+    corrects = active & _first_bootstrap_reference(boot_idx)
+    correction = gamma * jnp.sum(jnp.where(corrects, bootstrap_value * sg(h_online), 0.0))
     h_loss = jnp.sum(jnp.where(active, 0.5 * (sg(delta) - h_online) ** 2, 0.0))
 
     metrics = GTDIterationMetrics(

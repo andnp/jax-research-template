@@ -1,21 +1,23 @@
 """Small tests for rl_agents.gtd_iteration — the iterated-GTD critic correction.
 
-The two parity tests below are the load-bearing ones: they reproduce, verbatim, the
-correction formulas iterated-gtd's ``gi_sac.py`` (target-free chain) and
-``discrete_gi_qrc.py`` (anchored chain) computed before this module existed, and check
-that :func:`gtd_iteration_correction` reproduces their *gradients* exactly -- the only
-thing that determines training behaviour. The anchored case's formula never referenced
-``reward`` in its correction term to begin with, so its loss *value* matches exactly
-too; the target-free case's original semi-gradient form differs by an additive
-``reward``/``alpha*log_prob`` constant with zero derivative wrt critic params, so only
-its gradient is asserted.
+The two parity tests below are load-bearing: they check that :func:`gtd_iteration_correction`
+reproduces, gradient-for-gradient (the only thing that determines training behaviour), the
+correction formulas iterated-gtd's ``gi_sac.py`` (target-free chain) and ``discrete_gi_qrc.py``
+(anchored chain) computed before this module existed -- with one exception, pinned separately
+by ``TestFirstBootstrapReference`` below: the target-free reference is the *corrected* formula,
+not gi_sac.py's original one, since gi_sac.py's original formula double-counted head 0's
+correction (see ``_first_bootstrap_reference``'s docstring) the way discrete_gi_qrc.py's
+target-free branch already found and fixed. The anchored case's formula never referenced
+``reward`` in its correction term to begin with, so its loss *value* matches exactly too; the
+target-free case's semi-gradient form differs by an additive ``reward``/``alpha*log_prob``
+constant with zero derivative wrt critic params, so only its gradient is asserted.
 """
 
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from rl_agents.gtd_iteration import GTDIterationMetrics, bootstrap_index, gtd_iteration_correction
+from rl_agents.gtd_iteration import GTDIterationMetrics, _first_bootstrap_reference, bootstrap_index, gtd_iteration_correction
 
 NUM_HEADS = 4
 
@@ -27,6 +29,18 @@ class TestBootstrapIndex:
     def test_later_heads_bootstrap_off_their_predecessor(self) -> None:
         idx = bootstrap_index(NUM_HEADS)
         assert jnp.array_equal(idx[1:], jnp.arange(NUM_HEADS - 1))
+
+
+class TestFirstBootstrapReference:
+    def test_target_free_chain_masks_only_the_duplicate(self) -> None:
+        """Head 1 shares head 0's bootstrap source (both reference index 0); only head 0 corrects it."""
+        mask = _first_bootstrap_reference(bootstrap_index(NUM_HEADS))
+        assert jnp.array_equal(mask, jnp.array([True, False, True, True]))
+
+    def test_anchored_chain_has_no_duplicates_to_mask(self) -> None:
+        """An anchored chain's identity boot_idx has no repeated source, so nothing is masked."""
+        mask = _first_bootstrap_reference(jnp.arange(NUM_HEADS, dtype=jnp.int32))
+        assert jnp.all(mask)
 
 
 class TestGtdIterationCorrectionShape:
@@ -56,11 +70,16 @@ def _target_free_reference(
     next_log_prob: jax.Array,
     boot_idx: jax.Array,
 ) -> jax.Array:
-    """gi_sac.py's ``_gi_sac_critic_loss``, before this module existed.
+    """gi_sac.py's ``_gi_sac_critic_loss``, amended with the duplicate-bootstrap-reference fix.
 
-    ``q_theta`` stands in for the shared critic parameters: both ``q_sa`` and ``q_next``
-    read the same leaf, matching the real network's single set of trainable per-head
-    kernels evaluated at two inputs.
+    ``gi_sac.py``'s original formula gave head 0 both its own self-correction (``H_0``) and
+    a downstream correction via ``H_1`` (since head 1 also bootstraps off ``raw_y[0]``),
+    double-counting the same source -- the bug ``discrete_gi_qrc.py``'s target-free branch
+    had already found and fixed by dropping its analogous ``H_1`` term. This reference
+    reflects the corrected formula, matching what :func:`gtd_iteration_correction` now
+    computes for both callers. ``q_theta`` stands in for the shared critic parameters: both
+    ``q_sa`` and ``q_next`` read the same leaf, matching the real network's single set of
+    trainable per-head kernels evaluated at two inputs.
     """
     sg = jax.lax.stop_gradient
     q_sa = q_theta
@@ -72,7 +91,8 @@ def _target_free_reference(
 
     semi_gradient = -jnp.sum(q_sa * sg(delta))
     self_correction = raw_y[0] * sg(h[0])
-    downstream_correction = jnp.sum(raw_y[:-1] * sg(h[1:]))
+    # raw_y[0] already corrected above; head 1 (boot_idx[1] == 0 too) does not correct it again.
+    downstream_correction = jnp.sum(raw_y[1:-1] * sg(h[2:]))
     q_loss = semi_gradient + self_correction + downstream_correction
     h_loss = jnp.sum(0.5 * (sg(delta) - h) ** 2)
     return q_loss + h_loss
@@ -95,7 +115,7 @@ def _target_free_new(
 
 
 class TestMatchesGiSacTargetFreeChain:
-    def test_gradients_match_the_original_semi_gradient_formula(self) -> None:
+    def test_gradients_match_the_corrected_target_free_formula(self) -> None:
         q_key, h_key, log_prob_key = jax.random.split(jax.random.key(0), 3)
         q_theta = jax.random.normal(q_key, (NUM_HEADS,))
         h = jax.random.normal(h_key, (NUM_HEADS,))
