@@ -1,7 +1,5 @@
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from numbers import Integral, Real
 
 import jax
 import jax.numpy as jnp
@@ -15,15 +13,12 @@ from process_control.actuators.dosing_system import (
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
 from process_control.disturbances.schedule import (
+    DisturbanceEvent,
     DisturbanceSchedule,
     add_event,
     apply_active,
     create_empty,
-)
-from process_control.disturbances.types import (
-    DISTURBANCE_DEMAND_SLUG,
-    DISTURBANCE_NONE,
-    DISTURBANCE_RAIN_STORM,
+    validate_disturbance_events,
 )
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -37,43 +32,6 @@ from process_control.units.contact_basin import reset as basin_reset
 from process_control.units.contact_basin import step as basin_step
 from process_control.units.mixer import MixerState
 from process_control.units.mixer import step as mixer_step
-
-DisturbanceEvent = tuple[int, int, float, int]
-
-
-def _validate_disturbance_events(config: "ChlorineBenchmarkConfig") -> int:
-    """Validate static event data before it enters a JAX episode state."""
-    max_events = config.max_disturbance_events
-    if isinstance(max_events, bool) or not isinstance(max_events, Integral):
-        raise ValueError("max_disturbance_events must be an integer")
-    max_events = int(max_events)
-    if max_events <= 0:
-        raise ValueError("max_disturbance_events must be positive")
-
-    events = config.disturbance_events
-    if not isinstance(events, tuple):
-        raise ValueError("disturbance_events must be a tuple of event tuples")
-    if len(events) > max_events:
-        raise ValueError("disturbance_events exceeds max_disturbance_events")
-
-    supported_types = {DISTURBANCE_NONE, DISTURBANCE_DEMAND_SLUG, DISTURBANCE_RAIN_STORM}
-    for index, event in enumerate(events):
-        if not isinstance(event, tuple) or len(event) != 4:
-            raise ValueError(f"disturbance event {index} must be (start_step, end_step, magnitude, type_id)")
-        start_step, end_step, magnitude, type_id = event
-        if isinstance(start_step, bool) or not isinstance(start_step, Integral):
-            raise ValueError(f"disturbance event {index} start_step must be an integer")
-        if isinstance(end_step, bool) or not isinstance(end_step, Integral):
-            raise ValueError(f"disturbance event {index} end_step must be an integer")
-        if start_step < 0:
-            raise ValueError(f"disturbance event {index} start_step must be non-negative")
-        if end_step <= start_step:
-            raise ValueError(f"disturbance event {index} end_step must be after start_step")
-        if isinstance(magnitude, bool) or not isinstance(magnitude, Real) or not math.isfinite(float(magnitude)):
-            raise ValueError(f"disturbance event {index} magnitude must be a finite real number")
-        if isinstance(type_id, bool) or not isinstance(type_id, Integral) or int(type_id) not in supported_types:
-            raise ValueError(f"disturbance event {index} type_id is unsupported")
-    return max_events
 
 
 @jax_dataclass
@@ -148,7 +106,10 @@ def make_chlorine_benchmark(
     Callable[[jax.Array], tuple[PlantState, jax.Array]],
     Callable[[PlantState, jax.Array, jax.Array], tuple[PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
-    max_disturbance_events = _validate_disturbance_events(config)
+    max_disturbance_events = validate_disturbance_events(
+        config.max_disturbance_events,
+        config.disturbance_events,
+    )
     if config.reward_profile not in {"tracking", "supervisory-floor"}:
         raise ValueError("reward_profile must be tracking or supervisory-floor")
     if config.quality_floor < 0.0:

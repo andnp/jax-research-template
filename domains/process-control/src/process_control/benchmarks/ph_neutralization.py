@@ -12,6 +12,13 @@ from process_control.chemistry.ph_model import PhModelParams, compute_ph
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
+from process_control.disturbances.schedule import (
+    DisturbanceSchedule,
+    add_event,
+    apply_active,
+    create_empty,
+    validate_disturbance_events,
+)
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -62,6 +69,8 @@ class PhNeutralizationBenchmarkConfig:
     demand_noise_std: float = 0.01
     drift_scale: float = 0.1
     steps_per_day: int = 96
+    max_disturbance_events: int = 16
+    disturbance_events: tuple[tuple[int, int, float, int], ...] = ()
 
 
 @jax_dataclass
@@ -73,6 +82,7 @@ class PhPlantState:
     ph_sensor_state: PhSensorState
     pi_state: PIControllerState
     last_dose: jax.Array
+    disturbance_schedule: DisturbanceSchedule
 
 
 def make_ph_neutralization_benchmark(
@@ -81,6 +91,10 @@ def make_ph_neutralization_benchmark(
     Callable[[jax.Array], tuple[PhPlantState, jax.Array]],
     Callable[[PhPlantState, jax.Array, jax.Array], tuple[PhPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
+    max_disturbance_events = validate_disturbance_events(
+        config.max_disturbance_events,
+        config.disturbance_events,
+    )
     cstr_params = CSTRParams(volume=config.cstr_volume)
     pump_params = RampLimitedActuatorParams(
         max_output=config.pump_max_dose,
@@ -125,6 +139,16 @@ def make_ph_neutralization_benchmark(
         pi_state = pi_reset(k4)
         last_dose = jnp.array(0.0)
 
+        disturbance_schedule = create_empty(max_disturbance_events)
+        for start_step, end_step, magnitude, type_id in config.disturbance_events:
+            disturbance_schedule = add_event(
+                disturbance_schedule,
+                start_step=start_step,
+                end_step=end_step,
+                magnitude=magnitude,
+                type_id=type_id,
+            )
+
         plant_state = PhPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src_state,
@@ -133,6 +157,7 @@ def make_ph_neutralization_benchmark(
             ph_sensor_state=ph_state,
             pi_state=pi_state,
             last_dose=last_dose,
+            disturbance_schedule=disturbance_schedule,
         )
 
         measured_ph = jnp.array(7.0)
@@ -154,12 +179,15 @@ def make_ph_neutralization_benchmark(
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
 
         # 1. Source: acid inlet (flow in L/min, demand used as acid concentration)
-        new_source_state, _transport, flow, acid_concentration = source_step(
+        new_source_state, transport, flow, acid_concentration = source_step(
             state.source_state,
             state.step_count,
             source_params,
             k1,
         )
+        transport = apply_active(state.disturbance_schedule, transport, state.step_count)
+        flow = transport.hydraulics.flow
+        acid_concentration = transport.composition.demand
 
         # 2. Dose pump realizes the agent's requested base dose (mol/min)
         new_pump_state, realized_dose = actuator_step(
@@ -222,6 +250,7 @@ def make_ph_neutralization_benchmark(
             ph_sensor_state=new_ph_state,
             pi_state=new_pi_state,
             last_dose=realized_dose,
+            disturbance_schedule=state.disturbance_schedule,
         )
 
         info: dict[str, jax.Array] = {

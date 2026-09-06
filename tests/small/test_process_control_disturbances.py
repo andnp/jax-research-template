@@ -2,6 +2,14 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
+from process_control.benchmarks.equalization_tank import (
+    EqualizationTankBenchmarkConfig,
+    make_equalization_tank_benchmark,
+)
+from process_control.benchmarks.ph_neutralization import (
+    PhNeutralizationBenchmarkConfig,
+    make_ph_neutralization_benchmark,
+)
 from process_control.disturbances.schedule import add_event, apply_active, create_empty
 from process_control.disturbances.types import (
     DISTURBANCE_DEMAND_SLUG,
@@ -149,6 +157,65 @@ class TestDisturbanceSchedule:
 
         assert int(state.disturbance_schedule.count) == 1
         assert int(state.disturbance_schedule.start_steps[0]) == 0
+
+    def test_ph_config_applies_demand_slug_to_acid_load(self) -> None:
+        """Configured demand disturbances reach the pH process input."""
+        common = dict(
+            diurnal_amplitude=0.0,
+            mean_flow=50.0,
+            min_flow=50.0,
+            max_flow=50.0,
+            demand_noise_std=0.0,
+            drift_scale=0.0,
+            ph_noise_std=0.0,
+            ph_lag_coefficient=0.0,
+            pump_max_ramp_rate=1_000.0,
+        )
+        nominal_config = PhNeutralizationBenchmarkConfig(**common)
+        disturbed_config = PhNeutralizationBenchmarkConfig(
+            **common,
+            disturbance_events=((0, 1, 1.0, DISTURBANCE_DEMAND_SLUG),),
+        )
+        nominal_reset, nominal_step = make_ph_neutralization_benchmark(nominal_config)
+        disturbed_reset, disturbed_step = make_ph_neutralization_benchmark(disturbed_config)
+        reset_key, step_key = jax.random.split(jax.random.PRNGKey(8))
+        nominal_state, _ = nominal_reset(reset_key)
+        disturbed_state, _ = disturbed_reset(reset_key)
+
+        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array(175.0), step_key)
+        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array(175.0), step_key)
+
+        assert disturbed_info["acid_concentration"] > nominal_info["acid_concentration"]
+        assert disturbed_info["measured_ph"] < nominal_info["measured_ph"]
+
+    def test_equalization_config_applies_rain_event_to_inlet(self) -> None:
+        """Configured rain disturbances reach the equalization inlet flow."""
+        common = dict(
+            diurnal_amplitude=0.0,
+            mean_flow=75.0,
+            min_flow=75.0,
+            max_flow=75.0,
+            demand_noise_std=0.0,
+            drift_scale=0.0,
+            level_noise_std=0.0,
+            level_lag_coefficient=0.0,
+            pump_max_ramp_rate=1_000.0,
+        )
+        nominal_config = EqualizationTankBenchmarkConfig(**common)
+        disturbed_config = EqualizationTankBenchmarkConfig(
+            **common,
+            disturbance_events=((0, 1, 1.0, DISTURBANCE_RAIN_STORM),),
+        )
+        nominal_reset, nominal_step = make_equalization_tank_benchmark(nominal_config)
+        disturbed_reset, disturbed_step = make_equalization_tank_benchmark(disturbed_config)
+        reset_key, step_key = jax.random.split(jax.random.PRNGKey(9))
+        nominal_state, _ = nominal_reset(reset_key)
+        disturbed_state, _ = disturbed_reset(reset_key)
+
+        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array(75.0), step_key)
+        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array(75.0), step_key)
+
+        assert disturbed_info["inlet_flow"] > nominal_info["inlet_flow"]
 
     def test_chlorine_rain_event_reaches_influent_and_residual(self) -> None:
         common = dict(

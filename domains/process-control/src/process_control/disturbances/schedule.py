@@ -1,9 +1,58 @@
+import math
+from numbers import Integral, Real
+
 import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.disturbances.types import apply_disturbance_type
+from process_control.disturbances.types import (
+    DISTURBANCE_DEMAND_SLUG,
+    DISTURBANCE_NONE,
+    DISTURBANCE_RAIN_STORM,
+    apply_disturbance_type,
+)
 from process_control.transport import Transport
+
+type DisturbanceEvent = tuple[int, int, float, int]
+
+
+def validate_disturbance_events(
+    max_events: int,
+    events: tuple[DisturbanceEvent, ...],
+) -> int:
+    """Validate static disturbance data before it enters JAX state."""
+    if isinstance(max_events, bool) or not isinstance(max_events, Integral):
+        raise ValueError("max_disturbance_events must be an integer")
+    max_events = int(max_events)
+    if max_events <= 0:
+        raise ValueError("max_disturbance_events must be positive")
+    if not isinstance(events, tuple):
+        raise ValueError("disturbance_events must be a tuple of event tuples")
+    if len(events) > max_events:
+        raise ValueError("disturbance_events exceeds max_disturbance_events")
+
+    supported_types = {
+        DISTURBANCE_NONE,
+        DISTURBANCE_DEMAND_SLUG,
+        DISTURBANCE_RAIN_STORM,
+    }
+    for index, event in enumerate(events):
+        if not isinstance(event, tuple) or len(event) != 4:
+            raise ValueError(f"disturbance event {index} must be (start_step, end_step, magnitude, type_id)")
+        start_step, end_step, magnitude, type_id = event
+        if isinstance(start_step, bool) or not isinstance(start_step, Integral):
+            raise ValueError(f"disturbance event {index} start_step must be an integer")
+        if isinstance(end_step, bool) or not isinstance(end_step, Integral):
+            raise ValueError(f"disturbance event {index} end_step must be an integer")
+        if start_step < 0:
+            raise ValueError(f"disturbance event {index} start_step must be non-negative")
+        if end_step <= start_step:
+            raise ValueError(f"disturbance event {index} end_step must be after start_step")
+        if isinstance(magnitude, bool) or not isinstance(magnitude, Real) or not math.isfinite(float(magnitude)):
+            raise ValueError(f"disturbance event {index} magnitude must be a finite real number")
+        if isinstance(type_id, bool) or not isinstance(type_id, Integral) or int(type_id) not in supported_types:
+            raise ValueError(f"disturbance event {index} type_id is unsupported")
+    return max_events
 
 
 @jax_dataclass

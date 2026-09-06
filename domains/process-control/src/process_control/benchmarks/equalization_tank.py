@@ -11,7 +11,13 @@ from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import reset as pi_reset
 from process_control.controllers.pi_controller import step as pi_step
-from process_control.disturbances.schedule import DisturbanceSchedule, apply_active, create_empty
+from process_control.disturbances.schedule import (
+    DisturbanceSchedule,
+    add_event,
+    apply_active,
+    create_empty,
+    validate_disturbance_events,
+)
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -66,6 +72,7 @@ class EqualizationTankBenchmarkConfig:
     steps_per_day: int = 96
 
     max_disturbance_events: int = 16
+    disturbance_events: tuple[tuple[int, int, float, int], ...] = ()
 
 
 @jax_dataclass
@@ -86,6 +93,10 @@ def make_equalization_tank_benchmark(
     Callable[[jax.Array], tuple[EqualizationPlantState, jax.Array]],
     Callable[[EqualizationPlantState, jax.Array, jax.Array], tuple[EqualizationPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
+    max_disturbance_events = validate_disturbance_events(
+        config.max_disturbance_events,
+        config.disturbance_events,
+    )
     tank_params = TankParams(
         max_level=config.tank_max_level,
         min_level=config.tank_min_level,
@@ -133,6 +144,15 @@ def make_equalization_tank_benchmark(
         level_initial = tank_state.level
         ls_state = level_sensor_reset(config.tank_max_level * 0.5, k3)
         pi_state = pi_reset(k4)
+        disturbance_schedule = create_empty(max_disturbance_events)
+        for start_step, end_step, magnitude, type_id in config.disturbance_events:
+            disturbance_schedule = add_event(
+                disturbance_schedule,
+                start_step=start_step,
+                end_step=end_step,
+                magnitude=magnitude,
+                type_id=type_id,
+            )
 
         plant_state = EqualizationPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
@@ -142,7 +162,7 @@ def make_equalization_tank_benchmark(
             level_sensor_state=ls_state,
             pi_state=pi_state,
             last_outlet_flow=jnp.array(0.0),
-            disturbance_schedule=create_empty(config.max_disturbance_events),
+            disturbance_schedule=disturbance_schedule,
         )
 
         measured_level = level_initial
