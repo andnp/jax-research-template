@@ -64,7 +64,7 @@ class ChlorineBenchmarkConfig:
     basin_segments: int = 10
     basin_tau: float = 1.0
 
-    pump_max_dose: float = 5.0
+    pump_max_dose: float = 8.0
     pump_min_dose: float = 0.0
     pump_max_ramp_rate: float = 10.0  # symmetric (chemical dosing pump)
 

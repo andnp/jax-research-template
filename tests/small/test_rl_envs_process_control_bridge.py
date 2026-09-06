@@ -14,7 +14,7 @@ def test_chlorine_adapter_exposes_native_action_bounds() -> None:
     assert action_space.action_low is not None
     assert action_space.action_high is not None
     assert jnp.array_equal(action_space.action_low, jnp.array([0.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([5.0], dtype=jnp.float32))
+    assert jnp.array_equal(action_space.action_high, jnp.array([8.0], dtype=jnp.float32))
 
 
 def test_h2s_adapter_exposes_per_setpoint_action_bounds() -> None:
@@ -153,7 +153,7 @@ def test_spec_reports_registry_shapes_and_native_action_bounds() -> None:
     assert spec.action_low is not None
     assert spec.action_high is not None
     assert jnp.array_equal(spec.action_low, jnp.array([0.0], dtype=jnp.float32))
-    assert jnp.array_equal(spec.action_high, jnp.array([5.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([8.0], dtype=jnp.float32))
 
 
 def test_spec_preserves_missing_action_bounds_for_unbounded_benchmark() -> None:
