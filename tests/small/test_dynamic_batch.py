@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -8,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from experiment_definition import Experiment
+from experiment_definition.db import DatabaseManager
 from research_runner import BoundBatch, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
 from rl_components.batch import run_batch
 
@@ -125,16 +125,15 @@ def test_experiment_spec_applies_trainer_schema(tmp_path: Path) -> None:
 
     spec.sync(spec.db_path)
 
-    with sqlite3.connect(spec.db_path) as connection:
-        parameter_rows = connection.execute(
-            "SELECT name, is_static FROM ParameterSpecs ORDER BY name"
-        ).fetchall()
-        zone_rows = connection.execute(
-            "SELECT vmap_zone_json FROM HyperparamConfigs"
-        ).fetchall()
+    with DatabaseManager(spec.db_path) as database:
+        experiment_row = database.get_experiment(experiment.name)
+        assert experiment_row is not None
+        runs = database.list_runs(experiment_row.id)
+        zones = set()
+        for run in runs:
+            config = database.get_hyperparam_config(run.hyper_id)
+            assert config is not None
+            assert config.vmap_zone is not None
+            zones.add((tuple(config.vmap_zone["static_keys"]), tuple(config.vmap_zone["dynamic_keys"])))
 
-    assert parameter_rows == [("env_name", 1), ("learning_rate", 0), ("seed", 0)]
-    zones = {row[0] for row in zone_rows}
-    assert zones == {
-        '{"dynamic_keys": ["learning_rate"], "static_keys": ["env_name"]}'
-    }
+    assert zones == {(("env_name",), ("learning_rate",))}

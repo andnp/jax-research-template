@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from experiment_definition import Component, ComponentType, Experiment
-from experiment_definition.db import _generate_configs, _hash_dict
+from experiment_definition.db import DatabaseManager, _generate_configs, _hash_dict
 
 # ── Config generation ─────────────────────────────────────────────────────────
 
@@ -75,10 +75,17 @@ class TestSyncToDb:
         exp.add_parameter("lr", [1e-3, 3e-4], is_static=False)
         exp.add_parameter("env_steps", [1_000_000], is_static=True)
         exp.sync(db_path)
-        with sqlite3.connect(db_path) as con:
-            rows = con.execute("SELECT name, is_static FROM ParameterSpecs ORDER BY name").fetchall()
-        assert ("env_steps", 1) in rows
-        assert ("lr", 0) in rows
+
+        with DatabaseManager(db_path) as database:
+            experiment_row = database.get_experiment(exp.name)
+            assert experiment_row is not None
+            runs = database.list_runs(experiment_row.id)
+            config = database.get_hyperparam_config(runs[0].hyper_id)
+            assert config is not None
+
+        assert config.vmap_zone is not None
+        assert "env_steps" in config.vmap_zone["static_keys"]
+        assert "lr" in config.vmap_zone["dynamic_keys"]
 
     def test_hyperparam_configs_store_vmap_zone_metadata(self, db_path: Path) -> None:
         exp = Experiment("Vmap Zone Test")

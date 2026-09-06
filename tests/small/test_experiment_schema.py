@@ -53,7 +53,7 @@ def test_execution_statuses_complete() -> None:
         (CREATE_EXECUTION_RUNS, ["ExecutionRuns", "execution_id", "run_id", "PRIMARY KEY"]),
         (CREATE_EXECUTION_ARTIFACTS, ["ExecutionArtifacts", "execution_id", "root_path", "manifest_path", "metadata_json"]),
         (CREATE_LATEST_VERSIONS_VIEW, ["ComponentLatestVersions", "MAX(version_number)", "GROUP BY component_id"]),
-        (CREATE_PARAMETER_SPECS, ["ParameterSpecs", "experiment_id", "values_json", "is_static", "conditions_json"]),
+        (CREATE_PARAMETER_SPECS, ["ParameterSpecs", "experiment_id", "values_json", "conditions_json"]),
         (CREATE_METRIC_SPECS, ["MetricSpecs", "experiment_id", "name", "type", "frequency", "UNIQUE(experiment_id, name)"]),
     ],
 )

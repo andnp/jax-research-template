@@ -121,23 +121,22 @@ def _upsert_parameter_spec(
     experiment_id: int,
     name: str,
     values_json: str,
-    is_static: bool,
     component_id: int | None,
     conditions_json: str,
 ) -> None:
     row = cur.execute(
         "SELECT 1 FROM ParameterSpecs "
-        "WHERE experiment_id = ? AND name = ? AND values_json = ? AND is_static = ? "
+        "WHERE experiment_id = ? AND name = ? AND values_json = ? "
         "AND component_id IS ? AND conditions_json = ?",
-        (experiment_id, name, values_json, int(is_static), component_id, conditions_json),
+        (experiment_id, name, values_json, component_id, conditions_json),
     ).fetchone()
     if row is not None:
         return
 
     cur.execute(
-        "INSERT INTO ParameterSpecs(experiment_id, name, values_json, is_static, component_id, conditions_json) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (experiment_id, name, values_json, int(is_static), component_id, conditions_json),
+        "INSERT INTO ParameterSpecs(experiment_id, name, values_json, component_id, conditions_json) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (experiment_id, name, values_json, component_id, conditions_json),
     )
 
 
@@ -188,7 +187,6 @@ def sync_to_db(
                     experiment_id=exp_id,
                     name=p.name,
                     values_json=_json_stable(p.values),
-                    is_static=p.is_static if static_parameter_names is None else p.name in static_parameter_names,
                     component_id=cid,
                     conditions_json=_json_stable(p.conditions),
                 )

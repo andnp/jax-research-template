@@ -160,7 +160,6 @@ CREATE TABLE IF NOT EXISTS ParameterSpecs (
     experiment_id   INTEGER NOT NULL REFERENCES Experiments(id),
     name            TEXT    NOT NULL,
     values_json     TEXT    NOT NULL,
-    is_static       INTEGER NOT NULL DEFAULT 0,
     component_id    INTEGER REFERENCES Components(id),
     conditions_json TEXT    NOT NULL DEFAULT '{}'
 );
