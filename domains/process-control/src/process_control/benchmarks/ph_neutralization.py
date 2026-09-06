@@ -32,16 +32,16 @@ class PhNeutralizationBenchmarkConfig:
     cstr_volume: float = 500.0  # L
 
     # Dose pump (base dosing, mol/min)
-    pump_max_dose: float = 10.0
+    pump_max_dose: float = 300.0
     pump_min_dose: float = 0.0
     pump_max_ramp_rate: float = 20.0
 
     # PI controller (operates in pH space → outputs dose in mol/min)
     pi_kp: float = 0.5
     pi_ki: float = 0.05
-    pi_ff: float = 7.5  # near steady-state dose at default acid load
+    pi_ff: float = 175.0  # near steady-state dose at default acid load
     pi_output_min: float = 0.0
-    pi_output_max: float = 10.0
+    pi_output_max: float = 300.0
     pi_max_integral: float = 20.0
 
     # pH sensor

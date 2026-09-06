@@ -113,7 +113,7 @@ def test_chlorine_adapter_tracks_configured_action_bounds() -> None:
 @pytest.mark.parametrize(
     ("benchmark_name", "expected_low", "expected_high"),
     [
-        ("ph_neutralization", 0.0, 10.0),
+        ("ph_neutralization", 0.0, 300.0),
         ("equalization_tank", 0.0, 150.0),
     ],
 )

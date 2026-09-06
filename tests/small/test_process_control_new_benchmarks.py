@@ -15,6 +15,13 @@ from process_control.benchmarks.ph_neutralization import (
 
 
 class TestPhNeutralizationBenchmark:
+    def test_default_dose_authority_covers_nominal_acid_load(self) -> None:
+        config = PhNeutralizationBenchmarkConfig()
+
+        assert config.pump_max_dose == 300.0
+        assert config.pi_ff == 175.0
+        assert config.pi_output_max == config.pump_max_dose
+
     def test_reset_returns_state_and_obs(self) -> None:
         config = PhNeutralizationBenchmarkConfig()
         reset_fn, _step_fn = make_ph_neutralization_benchmark(config)
