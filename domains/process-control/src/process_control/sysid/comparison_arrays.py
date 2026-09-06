@@ -63,17 +63,18 @@ def prepare_trace_comparison(
     """Validate and align named trace signals for downstream consumers."""
     if reference.n_steps != candidate.n_steps:
         raise ValueError("reference and candidate traces must have equal lengths")
-    if not isclose(
-        reference.sample_period,
-        candidate.sample_period,
-        rel_tol=0.0,
-        abs_tol=spec.time_tolerance,
-    ):
-        raise ValueError("reference and candidate sample periods must match")
-    if not bool(jnp.all(jnp.abs(reference.time - candidate.time) <= spec.time_tolerance)):
-        raise ValueError("reference and candidate timestamps must match")
     if spec.warmup_steps >= reference.n_steps:
         raise ValueError("warmup_steps must leave at least one comparison row")
+    if spec.validate_alignment:
+        if not isclose(
+            reference.sample_period,
+            candidate.sample_period,
+            rel_tol=0.0,
+            abs_tol=spec.time_tolerance,
+        ):
+            raise ValueError("reference and candidate sample periods must match")
+        if not bool(jnp.all(jnp.abs(reference.time - candidate.time) <= spec.time_tolerance)):
+            raise ValueError("reference and candidate timestamps must match")
 
     pairs = tuple(spec.pairs)
     reference_signals = tuple(_find_signal(reference, pair.reference) for pair in pairs)

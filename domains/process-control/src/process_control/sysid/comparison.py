@@ -33,6 +33,11 @@ class TraceComparisonSpec:
     pairs: tuple[TraceSignalPair, ...]
     warmup_steps: int = 0
     time_tolerance: float = 1e-6
+    # False only when the caller otherwise guarantees candidate reuses
+    # reference's own time/sample_period verbatim and needs this comparison
+    # to run inside a jax.jit trace, where the alignment checks' bool() on a
+    # JAX value cannot execute.
+    validate_alignment: bool = True
 
     def __post_init__(self) -> None:
         if not self.pairs:
