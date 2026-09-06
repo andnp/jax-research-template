@@ -286,6 +286,26 @@ def _add_arm_observation(setup: ExperimentSetup, algorithm: str, learning_rate: 
     _add_observation(setup, {"condition_name": algorithm, "algorithm": algorithm, "learning_rate": learning_rate}, seed, value)
 
 
+def test_best_hypers_groups_by_the_condition_dimension(temp_experiment_setup: ExperimentSetup) -> None:
+    """group_by can name the dataset's condition dimension, not just declared sweep axes."""
+    setup = temp_experiment_setup
+    for algorithm, base in (("shared", 1.0), ("adversarial", 3.0)):
+        for learning_rate, offset in (("low", 0.0), ("high", 1.0)):
+            for seed in range(3):
+                _add_observation(setup, {"algorithm": algorithm, "learning_rate": learning_rate}, seed, base + offset + seed)
+    dataset = _load(
+        setup,
+        ExperimentDimensions(condition="algorithm", sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)),
+    )
+
+    reports = best_hypers(dataset, "metric", group_by=["algorithm"], verbose=False)
+
+    assert reports[("shared",)].winning_config == {"learning_rate": "high"}
+    assert reports[("shared",)].raw_mean == pytest.approx(3.0)
+    assert reports[("adversarial",)].winning_config == {"learning_rate": "high"}
+    assert reports[("adversarial",)].raw_mean == pytest.approx(5.0)
+
+
 def test_best_hypers_difference_pairs_by_seed_across_two_groups(temp_experiment_setup: ExperimentSetup) -> None:
     """The paired difference compares each arm's own champion, correlated by shared seed."""
     setup = temp_experiment_setup

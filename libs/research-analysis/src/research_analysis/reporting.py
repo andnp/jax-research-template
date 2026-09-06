@@ -327,8 +327,16 @@ def _load_dataset_hyperparameter_records(
     hyperparameter_keys: Sequence[str],
     metric_name: str,
 ) -> list[dict[str, Any]]:
-    """Return final metric values joined to the dataset's declared sweep axes."""
-    missing_keys = [key for key in hyperparameter_keys if key not in dataset.runs.columns]
+    """Return final metric values joined to the dataset's declared sweep axes and condition.
+
+    A requested key equal to ``dataset.dimensions.condition`` is read from the
+    physical ``condition_name`` column, since the condition dimension is never
+    itself a declared ``SweepAxis``.
+    """
+    run_columns = {
+        key: ("condition_name" if key == dataset.dimensions.condition else key) for key in hyperparameter_keys
+    }
+    missing_keys = [key for key, column in run_columns.items() if column not in dataset.runs.columns]
     if missing_keys:
         raise ValueError(f"No declared sweep axes found for {missing_keys!r}")
 
@@ -338,11 +346,12 @@ def _load_dataset_hyperparameter_records(
         .group_by(["run_id", "execution_id"])
         .agg(pl.col("value").last().alias("value"))
     )
-    run_columns = ["run_id", "seed", *hyperparameter_keys]
-    joined = final_metrics.join(dataset.runs.select(run_columns), on=["run_id"], how="inner")
+    joined = final_metrics.join(
+        dataset.runs.select(["run_id", "seed", *run_columns.values()]), on=["run_id"], how="inner"
+    )
     records: list[dict[str, Any]] = []
     for row in joined.iter_rows(named=True):
-        hypers = {key: row[key] for key in hyperparameter_keys}
+        hypers = {key: row[column] for key, column in run_columns.items()}
         records.append({"run_id": row["run_id"], "seed": row["seed"], "value": row["value"], "hypers": hypers})
 
     if not records:
@@ -502,13 +511,17 @@ def best_hypers(
     ``group_by`` must name exactly one axis, and the paired difference between the two
     named values' own champion configurations is returned instead, correlated by
     shared seed so that common sampling noise cancels out.
+
+    ``group_by``/``difference_between`` may also name the dataset's condition
+    dimension (e.g. an algorithm arm), in addition to declared sweep axes.
     """
     declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
+    groupable_axes = declared_axes | {dataset.dimensions.condition}
     group_keys = list(group_by or ())
-    undeclared_axes = set(group_keys) - declared_axes
+    undeclared_axes = set(group_keys) - groupable_axes
     if undeclared_axes:
         raise ValueError(
-            "hyperparameter analysis requires declared typed sweep axes; "
+            "hyperparameter analysis requires declared typed sweep axes or the condition dimension; "
             f"undeclared keys: {sorted(undeclared_axes)}"
         )
 
@@ -534,7 +547,7 @@ def best_hypers(
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name)
 
     if group_keys:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -747,7 +760,7 @@ def _best_hypers_difference(
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | {group_axis}), metric_name)
     records_a = [record for record in records if record["hypers"].get(group_axis) == minuend]
     records_b = [record for record in records if record["hypers"].get(group_axis) == subtrahend]
     if not records_a:
@@ -882,7 +895,7 @@ def slice_hypers(
         min_samples=min_samples,
         random_seed=random_seed,
     )
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name)
 
     if group_keys:
         assert isinstance(champions, dict)
