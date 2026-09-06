@@ -156,8 +156,10 @@ consumer demonstrates that need.
 
 #### `gradient_snr(grads_batch, *, epsilon=1e-8)`
 
-`grads_batch` is a pytree whose every leaf has a leading batch axis of size
-`B`; the batch may represent seeds, observations, or repeated gradient
+`grads_batch` is a pytree whose every leaf has at least one dimension and whose
+leading batch axis has the same nonzero size `B` across all leaves; an empty
+pytree or `B = 0` returns float32 `0.0`. Scalar leaves are rejected. The batch
+may represent seeds, observations, or repeated gradient
 estimates, but the caller must use one interpretation per metric series. Define
 `\bar g = mean_b(g_b)` and compute the global pytree ratio:
 
@@ -176,7 +178,9 @@ the batch size alongside the metric if that distinction matters scientifically.
 
 #### `update_ratio(params, updates, *, epsilon=1e-8)`
 
-`params` and `updates` are identically structured pytrees. Return
+`params` and `updates` are identically structured pytrees with matching shapes
+for every corresponding leaf. A treedef or leaf-shape mismatch is rejected.
+Return
 
 \[
   \frac{\|updates\|_2}{\|params\|_2 + \epsilon}.
