@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from experiment_definition.db import DatabaseManager
 
-from research_analysis.dataset.dimensions import build_run_row, cohort_matches
+from research_analysis.dataset.dimensions import cohort_matches, resolve_dimensions
 from research_analysis.dataset.types import CohortSelection, ExperimentDimensions, RunArtifacts
 from research_analysis.dataset.versions import VersionedCandidate, VersionSet
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
@@ -35,25 +35,33 @@ def build_rows(
             )
             continue
         hyperparameters = hyper_config.hyperparameters
-        if not isinstance(hyperparameters, dict):
-            diagnostics.add(
-                DiagnosticCode.MISSING_DIMENSION,
-                "hyperparameter configuration is not an object",
-                completed_run.run.id,
-                completed_run.execution.id,
-            )
-            continue
-        row = build_run_row(
-            completed_run.run,
-            completed_run.execution,
-            completed_run.artifacts.metrics_db_path,
-            candidate.provenance,
+        dimension_values = resolve_dimensions(
             hyperparameters,
             dimensions,
+            completed_run.run.id,
+            completed_run.execution.id,
             diagnostics,
         )
-        if row is None:
+        if dimension_values is None:
             continue
+        row: dict[str, object] = {
+            "condition_name": dimension_values.condition_name,
+            "seed": completed_run.run.seed,
+            "run_id": completed_run.run.id,
+            "execution_id": completed_run.execution.id,
+            "ablation": completed_run.run.ablation,
+            "metrics_db_path": completed_run.artifacts.metrics_db_path,
+            **dimension_values.sweep_values,
+        }
+        if dimension_values.environment_name is not None:
+            row["env_name"] = dimension_values.environment_name
+        for item in candidate.provenance:
+            prefix = "algo" if item.component_type == "ALGO" else "env"
+            row[f"{prefix}_component_name"] = item.component_name
+            row[f"{prefix}_component_type"] = item.component_type
+            row[f"{prefix}_version_id"] = item.version_id
+            row[f"{prefix}_version_number"] = item.version_number
+            row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
         if cohort is not None and not cohort_matches(row, cohort):
             continue
         rows.append(row)
