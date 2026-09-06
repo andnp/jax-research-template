@@ -184,3 +184,52 @@ class TestMatchesDiscreteGiQrcAnchoredChain:
         new_grad_theta, new_grad_h = jax.grad(_anchored_new, argnums=(0, 1))(theta, h, **kwargs)
         assert jnp.allclose(ref_grad_theta, new_grad_theta, atol=1e-5)
         assert jnp.allclose(ref_grad_h, new_grad_h, atol=1e-5)
+
+
+def _discrete_target_free_reference(theta: jax.Array, h: jax.Array, *, reward: jax.Array, gamma: jax.Array) -> jax.Array:
+    """discrete_gi_qrc.py's ``_gi_qrc_loss`` target-free branch, before this module existed.
+
+    Already had the duplicate-bootstrap-reference fix (dropping ``h[1]``) baked in, unlike
+    gi_sac's original formula -- so, unlike the SAC case above, no amendment is needed here.
+    ``theta`` stands in for the shared online value read by both ``q_online`` and
+    ``v_next_all`` (own current and own next-value), matching one network's params
+    evaluated at two inputs.
+    """
+    sg = jax.lax.stop_gradient
+    q_online = theta
+    v_next_all = theta
+    v_next_for_head = jnp.concatenate([v_next_all[:1], v_next_all[:-1]])
+
+    y = reward + gamma * v_next_for_head
+    delta = sg(y) - q_online
+    q_loss = jnp.sum(0.5 * delta**2)
+
+    grad_h = jnp.concatenate([h[:1], h[2:]])
+    grad_v_next = jnp.concatenate([v_next_for_head[:1], v_next_for_head[2:]])
+    grad_term = jnp.sum(gamma * sg(grad_h) * grad_v_next)
+    h_loss = jnp.sum(0.5 * (sg(delta) - h) ** 2)
+    return q_loss + grad_term + h_loss
+
+
+def _discrete_target_free_new(theta: jax.Array, h: jax.Array, *, reward: jax.Array, gamma: jax.Array) -> jax.Array:
+    active = jnp.ones_like(h, dtype=bool)
+    boot_idx = bootstrap_index(theta.shape[0])
+    loss, _ = gtd_iteration_correction(theta, theta, h, active, boot_idx, reward, gamma)
+    return loss
+
+
+class TestMatchesDiscreteGiQrcTargetFreeChain:
+    def test_values_and_gradients_match_the_original_formula(self) -> None:
+        theta_key, h_key = jax.random.split(jax.random.key(2))
+        theta = jax.random.normal(theta_key, (NUM_HEADS,))
+        h = jax.random.normal(h_key, (NUM_HEADS,))
+        kwargs = dict(reward=jnp.float32(0.4), gamma=jnp.float32(0.9))
+
+        ref_loss = _discrete_target_free_reference(theta, h, **kwargs)
+        new_loss = _discrete_target_free_new(theta, h, **kwargs)
+        assert jnp.allclose(ref_loss, new_loss, atol=1e-5)
+
+        ref_grad_theta, ref_grad_h = jax.grad(_discrete_target_free_reference, argnums=(0, 1))(theta, h, **kwargs)
+        new_grad_theta, new_grad_h = jax.grad(_discrete_target_free_new, argnums=(0, 1))(theta, h, **kwargs)
+        assert jnp.allclose(ref_grad_theta, new_grad_theta, atol=1e-5)
+        assert jnp.allclose(ref_grad_h, new_grad_h, atol=1e-5)
