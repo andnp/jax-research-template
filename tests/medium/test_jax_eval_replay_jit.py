@@ -9,6 +9,10 @@ def _staleness_pair(current: jax.Array, sampled: jax.Array, mask: jax.Array) -> 
     return sample_staleness(current, sampled, mask)
 
 
+def _unmasked_staleness_pair(current: jax.Array, sampled: jax.Array) -> jax.Array:
+    return sample_staleness(current, sampled)
+
+
 def test_priority_utilization_runs_under_jit_and_vmap() -> None:
     """Compile independent priority distributions under jit and vmap."""
     priorities = jnp.array([[1.0, 1.0, 1.0, 1.0], [1.0, 0.0, 1.0, 0.0]])
@@ -48,6 +52,16 @@ def test_sample_staleness_runs_under_jit_and_vmap() -> None:
     result = jax.jit(jax.vmap(_staleness_pair))(current, sampled, masks)
 
     assert jnp.allclose(result, jnp.array([1.0, 5.0]))
+
+
+def test_sample_staleness_unmasked_runs_under_jit_and_vmap() -> None:
+    """Compile unmasked large-counter sample ages under jit and vmap."""
+    current = jnp.array([2**24 + 1, 2**24 + 3], dtype=jnp.uint32)
+    sampled = jnp.array([[2**24], [2**24 + 4]], dtype=jnp.uint32)
+
+    result = jax.jit(jax.vmap(_unmasked_staleness_pair))(current, sampled)
+
+    assert jnp.allclose(result, jnp.array([1.0, -1.0]))
 
 
 def test_sample_staleness_runs_inside_lax_scan() -> None:
