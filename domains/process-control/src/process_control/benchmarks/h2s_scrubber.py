@@ -157,6 +157,7 @@ class H2SScrubberConfig:
     sump_oxidation_rate: float = 0.5
     sump_alkalinity_consumption: float = 1.0
     sump_caustic_yield: float = 0.5
+    sump_ph_amplitude: float = 3.0
 
     # ── Contactor ─────────────────────────────────────────────────
     contactor_base_efficiency: float = 0.99
@@ -308,7 +309,7 @@ def make_h2s_scrubber_benchmark(
         alkalinity=config.sump_initial_alkalinity,
         volume=config.sump_nominal_volume,
     )
-    _init_ph = float(compute_ph(_init_sump))
+    _init_ph = float(compute_ph(_init_sump, config.sump_ph_amplitude))
     _init_orp = float(compute_orp(_init_sump))
 
     def reset(rng_key: jax.Array) -> tuple[H2SScrubberState, jax.Array]:
@@ -385,7 +386,7 @@ def make_h2s_scrubber_benchmark(
         )
 
         # ── 4. Dosing loops: process true PVs from sump ──────────
-        true_ph = compute_ph(state.sump)
+        true_ph = compute_ph(state.sump, config.sump_ph_amplitude)
         true_orp = compute_orp(state.sump)
         true_level = state.sump.volume
         true_makeup_flow = state.makeup_loop.pump_output

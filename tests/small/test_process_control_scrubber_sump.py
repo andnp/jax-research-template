@@ -209,6 +209,13 @@ def test_ph_monotonic_in_alkalinity():
     assert compute_ph(low) < compute_ph(mid) < compute_ph(high)
 
 
+def test_ph_amplitude_raises_the_saturation_ceiling():
+    """A wider amplitude must raise the achievable pH ceiling, not just rescale it."""
+    high = ScrubberSumpState.create(alkalinity=50.0)
+
+    assert compute_ph(high, amplitude=3.0) < compute_ph(high, amplitude=7.0)
+
+
 def test_orp_increases_with_oxidant():
     """Higher oxidant (at constant sulfide) should give higher ORP."""
     low = ScrubberSumpState.create(oxidant=1.0, sulfide=1.0)

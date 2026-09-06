@@ -209,14 +209,17 @@ def step(
 # ── Derived quantities ────────────────────────────────────────────────
 
 
-def compute_ph(state: ScrubberSumpState) -> jax.Array:
+def compute_ph(state: ScrubberSumpState, amplitude: float = 3.0) -> jax.Array:
     """Approximate sump pH from alkalinity state.
 
     Simple sigmoid mapping: low alkalinity → acidic, high → basic.
     Real pH depends on full carbonate/hydroxide speciation, but this
     captures the monotonic caustic→pH relationship the controller needs.
+    `amplitude` sets the ceiling (7 + amplitude) and floor (7 - amplitude);
+    it must exceed the real plant's observed pH range or the model
+    saturates and stops responding to further alkalinity changes there.
     """
-    return jnp.array(7.0) + jnp.array(3.0) * jnp.tanh((state.alkalinity - 2.0) / 3.0)
+    return jnp.array(7.0) + jnp.array(amplitude) * jnp.tanh((state.alkalinity - 2.0) / 3.0)
 
 
 def compute_orp(state: ScrubberSumpState) -> jax.Array:
