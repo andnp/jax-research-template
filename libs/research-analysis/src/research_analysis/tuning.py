@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-import polars as pl
 from numpy.typing import NDArray
-
-from research_analysis.dataset import ExperimentDataset
 
 
 @dataclass(frozen=True)
@@ -176,129 +173,3 @@ def _build_hyper_matrix(
     return matrix, keys_sorted, seeds_sorted
 
 
-def _all_keys(primary: Sequence[str], condition: Mapping[str, Any] | None) -> list[str]:
-    """Union of the tuned keys and any fixed-condition keys, tuned keys first, no duplicates."""
-    keys: list[str] = list(primary)
-    for key in condition or {}:
-        if key not in keys:
-            keys.append(key)
-    return keys
-
-
-def _filter_condition(
-    records: list[dict[str, Any]], condition: Mapping[str, Any] | None
-) -> list[dict[str, Any]]:
-    """Restrict records to those whose hypers match every key/value in condition."""
-    if not condition:
-        return records
-    return [record for record in records if all(record["hypers"].get(k) == v for k, v in condition.items())]
-
-
-def _dataset_hyperparameter_records(
-    dataset: ExperimentDataset,
-    hyperparameter_keys: Sequence[str],
-    metric_name: str,
-) -> list[dict[str, Any]]:
-    run_columns = {
-        key: "condition_name" if key == dataset.dimensions.condition else key for key in hyperparameter_keys
-    }
-    missing_keys = [key for key, column in run_columns.items() if column not in dataset.runs.columns]
-    if missing_keys:
-        raise ValueError(f"No declared dataset dimensions found for {missing_keys!r}")
-
-    final_metrics = (
-        dataset.metrics.filter(pl.col("metric") == metric_name)
-        .sort(["run_id", "execution_id", "step"])
-        .group_by(["run_id", "execution_id"])
-        .agg(pl.col("value").last().alias("value"))
-    )
-    joined = final_metrics.join(
-        dataset.runs.select(["run_id", "seed", *run_columns.values()]),
-        on="run_id",
-        how="inner",
-    )
-    records = [
-        {
-            "run_id": row["run_id"],
-            "seed": row["seed"],
-            "value": row["value"],
-            "hypers": {key: row[column] for key, column in run_columns.items()},
-        }
-        for row in joined.iter_rows(named=True)
-    ]
-    if not records:
-        raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
-    return records
-
-
-def hierarchical_bootstrap_ci_from_experiment(
-    dataset: ExperimentDataset,
-    hyperparameter_keys: Sequence[str],
-    metric_name: str,
-    h_samples: int,
-    e_samples: int,
-    *,
-    confidence: float = 0.95,
-    n_resamples: int = 10_000,
-    selection_trials: int = 200,
-    seed: int = 42,
-) -> HierarchicalBootstrapCI:
-    """Evaluate a declared dataset hyperparameter grid via hierarchical bootstrap."""
-    records = _dataset_hyperparameter_records(dataset, hyperparameter_keys, metric_name)
-    matrix, _keys, _seeds = _build_hyper_matrix(records, hyperparameter_keys)
-    return hierarchical_bootstrap_ci(
-        matrix,
-        h_samples,
-        e_samples,
-        confidence=confidence,
-        n_resamples=n_resamples,
-        selection_trials=selection_trials,
-        seed=seed,
-    )
-
-
-def hierarchical_bootstrap_difference_ci_from_experiment(
-    dataset: ExperimentDataset,
-    hyperparameter_keys_a: Sequence[str],
-    hyperparameter_keys_b: Sequence[str],
-    metric_name: str,
-    h_samples: int,
-    e_samples: int,
-    *,
-    condition_a: Mapping[str, Any] | None = None,
-    condition_b: Mapping[str, Any] | None = None,
-    confidence: float = 0.95,
-    n_resamples: int = 10_000,
-    selection_trials: int = 200,
-    seed: int = 42,
-) -> HierarchicalBootstrapDifferenceCI:
-    """Evaluate two independently tuned dataset arms via paired bootstrap."""
-    all_keys_a = _all_keys(hyperparameter_keys_a, condition_a)
-    all_keys_b = _all_keys(hyperparameter_keys_b, condition_b)
-
-    records_a = _filter_condition(
-        _dataset_hyperparameter_records(dataset, all_keys_a, metric_name), condition_a
-    )
-    records_b = _filter_condition(
-        _dataset_hyperparameter_records(dataset, all_keys_b, metric_name), condition_b
-    )
-
-    matrix_a, _keys_a, seeds_a = _build_hyper_matrix(records_a, hyperparameter_keys_a)
-    matrix_b, _keys_b, seeds_b = _build_hyper_matrix(records_b, hyperparameter_keys_b)
-
-    common_seeds = sorted(set(seeds_a) & set(seeds_b))
-    if not common_seeds:
-        raise ValueError("no seed has a completed run under every combination of both arms")
-    matrix_a = matrix_a[:, [seeds_a.index(s) for s in common_seeds]]
-    matrix_b = matrix_b[:, [seeds_b.index(s) for s in common_seeds]]
-
-    return hierarchical_bootstrap_difference_ci(
-        matrix_a,
-        matrix_b,
-        h_samples,
-        e_samples,
-        confidence=confidence,
-        n_resamples=n_resamples,
-        selection_trials=selection_trials,
-        seed=seed,
-    )
