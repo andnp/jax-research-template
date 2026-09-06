@@ -28,25 +28,25 @@ class ContactorParams:
     """Gas-liquid contactor parameters."""
 
     # ── Base transfer ─────────────────────────────────────────────
-    max_efficiency: float = 0.99  # theoretical max removal at perfect conditions
-    base_efficiency: float = 0.90  # removal at nominal conditions
+    max_efficiency: float | jax.Array = 0.99  # theoretical max removal at perfect conditions
+    base_efficiency: float | jax.Array = 0.90  # removal at nominal conditions
 
     # ── Oxidant effect ────────────────────────────────────────────
-    oxidant_half_sat: float = 3.0  # mg/L – half-saturation for oxidant effect
-    oxidant_weight: float = 0.5  # relative importance (0–1)
+    oxidant_half_sat: float | jax.Array = 3.0  # mg/L – half-saturation for oxidant effect
+    oxidant_weight: float | jax.Array = 0.5  # relative importance (0–1)
 
     # ── Alkalinity effect ─────────────────────────────────────────
-    alkalinity_half_sat: float = 2.0  # meq/L – half-saturation
-    alkalinity_weight: float = 0.3  # relative importance (0–1)
+    alkalinity_half_sat: float | jax.Array = 2.0  # meq/L – half-saturation
+    alkalinity_weight: float | jax.Array = 0.3  # relative importance (0–1)
 
     # ── Gas flow effect ───────────────────────────────────────────
-    nominal_gas_flow: float = 500.0  # m³/h – design gas flow
-    gas_flow_exponent: float = -0.3  # efficiency ∝ (Q/Q_nom)^exp (negative = higher flow → lower eff)
+    nominal_gas_flow: float | jax.Array = 500.0  # m³/h – design gas flow
+    gas_flow_exponent: float | jax.Array = -0.3  # efficiency ∝ (Q/Q_nom)^exp (negative = higher flow → lower eff)
 
     # ── Recirculation effect ──────────────────────────────────────
-    nominal_recirc: float = 50.0  # m³/h – design recirculation rate
-    recirc_weight: float = 0.2  # relative importance (0–1)
-    recirc_half_sat: float = 25.0  # m³/h – half-saturation
+    nominal_recirc: float | jax.Array = 50.0  # m³/h – design recirculation rate
+    recirc_weight: float | jax.Array = 0.2  # relative importance (0–1)
+    recirc_half_sat: float | jax.Array = 25.0  # m³/h – half-saturation
 
 
 @dataclass(frozen=True)
