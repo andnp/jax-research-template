@@ -67,14 +67,30 @@ class DuelingHead(TypedApply[Array], nn.Module):
         return v + (a - jnp.mean(a, axis=-1, keepdims=True))
 
 
+def _init_multi_head_kernel(
+    num_heads: int, head_shape: tuple[int, ...]
+) -> nn.initializers.Initializer:
+    """``lecun_normal`` computed on the flattened ``(width, num_heads * prod(head_shape))``
+    fan shape, then reshaped so the stored kernel keeps ``num_heads`` as its own axis --
+    the shape :func:`jax_utils.pytree.shift_head_readout` needs to shift whole heads."""
+    flat = math.prod(head_shape)
+
+    def init(key: Array, shape: tuple[int, ...], dtype: jnp.dtype = jnp.float32) -> Array:
+        width = shape[0]
+        flat_kernel = nn.initializers.lecun_normal()(key, (width, num_heads * flat), dtype)
+        return flat_kernel.reshape(shape)
+
+    return init
+
+
 class MultiHeadReadout(TypedApply[Array], nn.Module):
     """Linear multi-head readout over shared trunk features.
 
-    One einsum over a single ``(width, num_heads * prod(head_shape))`` kernel produces every
-    head's ``head_shape``-shaped output: ``head_shape=()`` gives a per-head scalar (an SAC-style
+    One einsum over a ``(width, num_heads, *head_shape)`` kernel produces every head's
+    ``head_shape``-shaped output: ``head_shape=()`` gives a per-head scalar (an SAC-style
     Q- or H-head), ``head_shape=(action_dim,)`` a per-head action-value vector (a QRC-style
     Q- or H-head). :func:`jax_utils.pytree.shift_head_readout` rotates its ``kernel``/``bias``
-    params to advance a Bellman-iteration chain by one head.
+    params along their ``num_heads`` axis to advance a Bellman-iteration chain by one head.
     """
 
     num_heads: int
@@ -85,8 +101,11 @@ class MultiHeadReadout(TypedApply[Array], nn.Module):
     def __call__(self, phi: Array) -> Array:
         width = phi.shape[-1]
         flat = math.prod(self.head_shape)
-        kernel = self.param("kernel", nn.initializers.lecun_normal(), (width, self.num_heads * flat))
-        out = jnp.einsum("f,fh->h", phi, kernel).reshape((self.num_heads, *self.head_shape))
+        kernel = self.param(
+            "kernel", _init_multi_head_kernel(self.num_heads, self.head_shape), (width, self.num_heads, *self.head_shape)
+        )
+        out = jnp.einsum("f,fh->h", phi, kernel.reshape(width, self.num_heads * flat))
+        out = out.reshape((self.num_heads, *self.head_shape))
         if self.use_bias:
             out = out + self.param("bias", nn.initializers.zeros, (self.num_heads, *self.head_shape))
         return out
