@@ -13,7 +13,7 @@ from typing import Any, overload
 
 import numpy as np
 import polars as pl
-from research_plot.plots import plot_distributions, plot_ecdf, plot_sensitivity
+from research_plot.plots import plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -49,29 +49,6 @@ class StatisticalTestDetails:
     assumptions: dict[str, Any]
     justification: str
     intermediate_tests: dict[str, StatisticalTestDetails]
-
-
-@dataclass(frozen=True)
-class ABComparisonReport:
-    experiment_name: str
-    condition_a: str
-    condition_b: str
-    metric_name: str
-    estimand: str
-    pairing: str
-    alpha: float
-    n_resamples: int
-    min_samples: int
-    missingness: str
-    mean_a: float
-    mean_b: float
-    difference_in_means: float
-    estimate_a: float
-    estimate_b: float
-    difference_in_estimand: float
-    difference_ci: tuple[float, float]
-    test_details: StatisticalTestDetails
-    distribution_plot_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -131,205 +108,7 @@ class BenchmarkBakeoffReport:
     aggregate_plot_path: Path | None
 
 
-@dataclass(frozen=True)
-class _PairwiseStatistics:
-    test_details: StatisticalTestDetails
-    difference_ci: tuple[float, float]
-
-
 # ── Entry Points ─────────────────────────────────────────────────────────────
-
-
-def _load_pairwise_data(
-    dataset: ExperimentDataset,
-    condition_a: str,
-    condition_b: str,
-    metric_name: str,
-    spec: ComparisonSpec,
-) -> tuple[str, np.ndarray, np.ndarray, bool]:
-    all_metrics = dataset.metrics.filter(pl.col("metric") == metric_name).sort("step")
-    missing_keys = [key for key in spec.pairing_keys if key not in all_metrics.columns]
-    if missing_keys:
-        raise ValueError(f"Pairing keys are absent from loaded metrics: {missing_keys}")
-    if spec.missingness == "blockwise":
-        raise ValueError("pairwise comparisons do not support missingness='blockwise'")
-    keys = list(spec.pairing_keys)
-    final_per_run = all_metrics.group_by(["condition_name", *spec.pairing_keys]).agg(pl.col("value").last())
-    rows_a = final_per_run.filter(pl.col("condition_name") == condition_a).sort(keys)
-    rows_b = final_per_run.filter(pl.col("condition_name") == condition_b).sort(keys)
-    if rows_a.is_empty() or rows_b.is_empty():
-        raise ValueError(
-            f"No completed runs found for condition_name={condition_a!r} and condition_name={condition_b!r}"
-        )
-
-    key_a = rows_a.select(keys)
-    key_b = rows_b.select(keys)
-    keys_a = set(key_a.rows())
-    keys_b = set(key_b.rows())
-    same_keys = keys_a == keys_b
-    partial_overlap = bool(keys_a & keys_b) and not same_keys
-    if spec.pairing == "auto" and partial_overlap and spec.missingness == "error":
-        raise ValueError(
-            "automatic pairing found partially overlapping pairing keys; "
-            "use missingness='complete_case' to pair the overlap explicitly"
-        )
-    is_paired = spec.pairing == "paired" or (spec.pairing == "auto" and (same_keys or partial_overlap))
-    if not is_paired:
-        return dataset.experiment_name, rows_a["value"].to_numpy(), rows_b["value"].to_numpy(), False
-    if not same_keys and spec.missingness != "complete_case":
-        raise ValueError(
-            "paired comparison requires identical pairing keys unless missingness='complete_case'"
-        )
-    paired = key_a.with_columns(rows_a["value"].alias("value_a")).join(
-        key_b.with_columns(rows_b["value"].alias("value_b")), on=keys, how="inner"
-    ).sort(keys)
-    return dataset.experiment_name, paired["value_a"].to_numpy(), paired["value_b"].to_numpy(), True
-
-
-def _compute_pairwise_statistics(
-    vals_a: np.ndarray,
-    vals_b: np.ndarray,
-    *,
-    spec: ComparisonSpec,
-    is_paired: bool,
-) -> _PairwiseStatistics:
-    pairing = "paired" if is_paired else "independent"
-    permutation = run_permutation_test(
-        vals_a,
-        vals_b,
-        estimand=spec.estimand,
-        pairing=pairing,
-        alpha=spec.alpha,
-        n_resamples=spec.n_resamples,
-        min_samples=spec.min_samples,
-        rng=np.random.default_rng(spec.random_seed),
-    )
-    interval = bootstrap_difference_ci(
-        vals_a,
-        vals_b,
-        estimand=spec.estimand,
-        pairing=pairing,
-        confidence=spec.confidence_level,
-        n_resamples=spec.n_resamples,
-        min_samples=spec.min_samples,
-        rng=np.random.default_rng(spec.random_seed),
-    )
-    return _PairwiseStatistics(
-        test_details=StatisticalTestDetails(
-            test_name=f"{pairing.title()} permutation test",
-            statistic=permutation.statistic,
-            p_value=permutation.p_value,
-            effect_size=permutation.statistic,
-            is_significant=permutation.is_significant,
-            assumptions={
-                "paired": is_paired,
-                "estimand": spec.estimand,
-                "alpha": spec.alpha,
-                "n_resamples": spec.n_resamples,
-                "min_samples": spec.min_samples,
-                "missingness": spec.missingness,
-            },
-            justification="Permutation inference follows the declared comparison design without a normality pretest.",
-            intermediate_tests={},
-        ),
-        difference_ci=(interval.ci_low, interval.ci_high),
-    )
-
-
-def _plot_pairwise(
-    vals_a: np.ndarray,
-    vals_b: np.ndarray,
-    condition_a: str,
-    condition_b: str,
-    experiment_slug: str,
-) -> Path:
-    plot_path = Path("results/analysis") / experiment_slug / "ab_comparison.png"
-    plot_distributions(vals_a, vals_b, condition_a, condition_b, plot_path)
-    return plot_path
-
-
-def _present_pairwise(
-    report: ABComparisonReport,
-    vals_a: np.ndarray,
-    vals_b: np.ndarray,
-    condition_a: str,
-    condition_b: str,
-    metric_name: str,
-) -> None:
-    console = Console()
-    console.print()
-    console.print(
-        Panel(
-            Text(f"🔬 PAIRWISE REPORT: {report.experiment_name}", style="bold cyan"),
-            subtitle=f"Metric: {metric_name}",
-        )
-    )
-
-    table = Table(title="Descriptive Statistics", show_header=True, header_style="bold magenta")
-    table.add_column("Group", style="dim")
-    table.add_column("N", justify="right")
-    table.add_column("Mean", justify="right")
-    table.add_column(f"{report.estimand.title()} estimate", justify="right")
-    table.add_column("Std Dev", justify="right")
-    table.add_row(
-        condition_a,
-        str(len(vals_a)),
-        f"{report.mean_a:.2f}",
-        f"{report.estimate_a:.2f}",
-        f"{np.std(vals_a, ddof=1):.2f}",
-    )
-    table.add_row(
-        condition_b,
-        str(len(vals_b)),
-        f"{report.mean_b:.2f}",
-        f"{report.estimate_b:.2f}",
-        f"{np.std(vals_b, ddof=1):.2f}",
-    )
-    console.print(table)
-
-    test_details = report.test_details
-    console.print(
-        Panel(
-            Text.assemble(
-                ("Declared Inference Design:\n", "bold"),
-                (f"• Test: {test_details.test_name}\n", "yellow"),
-                (f"• Estimand: {report.estimand}\n"),
-                (f"• Pairing: {report.pairing}\n"),
-                (f"• Alpha: {report.alpha:.3f}\n"),
-                (f"• Resamples: {report.n_resamples}\n"),
-                (f"• Justification: {test_details.justification}"),
-            ),
-            title="Methodology Justification Box",
-        )
-    )
-
-    sig_style = "bold green" if test_details.is_significant else "bold red"
-    sig_text = "Statistically Significant" if test_details.is_significant else "Not Statistically Significant"
-    console.print(
-        Panel(
-            Text.assemble(
-                ("Statistic       : ", "dim"), (f"{test_details.statistic:.4f}\n"),
-                ("p-value         : ", "dim"), (f"{test_details.p_value:.4f} ", sig_style), (f"({sig_text})\n", sig_style),
-                (f"Difference {report.estimand.title()} : ", "dim"),
-                (f"{report.difference_in_estimand:.4f}\n"),
-                (f"BCa {1.0 - report.alpha:.0%} CI       : ", "dim"),
-                (f"[{report.difference_ci[0]:.2f}, {report.difference_ci[1]:.2f}]\n\n"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    f"There is a {report.test_details.p_value * 100:.2f}% chance that we would observe "
-                    "a difference this large purely due to random variations if the two algorithms "
-                    "were completely identical in performance."
-                ),
-            ),
-            title="Findings & Interpretation",
-        )
-    )
-    console.print(
-        Panel(
-            Text(f"Saved distribution visual artifact to: {report.distribution_plot_path}", style="italic green"),
-            title="Artifact Outputs Panel",
-        )
-    )
 
 
 def _load_dataset_hyperparameter_records(
@@ -367,82 +146,6 @@ def _load_dataset_hyperparameter_records(
     if not records:
         raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
     return records
-
-
-def compare_pairwise(
-    dataset: ExperimentDataset,
-    condition_a: str,
-    condition_b: str,
-    metric_name: str,
-    confidence_level: float = 0.95,
-    verbose: bool = True,
-    spec: ComparisonSpec | None = None,
-) -> ABComparisonReport:
-    """Compare exactly two conditions using a declared statistical design."""
-    if spec is None:
-        if not 0 < confidence_level < 1:
-            raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
-        spec = ComparisonSpec(alpha=1.0 - confidence_level)
-    elif confidence_level != 0.95:
-        raise ValueError("pass confidence through spec when spec is provided")
-    experiment_name, vals_a, vals_b, is_paired = _load_pairwise_data(
-        dataset,
-        condition_a,
-        condition_b,
-        metric_name,
-        spec,
-    )
-
-    pairwise_statistics = _compute_pairwise_statistics(
-        vals_a,
-        vals_b,
-        spec=spec,
-        is_paired=is_paired,
-    )
-    test_details = pairwise_statistics.test_details
-    ci_low, ci_high = pairwise_statistics.difference_ci
-
-    plot_path = _plot_pairwise(
-        vals_a,
-        vals_b,
-        condition_a,
-        condition_b,
-        dataset.experiment_name,
-    )
-
-    report = ABComparisonReport(
-        experiment_name=experiment_name,
-        condition_a=condition_a,
-        condition_b=condition_b,
-        metric_name=metric_name,
-        estimand=spec.estimand,
-        pairing="paired" if is_paired else "independent",
-        alpha=spec.alpha,
-        n_resamples=spec.n_resamples,
-        min_samples=spec.min_samples,
-        missingness=spec.missingness,
-        mean_a=float(np.mean(vals_a)),
-        mean_b=float(np.mean(vals_b)),
-        difference_in_means=float(np.mean(vals_a) - np.mean(vals_b)),
-        estimate_a=float(np.mean(vals_a) if spec.estimand == "mean" else np.median(vals_a)),
-        estimate_b=float(np.mean(vals_b) if spec.estimand == "mean" else np.median(vals_b)),
-        difference_in_estimand=pairwise_statistics.test_details.statistic,
-        difference_ci=(float(ci_low), float(ci_high)),
-        test_details=test_details,
-        distribution_plot_path=plot_path,
-    )
-
-    if verbose:
-        _present_pairwise(
-            report,
-            vals_a,
-            vals_b,
-            condition_a,
-            condition_b,
-            metric_name,
-        )
-
-    return report
 
 
 @overload
@@ -1283,8 +986,15 @@ def _compute_bakeoff_statistics(
 
     matrix = np.array(matrix, dtype=np.float64)
     observed_counts = np.isfinite(matrix).sum(axis=1)
-    valid_rows = observed_counts >= 2
-    dropped_singleton_blocks = int(np.sum(observed_counts == 1))
+    incomplete_rows = int(np.sum((observed_counts >= 1) & (observed_counts < len(conditions))))
+    if incomplete_rows > 0 and spec.missingness == "error":
+        raise ValueError(f"bakeoff contains {incomplete_rows} incomplete block(s) under missingness='error'")
+    # complete_case keeps only rows where every condition was observed, matching
+    # compare_pairwise's old pairing-key intersection; blockwise keeps any row with at
+    # least two observed conditions, retaining incomplete-but-usable blocks.
+    required_observations = len(conditions) if spec.missingness == "complete_case" else 2
+    valid_rows = observed_counts >= required_observations
+    dropped_singleton_blocks = int(np.sum((observed_counts >= 1) & (observed_counts < required_observations)))
     matrix = matrix[valid_rows]
     if matrix.shape[0] < spec.min_samples:
         raise ValueError(
@@ -1449,134 +1159,6 @@ def _plot_bakeoff(
         plot_ecdf(score_curves, plot_path)
         return plot_path
     return None
-
-
-def _present_bakeoff(
-    report: BenchmarkBakeoffReport,
-    environments: list[str],
-    experiment_slug: str,
-) -> None:
-    console = Console()
-    console.print()
-    console.print(
-        Panel(
-            Text(f"🏆 BENCHMARK BAKEOFF REPORT: {report.algorithms}", style="bold cyan"),
-            subtitle=f"Experiment: {experiment_slug}",
-        )
-    )
-
-    table = Table(title="Reference-Normalized Performance Matrix", show_header=True, header_style="bold magenta")
-    table.add_column("Algorithm")
-    for env in environments:
-        table.add_column(env, justify="right")
-    for algo in report.algorithms:
-        row = [algo]
-        for env in environments:
-            row.append(f"{report.normalized_scores[algo][env]:.2f}")
-        table.add_row(*row)
-    console.print(table)
-
-    summary = Table(title="Aggregate Context", show_header=True, header_style="bold magenta")
-    summary.add_column("Algorithm")
-    summary.add_column("Dispersion", justify="right")
-    summary.add_column("Lower tail (10%)", justify="right")
-    summary.add_column("IQM (supplementary)", justify="right")
-    for algo in report.algorithms:
-        summary.add_row(
-            algo,
-            f"{report.dispersion[algo]:.2f}",
-            f"{report.lower_tail[algo]:.2f}",
-            f"{report.supplementary_iqm[algo]:.2f}",
-        )
-    console.print(summary)
-
-    omnibus_details = report.omnibus_details
-    console.print(
-        Panel(
-            Text.assemble(
-                ("Omnibus Test Result:\n", "bold"),
-                (f"• Selected Test: {omnibus_details.test_name}\n", "yellow"),
-                (f"• Statistic: {omnibus_details.statistic:.4f}\n"),
-                (f"• p-value: {omnibus_details.p_value:.4f}\n"),
-                (f"• Justification: {omnibus_details.justification}\n\n", "italic"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    "Scores are normalized against fixed caller-supplied references, so adding an algorithm "
-                    "cannot change existing normalized values."
-                ),
-            ),
-            title="Omnibus Methodology Justification",
-        )
-    )
-
-    if report.aggregate_plot_path:
-        console.print(
-            Panel(
-                Text(f"Saved normalized score visual artifact to: {report.aggregate_plot_path}", style="italic green"),
-                title="Artifact Outputs Panel",
-            )
-        )
-
-
-def compare_bakeoff(
-    dataset: ExperimentDataset,
-    algorithms: list[str],
-    environments: list[str],
-    metric_name: str,
-    verbose: bool = True,
-    references: dict[str, ReferenceRange] | None = None,
-    spec: ComparisonSpec | None = None,
-) -> BenchmarkBakeoffReport:
-    """Compare algorithms across environments, with optional fixed-reference normalization."""
-    if len(algorithms) < 2:
-        raise ValueError(f"compare_bakeoff requires at least 2 algorithms, got {len(algorithms)} ({algorithms!r})")
-    if spec is None:
-        spec = ComparisonSpec(missingness="blockwise")
-    elif spec.missingness == "complete_case":
-        raise ValueError("bakeoff missingness must be 'blockwise' or 'error'")
-    data_by_group = _load_bakeoff_data(
-        dataset,
-        algorithms,
-        ["env_name"],
-        metric_name,
-    )
-    block_keys: list[BlockKey] = [(("env_name", env),) for env in environments]
-
-    statistics = _compute_bakeoff_statistics(
-        data_by_group,
-        algorithms,
-        block_keys,
-        references,
-        spec,
-    )
-    normalized_scores = statistics.normalized_scores
-    omnibus_details = statistics.omnibus_details
-    posthoc = statistics.posthoc_matrix
-    score_curves = statistics.score_curves
-
-    plot_path = _plot_bakeoff(score_curves, dataset.experiment_name)
-
-    report = BenchmarkBakeoffReport(
-        algorithms=algorithms,
-        environments=environments,
-        normalized_scores=normalized_scores,
-        performance_profiles=statistics.performance_profiles,
-        probability_of_improvement=statistics.probability_of_improvement,
-        optimality_gaps=statistics.optimality_gaps,
-        dispersion=statistics.dispersion,
-        lower_tail=statistics.lower_tail,
-        supplementary_iqm=statistics.supplementary_iqm,
-        omnibus_details=omnibus_details,
-        posthoc_matrix=posthoc,
-        difference_estimate=statistics.difference_estimate,
-        difference_ci=statistics.difference_ci,
-        aggregate_plot_path=plot_path,
-    )
-
-    if verbose:
-        _present_bakeoff(report, environments, dataset.experiment_name)
-
-    return report
 
 
 @dataclass(frozen=True)

@@ -18,7 +18,6 @@ from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.reporting import (
-    ABComparisonReport,
     BenchmarkBakeoffReport,
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
@@ -26,8 +25,6 @@ from research_analysis.reporting import (
     bakeoff_report,
     best_hypers,
     boundary_warning,
-    compare_bakeoff,
-    compare_pairwise,
     insufficient_seeds_warning,
     non_normality_warning,
     slice_hypers,
@@ -145,40 +142,43 @@ def temp_experiment_setup() -> Generator[ExperimentSetup, None, None]:
         }
 
 
-def test_compare_pairwise_consumes_selected_dataset(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: ExperimentSetup) -> None:
     """Compare paired conditions from materialized metrics without database arguments."""
     setup = temp_experiment_setup
     for condition in ("baseline", "candidate"):
         for seed in range(4):
             _add_observation(setup, {"condition_name": condition}, seed, 100.0 + seed + (50.0 if condition == "candidate" else 0.0))
 
-    report = compare_pairwise(_load(setup), "baseline", "candidate", "metric", verbose=False)
+    report = bakeoff_report(_load(setup), "metric", ["baseline", "candidate"], verbose=False)
 
-    assert isinstance(report, ABComparisonReport)
-    assert report.pairing == "paired"
-    assert report.difference_in_means == pytest.approx(-50.0)
+    diff = report.comparison.difference_estimate["baseline"]["candidate"]
+    assert diff is not None
+    assert diff == pytest.approx(-50.0)
 
 
-def test_compare_pairwise_honors_declared_pairing_keys(temp_experiment_setup: ExperimentSetup) -> None:
-    """Reject partial automatic pairing unless complete-case behavior is explicit."""
+def test_bakeoff_report_honors_declared_pairing_keys(temp_experiment_setup: ExperimentSetup) -> None:
+    """Reject an incomplete block under missingness='error' unless complete_case is explicit."""
     setup = temp_experiment_setup
     for condition, seeds in (("a", (0, 1, 2, 4)), ("b", (0, 1, 2, 3))):
         for seed in seeds:
             _add_observation(setup, {"condition_name": condition}, seed, float(seed))
     dataset = _load(setup)
 
-    with pytest.raises(ValueError, match="partially overlapping"):
-        compare_pairwise(dataset, "a", "b", "metric", verbose=False)
+    with pytest.raises(ValueError, match="incomplete block"):
+        bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
 
-    report = compare_pairwise(
+    # complete_case no longer raises -- it pairs down to the shared seeds {0, 1, 2}
+    # for the comparison itself, though seed_counts still reports each condition's
+    # own raw seed count (4), not the paired subset used by the statistical test.
+    report = bakeoff_report(
         dataset,
-        "a",
-        "b",
         "metric",
+        ["a", "b"],
         verbose=False,
         spec=ComparisonSpec(missingness="complete_case", n_resamples=64),
     )
-    assert report.pairing == "paired"
+    assert report.seed_counts["a"][""] == 4
+    assert report.seed_counts["b"][""] == 4
 
 
 def test_best_hypers_consumes_declared_sweep_axes(temp_experiment_setup: ExperimentSetup) -> None:
@@ -531,8 +531,8 @@ def test_best_hypers_difference_requires_a_single_group_axis(temp_experiment_set
         best_hypers(dataset, "metric", group_by=["algorithm", "learning_rate"], difference_between=("a", "b"), verbose=False)
 
 
-def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
-    """Compare algorithms and environments using canonical dataset dimensions."""
+def test_bakeoff_report_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
+    """Compare algorithms and environments using canonical dataset dimensions, block_by=[env_source]."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
     environments = ["cartpole", "mountaincar"]
@@ -542,21 +542,21 @@ def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experimen
                 _add_observation(setup, {"algorithm": algorithm, "env_source": environment}, seed, float(seed))
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(
+    report = bakeoff_report(
         dataset,
-        algorithms,
-        environments,
         "metric",
+        algorithms,
+        block_by=["env_name"],
         verbose=False,
         references={environment: ReferenceRange(0.0, 10.0) for environment in environments},
     )
 
-    assert isinstance(report, BenchmarkBakeoffReport)
-    assert report.algorithms == algorithms
-    assert report.environments == environments
+    assert isinstance(report.comparison, BenchmarkBakeoffReport)
+    assert report.conditions == algorithms
+    assert sorted(report.comparison.environments) == sorted(environments)
 
 
-def test_compare_bakeoff_retains_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
     """Keep incomplete environment-seed blocks for block-stratified inference."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
@@ -567,19 +567,19 @@ def test_compare_bakeoff_retains_blockwise_missingness(temp_experiment_setup: Ex
         _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, float(seed))
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(
+    report = bakeoff_report(
         dataset,
-        algorithms,
-        ["cartpole"],
         "metric",
+        algorithms,
+        block_by=["env_name"],
         verbose=False,
         references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
-    assert report.omnibus_details.assumptions["has_missing"] is True
+    assert report.comparison.omnibus_details.assumptions["has_missing"] is True
 
 
-def test_compare_bakeoff_normalized_scores_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_normalized_scores_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:
     """An outlier seed must not drag the reported score when the spec asks for a median."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
@@ -589,23 +589,23 @@ def test_compare_bakeoff_normalized_scores_respect_a_median_estimand(temp_experi
             _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, value)
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(
+    report = bakeoff_report(
         dataset,
-        algorithms,
-        ["cartpole"],
         "metric",
+        algorithms,
+        block_by=["env_name"],
         verbose=False,
         references={"cartpole": ReferenceRange(0.0, 200.0)},
         spec=ComparisonSpec(estimand="median", missingness="blockwise"),
     )
 
-    normalized_median = report.normalized_scores["ppo"]["cartpole"]
+    normalized_median = report.comparison.normalized_scores["ppo"]["cartpole"]
     normalized_mean = (sum(values) / len(values)) / 200.0
     assert normalized_median == pytest.approx(1.0 / 200.0)
     assert normalized_median != pytest.approx(normalized_mean)
 
 
-def test_compare_bakeoff_accepts_two_algorithms(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_accepts_two_conditions(temp_experiment_setup: ExperimentSetup) -> None:
     """The omnibus test and Holm correction both degenerate correctly at n=2."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac"]
@@ -614,20 +614,20 @@ def test_compare_bakeoff_accepts_two_algorithms(temp_experiment_setup: Experimen
             _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, float(seed))
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(
+    report = bakeoff_report(
         dataset,
-        algorithms,
-        ["cartpole"],
         "metric",
+        algorithms,
+        block_by=["env_name"],
         verbose=False,
         references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
-    assert report.algorithms == algorithms
-    assert report.posthoc_matrix["ppo"]["sac"] == report.posthoc_matrix["sac"]["ppo"]
+    assert report.conditions == algorithms
+    assert report.comparison.posthoc_matrix["ppo"]["sac"] == report.comparison.posthoc_matrix["sac"]["ppo"]
 
 
-def test_compare_bakeoff_reports_a_signed_difference_and_ci_per_pair(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experiment_setup: ExperimentSetup) -> None:
     """difference_estimate/difference_ci must be antisymmetric and carry a magnitude, not just a p-value."""
     setup = temp_experiment_setup
     for algorithm, base in (("ppo", 5.0), ("sac", 3.0)):
@@ -635,22 +635,27 @@ def test_compare_bakeoff_reports_a_signed_difference_and_ci_per_pair(temp_experi
             _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, base + seed * 0.01)
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(
-        dataset, ["ppo", "sac"], ["cartpole"], "metric", verbose=False, references={"cartpole": ReferenceRange(0.0, 10.0)}
+    report = bakeoff_report(
+        dataset,
+        "metric",
+        ["ppo", "sac"],
+        block_by=["env_name"],
+        verbose=False,
+        references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
     # references=(0, 10) normalizes scores, so the raw +2.0 gap becomes +0.2 here.
-    assert report.difference_estimate["ppo"]["sac"] == pytest.approx(0.2, abs=0.01)
-    assert report.difference_estimate["sac"]["ppo"] == pytest.approx(-0.2, abs=0.01)
-    ppo_ci = report.difference_ci["ppo"]["sac"]
-    sac_ci = report.difference_ci["sac"]["ppo"]
+    assert report.comparison.difference_estimate["ppo"]["sac"] == pytest.approx(0.2, abs=0.01)
+    assert report.comparison.difference_estimate["sac"]["ppo"] == pytest.approx(-0.2, abs=0.01)
+    ppo_ci = report.comparison.difference_ci["ppo"]["sac"]
+    sac_ci = report.comparison.difference_ci["sac"]["ppo"]
     assert ppo_ci is not None
     assert sac_ci is not None
     assert sac_ci[0] == pytest.approx(-ppo_ci[1])
     assert sac_ci[1] == pytest.approx(-ppo_ci[0])
 
 
-def test_compare_bakeoff_reports_raw_scores_without_references(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_reports_raw_scores_without_references(temp_experiment_setup: ExperimentSetup) -> None:
     """No references means no normalization: scores stay in raw units."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac"]
@@ -659,14 +664,14 @@ def test_compare_bakeoff_reports_raw_scores_without_references(temp_experiment_s
             _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, 42.0)
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = compare_bakeoff(dataset, algorithms, ["cartpole"], "metric", verbose=False)
+    report = bakeoff_report(dataset, "metric", algorithms, block_by=["env_name"], verbose=False)
 
-    assert report.normalized_scores["ppo"]["cartpole"] == pytest.approx(42.0)
-    assert report.performance_profiles == {}
-    assert report.optimality_gaps == {}
+    assert report.comparison.normalized_scores["ppo"]["cartpole"] == pytest.approx(42.0)
+    assert report.comparison.performance_profiles == {}
+    assert report.comparison.optimality_gaps == {}
 
 
-def test_compare_bakeoff_rejects_pooling_multiple_environments_without_references(
+def test_bakeoff_report_rejects_pooling_multiple_environments_without_references(
     temp_experiment_setup: ExperimentSetup,
 ) -> None:
     """Raw scores from different environments cannot be pooled without a fixed anchor."""
@@ -679,7 +684,7 @@ def test_compare_bakeoff_rejects_pooling_multiple_environments_without_reference
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
     with pytest.raises(ValueError, match="requires references"):
-        compare_bakeoff(dataset, algorithms, ["cartpole", "mountaincar"], "metric", verbose=False)
+        bakeoff_report(dataset, "metric", algorithms, block_by=["env_name"], verbose=False)
 
 
 class TestBakeoffReport:
