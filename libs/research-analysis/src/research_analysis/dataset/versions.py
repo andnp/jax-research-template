@@ -9,7 +9,7 @@ from research_analysis.diagnostics.types import DiagnosticCode
 
 
 def _version_sort_key(version_set: VersionSet) -> tuple[int, int]:
-    return version_set.algo_version_id or -1, version_set.env_version_id or -1
+    return version_set.algo_version_id or -1, version_set.env_version_id
 
 
 def _version_matches(

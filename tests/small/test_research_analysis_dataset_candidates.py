@@ -38,7 +38,7 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         candidate = candidates[0]
         assert candidate.run.id == run_id
         assert candidate.execution.id == execution_id
-        assert candidate.metrics_db_path == str(metrics_path)
+        assert candidate.artifacts.metrics_db_path == str(metrics_path)
         assert candidate.version_set.algo_version_id == algo_version
         assert candidate.version_set.env_version_id == env_version
         assert len(candidate.provenance) == 2

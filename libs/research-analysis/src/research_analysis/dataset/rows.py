@@ -35,7 +35,13 @@ def build_rows(
             )
             continue
         row = build_run_row(
-            candidate.run, candidate.execution, candidate.metrics_db_path, candidate.provenance, hyperparameters, dimensions, diagnostics
+            candidate.run,
+            candidate.execution,
+            candidate.artifacts.metrics_db_path,
+            candidate.provenance,
+            hyperparameters,
+            dimensions,
+            diagnostics,
         )
         if row is None:
             continue

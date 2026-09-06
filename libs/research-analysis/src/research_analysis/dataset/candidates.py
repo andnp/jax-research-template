@@ -25,7 +25,7 @@ class VersionSet(NamedTuple):
     """Identifies one coherent algorithm/environment component-version pairing."""
 
     algo_version_id: int | None
-    env_version_id: int | None
+    env_version_id: int
 
 
 class _ArtifactMetadata(BaseModel):
@@ -42,7 +42,6 @@ class RunCandidate:
 
     run: RunRow
     execution: ExecutionRow
-    metrics_db_path: str
     artifacts: RunArtifacts
     version_set: VersionSet
     provenance: tuple[ComponentVersionProvenance, ...]
@@ -50,7 +49,7 @@ class RunCandidate:
 
 def _resolve_artifact(
     artifact: ExecutionArtifactRow | None, run: RunRow, execution: ExecutionRow, diagnostics: DiagnosticAccumulator
-) -> tuple[str, RunArtifacts] | None:
+) -> RunArtifacts | None:
     if artifact is None:
         diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no artifact record", run.id, execution.id)
         return None
@@ -61,12 +60,13 @@ def _resolve_artifact(
     run_artifacts = RunArtifacts(
         root_path=Path(artifact.root_path),
         manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
+        metrics_db_path=metadata.metrics_db_path,
         metadata=metadata.model_dump(),
     )
-    return metadata.metrics_db_path, run_artifacts
+    return run_artifacts
 
 
-def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance | None:
+def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance:
     row = database.conn.execute(
         "SELECT c.id, c.name, c.type, cv.id, cv.version_number, cv.code_snapshot_hash "
         "FROM ComponentVersions cv INNER JOIN Components c ON c.id = cv.component_id "
@@ -74,7 +74,7 @@ def _component_provenance(database: DatabaseManager, version_id: int) -> Compone
         (version_id,),
     ).fetchone()
     if row is None:
-        return None
+        raise LookupError(f"Component version {version_id} does not exist")
     return ComponentVersionProvenance(
         component_id=int(row[0]),
         component_name=str(row[1]),
@@ -85,6 +85,14 @@ def _component_provenance(database: DatabaseManager, version_id: int) -> Compone
     )
 
 
+def _cached_component_provenance(
+    database: DatabaseManager, version_id: int, cache: dict[int, ComponentVersionProvenance]
+) -> ComponentVersionProvenance:
+    if version_id not in cache:
+        cache[version_id] = _component_provenance(database, version_id)
+    return cache[version_id]
+
+
 def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, diagnostics: DiagnosticAccumulator) -> list[RunCandidate]:
     provenance_by_version: dict[int, ComponentVersionProvenance] = {}
     candidates: list[RunCandidate] = []
@@ -93,21 +101,14 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, d
         if execution is None:
             diagnostics.add(DiagnosticCode.INCOMPLETE_EXECUTION, "run has no completed execution", run.id)
             continue
-        resolved_artifact = _resolve_artifact(database.get_latest_completed_artifacts_for_run(run.id), run, execution, diagnostics)
-        if resolved_artifact is None:
+        artifacts = _resolve_artifact(database.get_latest_completed_artifacts_for_run(run.id), run, execution, diagnostics)
+        if artifacts is None:
             continue
-        metrics_db_path, run_artifacts = resolved_artifact
-        version_items: list[ComponentVersionProvenance] = []
-        for version_id in (run.algo_version_id, run.env_version_id):
-            if version_id is None:
-                continue
-            item = provenance_by_version.get(version_id)
-            if item is None:
-                item = _component_provenance(database, version_id)
-                if item is not None:
-                    provenance_by_version[version_id] = item
-            if item is not None:
-                version_items.append(item)
+        version_items = tuple(
+            _cached_component_provenance(database, version_id, provenance_by_version)
+            for version_id in (run.algo_version_id, run.env_version_id)
+            if version_id is not None
+        )
         if run.algo_version_id is None:
             diagnostics.add(
                 DiagnosticCode.UNKNOWN_COMPONENT_PROVENANCE,
@@ -119,10 +120,9 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, d
             RunCandidate(
                 run=run,
                 execution=execution,
-                metrics_db_path=metrics_db_path,
-                artifacts=run_artifacts,
+                artifacts=artifacts,
                 version_set=VersionSet(run.algo_version_id, run.env_version_id),
-                provenance=tuple(version_items),
+                provenance=version_items,
             )
         )
     return candidates

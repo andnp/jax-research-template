@@ -76,6 +76,7 @@ class RunArtifacts:
 
     root_path: Path
     manifest_path: Path | None
+    metrics_db_path: str
     metadata: Mapping[str, object]
 
 
