@@ -428,3 +428,29 @@ def test_compare_bakeoff_retains_blockwise_missingness(temp_experiment_setup: Ex
     )
 
     assert report.omnibus_details.assumptions["has_missing"] is True
+
+
+def test_compare_bakeoff_normalized_scores_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:
+    """An outlier seed must not drag the reported score when the spec asks for a median."""
+    setup = temp_experiment_setup
+    algorithms = ["ppo", "sac", "td3"]
+    values = [1.0, 1.0, 1.0, 1.0, 100.0]
+    for algorithm in algorithms:
+        for seed, value in enumerate(values):
+            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, value)
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+    report = compare_bakeoff(
+        dataset,
+        algorithms,
+        ["cartpole"],
+        "metric",
+        verbose=False,
+        references={"cartpole": ReferenceRange(0.0, 200.0)},
+        spec=ComparisonSpec(estimand="median", missingness="blockwise"),
+    )
+
+    normalized_median = report.normalized_scores["ppo"]["cartpole"]
+    normalized_mean = (sum(values) / len(values)) / 200.0
+    assert normalized_median == pytest.approx(1.0 / 200.0)
+    assert normalized_median != pytest.approx(normalized_mean)

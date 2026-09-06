@@ -1077,11 +1077,12 @@ def _compute_bakeoff_statistics(
         if not any(normalized.get((algo, env)) for algo in algorithms):
             raise ValueError(f"bakeoff environment {env!r} has no observed data")
 
+    estimator = np.median if spec.estimand == "median" else np.mean
     normalized_means: dict[str, dict[str, float]] = {algo: {} for algo in algorithms}
     for algo in algorithms:
         for env in environments:
             values = normalized.get((algo, env), {}).values()
-            normalized_means[algo][env] = float(np.mean(list(values))) if values else float("nan")
+            normalized_means[algo][env] = float(estimator(list(values))) if values else float("nan")
 
     row_keys = []
     for env in environments:
