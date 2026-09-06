@@ -25,9 +25,11 @@ def build_rows(
         hyper_config = database.get_hyperparam_config(completed_run.run.hyper_id)
         if hyper_config is None:
             continue
+
         dimension_values = resolve_dimensions(hyper_config.hyperparameters, dimensions)
         if dimension_values is None:
             continue
+
         row: dict[str, object] = {
             "seed": completed_run.run.seed,
             "run_id": completed_run.run.id,
@@ -36,6 +38,7 @@ def build_rows(
             "metrics_db_path": completed_run.artifacts.metrics_db_path,
             **dimension_values.values,
         }
+
         for item in candidate.provenance:
             prefix = "algo" if item.component_type == "ALGO" else "env"
             row[f"{prefix}_component_name"] = item.component_name
@@ -43,8 +46,10 @@ def build_rows(
             row[f"{prefix}_version_id"] = item.version_id
             row[f"{prefix}_version_number"] = item.version_number
             row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
+
         if cohort is not None and not cohort_matches(row, cohort):
             continue
+
         rows.append(row)
         artifacts[(completed_run.run.id, completed_run.execution.id)] = completed_run.artifacts
     return rows, artifacts

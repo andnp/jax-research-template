@@ -43,10 +43,13 @@ def _coerce_axis_value(value: ParameterValue, axis: SweepAxis) -> SweepValue | N
 def cohort_matches(row: Mapping[str, object], selection: CohortSelection) -> bool:
     if selection.condition_name is not None and row.get("condition_name") != selection.condition_name:
         return False
+
     if selection.env_name is not None and row.get("env_name") != selection.env_name:
         return False
+
     if selection.ablation is not None and row.get("ablation") != selection.ablation:
         return False
+
     return all(row.get(key) == value for key, value in selection.sweep_values)
 
 
@@ -56,13 +59,17 @@ def _resolve_axis_value(
     if axis.when is not None:
         if any(key not in hyperparameters for key in axis.when):
             return None
+
         if not all(hyperparameters[key] == value for key, value in axis.when.items()):
             return _ResolvedAxisValue(None)
+
     if axis.name not in hyperparameters:
         return None
+
     value = _coerce_axis_value(hyperparameters[axis.name], axis)
     if value is None:
         return None
+
     return _ResolvedAxisValue(value)
 
 
@@ -73,15 +80,18 @@ def resolve_dimensions(
     source_dimensions = {"condition_name": dimensions.condition}
     if dimensions.environment is not None:
         source_dimensions["env_name"] = dimensions.environment
+
     values: dict[str, SweepValue | None] = {}
     for output_name, source_name in source_dimensions.items():
         value = hyperparameters.get(source_name)
         if value is None:
             return None
         values[output_name] = str(value)
+
     for axis in dimensions.sweep_axes:
         axis_value = _resolve_axis_value(axis, hyperparameters)
         if axis_value is None:
             return None
         values[axis.name] = axis_value.value
+
     return ResolvedDimensions(values)
