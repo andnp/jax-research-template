@@ -245,7 +245,7 @@ def _resolve_points(
             hyper_config = database.get_hyperparam_config(run.hyper_id)
             if hyper_config is None:
                 raise ValueError(f"Missing hyperparameter config for run {run.id}.")
-            config_cache[run.hyper_id] = json.loads(hyper_config.json_blob)
+            config_cache[run.hyper_id] = dict(hyper_config.hyperparameters)
         hyperparameters = {**config_cache[run.hyper_id], "seed": run.seed}
         for key, value in static_config.items():
             if hyperparameters.get(key) != value:

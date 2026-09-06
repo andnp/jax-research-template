@@ -405,7 +405,7 @@ def load_experiment_dataset(
             if hyper_config is None:
                 diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, "run has no hyperparameter configuration", run.id, execution.id))
                 continue
-            hyperparameters = json.loads(hyper_config.json_blob)
+            hyperparameters = hyper_config.hyperparameters
             if not isinstance(hyperparameters, dict):
                 diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id))
                 continue
