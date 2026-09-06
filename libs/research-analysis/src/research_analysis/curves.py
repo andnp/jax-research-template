@@ -54,6 +54,12 @@ _EVENT_RESPONSE_SCHEMA: dict[str, type[pl.DataType]] = {
     "recovery_slope": pl.Float64,
     "steps_to_recovery": pl.Int64,
 }
+_FLATLINE_SCHEMA: dict[str, type[pl.DataType]] = {
+    "condition_name": pl.String,
+    "flatlined": pl.Boolean,
+    "tail_range": pl.Float64,
+    "whole_range": pl.Float64,
+}
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -317,3 +323,43 @@ def event_response(
         )
 
     return pl.DataFrame(rows or None, schema=_EVENT_RESPONSE_SCHEMA)
+
+
+def flatline_flags(
+    df: pl.DataFrame,
+    metric: str,
+    *,
+    tail_fraction: float = 0.5,
+    relative_tolerance: float = 0.01,
+) -> pl.DataFrame:
+    """Flag conditions whose mean learning curve stops moving well before the run ends.
+
+    Compares the last ``tail_fraction`` of the mean curve's own range against the
+    whole curve's range. A tail range below ``relative_tolerance`` of the whole
+    range means the tail carries almost no additional information relative to the
+    rest of the run -- consistent with either early convergence or a stalled run.
+    This check cannot tell those two apart; it only flags that the tail is worth a
+    look, same as a caller would get from eyeballing the curve.
+
+    Returns a DataFrame with columns: ``condition_name | flatlined | tail_range |
+    whole_range``.
+    """
+    rows: list[dict[str, object]] = []
+    for condition in _conditions_with_metric(df, metric):
+        _, array = _condition_curve_array(df, metric, condition)
+        curve = np.mean(array, axis=0)
+        whole_range = float(np.max(curve) - np.min(curve))
+        cutoff = int(len(curve) * (1.0 - tail_fraction))
+        tail = curve[cutoff:]
+        tail_range = float(np.max(tail) - np.min(tail)) if len(tail) else 0.0
+        flatlined = whole_range == 0.0 or (tail_range / whole_range) < relative_tolerance
+        rows.append(
+            {
+                "condition_name": condition,
+                "flatlined": flatlined,
+                "tail_range": tail_range,
+                "whole_range": whole_range,
+            }
+        )
+
+    return pl.DataFrame(rows or None, schema=_FLATLINE_SCHEMA).sort("condition_name")
