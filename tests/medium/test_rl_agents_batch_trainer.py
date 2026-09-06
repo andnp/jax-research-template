@@ -669,6 +669,42 @@ class TestAlgorithmRegistry:
         with pytest.raises(ValueError, match="'algorithm' must be text"):
             trainer(context)
 
+    def test_dispatcher_forwards_selected_environment_metrics(self, tmp_path: Path) -> None:
+        """Preserve project-selected environment diagnostics through algorithm dispatch."""
+        static_config = {
+            "algorithm": "ppo",
+            "env_name": "CartPole-v1",
+            "num_steps": 4,
+            "total_timesteps": 8,
+            "update_epochs": 1,
+            "num_minibatches": 1,
+            "gamma": 0.99,
+            "reward_scale": 1.0,
+            "normalize_observations": False,
+        }
+        points = tuple(
+            RunPoint(index, {**static_config, "learning_rate": 1e-4, "seed": index})
+            for index in (0, 1)
+        )
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name="dispatcher-diagnostic-test",
+            static_config=static_config,
+            points=points,
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / "metrics.sqlite",
+        )
+
+        trainer = make_algorithm_batch_trainer(
+            _make_diagnostic_env,
+            ("ppo",),
+            extra_metric_names=("env/missing_fraction",),
+        )
+        result = trainer(context)
+
+        assert "env/missing_fraction" in result.metric_curves
+
     def test_extra_specs_registers_a_project_local_algorithm(self, tmp_path: Path) -> None:
         """A project's own AlgorithmSpec dispatches without touching ALGORITHM_TRAINERS."""
         local_spec = AlgorithmSpec("qrc-variant", QRCAgent, QRCConfig, QRCHypers)

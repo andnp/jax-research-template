@@ -71,6 +71,7 @@ class AlgorithmBatchTrainer:
         algorithms: Sequence[str],
         *,
         extra_specs: Mapping[str, AlgorithmSpec] = {},
+        extra_metric_names: tuple[str, ...] = (),
         report_returned_episode_returns: bool = False,
     ) -> None:
         algorithms = tuple(algorithms)
@@ -82,7 +83,10 @@ class AlgorithmBatchTrainer:
             raise ValueError(f"no batch trainer registered for {unknown}; known: {sorted(specs)}")
         self._trainers = {
             name: make_batch_trainer(
-                specs[name], env_factory, report_returned_episode_returns=report_returned_episode_returns
+                specs[name],
+                env_factory,
+                extra_metric_names=extra_metric_names,
+                report_returned_episode_returns=report_returned_episode_returns,
             )
             for name in algorithms
         }
@@ -118,6 +122,7 @@ def make_algorithm_batch_trainer(
     algorithms: Sequence[str],
     *,
     extra_specs: Mapping[str, AlgorithmSpec] = {},
+    extra_metric_names: tuple[str, ...] = (),
     report_returned_episode_returns: bool = False,
 ) -> BatchTrainer:
     """Build a trainer that serves every algorithm in ``algorithms``.
@@ -130,5 +135,6 @@ def make_algorithm_batch_trainer(
         env_factory,
         algorithms,
         extra_specs=extra_specs,
+        extra_metric_names=extra_metric_names,
         report_returned_episode_returns=report_returned_episode_returns,
     )
