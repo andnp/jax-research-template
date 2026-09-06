@@ -1,6 +1,8 @@
-"""Output heads for RL networks (dueling, epsilon-greedy)."""
+"""Output heads for RL networks (dueling, epsilon-greedy, multi-head readout)."""
 
 from __future__ import annotations
+
+import math
 
 import flax.linen as nn
 import jax
@@ -63,6 +65,31 @@ class DuelingHead(TypedApply[Array], nn.Module):
         )(a)
 
         return v + (a - jnp.mean(a, axis=-1, keepdims=True))
+
+
+class MultiHeadReadout(TypedApply[Array], nn.Module):
+    """Linear multi-head readout over shared trunk features.
+
+    One einsum over a single ``(width, num_heads * prod(head_shape))`` kernel produces every
+    head's ``head_shape``-shaped output: ``head_shape=()`` gives a per-head scalar (an SAC-style
+    Q- or H-head), ``head_shape=(action_dim,)`` a per-head action-value vector (a QRC-style
+    Q- or H-head). :func:`jax_utils.pytree.shift_head_readout` rotates its ``kernel``/``bias``
+    params to advance a Bellman-iteration chain by one head.
+    """
+
+    num_heads: int
+    head_shape: tuple[int, ...] = ()
+    use_bias: bool = True
+
+    @nn.compact
+    def __call__(self, phi: Array) -> Array:
+        width = phi.shape[-1]
+        flat = math.prod(self.head_shape)
+        kernel = self.param("kernel", nn.initializers.lecun_normal(), (width, self.num_heads * flat))
+        out = jnp.einsum("f,fh->h", phi, kernel).reshape((self.num_heads, *self.head_shape))
+        if self.use_bias:
+            out = out + self.param("bias", nn.initializers.zeros, (self.num_heads, *self.head_shape))
+        return out
 
 
 def epsilon_greedy_action(
