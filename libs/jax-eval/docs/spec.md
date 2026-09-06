@@ -134,6 +134,7 @@ similarity is defined as `0.0`, so the distance is finite and equals `1.0`.
 The explicit similarity clip prevents roundoff from producing negative drift.
 Callers should compare features on the same fixed probe states when measuring
 training-time representation change.
+An empty leading observation batch returns `0.0`.
 
 #### Stable rank
 
