@@ -32,10 +32,16 @@ class SweepValueType(StrEnum):
 
 @dataclass(frozen=True)
 class SweepAxis:
-    """A typed hyperparameter axis declared by an experiment."""
+    """A typed hyperparameter axis declared by an experiment.
+
+    ``optional`` marks an axis that only applies to a subset of runs (e.g. a
+    parameter declared under ``experiment.when(...)``): a run missing it is
+    materialized with a null value for that axis instead of being excluded.
+    """
 
     name: str
     value_type: SweepValueType
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -410,7 +416,11 @@ def load_experiment_dataset(
                     continue
                 row["env_name"] = str(environment_value)
             for axis in selected_dimensions.sweep_axes:
-                value = _coerce_axis_value(hyperparameters.get(axis.name), axis)
+                raw_value = hyperparameters.get(axis.name)
+                if raw_value is None and axis.optional:
+                    row[axis.name] = None
+                    continue
+                value = _coerce_axis_value(raw_value, axis)
                 if value is None:
                     diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing or invalid sweep axis {axis.name!r}", run.id, execution.id))
                     break

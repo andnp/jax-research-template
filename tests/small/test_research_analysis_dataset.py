@@ -95,6 +95,76 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     assert dataset.runs["algo_version_id"].to_list() == [fixture["algo_version"], fixture["algo_version"]]
 
 
+def test_missing_required_sweep_axis_excludes_the_run(tmp_path: Path) -> None:
+    """A run missing a required (non-optional) declared sweep axis is dropped, not defaulted."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("required-axis-test")
+        algo_version = database.add_component_version(database.add_component("ppo", "ALGO"), "algo-v1")
+        env_version = database.add_component_version(database.add_component("cartpole", "ENV"), "env-v1")
+        hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "seed": 0})
+        run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, 0)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(metrics_path)}
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(
+            db_path,
+            "required-axis-test",
+            dimensions=ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT),)),
+        )
+
+    assert error.value.diagnostics[0].code is DiagnosticCode.MISSING_DIMENSION
+
+
+def test_optional_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path) -> None:
+    """A run missing an optional sweep axis is retained with a null value for that axis."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("optional-axis-test")
+        algo_version = database.add_component_version(database.add_component("ppo", "ALGO"), "algo-v1")
+        env_version = database.add_component_version(database.add_component("cartpole", "ENV"), "env-v1")
+        rows = []
+        no_eta_id = database.add_hyperparam_config({"condition_name": "shared", "lr": 0.1, "seed": 0})
+        run_no_eta = database.add_run(experiment_id, algo_version, env_version, no_eta_id, 0)
+        with_eta_id = database.add_hyperparam_config({"condition_name": "adversarial", "lr": 0.1, "eta": 5.0, "seed": 1})
+        run_with_eta = database.add_run(experiment_id, algo_version, env_version, with_eta_id, 1)
+        for run_id, seed in ((run_no_eta, 0), (run_with_eta, 1)):
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.record_execution_artifacts(
+                execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(metrics_path)}
+            )
+            database.update_execution_status(execution_id, "COMPLETED")
+            rows.append((run_id, execution_id, "reward", 0, float(seed)))
+    _write_metrics(metrics_path, rows)
+
+    dataset = load_experiment_dataset(
+        db_path,
+        "optional-axis-test",
+        dimensions=ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("lr", SweepValueType.FLOAT),
+                SweepAxis("eta", SweepValueType.FLOAT, optional=True),
+            ),
+        ),
+    )
+
+    assert dataset.runs.height == 2
+    by_condition = dict(zip(dataset.runs["condition_name"], dataset.runs["eta"], strict=True))
+    assert by_condition["shared"] is None
+    assert by_condition["adversarial"] == 5.0
+
+
 def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> None:
     """Select a completed algorithm/environment pair without mixing version maxima."""
     fixture = _create_experiment(tmp_path)
