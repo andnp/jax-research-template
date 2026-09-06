@@ -1,7 +1,7 @@
 """Analytical aggregation utilities for RL training curves.
 
 Operates on the tidy ``condition_name | seed | step | metric | value`` DataFrame
-produced by :func:`research_analysis.dataset.load_experiment_dataset`.
+produced by :func:`research_analysis.dataset.loading.load_experiment_dataset`.
 
 All public functions:
 

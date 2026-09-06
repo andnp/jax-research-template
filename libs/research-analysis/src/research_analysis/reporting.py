@@ -29,7 +29,7 @@ from research_analysis.aggregates import (
 )
 from research_analysis.bootstrap import bootstrap_difference_ci
 from research_analysis.comparison import ComparisonSpec
-from research_analysis.dataset import ExperimentDataset
+from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test

@@ -13,13 +13,8 @@ from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
 from research_analysis.aggregates import ReferenceRange
 from research_analysis.comparison import ComparisonSpec
-from research_analysis.dataset import (
-    ExperimentDataset,
-    ExperimentDimensions,
-    SweepAxis,
-    SweepValueType,
-    load_experiment_dataset,
-)
+from research_analysis.dataset.loading import load_experiment_dataset
+from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,

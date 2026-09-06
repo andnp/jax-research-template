@@ -8,14 +8,14 @@ from typing import TypedDict
 
 import pytest
 from experiment_definition.db import DatabaseManager
-from research_analysis.dataset import (
+from research_analysis.dataset.loading import load_experiment_dataset
+from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionRef,
     ExperimentDimensions,
     SweepAxis,
     SweepValueType,
     VersionSelection,
-    load_experiment_dataset,
 )
 from research_analysis.diagnostics.types import DatasetLoadError, DiagnosticCode
 
