@@ -432,12 +432,12 @@ def test_missing_artifact_excludes_run_before_version_selection(tmp_path: Path) 
     dataset = load_experiment_dataset(db_path, "broken-latest-test", partial=True)
 
     assert dataset.runs["run_id"].to_list() == [older_run_id]
-    assert any(item.code is DiagnosticCode.MISSING_METRIC_ARTIFACT for item in dataset.diagnostics)
+    assert dataset.diagnostics == ()
     assert not any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
 
 
-def test_missing_recorded_metric_path_fails_without_root_fallback(tmp_path: Path) -> None:
-    """Fail strict loading when metadata omits the metric path even if root has a database."""
+def test_missing_recorded_metric_path_excludes_run_without_root_fallback(tmp_path: Path) -> None:
+    """Exclude an artifact without a recorded metric path even if root has a database."""
     db_path = tmp_path / "experiments.sqlite"
     root = tmp_path / "execution"
     root.mkdir()
@@ -456,10 +456,10 @@ def test_missing_recorded_metric_path_fails_without_root_fallback(tmp_path: Path
         database.record_execution_artifacts(execution_id, str(root))
         database.update_execution_status(execution_id, "COMPLETED")
 
-    with pytest.raises(DatasetLoadError) as error:
-        load_experiment_dataset(db_path, "missing-artifact")
+    dataset = load_experiment_dataset(db_path, "missing-artifact")
 
-    assert error.value.diagnostics[0].code is DiagnosticCode.MISSING_METRIC_ARTIFACT
+    assert dataset.runs.height == 0
+    assert dataset.diagnostics == ()
 
 
 def test_partial_mode_returns_valid_rows_and_diagnostics(tmp_path: Path) -> None:

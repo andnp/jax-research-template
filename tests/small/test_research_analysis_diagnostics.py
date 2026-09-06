@@ -20,7 +20,7 @@ def test_add_appends_a_diagnostic_with_the_given_fields() -> None:
 def test_extend_appends_diagnostics_in_order() -> None:
     """extend() appends an iterable of diagnostics after any already collected."""
     accumulator = DiagnosticAccumulator()
-    accumulator.add(DiagnosticCode.INCOMPLETE_EXECUTION, "first")
+    accumulator.add(DiagnosticCode.EXCLUDED_VERSION, "first")
 
     accumulator.extend(
         [
@@ -56,6 +56,6 @@ def test_separate_instances_do_not_share_state() -> None:
     first = DiagnosticAccumulator()
     second = DiagnosticAccumulator()
 
-    first.add(DiagnosticCode.INCOMPLETE_EXECUTION, "only in first")
+    first.add(DiagnosticCode.EXCLUDED_VERSION, "only in first")
 
     assert second.as_tuple() == ()

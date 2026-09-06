@@ -9,11 +9,9 @@ from enum import StrEnum
 class DiagnosticCode(StrEnum):
     """Structured dataset-loading diagnostic categories."""
 
-    INCOMPLETE_EXECUTION = "incomplete_execution"
     MISSING_METRIC_ARTIFACT = "missing_metric_artifact"
     EXCLUDED_VERSION = "excluded_version"
     AMBIGUOUS_COHORT = "ambiguous_cohort"
-    UNKNOWN_COMPONENT_PROVENANCE = "unknown_component_provenance"
     MISSING_DIMENSION = "missing_dimension"
     INVALID_DIMENSION = "invalid_dimension"
     INVALID_VERSION_SELECTION = "invalid_version_selection"

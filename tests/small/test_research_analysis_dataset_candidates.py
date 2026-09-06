@@ -31,8 +31,7 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
 
         experiment = database.get_experiment("candidate-test")
         assert experiment is not None
-        diagnostics = DiagnosticAccumulator()
-        candidates = fetch_run_candidates(database, experiment, diagnostics)
+        candidates = fetch_run_candidates(database, experiment)
 
         assert len(candidates) == 1
         candidate = candidates[0]
@@ -43,5 +42,5 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         assert candidate.version_set.env_version_id == env_version
         assert len(candidate.provenance) == 2
 
-        selected_sets, _ = select_version_sets(candidates, VersionSelection.latest_completed(), diagnostics)
+        selected_sets, _ = select_version_sets(candidates, VersionSelection.latest_completed(), DiagnosticAccumulator())
         assert candidate.version_set in selected_sets

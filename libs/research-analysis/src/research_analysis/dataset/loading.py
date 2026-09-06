@@ -37,7 +37,7 @@ def load_experiment_dataset(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        candidates = fetch_run_candidates(database, experiment, diagnostics)
+        candidates = fetch_run_candidates(database, experiment)
         selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
         rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort, diagnostics)
 
