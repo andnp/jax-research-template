@@ -9,6 +9,8 @@ import jax.numpy as jnp
 def priority_utilization(priorities: jax.Array, *, epsilon: float = 1e-8) -> jax.Array:
     """Return normalized Shannon entropy for a priority distribution."""
     values = jnp.asarray(priorities, dtype=jnp.float32)
+    if values.ndim != 1:
+        raise ValueError("priorities must be a one-dimensional vector")
     capacity = values.shape[0]
     if capacity <= 1:
         return jnp.float32(0.0)
