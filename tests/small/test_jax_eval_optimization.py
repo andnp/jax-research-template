@@ -43,6 +43,27 @@ def test_gradient_snr_handles_one_identical_zero_batches() -> None:
     assert zero == 0.0
 
 
+def test_gradient_snr_handles_empty_and_zero_batches() -> None:
+    """Return float32 zero for empty pytrees and batches with no entries."""
+    empty_result = gradient_snr({})
+    zero_batch_result = gradient_snr(
+        {"weight": jnp.empty((0, 2)), "nested": {"bias": jnp.empty((0, 1))}}
+    )
+
+    assert empty_result.dtype == jnp.float32
+    assert empty_result == 0.0
+    assert zero_batch_result.dtype == jnp.float32
+    assert zero_batch_result == 0.0
+
+
+def test_gradient_snr_rejects_scalar_and_inconsistent_batch_leaves() -> None:
+    """Reject scalar gradients and leaves with different leading batch sizes."""
+    with pytest.raises(ValueError):
+        gradient_snr({"weight": jnp.array(1.0)})
+    with pytest.raises(ValueError):
+        gradient_snr({"weight": jnp.ones((2, 1)), "bias": jnp.ones((3, 1))})
+
+
 def test_update_ratio_uses_global_nested_tree_norms() -> None:
     """Compare update and parameter norms across mixed-size nested leaves."""
     params = {"small": jnp.array([3.0]), "nested": {"wide": jnp.array([4.0, 0.0])}}
