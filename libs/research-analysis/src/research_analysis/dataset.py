@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -150,7 +150,7 @@ class ExperimentDataset:
     runs: pl.DataFrame
     metrics: pl.DataFrame
     provenance: tuple[ComponentVersionProvenance, ...]
-    artifacts: Mapping[tuple[int, int], RunArtifacts]
+    artifacts: Mapping[tuple[int, int], RunArtifacts] = field(default_factory=dict)
     diagnostics: tuple[DatasetDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
