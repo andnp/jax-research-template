@@ -390,6 +390,44 @@ def test_partial_mode_returns_valid_rows_and_diagnostics(tmp_path: Path) -> None
     assert any(item.code is DiagnosticCode.MISSING_METRIC_ARTIFACT for item in dataset.diagnostics)
 
 
+def test_cohort_selection_filters_by_env_name_and_sweep_value(tmp_path: Path) -> None:
+    """Cohort selection narrows to a run matching both env_name and a declared sweep value."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("cohort-env-sweep-test")
+        algo_version = database.add_component_version(database.add_component("ppo", "ALGO"), "algo-v1")
+        env_version = database.add_component_version(database.add_component("cartpole", "ENV"), "env-v1")
+        rows = []
+        for seed, (env_id, lr) in enumerate((("cartpole-v1", 0.1), ("pendulum-v1", 0.2))):
+            hyper_id = database.add_hyperparam_config(
+                {"condition_name": "shared", "env_id": env_id, "lr": lr, "seed": seed}
+            )
+            run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, seed)
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.record_execution_artifacts(
+                execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(metrics_path)}
+            )
+            database.update_execution_status(execution_id, "COMPLETED")
+            rows.append((run_id, execution_id, "reward", 0, float(seed)))
+    _write_metrics(metrics_path, rows)
+
+    dataset = load_experiment_dataset(
+        db_path,
+        "cohort-env-sweep-test",
+        dimensions=ExperimentDimensions(
+            environment="env_id",
+            sweep_axes=(SweepAxis("lr", SweepValueType.FLOAT),),
+        ),
+        cohort=CohortSelection(env_name="cartpole-v1", sweep_values=(("lr", 0.1),)),
+    )
+
+    assert dataset.runs.height == 1
+    assert dataset.runs["env_name"].to_list() == ["cartpole-v1"]
+
+
 def test_cohort_selection_filters_declared_dimensions(tmp_path: Path) -> None:
     """Select one declared condition without collapsing other run identities."""
     fixture = _create_experiment(tmp_path)
