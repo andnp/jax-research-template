@@ -156,6 +156,7 @@ class H2SScrubberConfig:
     sump_initial_alkalinity: float = 20.0
     sump_oxidation_rate: float = 0.5
     sump_alkalinity_consumption: float = 1.0
+    sump_caustic_yield: float = 0.5
 
     # ── Contactor ─────────────────────────────────────────────────
     contactor_base_efficiency: float = 0.99
@@ -229,6 +230,7 @@ def make_h2s_scrubber_benchmark(
         bleach_yield=config.sump_bleach_yield,
         oxidation_rate=config.sump_oxidation_rate,
         alkalinity_consumption=config.sump_alkalinity_consumption,
+        caustic_yield=config.sump_caustic_yield,
     )
 
     contactor_params = ContactorParams(
