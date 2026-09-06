@@ -1,5 +1,7 @@
 """Small behavioral tests for jax-eval replay diagnostics."""
 
+import warnings
+
 import jax.numpy as jnp
 import pytest
 from jax_eval.replay import priority_utilization, sample_staleness
@@ -47,12 +49,16 @@ def test_priority_utilization_handles_empty_and_concentrated_inputs() -> None:
 
 def test_sample_staleness_casts_before_signed_subtraction() -> None:
     """Compute small signed ages for large timestamps without underflow or clipping."""
-    current = jnp.uint32(2**24 + 1)
-    result = sample_staleness(current, jnp.array([2**24], dtype=jnp.uint32))
-    unsigned_negative = sample_staleness(jnp.uint32(2), jnp.array([3], dtype=jnp.uint32))
-    signed_negative = sample_staleness(jnp.int32(2), jnp.array([3], dtype=jnp.int32))
-    mixed_positive = sample_staleness(jnp.int32(2**24 + 1), jnp.array([2**24], dtype=jnp.uint32))
-    mixed_negative = sample_staleness(jnp.uint32(2**24), jnp.array([2**24 + 1], dtype=jnp.int32))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        current = jnp.uint32(2**24 + 1)
+        result = sample_staleness(current, jnp.array([2**24], dtype=jnp.uint32))
+        unsigned_negative = sample_staleness(jnp.uint32(2), jnp.array([3], dtype=jnp.uint32))
+        signed_negative = sample_staleness(jnp.int32(2), jnp.array([3], dtype=jnp.int32))
+        mixed_positive = sample_staleness(jnp.int32(2**24 + 1), jnp.array([2**24], dtype=jnp.uint32))
+        mixed_negative = sample_staleness(jnp.uint32(2**24), jnp.array([2**24 + 1], dtype=jnp.int32))
+        opposite_positive = sample_staleness(jnp.uint32(2**32 - 1), jnp.array([-1], dtype=jnp.int32))
+        opposite_negative = sample_staleness(jnp.int32(-1), jnp.array([2**32 - 1], dtype=jnp.uint32))
 
     assert result.dtype == jnp.float32
     assert jnp.allclose(result, 1.0)
@@ -60,6 +66,9 @@ def test_sample_staleness_casts_before_signed_subtraction() -> None:
     assert jnp.allclose(signed_negative, -1.0)
     assert jnp.allclose(mixed_positive, 1.0)
     assert jnp.allclose(mixed_negative, -1.0)
+    assert jnp.allclose(opposite_positive, jnp.float32(2**32))
+    assert jnp.allclose(opposite_negative, jnp.float32(-2**32))
+    assert not any("truncat" in str(w.message).lower() for w in caught)
 
 
 def test_sample_staleness_applies_same_shape_mask() -> None:
