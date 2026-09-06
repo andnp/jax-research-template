@@ -23,6 +23,7 @@ from research_analysis.reporting import (
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
+    bakeoff_report,
     best_hypers,
     boundary_warning,
     compare_bakeoff,
@@ -80,6 +81,34 @@ def _add_observation(
         connection.execute(
             "INSERT INTO metrics VALUES (?, ?, ?, ?, ?)",
             (run_id, execution_id, "metric", 0, value),
+        )
+        connection.commit()
+
+
+def _add_curve_observation(
+    setup: ExperimentSetup,
+    metadata: dict[str, ParameterValue],
+    seed: int,
+    values: list[float],
+) -> None:
+    """Like _add_observation, but records one value per step instead of a single step-0 value."""
+    with DatabaseManager(setup["db_path"]) as database:
+        hyper_id = database.add_hyperparam_config({**metadata, "seed": seed})
+        run_id = database.add_run(
+            setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, seed, None
+        )
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id,
+            str(setup["root"] / str(execution_id)),
+            metadata={"metrics_db_path": str(setup["metrics_path"])},
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    with sqlite3.connect(setup["metrics_path"]) as connection:
+        connection.executemany(
+            "INSERT INTO metrics VALUES (?, ?, ?, ?, ?)",
+            [(run_id, execution_id, "metric", step, value) for step, value in enumerate(values)],
         )
         connection.commit()
 
@@ -598,6 +627,29 @@ def test_compare_bakeoff_accepts_two_algorithms(temp_experiment_setup: Experimen
     assert report.posthoc_matrix["ppo"]["sac"] == report.posthoc_matrix["sac"]["ppo"]
 
 
+def test_compare_bakeoff_reports_a_signed_difference_and_ci_per_pair(temp_experiment_setup: ExperimentSetup) -> None:
+    """difference_estimate/difference_ci must be antisymmetric and carry a magnitude, not just a p-value."""
+    setup = temp_experiment_setup
+    for algorithm, base in (("ppo", 5.0), ("sac", 3.0)):
+        for seed in range(6):
+            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, base + seed * 0.01)
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+    report = compare_bakeoff(
+        dataset, ["ppo", "sac"], ["cartpole"], "metric", verbose=False, references={"cartpole": ReferenceRange(0.0, 10.0)}
+    )
+
+    # references=(0, 10) normalizes scores, so the raw +2.0 gap becomes +0.2 here.
+    assert report.difference_estimate["ppo"]["sac"] == pytest.approx(0.2, abs=0.01)
+    assert report.difference_estimate["sac"]["ppo"] == pytest.approx(-0.2, abs=0.01)
+    ppo_ci = report.difference_ci["ppo"]["sac"]
+    sac_ci = report.difference_ci["sac"]["ppo"]
+    assert ppo_ci is not None
+    assert sac_ci is not None
+    assert sac_ci[0] == pytest.approx(-ppo_ci[1])
+    assert sac_ci[1] == pytest.approx(-ppo_ci[0])
+
+
 def test_compare_bakeoff_reports_raw_scores_without_references(temp_experiment_setup: ExperimentSetup) -> None:
     """No references means no normalization: scores stay in raw units."""
     setup = temp_experiment_setup
@@ -628,3 +680,101 @@ def test_compare_bakeoff_rejects_pooling_multiple_environments_without_reference
 
     with pytest.raises(ValueError, match="requires references"):
         compare_bakeoff(dataset, algorithms, ["cartpole", "mountaincar"], "metric", verbose=False)
+
+
+class TestBakeoffReport:
+    """The consolidated champion-selection + comparison + warnings entry point."""
+
+    def test_rejects_a_single_condition(self, temp_experiment_setup: ExperimentSetup) -> None:
+        setup = temp_experiment_setup
+        _add_curve_observation(setup, {"condition_name": "a"}, 0, [1.0, 1.0, 1.0])
+        dataset = _load(setup)
+
+        with pytest.raises(ValueError, match="at least 2 conditions"):
+            bakeoff_report(dataset, "metric", ["a"], verbose=False)
+
+    def test_no_blocking_no_selection_mirrors_a_plain_pairwise_comparison(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        setup = temp_experiment_setup
+        for condition, base in (("a", 5.0), ("b", 3.0)):
+            for seed in range(6):
+                _add_curve_observation(setup, {"condition_name": condition}, seed, [base, base, base])
+        dataset = _load(setup)
+
+        report = bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
+
+        assert report.champions is None
+        assert report.seed_counts["a"][""] == 6
+        assert report.cell_means["a"][""] == pytest.approx(5.0)
+        assert report.cell_means["b"][""] == pytest.approx(3.0)
+
+    def test_champion_selection_picks_the_right_config_per_condition_and_block(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """a's champion is low; b's champion is high; both must hold in both blocks."""
+        setup = temp_experiment_setup
+        for condition in ("a", "b"):
+            for env in ("e1", "e2"):
+                for learning_rate, bonus in (("low", 0.0), ("high", 2.0 if condition == "b" else -10.0)):
+                    for seed in range(6):
+                        base = {"a": 5.0, "b": 3.0}[condition]
+                        _add_curve_observation(
+                            setup,
+                            {"condition_name": condition, "env_name": env, "learning_rate": learning_rate},
+                            seed,
+                            [base + bonus] * 3,
+                        )
+        dataset = _load(
+            setup,
+            ExperimentDimensions(environment="env_name", sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)),
+        )
+
+        report = bakeoff_report(
+            dataset,
+            "metric",
+            ["a", "b"],
+            select_champion_over=["learning_rate"],
+            block_by=["env_name"],
+            references={"e1": ReferenceRange(-20.0, 20.0), "e2": ReferenceRange(-20.0, 20.0)},
+            verbose=False,
+        )
+
+        assert report.champions is not None
+        assert report.champions["e1"]["a"].winning_config == {"learning_rate": "low"}
+        assert report.champions["e1"]["b"].winning_config == {"learning_rate": "high"}
+        assert report.champions["e2"]["a"].winning_config == {"learning_rate": "low"}
+        assert report.champions["e2"]["b"].winning_config == {"learning_rate": "high"}
+
+    def test_select_champion_over_must_match_the_declared_sweep_axes(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        setup = temp_experiment_setup
+        for condition in ("a", "b"):
+            _add_curve_observation(
+                setup, {"condition_name": condition, "learning_rate": "low"}, 0, [1.0, 1.0, 1.0]
+            )
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        with pytest.raises(ValueError, match="select_champion_over must name exactly"):
+            bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["not_a_real_axis"], verbose=False)
+
+    def test_flags_a_boundary_champion_on_a_coarse_grid(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Only two swept values: whichever wins is necessarily at an edge of the grid."""
+        setup = temp_experiment_setup
+        for learning_rate, value in (("low", 1.0), ("high", 5.0)):
+            for seed in range(6):
+                _add_curve_observation(
+                    setup, {"condition_name": "a", "learning_rate": learning_rate}, seed, [value] * 3
+                )
+        for learning_rate in ("low", "high"):
+            for seed in range(6):
+                _add_curve_observation(setup, {"condition_name": "b", "learning_rate": learning_rate}, seed, [1.0, 1.0, 1.0])
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        report = bakeoff_report(
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], verbose=False
+        )
+
+        boundary_warnings = [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
+        assert any(w.condition == "a" for w in boundary_warnings)
