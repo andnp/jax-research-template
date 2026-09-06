@@ -36,31 +36,31 @@ class ScrubberSumpParams:
     """Sump geometry and reduced-order chemistry constants."""
 
     # ── Geometry ──────────────────────────────────────────────────
-    volume_min: float = 1.0  # m³  – low-level alarm / clamp
-    volume_max: float = 10.0  # m³  – overflow point
-    nominal_volume: float = 5.0  # m³  – design operating level
+    volume_min: float | jax.Array = 1.0  # m³  – low-level alarm / clamp
+    volume_max: float | jax.Array = 10.0  # m³  – overflow point
+    nominal_volume: float | jax.Array = 5.0  # m³  – design operating level
 
     # ── Oxidant (bleach) kinetics ─────────────────────────────────
-    bleach_yield: float = 1.0  # mg-oxidant / mL-bleach-pumped
-    oxidant_decay: float = 0.02  # h⁻¹  – natural decomposition (NaOCl → NaCl + O₂)
-    oxidant_sulfide_rate: float = 2.0  # mg-oxidant consumed / mg-sulfide oxidised
+    bleach_yield: float | jax.Array = 1.0  # mg-oxidant / mL-bleach-pumped
+    oxidant_decay: float | jax.Array = 0.02  # h⁻¹  – natural decomposition (NaOCl → NaCl + O₂)
+    oxidant_sulfide_rate: float | jax.Array = 2.0  # mg-oxidant consumed / mg-sulfide oxidised
 
     # ── Alkalinity (caustic) kinetics ─────────────────────────────
-    caustic_yield: float = 0.5  # meq/L per mL-caustic-pumped per m³
-    alkalinity_consumption: float = 0.1  # meq consumed per mg-sulfide absorbed
+    caustic_yield: float | jax.Array = 0.5  # meq/L per mL-caustic-pumped per m³
+    alkalinity_consumption: float | jax.Array = 0.1  # meq consumed per mg-sulfide absorbed
 
     # ── Sulfide kinetics ──────────────────────────────────────────
-    oxidation_rate: float = 5.0  # mg-sulfide/h per (mg/L oxidant) — first-order-ish
-    stripping_rate: float = 0.5  # h⁻¹  – dissolved sulfide re-stripped to gas
+    oxidation_rate: float | jax.Array = 5.0  # mg-sulfide/h per (mg/L oxidant) — first-order-ish
+    stripping_rate: float | jax.Array = 0.5  # h⁻¹  – dissolved sulfide re-stripped to gas
 
     # ── Temperature ───────────────────────────────────────────────
-    ambient_temp: float = 25.0  # °C
-    temp_exchange_rate: float = 0.1  # h⁻¹  – heat loss to ambient
-    reaction_heat: float = 0.02  # °C per mg-sulfide oxidised (exothermic)
+    ambient_temp: float | jax.Array = 25.0  # °C
+    temp_exchange_rate: float | jax.Array = 0.1  # h⁻¹  – heat loss to ambient
+    reaction_heat: float | jax.Array = 0.02  # °C per mg-sulfide oxidised (exothermic)
 
     # ── Temperature effect on kinetics ────────────────────────────
-    temp_reference: float = 25.0  # °C  – reference for Arrhenius-like scaling
-    temp_coefficient: float = 1.05  # θ  – rate multiplier per °C above ref
+    temp_reference: float | jax.Array = 25.0  # °C  – reference for Arrhenius-like scaling
+    temp_coefficient: float | jax.Array = 1.05  # θ  – rate multiplier per °C above ref
 
 
 # ── State ─────────────────────────────────────────────────────────────
@@ -76,11 +76,11 @@ class ScrubberSumpState:
 
     @staticmethod
     def create(
-        oxidant: float = 5.0,
-        alkalinity: float = 3.0,
-        volume: float = 5.0,
-        sulfide: float = 0.5,
-        temperature: float = 25.0,
+        oxidant: float | jax.Array = 5.0,
+        alkalinity: float | jax.Array = 3.0,
+        volume: float | jax.Array = 5.0,
+        sulfide: float | jax.Array = 0.5,
+        temperature: float | jax.Array = 25.0,
     ) -> "ScrubberSumpState":
         return ScrubberSumpState(
             oxidant=jnp.array(oxidant),
