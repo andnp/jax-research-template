@@ -253,7 +253,7 @@ def _axis_dtype(axis: SweepAxis):
     return pl.Boolean
 
 
-def _axis_applicability(axis: SweepAxis, hyperparameters: dict[str, object]) -> bool | None:
+def _axis_applicability(axis: SweepAxis, hyperparameters: Mapping[str, object]) -> bool | None:
     if axis.when is None:
         return True
     for key, value in axis.when.items():
@@ -304,6 +304,99 @@ def _cohort_matches(row: dict[str, object], selection: CohortSelection) -> bool:
     if selection.ablation is not None and row.get("ablation") != selection.ablation:
         return False
     return all(row.get(key) == value for key, value in selection.sweep_values)
+
+
+def _build_run_row(
+    run: RunRow,
+    execution: ExecutionRow,
+    artifact: ExecutionArtifactRow | None,
+    items: tuple[ComponentVersionProvenance, ...],
+    hyperparameters: Mapping[str, object],
+    dimensions: ExperimentDimensions,
+) -> tuple[dict[str, object] | None, list[DatasetDiagnostic]]:
+    diagnostics: list[DatasetDiagnostic] = []
+    condition_value = hyperparameters.get(dimensions.condition)
+    if condition_value is None:
+        diagnostics.append(
+            _diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {dimensions.condition!r}", run.id, execution.id)
+        )
+        return None, diagnostics
+    row: dict[str, object] = {
+        "condition_name": str(condition_value),
+        "seed": run.seed,
+        "run_id": run.id,
+        "execution_id": execution.id,
+        "ablation": run.ablation,
+        "metrics_db_path": None,
+    }
+    if dimensions.environment is not None:
+        environment_value = hyperparameters.get(dimensions.environment)
+        if environment_value is None:
+            diagnostics.append(
+                _diagnostic(
+                    DiagnosticCode.MISSING_DIMENSION, f"missing environment key {dimensions.environment!r}", run.id, execution.id
+                )
+            )
+            return None, diagnostics
+        row["env_name"] = str(environment_value)
+    for axis in dimensions.sweep_axes:
+        applies = _axis_applicability(axis, hyperparameters)
+        if applies is None:
+            diagnostics.append(
+                _diagnostic(
+                    DiagnosticCode.INVALID_DIMENSION,
+                    f"cannot evaluate applicability for sweep axis {axis.name!r}",
+                    run.id,
+                    execution.id,
+                )
+            )
+            return None, diagnostics
+        if not applies:
+            if axis.name in hyperparameters:
+                diagnostics.append(
+                    _diagnostic(
+                        DiagnosticCode.INVALID_DIMENSION,
+                        f"sweep axis {axis.name!r} is present outside its applicability condition",
+                        run.id,
+                        execution.id,
+                    )
+                )
+                return None, diagnostics
+            row[axis.name] = None
+            continue
+        if axis.name not in hyperparameters:
+            diagnostics.append(
+                _diagnostic(
+                    DiagnosticCode.MISSING_DIMENSION,
+                    f"missing sweep axis {axis.name!r} for an applicable run",
+                    run.id,
+                    execution.id,
+                )
+            )
+            return None, diagnostics
+        raw_value = hyperparameters[axis.name]
+        value = _coerce_axis_value(raw_value, axis)
+        if value is None:
+            diagnostics.append(
+                _diagnostic(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id)
+            )
+            return None, diagnostics
+        row[axis.name] = value
+    metadata: object = json.loads(artifact.metadata_json) if artifact is not None and artifact.metadata_json else {}
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("metrics_db_path"), str):
+        diagnostics.append(
+            _diagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
+        )
+        return None, diagnostics
+    row["metrics_db_path"] = metadata["metrics_db_path"]
+    for item in items:
+        prefix = "algo" if item.component_type == "ALGO" else "env"
+        row[f"{prefix}_component_name"] = item.component_name
+        row[f"{prefix}_component_type"] = item.component_type
+        row[f"{prefix}_version_id"] = item.version_id
+        row[f"{prefix}_version_number"] = item.version_number
+        row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
+    return row, diagnostics
 
 
 def _metric_query_pairs(pairs: list[tuple[int, int]], metrics: tuple[str, ...] | None) -> str:
@@ -409,81 +502,10 @@ def load_experiment_dataset(
             if not isinstance(hyperparameters, dict):
                 diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id))
                 continue
-            condition_value = hyperparameters.get(selected_dimensions.condition)
-            if condition_value is None:
-                diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {selected_dimensions.condition!r}", run.id, execution.id))
-                continue
-            row: dict[str, object] = {
-                "condition_name": str(condition_value),
-                "seed": run.seed,
-                "run_id": run.id,
-                "execution_id": execution.id,
-                "ablation": run.ablation,
-                "metrics_db_path": None,
-            }
-            if selected_dimensions.environment is not None:
-                environment_value = hyperparameters.get(selected_dimensions.environment)
-                if environment_value is None:
-                    diagnostics.append(_diagnostic(DiagnosticCode.MISSING_DIMENSION, f"missing environment key {selected_dimensions.environment!r}", run.id, execution.id))
-                    continue
-                row["env_name"] = str(environment_value)
-            for axis in selected_dimensions.sweep_axes:
-                applies = _axis_applicability(axis, hyperparameters)
-                if applies is None:
-                    diagnostics.append(
-                        _diagnostic(
-                            DiagnosticCode.INVALID_DIMENSION,
-                            f"cannot evaluate applicability for sweep axis {axis.name!r}",
-                            run.id,
-                            execution.id,
-                        )
-                    )
-                    break
-                if not applies:
-                    if axis.name in hyperparameters:
-                        diagnostics.append(
-                            _diagnostic(
-                                DiagnosticCode.INVALID_DIMENSION,
-                                f"sweep axis {axis.name!r} is present outside its applicability condition",
-                                run.id,
-                                execution.id,
-                            )
-                        )
-                        break
-                    row[axis.name] = None
-                    continue
-                if axis.name not in hyperparameters:
-                    diagnostics.append(
-                        _diagnostic(
-                            DiagnosticCode.MISSING_DIMENSION,
-                            f"missing sweep axis {axis.name!r} for an applicable run",
-                            run.id,
-                            execution.id,
-                        )
-                    )
-                    break
-                raw_value = hyperparameters[axis.name]
-                value = _coerce_axis_value(raw_value, axis)
-                if value is None:
-                    diagnostics.append(_diagnostic(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id))
-                    break
-                row[axis.name] = value
-            else:
-                metadata: object = json.loads(artifact.metadata_json) if artifact is not None and artifact.metadata_json else {}
-                if not isinstance(metadata, dict) or not isinstance(metadata.get("metrics_db_path"), str):
-                    diagnostics.append(_diagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id))
-                    continue
-                row["metrics_db_path"] = metadata["metrics_db_path"]
-                if items:
-                    for item in items:
-                        prefix = "algo" if item.component_type == "ALGO" else "env"
-                        row[f"{prefix}_component_name"] = item.component_name
-                        row[f"{prefix}_component_type"] = item.component_type
-                        row[f"{prefix}_version_id"] = item.version_id
-                        row[f"{prefix}_version_number"] = item.version_number
-                        row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
-                if cohort is None or _cohort_matches(row, cohort):
-                    rows.append(row)
+            row, row_diagnostics = _build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions)
+            diagnostics.extend(row_diagnostics)
+            if row is not None and (cohort is None or _cohort_matches(row, cohort)):
+                rows.append(row)
 
         metric_groups: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
         run_rows = {
