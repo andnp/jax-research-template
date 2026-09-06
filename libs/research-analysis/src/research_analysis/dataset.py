@@ -296,6 +296,34 @@ def _version_matches(
     return True
 
 
+RunCandidate = tuple[RunRow, ExecutionRow, ExecutionArtifactRow | None, tuple[int | None, int | None], tuple[ComponentVersionProvenance, ...]]
+
+
+def _select_version_sets(
+    candidates: list[RunCandidate], selection: VersionSelection
+) -> tuple[frozenset[tuple[int | None, int | None]], dict[int, ComponentVersionProvenance], list[DatasetDiagnostic]]:
+    diagnostics: list[DatasetDiagnostic] = []
+    available_sets = {item[3] for item in candidates}
+    selected_sets = available_sets
+    if selection.kind is VersionSelectionKind.LATEST_COMPLETED and available_sets:
+        selected_sets = {max(available_sets, key=_version_sort_key)}
+    elif selection.kind is VersionSelectionKind.EXACT:
+        selected_sets = {item[3] for item in candidates if _version_matches(item[4], selection.exact_versions)}
+        if not selected_sets:
+            diagnostics.append(_diagnostic(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs"))
+
+    for version_set in sorted(available_sets, key=_version_sort_key):
+        if version_set not in selected_sets:
+            diagnostics.append(_diagnostic(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}"))
+
+    all_provenance: dict[int, ComponentVersionProvenance] = {}
+    for _, _, _, version_set, items in candidates:
+        if version_set in selected_sets:
+            all_provenance.update({item.version_id: item for item in items})
+
+    return frozenset(selected_sets), all_provenance, diagnostics
+
+
 def _cohort_matches(row: dict[str, object], selection: CohortSelection) -> bool:
     if selection.condition_name is not None and row.get("condition_name") != selection.condition_name:
         return False
@@ -427,9 +455,7 @@ def load_experiment_dataset(
     diagnostics: list[DatasetDiagnostic] = []
     rows: list[dict[str, object]] = []
     provenance_by_version: dict[int, ComponentVersionProvenance] = {}
-    candidates: list[
-        tuple[RunRow, ExecutionRow, ExecutionArtifactRow | None, tuple[int | None, int | None], tuple[ComponentVersionProvenance, ...]]
-    ] = []
+    candidates: list[RunCandidate] = []
 
     with DatabaseManager(Path(experiments_db)) as database:
         database.initialize()
@@ -467,29 +493,8 @@ def load_experiment_dataset(
                 )
             candidates.append((run, execution, artifact, _version_key(run.algo_version_id, run.env_version_id), tuple(version_items)))
 
-        available_sets = {item[3] for item in candidates}
-        selected_sets = available_sets
-        if selected_versions.kind is VersionSelectionKind.LATEST_COMPLETED and available_sets:
-            selected_sets = {max(available_sets, key=_version_sort_key)}
-        elif selected_versions.kind is VersionSelectionKind.EXACT:
-            selected_sets = {
-                item[3]
-                for item in candidates
-                if _version_matches(item[4], selected_versions.exact_versions)
-            }
-            if not selected_sets:
-                diagnostics.append(_diagnostic(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs"))
-
-        for version_set in sorted(available_sets, key=_version_sort_key):
-            if version_set not in selected_sets:
-                diagnostics.append(
-                    _diagnostic(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}")
-                )
-
-        all_provenance: dict[int, ComponentVersionProvenance] = {}
-        for _, _, _, version_set, items in candidates:
-            if version_set in selected_sets:
-                all_provenance.update({item.version_id: item for item in items})
+        selected_sets, all_provenance, version_diagnostics = _select_version_sets(candidates, selected_versions)
+        diagnostics.extend(version_diagnostics)
 
         for run, execution, artifact, version_set, items in candidates:
             if version_set not in selected_sets:
