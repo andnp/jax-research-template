@@ -157,11 +157,19 @@ _PPO = "ppo"
 class GenericBatchTrainer:
     """Bind an :class:`AlgorithmSpec` to an environment factory and run its seeded batch."""
 
-    def __init__(self, spec: AlgorithmSpec, env_factory: EnvFactory, *, extra_metric_names: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        spec: AlgorithmSpec,
+        env_factory: EnvFactory,
+        *,
+        extra_metric_names: tuple[str, ...] = (),
+        report_returned_episode_returns: bool = False,
+    ) -> None:
         self._spec = spec
         self.parameter_schema = spec.parameter_schema
         self._env_factory = env_factory
         self._extra_metric_names = extra_metric_names
+        self._report_returned_episode_returns = report_returned_episode_returns or spec.name == _PPO
 
     def __call__(self, context: ExecutionContext) -> ExecutionResult:
         spec = self._spec
@@ -190,17 +198,21 @@ class GenericBatchTrainer:
             reported: tuple[str, ...] = spec.agent_cls.REPORTED_METRICS
             if is_ppo:
                 curves = {
-                    "returned_episode_returns": episode_return_curve(cast(Mapping[str, jax.Array], metrics)),
                     **{name: metrics[name] for name in reported},
                     **{name: metrics[name] for name in self._extra_metric_names},
                 }
+            else:
+                projected = project_metrics(metrics)
+                curves = {
+                    "reward": projected["reward"],
+                    **{name: projected[name] for name in reported},
+                    **{name: metrics[name] for name in self._extra_metric_names},
+                }
+            if self._report_returned_episode_returns:
+                curves["returned_episode_returns"] = episode_return_curve(cast(Mapping[str, jax.Array], metrics))
+            if is_ppo:
                 return cast(Any, final_state).agent_state.train_state.params, curves
-            projected = project_metrics(metrics)
-            return {
-                "reward": projected["reward"],
-                **{name: projected[name] for name in reported},
-                **{name: metrics[name] for name in self._extra_metric_names},
-            }
+            return curves
 
         result = run_batch(train_one, dynamic_axes, batch.seeds)
         if is_ppo:
@@ -220,5 +232,16 @@ class GenericBatchTrainer:
         )
 
 
-def make_batch_trainer(spec: AlgorithmSpec, env_factory: EnvFactory, *, extra_metric_names: tuple[str, ...] = ()) -> BatchTrainer:
-    return GenericBatchTrainer(spec, env_factory, extra_metric_names=extra_metric_names)
+def make_batch_trainer(
+    spec: AlgorithmSpec,
+    env_factory: EnvFactory,
+    *,
+    extra_metric_names: tuple[str, ...] = (),
+    report_returned_episode_returns: bool = False,
+) -> BatchTrainer:
+    return GenericBatchTrainer(
+        spec,
+        env_factory,
+        extra_metric_names=extra_metric_names,
+        report_returned_episode_returns=report_returned_episode_returns,
+    )
