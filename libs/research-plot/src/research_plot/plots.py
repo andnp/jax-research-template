@@ -142,7 +142,7 @@ def plot_trajectory_panels(
     fig, axes = plt.subplots(
         len(panels),
         1,
-        figsize=(10, max(3.0, 2.8 * len(panels))),
+        figsize=(13, max(3.0, 2.8 * len(panels))),
         sharex=True,
         squeeze=False,
     )
@@ -184,12 +184,19 @@ def plot_trajectory_panels(
                 )
         ax.set_title(panel_name, loc="left")
         ax.set_ylabel(panel.ylabel)
-        ax.legend(frameon=False)
+        ax.legend(
+            frameon=False,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1.0),
+            borderaxespad=0.0,
+        )
 
     axes[-1, 0].set_xlabel(x_label)
     if title is not None:
         fig.suptitle(title)
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.96) if title is not None else None)
+    fig.tight_layout(
+        rect=(0.0, 0.0, 0.74, 0.96) if title is not None else (0.0, 0.0, 0.74, 1.0)
+    )
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
