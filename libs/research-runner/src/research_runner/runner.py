@@ -236,7 +236,7 @@ def _resolve_experiment(database: DatabaseManager, runs: list[RunRow]):
 def _resolve_points(
     database: DatabaseManager,
     runs: list[RunRow],
-    static_config: dict[str, ParameterValue],
+    static_config: Mapping[str, ParameterValue],
 ) -> tuple[RunPoint, ...]:
     config_cache: dict[int, dict[str, ParameterValue]] = {}
     points: list[RunPoint] = []
