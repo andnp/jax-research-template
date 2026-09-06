@@ -129,19 +129,30 @@ class TestTreeLerp:
 
 class TestShiftHeadReadout:
     def test_shifts_kernel_and_bias_leaving_other_params_untouched(self) -> None:
-        variables = {
-            "params": {
-                "trunk": jnp.array([1.0, 2.0]),
-                "kernel": jnp.array([[0.0, 1.0, 2.0]]),
-                "bias": jnp.array([0.0, 1.0, 2.0]),
-            }
+        params = {
+            "trunk": jnp.array([1.0, 2.0]),
+            "kernel": jnp.array([[0.0, 1.0, 2.0]]),
+            "bias": jnp.array([0.0, 1.0, 2.0]),
         }
-        result = shift_head_readout(variables, kernel_name="kernel", kernel_axis=1, bias_name="bias")
-        assert jnp.allclose(result["params"]["kernel"], jnp.array([[1.0, 2.0, 2.0]]))
-        assert jnp.allclose(result["params"]["bias"], jnp.array([1.0, 2.0, 2.0]))
-        assert jnp.allclose(result["params"]["trunk"], variables["params"]["trunk"])
+        result = shift_head_readout(params, kernel_name="kernel", kernel_axis=1, bias_name="bias")
+        assert jnp.allclose(result["kernel"], jnp.array([[1.0, 2.0, 2.0]]))
+        assert jnp.allclose(result["bias"], jnp.array([1.0, 2.0, 2.0]))
+        assert jnp.allclose(result["trunk"], params["trunk"])
 
     def test_no_bias_name_leaves_bias_absent(self) -> None:
-        variables = {"params": {"kernel": jnp.array([[0.0, 1.0, 2.0]])}}
-        result = shift_head_readout(variables, kernel_name="kernel", kernel_axis=1)
-        assert set(result["params"]) == {"kernel"}
+        params = {"kernel": jnp.array([[0.0, 1.0, 2.0]])}
+        result = shift_head_readout(params, kernel_name="kernel", kernel_axis=1)
+        assert set(result) == {"kernel"}
+
+    def test_composes_at_a_nested_nonzero_level(self) -> None:
+        """A readout's params can sit as a named child of an outer trunk-plus-heads module."""
+        outer = {
+            "params": {
+                "trunk": jnp.array([1.0]),
+                "readout": {"kernel": jnp.array([[0.0, 1.0, 2.0]])},
+            }
+        }
+        shifted_readout = shift_head_readout(outer["params"]["readout"], kernel_name="kernel", kernel_axis=1)
+        result = {**outer, "params": {**outer["params"], "readout": shifted_readout}}
+        assert jnp.allclose(result["params"]["readout"]["kernel"], jnp.array([[1.0, 2.0, 2.0]]))
+        assert jnp.allclose(result["params"]["trunk"], outer["params"]["trunk"])

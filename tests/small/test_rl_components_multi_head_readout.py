@@ -48,8 +48,8 @@ class TestMultiHeadReadoutShift:
         variables = model.init(jax.random.key(SEED), phi)
         out = model.apply(variables, phi)
 
-        shifted = shift_head_readout(variables, kernel_name="kernel", kernel_axis=1, bias_name="bias")
-        shifted_out = model.apply(shifted, phi)
+        shifted_params = shift_head_readout(variables["params"], kernel_name="kernel", kernel_axis=1, bias_name="bias")
+        shifted_out = model.apply({**variables, "params": shifted_params}, phi)
 
         assert jnp.allclose(shifted_out[:-1], out[1:])
         assert jnp.allclose(shifted_out[-1], out[-1])
