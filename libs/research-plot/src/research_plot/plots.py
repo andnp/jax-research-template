@@ -15,6 +15,7 @@ from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,7 @@ class EventWindow:
     label: str | None = None
 
 
-def _apply_minimal_style(ax: plt.Axes) -> None:
+def _apply_minimal_style(ax: Axes) -> None:
     """Removes top/right spines and sets neat labels."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
