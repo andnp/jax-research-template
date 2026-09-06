@@ -1,7 +1,7 @@
 """Small behavioral tests for jax-eval replay diagnostics."""
 
 import jax.numpy as jnp
-from jax_eval.replay import priority_utilization
+from jax_eval.replay import priority_utilization, sample_staleness
 
 
 def test_priority_utilization_normalizes_entropy() -> None:
@@ -19,3 +19,32 @@ def test_priority_utilization_ignores_zero_probability_entries() -> None:
     result = priority_utilization(jnp.array([1.0, 0.0, 1.0, 0.0]))
 
     assert jnp.allclose(result, 0.5)
+
+
+def test_sample_staleness_casts_before_signed_subtraction() -> None:
+    """Compute mean ages without unsigned counter underflow or clipping."""
+    result = sample_staleness(jnp.uint32(2), jnp.array([1, 3], dtype=jnp.uint32))
+
+    assert result.dtype == jnp.float32
+    assert jnp.allclose(result, 0.0)
+
+
+def test_sample_staleness_applies_same_shape_mask() -> None:
+    """Average only selected ages while preserving negative values."""
+    sampled = jnp.array([[7, 11], [8, 20]], dtype=jnp.int32)
+    mask = jnp.array([[True, False], [False, True]])
+
+    result = sample_staleness(jnp.int32(10), sampled, mask)
+
+    assert jnp.allclose(result, -3.5)
+
+
+def test_sample_staleness_handles_empty_and_no_valid_samples() -> None:
+    """Return finite float32 zero when no sample contributes to the mean."""
+    empty = sample_staleness(jnp.float32(10.0), jnp.empty((0, 2), dtype=jnp.int32))
+    none_valid = sample_staleness(jnp.float32(10.0), jnp.array([7, 8]), jnp.array([False, False]))
+
+    assert empty.dtype == jnp.float32
+    assert empty == 0.0
+    assert none_valid.dtype == jnp.float32
+    assert none_valid == 0.0
