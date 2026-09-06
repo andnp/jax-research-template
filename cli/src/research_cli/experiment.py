@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import typer
-from experiment_definition.db import DatabaseManager, ExperimentRow
+from experiment_definition.db import DatabaseManager
 from research_runner import ExperimentSpec, registered_specs
 
 experiment_app = typer.Typer(help="Manage experiments.")
@@ -113,10 +113,7 @@ def status(
                 raise typer.Exit(code=1)
             exp_rows = [exp_row]
         else:
-            raw = db.conn.execute(
-                "SELECT id, name, description, created_at FROM Experiments ORDER BY name",
-            ).fetchall()
-            exp_rows = [ExperimentRow(*r) for r in raw]
+            exp_rows = db.list_experiments()
 
         for exp_row in exp_rows:
             all_runs = db.list_runs(exp_row.id)

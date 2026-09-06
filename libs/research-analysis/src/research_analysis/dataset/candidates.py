@@ -25,7 +25,7 @@ class VersionSet(NamedTuple):
     """Identifies one coherent algorithm/environment component-version pairing."""
 
     algo_version_id: int | None
-    env_version_id: int
+    env_version_id: int | None
 
 
 class _ArtifactMetadata(BaseModel):

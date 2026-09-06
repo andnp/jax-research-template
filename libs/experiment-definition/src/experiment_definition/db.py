@@ -19,6 +19,16 @@ if TYPE_CHECKING:
     from .experiment import _ExperimentState
 
 from .parameter import ParameterValue
+from .records import (
+    ComponentRow,
+    ComponentVersionRow,
+    ExecutionArtifactRow,
+    ExecutionRow,
+    ExperimentRow,
+    HyperparamConfigRow,
+    RunRow,
+    _record_from_row,
+)
 from .schema import ALL_DDL, DEFAULT_DB_NAME
 
 
@@ -305,69 +315,6 @@ def _insert_runs(
     return wanted
 
 
-# ---------------------------------------------------------------------------
-# Small data carriers (NamedTuple for zero-overhead, fully typed results)
-# ---------------------------------------------------------------------------
-
-
-class ComponentRow(NamedTuple):
-    id: int
-    name: str
-    type: str
-
-
-class ComponentVersionRow(NamedTuple):
-    id: int
-    component_id: int
-    version_number: int
-    created_at: str
-    code_snapshot_hash: str
-    notes: str | None
-
-
-class HyperparamConfigRow(NamedTuple):
-    id: int
-    hash: str
-    hyperparameters: Mapping[str, ParameterValue]
-    vmap_zone: Mapping[str, list[str]] | None
-
-
-class ExperimentRow(NamedTuple):
-    id: int
-    name: str
-    description: str | None
-    created_at: str
-
-
-class RunRow(NamedTuple):
-    id: int
-    experiment_id: int
-    algo_version_id: int | None
-    env_version_id: int
-    hyper_id: int
-    seed: int
-    ablation: str | None
-
-
-class ExecutionRow(NamedTuple):
-    id: int
-    status: str
-    hostname: str | None
-    start_time: str | None
-    end_time: str | None
-    git_commit: str | None
-    git_diff_blob: str | None
-    jax_config_json: str | None
-
-
-class ExecutionArtifactRow(NamedTuple):
-    execution_id: int
-    root_path: str
-    manifest_path: str | None
-    metadata_json: str | None
-    created_at: str
-
-
 class RunBatch(NamedTuple):
     algo_version_id: int | None
     env_version_id: int | None
@@ -484,7 +431,7 @@ class DatabaseManager:
     def get_component(self, name: str) -> ComponentRow | None:
         """Fetch a component by name."""
         row = self.conn.execute("SELECT id, name, type FROM Components WHERE name = ?", (name,)).fetchone()
-        return ComponentRow(*row) if row else None
+        return _record_from_row(ComponentRow, row) if row else None
 
     # ------------------------------------------------------------------
     # ComponentVersions  (researcher-in-the-loop auto-increment)
@@ -540,7 +487,7 @@ class DatabaseManager:
             "FROM ComponentLatestVersions WHERE component_id = ?",
             (component_id,),
         ).fetchone()
-        return ComponentVersionRow(*row) if row else None
+        return _record_from_row(ComponentVersionRow, row) if row else None
 
     def hash_changed(self, component_id: int, new_hash: str) -> bool:
         """Return ``True`` if ``new_hash`` differs from the latest stored hash.
@@ -605,10 +552,10 @@ class DatabaseManager:
             return None
         row_id, config_hash, json_blob, vmap_zone_json = row
         return HyperparamConfigRow(
-            row_id,
-            config_hash,
-            json.loads(json_blob),
-            json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
+            id=row_id,
+            hash=config_hash,
+            hyperparameters=json.loads(json_blob),
+            vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
         )
 
     # ------------------------------------------------------------------
@@ -643,7 +590,14 @@ class DatabaseManager:
             "SELECT id, name, description, created_at FROM Experiments WHERE name = ?",
             (name,),
         ).fetchone()
-        return ExperimentRow(*row) if row else None
+        return _record_from_row(ExperimentRow, row) if row else None
+
+    def list_experiments(self) -> list[ExperimentRow]:
+        """Return all experiments ordered by name."""
+        rows = self.conn.execute(
+            "SELECT id, name, description, created_at FROM Experiments ORDER BY name",
+        ).fetchall()
+        return [_record_from_row(ExperimentRow, row) for row in rows]
 
     def get_experiment_by_id(self, experiment_id: int) -> ExperimentRow | None:
         """Fetch an experiment by id."""
@@ -651,7 +605,7 @@ class DatabaseManager:
             "SELECT id, name, description, created_at FROM Experiments WHERE id = ?",
             (experiment_id,),
         ).fetchone()
-        return ExperimentRow(*row) if row else None
+        return _record_from_row(ExperimentRow, row) if row else None
 
     # ------------------------------------------------------------------
     # Runs
@@ -661,7 +615,7 @@ class DatabaseManager:
         self,
         experiment_id: int,
         algo_version_id: int | None,
-        env_version_id: int,
+        env_version_id: int | None,
         hyper_id: int,
         seed: int,
         ablation: str | None = None,
@@ -687,7 +641,7 @@ class DatabaseManager:
             "FROM Runs WHERE experiment_id = ? ORDER BY seed, hyper_id, id",
             (experiment_id,),
         ).fetchall()
-        return [RunRow(*row) for row in rows]
+        return [_record_from_row(RunRow, row) for row in rows]
 
     def list_unsatisfied_runs(self, experiment_id: int) -> list[RunRow]:
         """Return runs lacking any linked ``COMPLETED`` execution.
@@ -709,7 +663,7 @@ class DatabaseManager:
             "ORDER BY r.seed, r.hyper_id, r.id",
             (experiment_id,),
         ).fetchall()
-        return [RunRow(*row) for row in rows]
+        return [_record_from_row(RunRow, row) for row in rows]
 
     def list_orphan_runs(self, experiment_id: int, wanted_run_ids: frozenset[int]) -> list[RunRow]:
         """Return runs the current definition does not want and that no execution ever touched.
@@ -727,7 +681,7 @@ class DatabaseManager:
             "ORDER BY r.hyper_id, r.seed, r.id",
             (experiment_id,),
         ).fetchall()
-        return [RunRow(*row) for row in rows if int(row[0]) not in wanted_run_ids]
+        return [_record_from_row(RunRow, row) for row in rows if int(row["id"]) not in wanted_run_ids]
 
     def delete_runs(self, run_ids: list[int]) -> int:
         """Delete runs by id, skipping any that an execution touched, and return the count.
@@ -778,7 +732,7 @@ class DatabaseManager:
 
         grouped_runs: dict[tuple[int | None, int | None, str | None, str, str | None], list[int]] = {}
         for row in rows:
-            run = RunRow(*row[:7])
+            run = _record_from_row(RunRow, row)
             hyper_json = str(row[7])
             if only and not _run_matches(json.loads(hyper_json), run, only):
                 continue
@@ -879,7 +833,7 @@ class DatabaseManager:
             "FROM Executions WHERE id = ?",
             (execution_id,),
         ).fetchone()
-        return ExecutionRow(*row) if row else None
+        return _record_from_row(ExecutionRow, row) if row else None
 
     def record_execution_artifacts(
         self,
@@ -930,7 +884,7 @@ class DatabaseManager:
             "FROM ExecutionArtifacts WHERE execution_id = ?",
             (execution_id,),
         ).fetchone()
-        return ExecutionArtifactRow(*row) if row else None
+        return _record_from_row(ExecutionArtifactRow, row) if row else None
 
     def update_execution_status(
         self,
@@ -1073,7 +1027,7 @@ class DatabaseManager:
         if not rows:
             return None
 
-        unsatisfied_runs = [RunRow(*row) for row in rows]
+        unsatisfied_runs = [_record_from_row(RunRow, row) for row in rows]
         selected_runs = unsatisfied_runs if limit is None else unsatisfied_runs[:limit]
         return self.plan_execution(
             [run.id for run in selected_runs],
@@ -1202,7 +1156,7 @@ class DatabaseManager:
             "ORDER BY r.seed, r.hyper_id, r.id",
             (execution_id,),
         ).fetchall()
-        return [RunRow(*row) for row in rows]
+        return [_record_from_row(RunRow, row) for row in rows]
 
     def get_latest_completed_execution_for_run(self, run_id: int) -> ExecutionRow | None:
         """Return the latest completed execution linked to a run, if any."""
@@ -1215,7 +1169,7 @@ class DatabaseManager:
             "LIMIT 1",
             (run_id,),
         ).fetchone()
-        return ExecutionRow(*row) if row else None
+        return _record_from_row(ExecutionRow, row) if row else None
 
     def get_latest_completed_artifacts_for_run(self, run_id: int) -> ExecutionArtifactRow | None:
         """Resolve artifact linkage for the latest completed execution of a run."""
@@ -1273,7 +1227,7 @@ class DatabaseManager:
             "ORDER BY e.id",
             (experiment_id,),
         ).fetchall()
-        return [ExecutionRow(*row) for row in rows]
+        return [_record_from_row(ExecutionRow, row) for row in rows]
 
     def find_executions_by_hyperparams(self, experiment_id: int, where: Mapping[str, str]) -> list[ExecutionRow]:
         """Return COMPLETED/FAILED executions whose covered runs all match ``where``.
@@ -1298,7 +1252,7 @@ class DatabaseManager:
         ).fetchall()
         matched = []
         for row in rows:
-            execution = ExecutionRow(*row)
+            execution = _record_from_row(ExecutionRow, row)
             runs = self.list_execution_runs(execution.id)
             if runs and all(self._hyperparams_match(run.hyper_id, where) for run in runs):
                 matched.append(execution)
@@ -1344,7 +1298,7 @@ class DatabaseManager:
             f"FROM Executions e{where} ORDER BY e.id DESC",
             params,
         ).fetchall()
-        return [ExecutionRow(*row) for row in rows]
+        return [_record_from_row(ExecutionRow, row) for row in rows]
 
     def get_planned_execution(self, execution_id: int):
         execution = self.get_execution(execution_id)
