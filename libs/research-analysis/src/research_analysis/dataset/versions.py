@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from research_analysis.dataset.candidates import RunCandidate
+from research_analysis.dataset.candidates import RunCandidate, VersionSet
 from research_analysis.dataset.types import ComponentVersionProvenance, ComponentVersionRef, VersionSelection, VersionSelectionKind
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
 
 
-def _version_sort_key(version_set: tuple[int | None, int | None]) -> tuple[int, int]:
-    return version_set[0] or -1, version_set[1] or -1
+def _version_sort_key(version_set: VersionSet) -> tuple[int, int]:
+    return version_set.algo_version_id or -1, version_set.env_version_id or -1
 
 
 def _version_matches(
@@ -32,13 +32,15 @@ def _version_matches(
 
 def select_version_sets(
     candidates: list[RunCandidate], selection: VersionSelection, diagnostics: DiagnosticAccumulator
-) -> tuple[frozenset[tuple[int | None, int | None]], dict[int, ComponentVersionProvenance]]:
-    available_sets = {item[3] for item in candidates}
+) -> tuple[frozenset[VersionSet], dict[int, ComponentVersionProvenance]]:
+    available_sets = {candidate.version_set for candidate in candidates}
     selected_sets = available_sets
     if selection.kind is VersionSelectionKind.LATEST_COMPLETED and available_sets:
         selected_sets = {max(available_sets, key=_version_sort_key)}
     elif selection.kind is VersionSelectionKind.EXACT:
-        selected_sets = {item[3] for item in candidates if _version_matches(item[4], selection.exact_versions)}
+        selected_sets = {
+            candidate.version_set for candidate in candidates if _version_matches(candidate.provenance, selection.exact_versions)
+        }
         if not selected_sets:
             diagnostics.add(DiagnosticCode.INVALID_VERSION_SELECTION, "exact component versions have no completed runs")
 
@@ -47,8 +49,8 @@ def select_version_sets(
             diagnostics.add(DiagnosticCode.EXCLUDED_VERSION, f"excluded completed version set {version_set!r}")
 
     all_provenance: dict[int, ComponentVersionProvenance] = {}
-    for _, _, _, version_set, items in candidates:
-        if version_set in selected_sets:
-            all_provenance.update({item.version_id: item for item in items})
+    for candidate in candidates:
+        if candidate.version_set in selected_sets:
+            all_provenance.update({item.version_id: item for item in candidate.provenance})
 
     return frozenset(selected_sets), all_provenance

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import NamedTuple
+
 from experiment_definition.db import (
     DatabaseManager,
     ExecutionArtifactRow,
@@ -14,11 +17,23 @@ from research_analysis.dataset.types import ComponentVersionProvenance
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
 
-RunCandidate = tuple[RunRow, ExecutionRow, ExecutionArtifactRow | None, tuple[int | None, int | None], tuple[ComponentVersionProvenance, ...]]
+
+class VersionSet(NamedTuple):
+    """Identifies one coherent algorithm/environment component-version pairing."""
+
+    algo_version_id: int | None
+    env_version_id: int | None
 
 
-def _version_key(algo_version_id: int | None, env_version_id: int | None) -> tuple[int | None, int | None]:
-    return algo_version_id, env_version_id
+@dataclass(frozen=True)
+class RunCandidate:
+    """One run considered for dataset loading, with its resolved version identity and provenance."""
+
+    run: RunRow
+    execution: ExecutionRow
+    artifact: ExecutionArtifactRow | None
+    version_set: VersionSet
+    provenance: tuple[ComponentVersionProvenance, ...]
 
 
 def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance | None:
@@ -67,5 +82,13 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow, d
                 run.id,
                 execution.id,
             )
-        candidates.append((run, execution, artifact, _version_key(run.algo_version_id, run.env_version_id), tuple(version_items)))
+        candidates.append(
+            RunCandidate(
+                run=run,
+                execution=execution,
+                artifact=artifact,
+                version_set=VersionSet(run.algo_version_id, run.env_version_id),
+                provenance=tuple(version_items),
+            )
+        )
     return candidates
