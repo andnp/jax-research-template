@@ -1,18 +1,18 @@
-"""Contract tests for named-field access on RunCandidate and VersionSet."""
+"""Contract tests for the staged completed-run and versioned-candidate objects."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
-from research_analysis.dataset.candidates import fetch_run_candidates
+from research_analysis.dataset.candidates import fetch_completed_runs
 from research_analysis.dataset.types import VersionSelection
-from research_analysis.dataset.versions import select_version_sets
+from research_analysis.dataset.versions import resolve_versioned_candidates, select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 
 
 def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None:
-    """fetch_run_candidates and select_version_sets expose run/version_set/provenance by name, not tuple index."""
+    """Discovery stays separate from version identity while both expose named fields."""
     db_path = tmp_path / "experiments.sqlite"
     with DatabaseManager(db_path) as database:
         database.initialize()
@@ -31,13 +31,18 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
 
         experiment = database.get_experiment("candidate-test")
         assert experiment is not None
-        candidates = fetch_run_candidates(database, experiment)
+        completed_runs = fetch_completed_runs(database, experiment)
 
+        assert len(completed_runs) == 1
+        completed_run = completed_runs[0]
+        assert completed_run.run.id == run_id
+        assert completed_run.execution.id == execution_id
+        assert completed_run.artifacts.metrics_db_path == str(metrics_path)
+
+        candidates = resolve_versioned_candidates(database, completed_runs)
         assert len(candidates) == 1
         candidate = candidates[0]
-        assert candidate.run.id == run_id
-        assert candidate.execution.id == execution_id
-        assert candidate.artifacts.metrics_db_path == str(metrics_path)
+        assert candidate.completed_run == completed_run
         assert candidate.version_set.algo_version_id == algo_version
         assert candidate.version_set.env_version_id == env_version
         assert len(candidate.provenance) == 2

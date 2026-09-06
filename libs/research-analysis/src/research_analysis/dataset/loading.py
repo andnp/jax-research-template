@@ -6,12 +6,12 @@ from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
 
-from research_analysis.dataset.candidates import fetch_run_candidates
+from research_analysis.dataset.candidates import fetch_completed_runs
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
 from research_analysis.dataset.rows import build_rows
 from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
-from research_analysis.dataset.versions import select_version_sets
+from research_analysis.dataset.versions import resolve_versioned_candidates, select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetLoadError
 
@@ -37,7 +37,8 @@ def load_experiment_dataset(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        candidates = fetch_run_candidates(database, experiment)
+        completed_runs = fetch_completed_runs(database, experiment)
+        candidates = resolve_versioned_candidates(database, completed_runs)
         selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
         rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort, diagnostics)
 
