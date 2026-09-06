@@ -106,11 +106,12 @@ workspace package. It should not depend on `research-instrument`,
 
 #### `dead_neurons(activations, *, atol=0.0)`
 
-`activations` has shape `(..., units)`. A unit is dead when every value over
-the leading observation axes satisfies `abs(value) <= atol`. The result is the
-fraction of dead units, not the fraction of zero entries. This distinction is
-important: a unit that activates on one state is not dead even if most entries
-in its column are zero.
+`activations` has shape `(..., units)` with at least one observation. A one-
+dimensional input `(units,)` is treated as one observation. An empty observation
+batch returns `0.0`. A unit is dead when every value over the observation axes
+satisfies `abs(value) <= atol`. The result is the fraction of dead units, not
+the fraction of zero entries. This distinction is important: a unit that
+activates on one state is not dead even if most entries in its column are zero.
 
 The default `atol=0.0` measures exact inactivity, which is appropriate for
 ReLU-style activations. A caller may choose a positive threshold for noisy or
@@ -119,17 +120,18 @@ low-precision activations. The result is `0.0` for an input with no units.
 #### `feature_drift(old_features, new_features, *, epsilon=1e-8)`
 
 Both inputs have the same shape `(..., features)`. The kernel computes the mean
-row-wise cosine distance over the leading observation axes:
+row-wise cosine distance over the leading observation axes. For vectors `u` and
+`v`, define cosine similarity as `0.0` when either norm is at most `epsilon`;
+otherwise compute the cosine ratio and clip it to `[-1.0, 1.0]`.
 
 \[
-  D = \operatorname{mean}_{x}\left(1 -
-      \frac{\langle \phi_{old}(x),\phi_{new}(x)\rangle}
-      {\max(\|\phi_{old}(x)\|_2\|\phi_{new}(x)\|_2,\epsilon)}\right).
+  D = \operatorname{mean}_{x}\left(1 - \operatorname{sim}(\phi_{old}(x),\phi_{new}(x))\right).
 \]
 
 The name now matches the quantity: `0.0` means identical direction and larger
 values mean more change. If either vector is effectively zero, its cosine
 similarity is defined as `0.0`, so the distance is finite and equals `1.0`.
+The explicit similarity clip prevents roundoff from producing negative drift.
 Callers should compare features on the same fixed probe states when measuring
 training-time representation change.
 
@@ -164,7 +166,9 @@ estimates, but the caller must use one interpretation per metric series. Define
        {\operatorname{mean}_b\|g_b - \bar g\|_2^2 + \epsilon}.
 \]
 
-The numerator and denominator aggregate all leaves, weighted by element count.
+The numerator and denominator use the unweighted sum of squares over every leaf
+element, matching a global pytree L2 norm; leaf size does not cause an
+additional weighting factor.
 For `B = 1` or identical non-zero gradients, the epsilon-stabilized result is
 finite and large; identical zero gradients return zero. Callers should record
 the batch size alongside the metric if that distinction matters scientifically.
@@ -181,15 +185,10 @@ The norm is global across leaves. The function must reject mismatched tree
 structure through the normal JAX tree operation rather than silently pairing
 leaves positionally. A zero parameter tree produces a finite ratio.
 
-#### `weight_norm(params)`
-
-Return the global L2 norm of a parameter pytree. Per-layer reporting is achieved
-by calling the function on an explicitly selected layer and assigning that
-layer a distinct metric name; the kernel will not return a dynamic dictionary
-of layer names. The lower-level operation is already available as
-`jax_utils.pytree.tree_norm`; `jax-eval` should add this semantic wrapper only
-if callers need a stable diagnostic namespace rather than another copy of the
-math.
+Global parameter norms are provided by the existing canonical
+`jax_utils.pytree.tree_norm(params)`. Per-layer reporting is achieved by calling
+that function on an explicitly selected layer and assigning the layer a distinct
+metric name. `jax-eval` will not add a duplicate `weight_norm` wrapper.
 
 ### 6.3 Replay diagnostics
 
@@ -203,12 +202,14 @@ math.
   U = \frac{-\sum_i p_i \log(\max(p_i,\epsilon))}{\log(N)}.
 \]
 
-Zero-priority entries contribute zero. An all-zero vector returns `0.0`; a
-uniform vector over the full capacity returns `1.0`. This metric describes the
-provided priority distribution. It is not guaranteed to equal the replay
-buffer's actual sampling distribution when the buffer applies an exponent,
-mask, or other sampling rule. A future API should accept sampling probabilities
-directly if that distinction is needed.
+The implementation must use a safe total when the priority sum is zero and
+must guard the `N <= 1` denominator. Zero-priority entries contribute zero. An
+all-zero vector or a capacity-one vector returns `0.0`; a uniform vector over
+the full capacity returns `1.0`. This metric describes the provided priority
+distribution. It is not guaranteed to equal the replay buffer's actual
+sampling distribution when the buffer applies an exponent, mask, or other
+sampling rule. A future API should accept sampling probabilities directly if
+that distinction is needed.
 
 #### `sample_staleness(current_step, sampled_steps, valid_mask=None)`
 
@@ -218,10 +219,12 @@ Return the mean age of valid sampled transitions:
   A = mean(current\_step - sampled\_step).
 \]
 
-`sampled_steps` may have any fixed sample shape. If `valid_mask` is provided, it
-must have the same shape and only true entries contribute. Invalid or negative
-ages are not silently clipped; callers must ensure that the step counter and
-sample timestamps use the same origin. No valid entries returns `0.0`.
+`sampled_steps` may have any fixed sample shape. The implementation must cast
+step arrays to a signed integer or floating-point type before subtraction so
+unsigned replay counters cannot underflow. If `valid_mask` is provided, it must
+have the same shape and only true entries contribute. Invalid or negative ages
+are not silently clipped; callers must ensure that the step counter and sample
+timestamps use the same origin. No valid entries returns `0.0`.
 
 ## 7. Collection and experiment integration
 
@@ -229,19 +232,31 @@ The diagnostic layer remains pure. Collection is explicit at the call site:
 
 ```python
 from jax_utils.linalg import stable_rank
-from research_instrument import collector
+from research_instrument.collector import collector
 from jax_eval.representations import dead_neurons
 
-features = model.apply(params, probe_states)
-collector.write("diagnostic/representation_stable_rank", stable_rank(features), step)
-collector.write("diagnostic/dead_neuron_fraction", dead_neurons(features), step)
+collector.eval(
+    "diagnostic/representation_stable_rank",
+    lambda: stable_rank(model.apply(params, probe_states)),
+    step,
+    every=1000,
+)
+collector.eval(
+    "diagnostic/dead_neuron_fraction",
+    lambda: dead_neurons(model.apply(params, probe_states)),
+    step,
+    every=1000,
+)
 ```
 
 The experiment definition declares the exact metric names and frequencies. The
 instrumentation collector performs the trace-time whitelist check and is the
 only component that emits `jax.debug.callback` effects. Expensive diagnostics
-on fixed probes should use `collector.eval(..., every=N)`; the probe itself is
-prepared outside the traced training function or passed as a fixed-shape input.
+on fixed probes should use `collector.eval(..., every=N)` so the expensive probe
+forward pass is skipped on non-scheduled steps; the probe itself is prepared
+outside the traced training function or passed as a fixed-shape input. A
+diagnostic over values already available in the training step may use
+`collector.write` directly.
 
 Each scalar series must document its semantic unit in the experiment plan:
 which probe or batch was used, whether the batch axis is seeds or samples, the
@@ -254,30 +269,35 @@ layer name, the step origin, and any tolerance or normalization setting.
 - Change the package metadata from a stub to an installable `src/jax_eval`
   package with the repository's JAX and Python constraints.
 - Add the empty package initializer and direct-import module layout.
+- Wire the package into `core/pyproject.toml` where needed: workspace source
+  mapping, root dependency declaration, and the explicit Pyrefly search path.
 - Add public API tests in `core/tests/small/` and JIT smoke tests in
   `core/tests/medium/`.
-- Do not move `stable_rank` until a contract test records whether its covariance
-  semantics are intentionally preserved.
+- Preserve the existing covariance semantics of
+  `jax_utils.linalg.stable_rank`; `core/tests/small/test_jax_utils_linalg.py`
+  already provides its regression coverage.
 
 ### Phase 1 — Representation kernels
 
 Implement and test `dead_neurons` and `feature_drift`. Cover normal inputs,
-all-dead inputs, zero vectors, tolerance thresholds, shape mismatch, `jit`, and
-`vmap` over independent agents or probes.
+all-dead inputs, empty observation batches, one-dimensional inputs, identical
+small-norm vectors, zero vectors, tolerance thresholds, similarity clipping,
+shape mismatch, `jit`, and `vmap` over independent agents or probes.
 
 ### Phase 2 — Optimization kernels
 
-Implement `gradient_snr` and, only if the semantic wrapper is justified,
-`update_ratio` and `weight_norm`. Reuse `jax-utils` tree reductions. Cover
-single-sample, identical-gradient, zero-parameter, nested-pytree, and mixed
-leaf-size cases. Verify that the batch axis is preserved under `vmap`.
+Implement `gradient_snr` and `update_ratio`. Reuse `jax-utils` tree reductions;
+use `jax_utils.pytree.tree_norm` directly for parameter norms. Cover
+single-sample, identical-gradient, zero-gradient, zero-parameter, nested-pytree,
+and mixed-leaf-size cases. Verify that the batch axis is preserved under
+`vmap`.
 
 ### Phase 3 — Replay kernels
 
 Implement `priority_utilization` and `sample_staleness` after confirming with a
 real `jax-replay` consumer whether priorities or sampling probabilities are the
-appropriate input. Cover uniform, concentrated, all-zero, masked, and stale
-timestamp cases.
+appropriate input. Cover uniform, concentrated, all-zero, capacity-one, masked,
+and stale-timestamp cases.
 
 ### Phase 4 — One end-to-end consumer
 
@@ -305,14 +325,17 @@ The first release is complete when:
   and degenerate inputs;
 - all kernels pass `jax.jit` and the relevant `jax.vmap` tests;
 - no kernel imports storage, collector, experiment-definition, or project code;
-- a non-whitelisted metric remains a collector no-op without requiring a branch
-  inside the kernel;
+- the collector integration test, owned by `research-instrument`, confirms that
+  a non-whitelisted metric emits no frame;
 - at least one project records a kernel result with stable run/seed identity;
 - the output can be loaded through the existing research-analysis dataset
   boundary without a package-specific database reader.
 
-Performance benchmarks should compare compiled kernel execution against the
-corresponding direct JAX expression. Callback and SQLite overhead belong to the
+Run the repository-required `uv run ruff check .` and
+`uv run pyrefly check` after adding implementation code. Add a performance
+benchmark only for a kernel whose implementation introduces measurable work
+beyond its direct JAX expression, using fixed shapes and reporting compilation
+and steady-state costs separately. Callback and SQLite overhead belong to the
 `research-instrument` benchmarks, not to `jax-eval`.
 
 ## 10. Decisions required before implementation
