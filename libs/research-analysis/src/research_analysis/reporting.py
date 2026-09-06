@@ -124,6 +124,10 @@ class BenchmarkBakeoffReport:
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float | None]]
+    difference_estimate: dict[str, dict[str, float | None]]
+    """[condition_a][condition_b] = condition_a's estimand minus condition_b's, paired by
+    (block, seed); None where fewer than min_samples paired observations were shared."""
+    difference_ci: dict[str, dict[str, tuple[float, float] | None]]
     aggregate_plot_path: Path | None
 
 
@@ -1220,6 +1224,8 @@ class _BakeoffStatistics:
     supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float | None]]
+    difference_estimate: dict[str, dict[str, float | None]]
+    difference_ci: dict[str, dict[str, tuple[float, float] | None]]
     score_curves: dict[str, tuple[list[float], list[float]]]
 
 
@@ -1297,6 +1303,8 @@ def _compute_bakeoff_statistics(
     )
 
     raw_posthoc: dict[tuple[str, str], float] = {}
+    raw_difference: dict[tuple[str, str], float] = {}
+    raw_difference_ci: dict[tuple[str, str], tuple[float, float]] = {}
     pair_data: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
     for i, condition_a in enumerate(conditions):
         for j, condition_b in enumerate(conditions):
@@ -1327,6 +1335,18 @@ def _compute_bakeoff_statistics(
                 rng=rng,
             )
             raw_posthoc[(condition_a, condition_b)] = result.p_value
+            raw_difference[(condition_a, condition_b)] = result.statistic
+            interval = bootstrap_difference_ci(
+                values_a,
+                values_b,
+                estimand=spec.estimand,
+                pairing="paired",
+                confidence=spec.confidence_level,
+                n_resamples=spec.n_resamples,
+                min_samples=spec.min_samples,
+                rng=rng,
+            )
+            raw_difference_ci[(condition_a, condition_b)] = (interval.ci_low, interval.ci_high)
 
     adjusted_values = holm_step_down(list(raw_posthoc.values()))
     posthoc = {
@@ -1336,6 +1356,19 @@ def _compute_bakeoff_statistics(
     for (condition_a, condition_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
         posthoc[condition_a][condition_b] = adjusted
         posthoc[condition_b][condition_a] = adjusted
+
+    difference_estimate: dict[str, dict[str, float | None]] = {
+        condition: {other: None for other in conditions} for condition in conditions
+    }
+    difference_ci: dict[str, dict[str, tuple[float, float] | None]] = {
+        condition: {other: None for other in conditions} for condition in conditions
+    }
+    for (condition_a, condition_b), diff in raw_difference.items():
+        ci_low, ci_high = raw_difference_ci[(condition_a, condition_b)]
+        difference_estimate[condition_a][condition_b] = diff
+        difference_estimate[condition_b][condition_a] = -diff
+        difference_ci[condition_a][condition_b] = (ci_low, ci_high)
+        difference_ci[condition_b][condition_a] = (-ci_high, -ci_low)
 
     threshold_values = (0.0, 0.25, 0.5, 0.75, 1.0)
     profiles: dict[str, dict[float, float]] = {}
@@ -1401,6 +1434,8 @@ def _compute_bakeoff_statistics(
             intermediate_tests={},
         ),
         posthoc_matrix=posthoc,
+        difference_estimate=difference_estimate,
+        difference_ci=difference_ci,
         score_curves=score_curves,
     )
 
@@ -1533,6 +1568,8 @@ def compare_bakeoff(
         supplementary_iqm=statistics.supplementary_iqm,
         omnibus_details=omnibus_details,
         posthoc_matrix=posthoc,
+        difference_estimate=statistics.difference_estimate,
+        difference_ci=statistics.difference_ci,
         aggregate_plot_path=plot_path,
     )
 
@@ -1751,6 +1788,8 @@ def bakeoff_report(
             supplementary_iqm=comparison_statistics.supplementary_iqm,
             omnibus_details=comparison_statistics.omnibus_details,
             posthoc_matrix=comparison_statistics.posthoc_matrix,
+            difference_estimate=comparison_statistics.difference_estimate,
+            difference_ci=comparison_statistics.difference_ci,
             aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
         ),
         warnings=warnings.as_tuple(),
