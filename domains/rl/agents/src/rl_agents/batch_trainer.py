@@ -117,6 +117,11 @@ def extract_train_state_params(state: object) -> dict[str, object]:
     return {"final_policy_params": cast(Any, state).agent_state.train_state.params}
 
 
+def extract_actor_params(state: object) -> dict[str, object]:
+    """Extract parameters from an agent state with an actor train state."""
+    return {"final_policy_params": cast(Any, state).agent_state.actor_state.params}
+
+
 @dataclass(frozen=True, slots=True)
 class AlgorithmSpec:
     """The three classes an algorithm already declares, from which everything else follows."""

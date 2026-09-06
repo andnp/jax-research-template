@@ -14,6 +14,7 @@ from rl_agents.batch_registry import ALGORITHM_TRAINERS, make_algorithm_batch_tr
 from rl_agents.batch_trainer import (
     AlgorithmSpec,
     _config_kwargs,
+    extract_actor_params,
     extract_train_state_params,
     make_batch_trainer,
     project_policy_metrics,
@@ -92,9 +93,9 @@ PPO_SPEC = AlgorithmSpec(
     report_returned_episode_returns=True,
 )
 QRC_SPEC = AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers)
-SAC_SPEC = AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers)
+SAC_SPEC = AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers, artifact_projector=extract_actor_params)
 SAC_RC_SPEC = AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers)
-TD3_SPEC = AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers)
+TD3_SPEC = AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers, artifact_projector=extract_actor_params)
 
 # The dynamic_keys each now-deleted hand-written *_batch.py module used to declare, kept
 # here only to prove the derivation in AlgorithmSpec.parameter_schema reproduces (or
@@ -424,6 +425,7 @@ class TestGenericBatchTrainerExecution:
 
         assert set(result.metric_curves) == {"reward", "critic_loss", "actor_loss"}
         assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
+        assert "final_policy_params" in result.artifacts
 
     def test_gac_trainer_runs_and_reports_declared_metrics(self, tmp_path: Path) -> None:
         """The generic trainer trains GAC with its actor_learning_rate-named dynamic key."""
@@ -558,6 +560,7 @@ class TestGenericBatchTrainerExecution:
         assert set(result.metric_curves) == {"reward", "critic_loss", "actor_loss", "alpha_loss", "alpha"}
         assert all(len(curve) == 8 for metric in result.metric_curves.values() for curve in metric)
         assert result.metric_curves == replay.metric_curves
+        assert "final_policy_params" in result.artifacts
 
     def test_ppo_trainer_reports_returned_episode_returns_and_final_params(self, tmp_path: Path) -> None:
         """PPO's report shape genuinely differs: no "reward", an episode-return hold
@@ -860,6 +863,15 @@ class TestAlgorithmRegistry:
             "sac-rc": {"reward", "critic_loss", "actor_loss", "alpha_loss", "alpha"},
             "td3": {"reward", "critic_loss", "actor_loss"},
         }
+        artifact_names = {
+            "dqn": set(),
+            "gac": set(),
+            "ppo": {"final_policy_params"},
+            "qrc": set(),
+            "sac": {"final_policy_params"},
+            "sac-rc": set(),
+            "td3": {"final_policy_params"},
+        }
 
         for algorithm in algorithms:
             static_config = configs[algorithm]
@@ -877,3 +889,4 @@ class TestAlgorithmRegistry:
             assert result.metadata["algorithm"] == algorithm
             assert set(result.metric_curves) == metric_names[algorithm]
             assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
+            assert set(result.artifacts) == artifact_names[algorithm]

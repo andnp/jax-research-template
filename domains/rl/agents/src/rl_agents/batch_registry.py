@@ -21,6 +21,7 @@ from rl_components.types import PPOConfig
 
 from rl_agents.batch_trainer import (
     AlgorithmSpec,
+    extract_actor_params,
     extract_train_state_params,
     make_batch_trainer,
     project_policy_metrics,
@@ -55,9 +56,9 @@ ALGORITHM_TRAINERS: Mapping[str, AlgorithmSpec] = {
         report_returned_episode_returns=True,
     ),
     "qrc": AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers),
-    "sac": AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers),
+    "sac": AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers, artifact_projector=extract_actor_params),
     "sac-rc": AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers),
-    "td3": AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers),
+    "td3": AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers, artifact_projector=extract_actor_params),
 }
 
 
