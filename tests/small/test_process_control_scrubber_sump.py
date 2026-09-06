@@ -200,6 +200,27 @@ def test_non_negative_concentrations(params: ScrubberSumpParams, rng: jax.Array)
     assert state.sulfide >= 0.0
 
 
+def test_more_substeps_refines_without_changing_a_well_behaved_answer(
+    params: ScrubberSumpParams, rng: jax.Array
+) -> None:
+    """Sub-stepping must refine, not alter, the integrated result for ordinary dynamics."""
+    inputs = SumpInputs(
+        bleach_flow=jnp.array(10.0),
+        caustic_flow=jnp.array(5.0),
+        makeup_flow=jnp.array(20.0),
+        sulfide_load=jnp.array(50.0),
+    )
+    dt = jnp.array(1.0 / 12.0)
+    initial = reset(rng, params)
+
+    coarse = step(initial, inputs, params, dt, substeps=1)
+    fine = step(initial, inputs, params, dt, substeps=50)
+
+    assert jnp.allclose(coarse.alkalinity, fine.alkalinity, atol=1e-2)
+    assert jnp.allclose(coarse.oxidant, fine.oxidant, atol=1e-1)
+    assert jnp.allclose(coarse.sulfide, fine.sulfide, atol=0.05)
+
+
 def test_ph_monotonic_in_alkalinity():
     """Higher alkalinity should give higher pH."""
     low = ScrubberSumpState.create(alkalinity=0.5)

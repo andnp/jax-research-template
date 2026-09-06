@@ -184,30 +184,48 @@ def _derivatives(
 # ── Step ──────────────────────────────────────────────────────────────
 
 
+def _clamp(state: ScrubberSumpState, params: ScrubberSumpParams) -> ScrubberSumpState:
+    """Enforce physical bounds (non-negative concentrations, volume limits)."""
+    return ScrubberSumpState(
+        oxidant=jnp.maximum(state.oxidant, 0.0),
+        alkalinity=jnp.maximum(state.alkalinity, 0.0),
+        volume=jnp.clip(state.volume, params.volume_min, params.volume_max * 1.5),
+        sulfide=jnp.maximum(state.sulfide, 0.0),
+        temperature=jnp.clip(state.temperature, 5.0, 60.0),
+    )
+
+
 def step(
     state: ScrubberSumpState,
     inputs: SumpInputs,
     params: ScrubberSumpParams,
     dt: jax.Array,
+    substeps: int = 10,
 ) -> ScrubberSumpState:
     """Advance sump state by one timestep using RK4 integration.
+
+    Splits `dt` into `substeps` RK4 sub-steps, clamping physical bounds after
+    each one. At extreme (e.g. miscalibrated) reaction-rate parameters, a
+    single explicit RK4 step over the full external timestep can fall outside
+    the integrator's stability region and diverge to NaN within one step;
+    finer sub-stepping with intermediate clamping keeps the integration
+    stable without changing the external step interval or ever handing a
+    negative concentration to a term with a pole there (e.g. the contactor's
+    Monod-saturation factors).
 
     Args:
         state: current sump state
         inputs: external flows (held constant over the step)
         params: sump parameters
         dt: timestep in hours
+        substeps: number of RK4 sub-steps per call
     """
-    new_state = rk4_step(_derivatives, state, dt, inputs, params)
+    sub_dt = dt / substeps
 
-    # Enforce physical bounds (non-negative concentrations, volume limits)
-    return ScrubberSumpState(
-        oxidant=jnp.maximum(new_state.oxidant, 0.0),
-        alkalinity=jnp.maximum(new_state.alkalinity, 0.0),
-        volume=jnp.clip(new_state.volume, params.volume_min, params.volume_max * 1.5),
-        sulfide=jnp.maximum(new_state.sulfide, 0.0),
-        temperature=jnp.clip(new_state.temperature, 5.0, 60.0),
-    )
+    new_state = state
+    for _ in range(substeps):
+        new_state = _clamp(rk4_step(_derivatives, new_state, sub_dt, inputs, params), params)
+    return new_state
 
 
 # ── Derived quantities ────────────────────────────────────────────────
