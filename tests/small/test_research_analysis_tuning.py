@@ -228,57 +228,55 @@ class TestHierarchicalBootstrapCI:
         assert res_dom.selection_entropy < res_amb.selection_entropy
         assert res_dom.hyper_probs[0] > 0.95
 
-    def test_ci_width_does_not_collapse_as_e_samples_grows(self) -> None:
-        """Verify selection-uncertainty variance survives large evaluation budgets.
-
-        A hyper drawn once per bootstrap replicate (not once per sample) must
-        leave a non-vanishing floor on CI width as e_samples grows, reflecting
-        the genuine 9.5%/90.5% selection split between two well-separated
-        hypers. A regression to per-sample redraws would shrink this toward 0.
-        """
+    def test_ci_width_shrinks_as_the_coupled_budget_grows(self) -> None:
+        """Under h_samples == e_samples == n_runs (the only way this is ever actually
+        called), CI width should shrink as the shared budget grows, like an ordinary
+        bootstrap estimator's -- not the decoupled h_samples-fixed-small/e_samples-swept
+        configuration this function is never called under."""
         rng = np.random.default_rng(0)
-        data = np.zeros((2, 10_000))
-        data[0] = rng.normal(loc=0.0, scale=1.0, size=10_000)
-        data[1] = rng.normal(loc=1.0, scale=1.0, size=10_000)
+        widths = []
+        for n in (100, 1_000, 10_000):
+            data = np.zeros((2, n))
+            data[0] = rng.normal(loc=0.0, scale=1.0, size=n)
+            data[1] = rng.normal(loc=1.0, scale=1.0, size=n)
+            res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, seed=1, n_resamples=5_000)
+            widths.append(res.ci_high - res.ci_low)
 
-        # Both e_samples are already large enough that within-hyper noise is
-        # negligible; a correct implementation's width should be near-stable
-        # between them, while a per-sample-redraw regression keeps shrinking
-        # (0.183 -> 0.057, roughly halving each 10x) because it averages away
-        # the between-hyper selection variance instead of preserving it.
-        medium = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=500, seed=1, n_resamples=20_000)
-        large = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=5_000, seed=1, n_resamples=20_000)
+        assert widths[0] > widths[1] > widths[2]
 
-        medium_width = medium.ci_high - medium.ci_low
-        large_width = large.ci_high - large.ci_low
-        assert large_width > 0.8 * medium_width
+    def test_selection_distribution_is_not_degenerate_at_full_pool_size(self) -> None:
+        """h_samples == n_runs must not collapse to a deterministic point mass: sampling
+        with replacement preserves genuine trial-to-trial variation even at full pool
+        size, unlike sampling without replacement, where drawing the whole pool is a
+        fixed permutation with an invariant mean regardless of true selection ambiguity.
+        """
+        from research_analysis._tuning_kernels import get_hyper_distribution
+
+        rng = np.random.default_rng(0)
+        n = 30
+        data = np.zeros((2, n))
+        data[0] = rng.normal(loc=0.0, scale=1.0, size=n)
+        data[1] = rng.normal(loc=0.05, scale=1.0, size=n)  # genuinely close true means
+
+        probs, entropy = get_hyper_distribution(data, h_samples=n, selection_trials=200, seed=1)
+        assert entropy > 0.0
+        assert not np.any(probs == 1.0)
 
     def test_validation_rejects_invalid_inputs(self) -> None:
-        """Reject 1D inputs, single-hyper inputs, and insufficient runs."""
+        """Reject 1D inputs and single-hyper inputs."""
         with pytest.raises(ValueError, match="must be 2D array"):
             hierarchical_bootstrap_ci(np.ones(10), h_samples=3, e_samples=5)
 
         with pytest.raises(ValueError, match="need at least 2 hyperparameters"):
             hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5)
 
-        with pytest.raises(ValueError, match="must be >= h_samples"):
-            hierarchical_bootstrap_ci(np.ones((3, 5)), h_samples=10, e_samples=5)
-
-    def test_e_samples_may_exceed_n_runs(self) -> None:
-        """Evaluation resampling is with replacement, so e_samples > n_runs is valid."""
+    def test_h_and_e_samples_may_exceed_n_runs(self) -> None:
+        """Both selection and evaluation resampling are with replacement, so neither
+        h_samples nor e_samples is bounded by n_runs."""
         rng = np.random.default_rng(7)
         data = rng.normal(size=(2, 8))
-        res = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=50, seed=1)
+        res = hierarchical_bootstrap_ci(data, h_samples=50, e_samples=50, seed=1)
         assert res.ci_low <= res.mean <= res.ci_high
-
-    def test_h_samples_selection_is_without_replacement(self) -> None:
-        """A budget equal to n_runs must use every run exactly once, not duplicate any."""
-        from research_analysis._tuning_kernels import get_hyper_distribution
-
-        data = np.array([[1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0]])
-        probs, _entropy = get_hyper_distribution(data, h_samples=4, selection_trials=50, seed=0)
-        # Hyper 1 dominates unambiguously regardless of which 4-of-4 draw order is used.
-        assert probs[1] == 1.0
 
 
 class TestHierarchicalBootstrapCIFromExperiment:
