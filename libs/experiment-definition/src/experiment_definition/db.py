@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from .parameter import ParameterValue
 from .records import (
     ComponentRow,
+    ComponentVersionProvenanceRow,
     ComponentVersionRow,
     ExecutionArtifactRow,
     ExecutionRow,
@@ -488,6 +489,17 @@ class DatabaseManager:
             (component_id,),
         ).fetchone()
         return _record_from_row(ComponentVersionRow, row) if row else None
+
+    def get_component_version_provenance(self, version_id: int) -> ComponentVersionProvenanceRow | None:
+        """Fetch component identity and provenance for one version."""
+        row = self.conn.execute(
+            "SELECT c.id AS component_id, c.name AS component_name, c.type AS component_type, "
+            "cv.id AS version_id, cv.version_number, cv.code_snapshot_hash "
+            "FROM ComponentVersions cv INNER JOIN Components c ON c.id = cv.component_id "
+            "WHERE cv.id = ?",
+            (version_id,),
+        ).fetchone()
+        return _record_from_row(ComponentVersionProvenanceRow, row) if row else None
 
     def hash_changed(self, component_id: int, new_hash: str) -> bool:
         """Return ``True`` if ``new_hash`` differs from the latest stored hash.

@@ -67,21 +67,16 @@ def _resolve_artifact(
 
 
 def _component_provenance(database: DatabaseManager, version_id: int) -> ComponentVersionProvenance:
-    row = database.conn.execute(
-        "SELECT c.id, c.name, c.type, cv.id, cv.version_number, cv.code_snapshot_hash "
-        "FROM ComponentVersions cv INNER JOIN Components c ON c.id = cv.component_id "
-        "WHERE cv.id = ?",
-        (version_id,),
-    ).fetchone()
+    row = database.get_component_version_provenance(version_id)
     if row is None:
         raise LookupError(f"Component version {version_id} does not exist")
     return ComponentVersionProvenance(
-        component_id=int(row[0]),
-        component_name=str(row[1]),
-        component_type=str(row[2]),
-        version_id=int(row[3]),
-        version_number=int(row[4]),
-        code_snapshot_hash=str(row[5]),
+        component_id=row.component_id,
+        component_name=row.component_name,
+        component_type=row.component_type,
+        version_id=row.version_id,
+        version_number=row.version_number,
+        code_snapshot_hash=row.code_snapshot_hash,
     )
 
 

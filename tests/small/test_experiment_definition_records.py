@@ -21,3 +21,18 @@ def test_database_reads_return_named_records(tmp_path: Path) -> None:
         assert run.env_version_id is None
         assert experiment.model_dump()["name"] == "records-test"
         assert run.model_dump()["id"] == run_id
+
+
+def test_database_reads_component_provenance(tmp_path: Path) -> None:
+    """Return joined component identity as one validated provenance record."""
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        component_id = database.add_component("ppo", "ALGO")
+        version_id = database.add_component_version(component_id, "algo-v1")
+
+        provenance = database.get_component_version_provenance(version_id)
+
+        assert provenance is not None
+        assert provenance.component_id == component_id
+        assert provenance.component_name == "ppo"
+        assert provenance.version_id == version_id

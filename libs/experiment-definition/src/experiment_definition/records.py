@@ -29,6 +29,15 @@ class ComponentVersionRow(_Record):
     notes: str | None
 
 
+class ComponentVersionProvenanceRow(_Record):
+    component_id: int
+    component_name: str
+    component_type: str
+    version_id: int
+    version_number: int
+    code_snapshot_hash: str
+
+
 class HyperparamConfigRow(_Record):
     id: int
     hash: str
