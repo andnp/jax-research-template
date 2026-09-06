@@ -82,3 +82,21 @@ def test_sample_staleness_runs_inside_lax_scan() -> None:
     _, result = jax.jit(scan_staleness)(current, sampled, masks)
 
     assert jnp.allclose(result, jnp.array([0.0, 2.0, 0.0]))
+
+
+def test_sample_staleness_unmasked_runs_inside_lax_scan() -> None:
+    """Evaluate unmasked sample ages per scan step under jit."""
+    current = jnp.array([2**24 + 1, 2**24 + 3], dtype=jnp.uint32)
+    sampled = jnp.array([[2**24], [2**24 + 4]], dtype=jnp.uint32)
+
+    def step(_: jax.Array, values: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+        return jnp.float32(0.0), sample_staleness(values[0], values[1])
+
+    def scan_staleness(
+        steps: jax.Array, samples: jax.Array
+    ) -> tuple[jax.Array, jax.Array]:
+        return jax.lax.scan(step, jnp.float32(0.0), (steps, samples))
+
+    _, result = jax.jit(scan_staleness)(current, sampled)
+
+    assert jnp.allclose(result, jnp.array([1.0, -1.0]))
