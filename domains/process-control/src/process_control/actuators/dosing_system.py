@@ -45,26 +45,26 @@ FEEDFORWARD: int = 2
 class DosingSystemParams:
     # ── Control mode ──────────────────────────────────────────────
     control_mode: int = 1  # DIRECT=0, SUPERVISORY=1, FEEDFORWARD=2
-    base_setpoint: float = 0.0  # fixed setpoint used in FEEDFORWARD mode
+    base_setpoint: float | jax.Array = 0.0  # fixed setpoint used in FEEDFORWARD mode
 
     # ── Sensor (continuous probe: noise + lag + drift) ────────────
-    sensor_noise_std: float = 0.05
-    sensor_lag: float = 0.9  # first-order smoothing (higher = more lag)
-    sensor_drift_rate: float = 0.001  # random-walk drift per step
+    sensor_noise_std: float | jax.Array = 0.05
+    sensor_lag: float | jax.Array = 0.9  # first-order smoothing (higher = more lag)
+    sensor_drift_rate: float | jax.Array = 0.001  # random-walk drift per step
 
     # ── PI controller ─────────────────────────────────────────────
-    kp: float = 2.0
-    ki: float = 0.5
-    kd: float = 0.0
-    ff: float = 50.0  # feed-forward bias (resting pump speed)
-    output_min: float = 0.0  # min pump command (% or dose units)
-    output_max: float = 125.0  # max pump command
-    max_integral: float = 200.0  # anti-windup clamp
+    kp: float | jax.Array = 2.0
+    ki: float | jax.Array = 0.5
+    kd: float | jax.Array = 0.0
+    ff: float | jax.Array = 50.0  # feed-forward bias (resting pump speed)
+    output_min: float | jax.Array = 0.0  # min pump command (% or dose units)
+    output_max: float | jax.Array = 125.0  # max pump command
+    max_integral: float | jax.Array = 200.0  # anti-windup clamp
 
     # ── Pump actuator ─────────────────────────────────────────────
-    max_ramp_up: float = 50.0  # max output increase per hour
-    max_ramp_down: float = 50.0  # max output decrease per hour (coast-down)
-    startup_delay: float = 0.0  # hours of VFD init when going from off to on
+    max_ramp_up: float | jax.Array = 50.0  # max output increase per hour
+    max_ramp_down: float | jax.Array = 50.0  # max output decrease per hour (coast-down)
+    startup_delay: float | jax.Array = 0.0  # hours of VFD init when going from off to on
 
 
 @jax_dataclass
