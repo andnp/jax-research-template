@@ -33,7 +33,7 @@ from research_analysis.dataset import ExperimentDataset
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
-from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci
+from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,17 @@ class HyperparameterConfigReport:
     raw_mean: float
     corrected_mean: float
     maximization_bias: float
+    estimate_ci: tuple[float, float]
+    confidence_level: float = 0.95
+
+
+@dataclass(frozen=True)
+class HyperparameterDifferenceReport:
+    """Bias-corrected paired difference between two groups' best hyperparameter configurations."""
+
+    minuend_config: dict[str, Any]
+    subtrahend_config: dict[str, Any]
+    mean_diff: float
     estimate_ci: tuple[float, float]
     confidence_level: float = 0.95
 
@@ -420,6 +431,8 @@ def best_hypers(
     dataset: ExperimentDataset,
     metric_name: str,
     group_by: None = None,
+    *,
+    difference_between: None = None,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -433,6 +446,8 @@ def best_hypers(
     dataset: ExperimentDataset,
     metric_name: str,
     group_by: list[str],
+    *,
+    difference_between: None = None,
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
@@ -441,16 +456,33 @@ def best_hypers(
 ) -> dict[tuple[Any, ...], HyperparameterConfigReport]: ...
 
 
+@overload
 def best_hypers(
     dataset: ExperimentDataset,
     metric_name: str,
-    group_by: list[str] | None = None,
+    group_by: list[str],
+    *,
+    difference_between: tuple[Any, Any],
     verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
-) -> HyperparameterConfigReport | dict[tuple[Any, ...], HyperparameterConfigReport]:
+) -> HyperparameterDifferenceReport: ...
+
+
+def best_hypers(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    group_by: list[str] | None = None,
+    *,
+    difference_between: tuple[Any, Any] | None = None,
+    verbose: bool = True,
+    confidence_level: float = 0.95,
+    n_resamples: int = 10_000,
+    min_samples: int = 3,
+    random_seed: int = 0,
+) -> HyperparameterConfigReport | dict[tuple[Any, ...], HyperparameterConfigReport] | HyperparameterDifferenceReport:
     """Find the bias-corrected best hyperparameter configuration.
 
     Jointly optimizes every declared sweep axis not named in ``group_by``. When
@@ -459,6 +491,11 @@ def best_hypers(
     from the group key tuple to its own ``HyperparameterConfigReport`` is returned
     instead of a single pooled report. An empty or absent ``group_by`` jointly
     optimizes every declared sweep axis and returns one report for the whole grid.
+
+    When ``difference_between`` is given (as ``(minuend_value, subtrahend_value)``),
+    ``group_by`` must name exactly one axis, and the paired difference between the two
+    named values' own champion configurations is returned instead, correlated by
+    shared seed so that common sampling noise cancels out.
     """
     declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
     group_keys = list(group_by or ())
@@ -468,6 +505,24 @@ def best_hypers(
             "hyperparameter analysis requires declared typed sweep axes; "
             f"undeclared keys: {sorted(undeclared_axes)}"
         )
+
+    if difference_between is not None:
+        if len(group_keys) != 1:
+            raise ValueError("difference_between requires group_by to name exactly one axis")
+        return _best_hypers_difference(
+            dataset,
+            metric_name,
+            group_axis=group_keys[0],
+            minuend=difference_between[0],
+            subtrahend=difference_between[1],
+            declared_axes=declared_axes,
+            verbose=verbose,
+            confidence_level=confidence_level,
+            n_resamples=n_resamples,
+            min_samples=min_samples,
+            random_seed=random_seed,
+        )
+
     free_axes = sorted(declared_axes - set(group_keys))
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
@@ -547,6 +602,22 @@ def _present_best_hypers(
     )
 
 
+def _raw_best_config(records: list[dict[str, Any]], free_axes: list[str]) -> tuple[dict[str, Any], float]:
+    """Return the raw-mean-maximizing combination of ``free_axes`` and its own raw mean."""
+    runs_by_config: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for record in records:
+        key = tuple(record["hypers"][axis] for axis in free_axes)
+        runs_by_config.setdefault(key, []).append(record)
+
+    raw_means = {key: float(np.mean([r["value"] for r in recs])) for key, recs in runs_by_config.items()}
+
+    def raw_mean_of(k: tuple[Any, ...]) -> float:
+        return raw_means[k]
+
+    winning_key = max(raw_means, key=raw_mean_of)
+    return dict(zip(free_axes, winning_key, strict=True)), raw_means[winning_key]
+
+
 def _best_hypers_group(
     records: list[dict[str, Any]],
     *,
@@ -567,18 +638,7 @@ def _best_hypers_group(
     if min_samples < 3:
         raise ValueError("min_samples must be at least 3")
 
-    runs_by_config: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    for record in records:
-        key = tuple(record["hypers"][axis] for axis in free_axes)
-        runs_by_config.setdefault(key, []).append(record)
-
-    raw_means = {key: float(np.mean([r["value"] for r in recs])) for key, recs in runs_by_config.items()}
-
-    def raw_mean_of(k: tuple[Any, ...]) -> float:
-        return raw_means[k]
-
-    winning_key = max(raw_means, key=raw_mean_of)
-    raw_winner_mean = raw_means[winning_key]
+    winning_config, raw_winner_mean = _raw_best_config(records, free_axes)
 
     matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(records, free_axes)
     if len(matrix_seeds) < min_samples:
@@ -598,7 +658,7 @@ def _best_hypers_group(
     maximization_bias = float(raw_winner_mean - corrected_mean)
 
     report = HyperparameterConfigReport(
-        winning_config=dict(zip(free_axes, winning_key, strict=True)),
+        winning_config=winning_config,
         raw_mean=raw_winner_mean,
         corrected_mean=corrected_mean,
         maximization_bias=maximization_bias,
@@ -608,6 +668,103 @@ def _best_hypers_group(
 
     if verbose:
         _present_best_hypers(report, experiment_slug, group_label)
+
+    return report
+
+
+def _present_best_hypers_difference(report: HyperparameterDifferenceReport, experiment_slug: str) -> None:
+    console = Console()
+    console.print()
+    console.print(
+        Panel(
+            Text("📊 HYPERPARAMETER DIFFERENCE", style="bold cyan"),
+            subtitle=f"Experiment: {experiment_slug}",
+        )
+    )
+
+    minuend_desc = ", ".join(f"{key}={value}" for key, value in report.minuend_config.items())
+    subtrahend_desc = ", ".join(f"{key}={value}" for key, value in report.subtrahend_config.items())
+    ci_low, ci_high = report.estimate_ci
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Minuend Configuration    : ", "dim"), (f"{minuend_desc}\n"),
+                ("Subtrahend Configuration : ", "dim"), (f"{subtrahend_desc}\n"),
+                ("Mean Difference          : ", "bold green"), (f"{report.mean_diff:.2f}\n"),
+                (f"Hierarchical Bootstrap {report.confidence_level:.0%} CI: ", "dim"),
+                (f"[{ci_low:.2f}, {ci_high:.2f}]"),
+            ),
+            title="Paired Difference Report",
+        )
+    )
+
+
+def _best_hypers_difference(
+    dataset: ExperimentDataset,
+    metric_name: str,
+    *,
+    group_axis: str,
+    minuend: Any,
+    subtrahend: Any,
+    declared_axes: set[str],
+    verbose: bool,
+    confidence_level: float,
+    n_resamples: int,
+    min_samples: int,
+    random_seed: int,
+) -> HyperparameterDifferenceReport:
+    """Paired difference between two group_axis values' own bias-corrected champions."""
+    if not 0 < confidence_level < 1:
+        raise ValueError("confidence_level must be between 0 and 1")
+    if n_resamples < 1:
+        raise ValueError("n_resamples must be positive")
+    if min_samples < 3:
+        raise ValueError("min_samples must be at least 3")
+
+    free_axes = sorted(declared_axes - {group_axis})
+    if not free_axes:
+        raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
+
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+    records_a = [record for record in records if record["hypers"].get(group_axis) == minuend]
+    records_b = [record for record in records if record["hypers"].get(group_axis) == subtrahend]
+    if not records_a:
+        raise ValueError(f"no runs found with {group_axis}={minuend!r}")
+    if not records_b:
+        raise ValueError(f"no runs found with {group_axis}={subtrahend!r}")
+
+    minuend_config, _minuend_raw_mean = _raw_best_config(records_a, free_axes)
+    subtrahend_config, _subtrahend_raw_mean = _raw_best_config(records_b, free_axes)
+
+    matrix_a, _keys_a, seeds_a = _build_hyper_matrix(records_a, free_axes)
+    matrix_b, _keys_b, seeds_b = _build_hyper_matrix(records_b, free_axes)
+    common_seeds = sorted(set(seeds_a) & set(seeds_b))
+    if len(common_seeds) < min_samples:
+        raise ValueError(f"need at least {min_samples} seeds shared by both compared groups")
+    matrix_a = matrix_a[:, [seeds_a.index(seed) for seed in common_seeds]]
+    matrix_b = matrix_b[:, [seeds_b.index(seed) for seed in common_seeds]]
+    n_runs = matrix_a.shape[1]
+
+    diff = hierarchical_bootstrap_difference_ci(
+        matrix_a,
+        matrix_b,
+        n_runs,
+        n_runs,
+        confidence=confidence_level,
+        n_resamples=n_resamples,
+        seed=random_seed,
+    )
+
+    report = HyperparameterDifferenceReport(
+        minuend_config=minuend_config,
+        subtrahend_config=subtrahend_config,
+        mean_diff=diff.mean_diff,
+        estimate_ci=(diff.ci_low, diff.ci_high),
+        confidence_level=confidence_level,
+    )
+
+    if verbose:
+        _present_best_hypers_difference(report, dataset.experiment_name)
 
     return report
 

@@ -24,6 +24,7 @@ from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
     HyperparameterConfigReport,
+    HyperparameterDifferenceReport,
     HyperparameterSliceReport,
     best_hypers,
     compare_bakeoff,
@@ -263,6 +264,61 @@ def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: Expe
 
     with pytest.raises(ValueError, match="cannot be both varied and grouped by"):
         slice_hypers(dataset, "metric", vary="eta", group_by=["eta"], verbose=False)
+
+
+def _add_arm_observation(setup: ExperimentSetup, algorithm: str, learning_rate: str, seed: int, value: float) -> None:
+    _add_observation(setup, {"condition_name": algorithm, "algorithm": algorithm, "learning_rate": learning_rate}, seed, value)
+
+
+def test_best_hypers_difference_pairs_by_seed_across_two_groups(temp_experiment_setup: ExperimentSetup) -> None:
+    """The paired difference compares each arm's own champion, correlated by shared seed."""
+    setup = temp_experiment_setup
+    arm_a = {("low",): (1.0, 2.0, 3.0), ("high",): (4.0, 5.0, 6.0)}
+    arm_b = {("low",): (1.0, 1.0, 1.0), ("high",): (2.0, 2.0, 2.0)}
+    for (learning_rate,), values in arm_a.items():
+        for seed, value in enumerate(values):
+            _add_arm_observation(setup, "a", learning_rate, seed, value)
+    for (learning_rate,), values in arm_b.items():
+        for seed, value in enumerate(values):
+            _add_arm_observation(setup, "b", learning_rate, seed, value)
+    dataset = _load(
+        setup,
+        ExperimentDimensions(sweep_axes=(SweepAxis("algorithm", SweepValueType.STRING), SweepAxis("learning_rate", SweepValueType.STRING))),
+    )
+
+    report = best_hypers(dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), verbose=False)
+
+    assert isinstance(report, HyperparameterDifferenceReport)
+    assert report.minuend_config == {"learning_rate": "high"}
+    assert report.subtrahend_config == {"learning_rate": "high"}
+    assert report.mean_diff > 0
+    ci_low, ci_high = report.estimate_ci
+    assert ci_low <= report.mean_diff <= ci_high
+
+
+def test_best_hypers_difference_requires_a_single_group_axis(temp_experiment_setup: ExperimentSetup) -> None:
+    """difference_between only makes sense against exactly one group_by axis."""
+    setup = temp_experiment_setup
+    for seed in range(3):
+        _add_observation(
+            setup,
+            {"condition_name": "baseline", "algorithm": "a", "learning_rate": "low", "eta": 1},
+            seed,
+            float(seed),
+        )
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("algorithm", SweepValueType.STRING),
+                SweepAxis("learning_rate", SweepValueType.STRING),
+                SweepAxis("eta", SweepValueType.INTEGER),
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="difference_between requires group_by to name exactly one axis"):
+        best_hypers(dataset, "metric", group_by=["algorithm", "learning_rate"], difference_between=("a", "b"), verbose=False)
 
 
 def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
