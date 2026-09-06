@@ -92,6 +92,10 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     assert dataset.metrics.select("metric").unique().to_series().to_list() == ["reward"]
     assert dataset.runs["algo_component_name"].to_list() == ["ppo", "ppo"]
     assert dataset.runs["algo_version_id"].to_list() == [fixture["algo_version"], fixture["algo_version"]]
+    run = dataset.runs.row(0, named=True)
+    run_artifacts = dataset.artifacts[(run["run_id"], run["execution_id"])]
+    assert run_artifacts.root_path == tmp_path / "execution"
+    assert run_artifacts.metadata["metrics_db_path"] == str(fixture["metrics_path"])
 
 
 def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> None:

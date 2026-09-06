@@ -85,6 +85,15 @@ class ComponentVersionRef:
             raise ValueError("exact component versions require exactly one version_id or code_snapshot_hash")
 
 
+@dataclass(frozen=True)
+class RunArtifacts:
+    """Artifact location and metadata recorded for one completed run."""
+
+    root_path: Path
+    manifest_path: Path | None
+    metadata: Mapping[str, object]
+
+
 class VersionSelectionKind(StrEnum):
     """Available component-version selection policies."""
 
@@ -141,6 +150,7 @@ class ExperimentDataset:
     runs: pl.DataFrame
     metrics: pl.DataFrame
     provenance: tuple[ComponentVersionProvenance, ...]
+    artifacts: Mapping[tuple[int, int], RunArtifacts]
     diagnostics: tuple[DatasetDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
@@ -297,7 +307,7 @@ def _build_run_row(
     hyperparameters: Mapping[str, object],
     dimensions: ExperimentDimensions,
     diagnostics: DiagnosticAccumulator,
-) -> dict[str, object] | None:
+) -> tuple[dict[str, object], RunArtifacts] | None:
     condition_value = hyperparameters.get(dimensions.condition)
     if condition_value is None:
         diagnostics.add(DiagnosticCode.MISSING_DIMENSION, f"missing condition key {dimensions.condition!r}", run.id, execution.id)
@@ -353,7 +363,10 @@ def _build_run_row(
             diagnostics.add(DiagnosticCode.INVALID_DIMENSION, f"invalid value for sweep axis {axis.name!r}", run.id, execution.id)
             return None
         row[axis.name] = value
-    metadata: object = json.loads(artifact.metadata_json) if artifact is not None and artifact.metadata_json else {}
+    if artifact is None:
+        diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no artifact record", run.id, execution.id)
+        return None
+    metadata: object = json.loads(artifact.metadata_json) if artifact.metadata_json else {}
     if not isinstance(metadata, dict) or not isinstance(metadata.get("metrics_db_path"), str):
         diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "completed run has no recorded metrics_db_path", run.id, execution.id)
         return None
@@ -365,7 +378,11 @@ def _build_run_row(
         row[f"{prefix}_version_id"] = item.version_id
         row[f"{prefix}_version_number"] = item.version_number
         row[f"{prefix}_code_snapshot_hash"] = item.code_snapshot_hash
-    return row
+    return row, RunArtifacts(
+        root_path=Path(artifact.root_path),
+        manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
+        metadata=metadata,
+    )
 
 
 def _metric_query_pairs(pairs: list[tuple[int, int]], metrics: tuple[str, ...] | None) -> str:
@@ -439,6 +456,7 @@ def load_experiment_dataset(
     diagnostics = DiagnosticAccumulator()
     rows: list[dict[str, object]] = []
     provenance_by_version: dict[int, ComponentVersionProvenance] = {}
+    artifacts: dict[tuple[int, int], RunArtifacts] = {}
     candidates: list[RunCandidate] = []
 
     with DatabaseManager(Path(experiments_db)) as database:
@@ -486,9 +504,11 @@ def load_experiment_dataset(
             if not isinstance(hyperparameters, dict):
                 diagnostics.add(DiagnosticCode.MISSING_DIMENSION, "hyperparameter configuration is not an object", run.id, execution.id)
                 continue
-            row = _build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions, diagnostics)
-            if row is not None and (cohort is None or _cohort_matches(row, cohort)):
+            built = _build_run_row(run, execution, artifact, items, hyperparameters, selected_dimensions, diagnostics)
+            if built is not None and (cohort is None or _cohort_matches(built[0], cohort)):
+                row, run_artifacts = built
                 rows.append(row)
+                artifacts[(run.id, execution.id)] = run_artifacts
 
     metric_frames = _load_metric_frames(rows, metrics, diagnostics)
 
@@ -532,5 +552,6 @@ def load_experiment_dataset(
         runs=run_frame,
         metrics=metric_frame,
         provenance=tuple(all_provenance.values()),
+        artifacts=artifacts,
         diagnostics=diagnostics.as_tuple(),
     )
