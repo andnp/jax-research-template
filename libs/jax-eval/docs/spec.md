@@ -224,12 +224,13 @@ Return the mean age of valid sampled transitions:
   A = mean(current\_step - sampled\_step).
 \]
 
-`sampled_steps` may have any fixed sample shape. The implementation must cast
-step arrays to a signed integer or floating-point type before subtraction so
-unsigned replay counters cannot underflow. If `valid_mask` is provided, it must
-have the same shape and only true entries contribute. Invalid or negative ages
-are not silently clipped; callers must ensure that the step counter and sample
-timestamps use the same origin. No valid entries returns `0.0`.
+`sampled_steps` may have any fixed sample shape. Integer timestamps are
+subtracted in a safe integer domain before the signed delta is converted to
+float32, preserving small deltas for large counters and avoiding unsigned
+underflow. If `valid_mask` is provided, it must have the same shape and only
+true entries contribute. Invalid or negative ages are not silently clipped;
+callers must ensure that the step counter and sample timestamps use the same
+origin. No valid entries returns `0.0`.
 
 ## 7. Collection and experiment integration
 
