@@ -418,8 +418,8 @@ class RunBatch(NamedTuple):
     algo_version_id: int | None
     env_version_id: int | None
     ablation: str | None
-    static_config_json: str
-    vmap_zone_json: str | None
+    static_config: Mapping[str, ParameterValue]
+    vmap_zone: Mapping[str, list[str]] | None
     run_ids: list[int]
 
 
@@ -428,8 +428,8 @@ class PlannedExecution(NamedTuple):
     run_ids: list[int]
     root_path: str
     manifest_path: str
-    static_config_json: str
-    vmap_zone_json: str | None
+    static_config: Mapping[str, ParameterValue]
+    vmap_zone: Mapping[str, list[str]] | None
 
 
 # ---------------------------------------------------------------------------
@@ -846,9 +846,21 @@ class DatabaseManager:
 
         batches: list[RunBatch] = []
         for batch_key, run_ids in sorted(grouped_runs.items(), key=batch_key_of):
+            algo_version_id, env_version_id, ablation, static_config_json, vmap_zone_json = batch_key
+            static_config = json.loads(static_config_json)
+            vmap_zone = json.loads(vmap_zone_json) if vmap_zone_json is not None else None
             chunk_size = len(run_ids) if max_runs_per_batch is None else max_runs_per_batch
             for start in range(0, len(run_ids), chunk_size):
-                batches.append(RunBatch(*batch_key, run_ids[start : start + chunk_size]))
+                batches.append(
+                    RunBatch(
+                        algo_version_id,
+                        env_version_id,
+                        ablation,
+                        static_config,
+                        vmap_zone,
+                        run_ids[start : start + chunk_size],
+                    )
+                )
         return batches
 
     # ------------------------------------------------------------------
@@ -1166,10 +1178,14 @@ class DatabaseManager:
                     execution_id,
                     root_path,
                     manifest_path,
-                    {"run_ids": batch.run_ids, "static_config_json": batch.static_config_json, "vmap_zone_json": batch.vmap_zone_json},
+                    {
+                        "run_ids": batch.run_ids,
+                        "static_config_json": _json_stable(batch.static_config),
+                        "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
+                    },
                 )
                 planned.append(
-                    PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config_json, batch.vmap_zone_json)
+                    PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config, batch.vmap_zone)
                 )
             self.conn.commit()
             return planned
@@ -1209,9 +1225,13 @@ class DatabaseManager:
                 execution_id,
                 root_path,
                 manifest_path,
-                {"run_ids": batch.run_ids, "static_config_json": batch.static_config_json, "vmap_zone_json": batch.vmap_zone_json},
+                {
+                    "run_ids": batch.run_ids,
+                    "static_config_json": _json_stable(batch.static_config),
+                    "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
+                },
             )
-            planned = PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config_json, batch.vmap_zone_json)
+            planned = PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config, batch.vmap_zone)
             self.conn.commit()
             return planned
         except Exception:
@@ -1382,13 +1402,14 @@ class DatabaseManager:
         runs = self.list_execution_runs(execution_id)
         run_ids = [r.id for r in runs]
         metadata = json.loads(artifacts.metadata_json) if artifacts.metadata_json else {}
+        vmap_zone_json = metadata.get("vmap_zone_json")
         return PlannedExecution(
             execution_id=execution_id,
             run_ids=run_ids,
             root_path=artifacts.root_path,
             manifest_path=artifacts.manifest_path or "",
-            static_config_json=metadata.get("static_config_json", "{}"),
-            vmap_zone_json=metadata.get("vmap_zone_json"),
+            static_config=json.loads(metadata.get("static_config_json", "{}")),
+            vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
         )
 
 

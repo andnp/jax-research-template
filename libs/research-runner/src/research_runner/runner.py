@@ -97,7 +97,7 @@ def execute_batch(
         manifest_path = Path(planned.manifest_path)
         runs = database.list_execution_runs(planned.execution_id)
         experiment_row = _resolve_experiment(database, runs)
-        static_config = json.loads(planned.static_config_json)
+        static_config = planned.static_config
         points = _resolve_points(database, runs, static_config)
         resolved_metrics_db = metrics_db_path or db_path.parent / "metrics.sqlite"
 

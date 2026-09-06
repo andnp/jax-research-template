@@ -578,8 +578,8 @@ def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseMan
 
     assert len(batches) == 2
     assert [len(batch.run_ids) for batch in batches] == [1, 2]
-    assert batches[0].static_config_json == '{"arch": "cnn"}'
-    assert batches[1].static_config_json == '{"arch": "mlp"}'
+    assert batches[0].static_config == {"arch": "cnn"}
+    assert batches[1].static_config == {"arch": "mlp"}
 
 
 def _selector_fixture(db: DatabaseManager) -> int:
