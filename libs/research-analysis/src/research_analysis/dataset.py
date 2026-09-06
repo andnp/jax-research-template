@@ -17,6 +17,12 @@ from experiment_definition.db import (
     RunRow,
 )
 
+from research_analysis.diagnostics.types import (
+    FATAL_DIAGNOSTIC_CODES,
+    DatasetDiagnostic,
+    DatasetLoadError,
+    DiagnosticCode,
+)
 from research_analysis.loader import load_sqlite_query
 
 SweepValue = str | int | float | bool
@@ -125,37 +131,6 @@ class CohortSelection:
     sweep_values: tuple[tuple[str, SweepValue], ...] = ()
 
 
-class DiagnosticCode(StrEnum):
-    """Structured dataset-loading diagnostic categories."""
-
-    INCOMPLETE_EXECUTION = "incomplete_execution"
-    MISSING_METRIC_ARTIFACT = "missing_metric_artifact"
-    EXCLUDED_VERSION = "excluded_version"
-    AMBIGUOUS_COHORT = "ambiguous_cohort"
-    UNKNOWN_COMPONENT_PROVENANCE = "unknown_component_provenance"
-    MISSING_DIMENSION = "missing_dimension"
-    INVALID_DIMENSION = "invalid_dimension"
-    INVALID_VERSION_SELECTION = "invalid_version_selection"
-
-
-@dataclass(frozen=True)
-class DatasetDiagnostic:
-    """A structured issue encountered while selecting or materializing data."""
-
-    code: DiagnosticCode
-    message: str
-    run_id: int | None = None
-    execution_id: int | None = None
-
-
-class DatasetLoadError(ValueError):
-    """Raised when strict dataset loading encounters a fatal diagnostic."""
-
-    def __init__(self, diagnostics: tuple[DatasetDiagnostic, ...]) -> None:
-        self.diagnostics = diagnostics
-        super().__init__("experiment dataset loading failed: " + "; ".join(d.message for d in diagnostics))
-
-
 @dataclass(frozen=True)
 class ExperimentDataset:
     """Typed runs, metrics, dimensions, provenance, and loader diagnostics."""
@@ -190,17 +165,6 @@ class ExperimentDataset:
             raise TypeError(f"runs table is missing columns: {sorted(missing_runs)}")
         if missing_metrics:
             raise TypeError(f"metrics table is missing columns: {sorted(missing_metrics)}")
-
-
-_FATAL_CODES = frozenset(
-    {
-        DiagnosticCode.AMBIGUOUS_COHORT,
-        DiagnosticCode.MISSING_METRIC_ARTIFACT,
-        DiagnosticCode.MISSING_DIMENSION,
-        DiagnosticCode.INVALID_DIMENSION,
-        DiagnosticCode.INVALID_VERSION_SELECTION,
-    }
-)
 
 
 def _diagnostic(
@@ -584,7 +548,7 @@ def load_experiment_dataset(
             }
         )
 
-    fatal = tuple(item for item in diagnostics if item.code in _FATAL_CODES)
+    fatal = tuple(item for item in diagnostics if item.code in FATAL_DIAGNOSTIC_CODES)
     if fatal and not partial:
         raise DatasetLoadError(fatal)
     return ExperimentDataset(
