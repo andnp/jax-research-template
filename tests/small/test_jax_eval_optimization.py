@@ -82,3 +82,5 @@ def test_update_ratio_handles_zero_params_and_rejects_structure_mismatch() -> No
     assert jnp.isfinite(result)
     with pytest.raises(ValueError):
         update_ratio({"weight": jnp.ones(2)}, {"bias": jnp.ones(2)})
+    with pytest.raises(ValueError):
+        update_ratio({"weight": jnp.ones(2)}, {"weight": jnp.ones(3)})
