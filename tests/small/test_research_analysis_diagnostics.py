@@ -10,10 +10,10 @@ def test_add_appends_a_diagnostic_with_the_given_fields() -> None:
     """add() records one diagnostic carrying the code, message, and run identity."""
     accumulator = DiagnosticAccumulator()
 
-    accumulator.add(DiagnosticCode.MISSING_DIMENSION, "missing condition key", run_id=1, execution_id=2)
+    accumulator.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "missing metrics", run_id=1, execution_id=2)
 
     assert accumulator.as_tuple() == (
-        DatasetDiagnostic(DiagnosticCode.MISSING_DIMENSION, "missing condition key", 1, 2),
+        DatasetDiagnostic(DiagnosticCode.MISSING_METRIC_ARTIFACT, "missing metrics", 1, 2),
     )
 
 
@@ -35,10 +35,10 @@ def test_extend_appends_diagnostics_in_order() -> None:
 def test_fatal_returns_only_diagnostics_matching_the_given_codes() -> None:
     """fatal() filters collected diagnostics down to a caller-supplied fatal-code set."""
     accumulator = DiagnosticAccumulator()
-    accumulator.add(DiagnosticCode.MISSING_DIMENSION, "fatal")
+    accumulator.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "fatal")
     accumulator.add(DiagnosticCode.EXCLUDED_VERSION, "not fatal")
 
-    fatal = accumulator.fatal(frozenset({DiagnosticCode.MISSING_DIMENSION}))
+    fatal = accumulator.fatal(frozenset({DiagnosticCode.MISSING_METRIC_ARTIFACT}))
 
     assert [item.message for item in fatal] == ["fatal"]
 
@@ -48,7 +48,7 @@ def test_fatal_returns_empty_tuple_when_no_codes_match() -> None:
     accumulator = DiagnosticAccumulator()
     accumulator.add(DiagnosticCode.EXCLUDED_VERSION, "not fatal")
 
-    assert accumulator.fatal(frozenset({DiagnosticCode.MISSING_DIMENSION})) == ()
+    assert accumulator.fatal(frozenset({DiagnosticCode.MISSING_METRIC_ARTIFACT})) == ()
 
 
 def test_separate_instances_do_not_share_state() -> None:

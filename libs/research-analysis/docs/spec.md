@@ -59,7 +59,8 @@ report = compare_pairwise(dataset, "baseline", "candidate", "reward")
 
 For a parameter declared only under an experiment condition, declare the same
 applicability rule on its axis. Applicable runs must contain a correctly typed
-value; other runs receive a null value, and unexpected values fail loading:
+value; other runs receive a null value. Runs that cannot satisfy the requested
+dimension projection are omitted:
 
 ```python
 SweepAxis("eta", SweepValueType.FLOAT, when={"algorithm": "adversarial"})

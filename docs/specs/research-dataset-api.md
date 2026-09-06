@@ -65,10 +65,10 @@ If the requested dimensions identify more than one cohort, the default loader
 fails with an ambiguous-cohort diagnostic. An explicit cohort selector is
 required to disambiguate it.
 
-The default loader is strict. It fails for missing recorded metric artifacts,
-ambiguous cohorts, and invalid version selections. An explicit partial mode may
-return valid rows while retaining diagnostics for incomplete executions,
-missing artifacts, excluded versions, and unknown provenance.
+Rows that cannot satisfy the requested dimension projection are omitted without
+diagnostics. The loader still reports missing recorded metric artifacts,
+ambiguous cohorts, and invalid version selections; `partial=True` returns valid
+rows while retaining those diagnostics.
 
 Step-grid alignment is not a dataset-loader responsibility; curve analysis
 continues to validate alignment for the operation that needs it.

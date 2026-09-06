@@ -40,7 +40,7 @@ def load_experiment_dataset(
         completed_runs = fetch_completed_runs(database, experiment)
         candidates = resolve_versioned_candidates(database, completed_runs)
         selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
-        rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort, diagnostics)
+        rows, artifacts = build_rows(database, candidates, selected_sets, selected_dimensions, cohort)
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)
     run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)

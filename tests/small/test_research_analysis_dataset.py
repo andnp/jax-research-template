@@ -131,8 +131,8 @@ def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> N
     assert dataset.runs["env_version_id"].to_list() == [env_version]
 
 
-def test_missing_environment_dimension_fails(tmp_path: Path) -> None:
-    """An unset environment key fails instead of silently omitting env_name."""
+def test_missing_environment_dimension_excludes_run(tmp_path: Path) -> None:
+    """An unset environment key excludes the run without a diagnostic."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -150,18 +150,18 @@ def test_missing_environment_dimension_fails(tmp_path: Path) -> None:
         database.update_execution_status(execution_id, "COMPLETED")
     _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
 
-    with pytest.raises(DatasetLoadError) as error:
-        load_experiment_dataset(
-            db_path,
-            "missing-environment-test",
-            dimensions=ExperimentDimensions(environment="env_id"),
-        )
+    dataset = load_experiment_dataset(
+        db_path,
+        "missing-environment-test",
+        dimensions=ExperimentDimensions(environment="env_id"),
+    )
 
-    assert error.value.diagnostics[0].code is DiagnosticCode.MISSING_DIMENSION
+    assert dataset.runs.height == 0
+    assert dataset.diagnostics == ()
 
 
-def test_missing_applicable_sweep_axis_fails(tmp_path: Path) -> None:
-    """An applicable axis without a value fails instead of becoming nullable."""
+def test_missing_applicable_sweep_axis_excludes_run(tmp_path: Path) -> None:
+    """An applicable axis without a value excludes the run without a diagnostic."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -179,18 +179,18 @@ def test_missing_applicable_sweep_axis_fails(tmp_path: Path) -> None:
         database.update_execution_status(execution_id, "COMPLETED")
     _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
 
-    with pytest.raises(DatasetLoadError) as error:
-        load_experiment_dataset(
-            db_path,
-            "required-axis-test",
-            dimensions=ExperimentDimensions(
-                sweep_axes=(
-                    SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": "baseline"}),
-                ),
+    dataset = load_experiment_dataset(
+        db_path,
+        "required-axis-test",
+        dimensions=ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": "baseline"}),
             ),
-        )
+        ),
+    )
 
-    assert error.value.diagnostics[0].code is DiagnosticCode.MISSING_DIMENSION
+    assert dataset.runs.height == 0
+    assert dataset.diagnostics == ()
 
 
 def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path) -> None:
@@ -246,8 +246,8 @@ def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path
     assert shared_only.runs["eta"].dtype.is_float()
 
 
-def test_inapplicable_sweep_axis_with_value_fails(tmp_path: Path) -> None:
-    """Reject an axis value that appears outside its declared condition."""
+def test_inapplicable_sweep_axis_with_value_is_ignored(tmp_path: Path) -> None:
+    """Ignore an axis value that appears outside its declared condition."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -267,34 +267,35 @@ def test_inapplicable_sweep_axis_with_value_fails(tmp_path: Path) -> None:
         database.update_execution_status(execution_id, "COMPLETED")
     _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
 
-    with pytest.raises(DatasetLoadError) as error:
-        load_experiment_dataset(
-            db_path,
-            "invalid-conditional-axis-test",
-            dimensions=ExperimentDimensions(
-                sweep_axes=(
-                    SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
-                ),
+    dataset = load_experiment_dataset(
+        db_path,
+        "invalid-conditional-axis-test",
+        dimensions=ExperimentDimensions(
+            sweep_axes=(
+                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
             ),
-        )
+        ),
+    )
 
-    assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_DIMENSION
+    assert dataset.runs.height == 1
+    assert dataset.runs["eta"].to_list() == [None]
+    assert dataset.diagnostics == ()
 
 
-def test_missing_applicability_key_fails(tmp_path: Path) -> None:
-    """Reject an applicability rule that cannot be evaluated from run metadata."""
+def test_missing_applicability_key_excludes_run(tmp_path: Path) -> None:
+    """Exclude an applicability rule that cannot be evaluated from run metadata."""
     fixture = _create_experiment(tmp_path)
 
-    with pytest.raises(DatasetLoadError) as error:
-        load_experiment_dataset(
-            fixture["db_path"],
-            "dataset-test",
-            dimensions=ExperimentDimensions(
-                sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
-            ),
-        )
+    dataset = load_experiment_dataset(
+        fixture["db_path"],
+        "dataset-test",
+        dimensions=ExperimentDimensions(
+            sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
+        ),
+    )
 
-    assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_DIMENSION
+    assert dataset.runs.height == 0
+    assert dataset.diagnostics == ()
 
 
 def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> None:

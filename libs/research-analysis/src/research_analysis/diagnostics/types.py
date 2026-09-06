@@ -12,8 +12,6 @@ class DiagnosticCode(StrEnum):
     MISSING_METRIC_ARTIFACT = "missing_metric_artifact"
     EXCLUDED_VERSION = "excluded_version"
     AMBIGUOUS_COHORT = "ambiguous_cohort"
-    MISSING_DIMENSION = "missing_dimension"
-    INVALID_DIMENSION = "invalid_dimension"
     INVALID_VERSION_SELECTION = "invalid_version_selection"
 
 
@@ -39,8 +37,6 @@ FATAL_DIAGNOSTIC_CODES = frozenset(
     {
         DiagnosticCode.AMBIGUOUS_COHORT,
         DiagnosticCode.MISSING_METRIC_ARTIFACT,
-        DiagnosticCode.MISSING_DIMENSION,
-        DiagnosticCode.INVALID_DIMENSION,
         DiagnosticCode.INVALID_VERSION_SELECTION,
     }
 )
