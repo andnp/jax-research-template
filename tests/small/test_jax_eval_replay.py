@@ -46,11 +46,16 @@ def test_priority_utilization_handles_empty_and_concentrated_inputs() -> None:
 
 
 def test_sample_staleness_casts_before_signed_subtraction() -> None:
-    """Compute mean ages without unsigned counter underflow or clipping."""
-    result = sample_staleness(jnp.uint32(2), jnp.array([1, 3], dtype=jnp.uint32))
+    """Compute small signed ages for large timestamps without underflow or clipping."""
+    current = jnp.uint32(2**24 + 1)
+    result = sample_staleness(current, jnp.array([2**24], dtype=jnp.uint32))
+    unsigned_negative = sample_staleness(jnp.uint32(2), jnp.array([3], dtype=jnp.uint32))
+    signed_negative = sample_staleness(jnp.int32(2), jnp.array([3], dtype=jnp.int32))
 
     assert result.dtype == jnp.float32
-    assert jnp.allclose(result, 0.0)
+    assert jnp.allclose(result, 1.0)
+    assert jnp.allclose(unsigned_negative, -1.0)
+    assert jnp.allclose(signed_negative, -1.0)
 
 
 def test_sample_staleness_applies_same_shape_mask() -> None:
@@ -72,3 +77,9 @@ def test_sample_staleness_handles_empty_and_no_valid_samples() -> None:
     assert empty == 0.0
     assert none_valid.dtype == jnp.float32
     assert none_valid == 0.0
+
+
+def test_sample_staleness_rejects_mask_shape_mismatch() -> None:
+    """Reject masks that cannot identify each sampled transition."""
+    with pytest.raises(ValueError):
+        sample_staleness(jnp.int32(10), jnp.ones((2, 2)), jnp.ones((2, 1), dtype=bool))
