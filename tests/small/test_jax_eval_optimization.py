@@ -1,7 +1,8 @@
 """Small behavioral tests for jax-eval optimization diagnostics."""
 
 import jax.numpy as jnp
-from jax_eval.optimization import gradient_snr
+import pytest
+from jax_eval.optimization import gradient_snr, update_ratio
 
 
 def test_gradient_snr_reduces_nested_leaves_without_leaf_weighting() -> None:
@@ -40,3 +41,23 @@ def test_gradient_snr_handles_one_identical_zero_batches() -> None:
     assert jnp.isfinite(identical)
     assert identical > 1e6
     assert zero == 0.0
+
+
+def test_update_ratio_uses_global_nested_tree_norms() -> None:
+    """Compare update and parameter norms across mixed-size nested leaves."""
+    params = {"small": jnp.array([3.0]), "nested": {"wide": jnp.array([4.0, 0.0])}}
+    updates = {"small": jnp.array([0.0]), "nested": {"wide": jnp.array([0.0, 3.0])}}
+
+    result = update_ratio(params, updates)
+
+    assert result.dtype == jnp.float32
+    assert jnp.allclose(result, 0.6)
+
+
+def test_update_ratio_handles_zero_params_and_rejects_structure_mismatch() -> None:
+    """Return a finite zero-denominator result while rejecting different trees."""
+    result = update_ratio({"weight": jnp.zeros(2)}, {"weight": jnp.ones(2)})
+
+    assert jnp.isfinite(result)
+    with pytest.raises(ValueError):
+        update_ratio({"weight": jnp.ones(2)}, {"bias": jnp.ones(2)})
