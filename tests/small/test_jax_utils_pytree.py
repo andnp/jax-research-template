@@ -2,6 +2,7 @@
 
 import jax.numpy as jnp
 from jax_utils.pytree import (
+    shift_head_readout,
     tree_add,
     tree_inner_product,
     tree_lerp,
@@ -124,3 +125,23 @@ class TestTreeLerp:
         b = {"w": jnp.array([4.0, 6.0])}
         result = tree_lerp(a, b, 0.5)
         assert jnp.allclose(result["w"], jnp.array([2.0, 3.0]))
+
+
+class TestShiftHeadReadout:
+    def test_shifts_kernel_and_bias_leaving_other_params_untouched(self) -> None:
+        variables = {
+            "params": {
+                "trunk": jnp.array([1.0, 2.0]),
+                "kernel": jnp.array([[0.0, 1.0, 2.0]]),
+                "bias": jnp.array([0.0, 1.0, 2.0]),
+            }
+        }
+        result = shift_head_readout(variables, kernel_name="kernel", kernel_axis=1, bias_name="bias")
+        assert jnp.allclose(result["params"]["kernel"], jnp.array([[1.0, 2.0, 2.0]]))
+        assert jnp.allclose(result["params"]["bias"], jnp.array([1.0, 2.0, 2.0]))
+        assert jnp.allclose(result["params"]["trunk"], variables["params"]["trunk"])
+
+    def test_no_bias_name_leaves_bias_absent(self) -> None:
+        variables = {"params": {"kernel": jnp.array([[0.0, 1.0, 2.0]])}}
+        result = shift_head_readout(variables, kernel_name="kernel", kernel_axis=1)
+        assert set(result["params"]) == {"kernel"}
