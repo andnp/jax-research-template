@@ -23,8 +23,8 @@ from research_analysis.dataset import (
 from research_analysis.reporting import (
     ABComparisonReport,
     BenchmarkBakeoffReport,
-    HyperparameterSensitivityReport,
-    analyze_hypers,
+    HyperparameterConfigReport,
+    best_hypers,
     compare_bakeoff,
     compare_pairwise,
 )
@@ -148,22 +148,22 @@ def test_compare_pairwise_honors_declared_pairing_keys(temp_experiment_setup: Ex
     assert report.pairing == "paired"
 
 
-def test_analyze_hypers_consumes_declared_sweep_axes(temp_experiment_setup: ExperimentSetup) -> None:
-    """Analyze a declared sweep using final values from the dataset metrics table."""
+def test_best_hypers_consumes_declared_sweep_axes(temp_experiment_setup: ExperimentSetup) -> None:
+    """Find the best declared sweep value using final values from the dataset metrics table."""
     setup = temp_experiment_setup
     for learning_rate, score in (("low", 1.0), ("high", 3.0)):
         for seed in range(3):
             _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, score + seed)
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-    report = analyze_hypers(dataset, "learning_rate", "metric", verbose=False)
+    report = best_hypers(dataset, "metric", verbose=False)
 
-    assert isinstance(report, HyperparameterSensitivityReport)
-    assert report.winning_value == "high"
+    assert isinstance(report, HyperparameterConfigReport)
+    assert report.winning_config == {"learning_rate": "high"}
     assert report.raw_mean == pytest.approx(4.0)
 
 
-def test_analyze_hypers_rejects_undeclared_group_axes(temp_experiment_setup: ExperimentSetup) -> None:
+def test_best_hypers_rejects_undeclared_group_axes(temp_experiment_setup: ExperimentSetup) -> None:
     """Require grouping keys to be declared typed sweep axes in the dataset."""
     setup = temp_experiment_setup
     for seed in range(3):
@@ -176,7 +176,7 @@ def test_analyze_hypers_rejects_undeclared_group_axes(temp_experiment_setup: Exp
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
     with pytest.raises(ValueError, match="declared typed sweep axes"):
-        analyze_hypers(dataset, "learning_rate", "metric", group_by=["task"], verbose=False)
+        best_hypers(dataset, "metric", group_by=["task"], verbose=False)
 
 
 def test_compare_bakeoff_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:

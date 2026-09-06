@@ -13,7 +13,7 @@ from typing import Any, overload
 
 import numpy as np
 import polars as pl
-from research_plot.plots import plot_distributions, plot_ecdf, plot_sensitivity
+from research_plot.plots import plot_distributions, plot_ecdf
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -72,16 +72,13 @@ class ABComparisonReport:
 
 
 @dataclass(frozen=True)
-class HyperparameterSensitivityReport:
-    target_hyperparameter: str
-    winning_value: Any
+class HyperparameterConfigReport:
+    """Bias-corrected estimate of the best hyperparameter configuration's true performance."""
+
+    winning_config: dict[str, Any]
     raw_mean: float
     corrected_mean: float
     maximization_bias: float
-    sensitivity_slice: dict[Any, float]
-    sensitivity_best: dict[Any, float]
-    sensitivity_plot_path: Path | None
-    estimate_method: str
     estimate_ci: tuple[float, float]
     confidence_level: float = 0.95
 
@@ -408,9 +405,8 @@ def compare_pairwise(
 
 
 @overload
-def analyze_hypers(
+def best_hypers(
     dataset: ExperimentDataset,
-    target_hyperparameter: str,
     metric_name: str,
     group_by: None = None,
     verbose: bool = True,
@@ -418,13 +414,12 @@ def analyze_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
-) -> HyperparameterSensitivityReport: ...
+) -> HyperparameterConfigReport: ...
 
 
 @overload
-def analyze_hypers(
+def best_hypers(
     dataset: ExperimentDataset,
-    target_hyperparameter: str,
     metric_name: str,
     group_by: list[str],
     verbose: bool = True,
@@ -432,12 +427,11 @@ def analyze_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
-) -> dict[tuple[Any, ...], HyperparameterSensitivityReport]: ...
+) -> dict[tuple[Any, ...], HyperparameterConfigReport]: ...
 
 
-def analyze_hypers(
+def best_hypers(
     dataset: ExperimentDataset,
-    target_hyperparameter: str,
     metric_name: str,
     group_by: list[str] | None = None,
     verbose: bool = True,
@@ -445,38 +439,43 @@ def analyze_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
-) -> HyperparameterSensitivityReport | dict[tuple[Any, ...], HyperparameterSensitivityReport]:
-    """Analyze hyperparameter sweep with held-out seed evaluation.
+) -> HyperparameterConfigReport | dict[tuple[Any, ...], HyperparameterConfigReport]:
+    """Find the bias-corrected best hyperparameter configuration.
 
-    When ``group_by`` names one or more hyperparameter keys, the analysis is performed
-    separately for each distinct combination of those keys' values (read from each run's
-    stored hyperparameter JSON), and a mapping from the group key tuple to its own
-    ``HyperparameterSensitivityReport`` is returned instead of a single pooled report.
+    Jointly optimizes every declared sweep axis not named in ``group_by``. When
+    ``group_by`` names one or more hyperparameter keys, the search is performed
+    separately for each distinct combination of those keys' values, and a mapping
+    from the group key tuple to its own ``HyperparameterConfigReport`` is returned
+    instead of a single pooled report. An empty or absent ``group_by`` jointly
+    optimizes every declared sweep axis and returns one report for the whole grid.
     """
     declared_axes = {axis.name for axis in dataset.dimensions.sweep_axes}
-    requested_axes = {target_hyperparameter, *(group_by or ())}
-    undeclared_axes = requested_axes - declared_axes
+    group_keys = list(group_by or ())
+    undeclared_axes = set(group_keys) - declared_axes
     if undeclared_axes:
         raise ValueError(
             "hyperparameter analysis requires declared typed sweep axes; "
             f"undeclared keys: {sorted(undeclared_axes)}"
         )
-    records = _load_dataset_hyperparameter_records(dataset, sorted(requested_axes), metric_name)
+    free_axes = sorted(declared_axes - set(group_keys))
+    if not free_axes:
+        raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    if group_by:
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes), metric_name)
+
+    if group_keys:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
         for record in records:
-            group_key = tuple(record["hypers"].get(key) for key in group_by)
+            group_key = tuple(record["hypers"].get(key) for key in group_keys)
             groups.setdefault(group_key, []).append(record)
 
         return {
-            group_key: _analyze_hypers_group(
+            group_key: _best_hypers_group(
                 group_records,
-                target_hyperparameter=target_hyperparameter,
+                free_axes=free_axes,
                 experiment_slug=dataset.experiment_name,
                 verbose=verbose,
-                group_label=", ".join(f"{key}={value}" for key, value in zip(group_by, group_key, strict=True)),
-                plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_by, group_key, strict=True)),
+                group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
                 confidence_level=confidence_level,
                 n_resamples=n_resamples,
                 min_samples=min_samples,
@@ -485,13 +484,12 @@ def analyze_hypers(
             for group_key, group_records in groups.items()
         }
 
-    return _analyze_hypers_group(
+    return _best_hypers_group(
         records,
-        target_hyperparameter=target_hyperparameter,
+        free_axes=free_axes,
         experiment_slug=dataset.experiment_name,
         verbose=verbose,
         group_label=None,
-        plot_suffix="",
         confidence_level=confidence_level,
         n_resamples=n_resamples,
         min_samples=min_samples,
@@ -499,51 +497,81 @@ def analyze_hypers(
     )
 
 
-@dataclass(frozen=True)
-class _HyperparameterStatistics:
-    winning_value: Any
-    raw_mean: float
-    corrected_mean: float
-    maximization_bias: float
-    sensitivity_slice: dict[Any, float]
-    sensitivity_best: dict[Any, float]
-    sorted_values: list[Any]
-    sorted_slice: list[float]
-    sorted_best: list[float]
-    correction_ci: tuple[float, float]
-    estimate_method: str
+def _present_best_hypers(
+    report: HyperparameterConfigReport,
+    experiment_slug: str,
+    group_label: str | None,
+) -> None:
+    console = Console()
+    console.print()
+    subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
+    console.print(
+        Panel(
+            Text("📊 HYPERPARAMETER ANALYSIS", style="bold cyan"),
+            subtitle=subtitle,
+        )
+    )
+
+    config_desc = ", ".join(f"{key}={value}" for key, value in report.winning_config.items())
+    ci_low, ci_high = report.estimate_ci
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Winning Configuration : ", "dim"), (f"{config_desc}\n"),
+                ("Raw Winner Mean       : ", "dim"), (f"{report.raw_mean:.2f}\n"),
+                ("Corrected Winner Mean : ", "bold green"), (f"{report.corrected_mean:.2f}\n"),
+                ("Maximization Bias     : ", "bold red"), (f"+{report.maximization_bias:.2f}\n"),
+                (f"Hierarchical Bootstrap {report.confidence_level:.0%} CI: ", "dim"),
+                (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
+                ("Pedagogical Interpretation:\n", "bold"),
+                (
+                    "Selecting the hyperparameter configuration with the highest raw average results "
+                    "in Maximization Bias. This bias represents how much we have overestimated the algorithm's "
+                    "true performance by selecting the 'lucky' configuration. The Corrected Mean represents "
+                    "a realistic expectation of performance on a fresh set of random seeds."
+                ),
+            ),
+            title="Maximization Bias Correction Log",
+        )
+    )
 
 
-def _compute_hyperparameter_statistics(
+def _best_hypers_group(
     records: list[dict[str, Any]],
     *,
-    target_hyperparameter: str,
+    free_axes: list[str],
+    experiment_slug: str,
+    verbose: bool,
+    group_label: str | None,
     confidence_level: float,
     n_resamples: int,
     min_samples: int,
     random_seed: int,
-) -> _HyperparameterStatistics:
+) -> HyperparameterConfigReport:
+    """Run the maximization-bias-corrected joint hyperparameter search over one set of run records."""
     if not 0 < confidence_level < 1:
         raise ValueError("confidence_level must be between 0 and 1")
     if n_resamples < 1:
         raise ValueError("n_resamples must be positive")
     if min_samples < 3:
         raise ValueError("min_samples must be at least 3")
-    runs_by_val: dict[Any, list[dict[str, Any]]] = {}
+
+    runs_by_config: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for record in records:
-        runs_by_val.setdefault(record["hypers"].get(target_hyperparameter), []).append(record)
+        key = tuple(record["hypers"][axis] for axis in free_axes)
+        runs_by_config.setdefault(key, []).append(record)
 
-    raw_means = {v: float(np.mean([r["value"] for r in records])) for v, records in runs_by_val.items()}
+    raw_means = {key: float(np.mean([r["value"] for r in recs])) for key, recs in runs_by_config.items()}
 
-    def raw_mean_of(k: Any) -> float:
+    def raw_mean_of(k: tuple[Any, ...]) -> float:
         return raw_means[k]
 
-    winning_val = max(raw_means, key=raw_mean_of)
-    raw_winner_mean = raw_means[winning_val]
+    winning_key = max(raw_means, key=raw_mean_of)
+    raw_winner_mean = raw_means[winning_key]
 
-    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(records, [target_hyperparameter])
+    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(records, free_axes)
     if len(matrix_seeds) < min_samples:
-        raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter value")
+        raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter configuration")
     n_runs = matrix.shape[1]
 
     bootstrap = hierarchical_bootstrap_ci(
@@ -558,168 +586,17 @@ def _compute_hyperparameter_statistics(
     interval = (bootstrap.ci_low, bootstrap.ci_high)
     maximization_bias = float(raw_winner_mean - corrected_mean)
 
-    best_config = runs_by_val[winning_val][0]["hypers"]
-    nuisance_keys = [k for k in best_config.keys() if k != target_hyperparameter and k != "seed"]
-    slice_perf = {}
-    best_perf = {}
-    for val, records in runs_by_val.items():
-        best_perf[val] = float(np.mean([r["value"] for r in records]))
-        slice_records = [
-            r for r in records
-            if all(r["hypers"].get(k) == best_config.get(k) for k in nuisance_keys)
-        ]
-        slice_perf[val] = (
-            float(np.mean([r["value"] for r in slice_records]))
-            if slice_records
-            else best_perf[val]
-        )
-
-    sorted_keys = sorted(runs_by_val)
-    return _HyperparameterStatistics(
-        winning_value=winning_val,
+    report = HyperparameterConfigReport(
+        winning_config=dict(zip(free_axes, winning_key, strict=True)),
         raw_mean=raw_winner_mean,
         corrected_mean=corrected_mean,
         maximization_bias=maximization_bias,
-        sensitivity_slice=slice_perf,
-        sensitivity_best=best_perf,
-        sorted_values=sorted_keys,
-        sorted_slice=[slice_perf[k] for k in sorted_keys],
-        sorted_best=[best_perf[k] for k in sorted_keys],
-        correction_ci=interval,
-        estimate_method="hierarchical_bootstrap",
-    )
-
-
-def _plot_hypers(
-    target_hyperparameter: str,
-    sorted_keys: list[Any],
-    slice_perf_sorted: list[float],
-    best_perf_sorted: list[float],
-    experiment_slug: str,
-    plot_suffix: str,
-) -> Path:
-    plot_path = Path("results/analysis") / experiment_slug / f"hyper_sensitivity{plot_suffix}.png"
-    plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
-    return plot_path
-
-
-def _present_hypers(
-    report: HyperparameterSensitivityReport,
-    sorted_keys: list[Any],
-    experiment_slug: str,
-    group_label: str | None,
-    correction_ci: tuple[float, float],
-) -> None:
-    console = Console()
-    console.print()
-    subtitle = f"Experiment: {experiment_slug}" + (f" | Group: {group_label}" if group_label else "")
-    console.print(
-        Panel(
-            Text(f"📊 HYPERPARAMETER ANALYSIS: {report.target_hyperparameter}", style="bold cyan"),
-            subtitle=subtitle,
-        )
-    )
-
-    table = Table(title="Sensitivity Matrix", show_header=True, header_style="bold magenta")
-    table.add_column("Value", style="dim")
-    table.add_column("Best Achievable Mean", justify="right")
-    table.add_column("Optimal Slice Mean", justify="right")
-    for val in sorted_keys:
-        table.add_row(str(val), f"{report.sensitivity_best[val]:.2f}", f"{report.sensitivity_slice[val]:.2f}")
-    console.print(table)
-
-    ci_low, ci_high = correction_ci
-    console.print(
-        Panel(
-            Text.assemble(
-                ("Raw Winner Mean       : ", "dim"), (f"{report.raw_mean:.2f} (value: {report.winning_value})\n"),
-                ("Corrected Winner Mean : ", "bold green"), (f"{report.corrected_mean:.2f}\n"),
-                ("Maximization Bias     : ", "bold red"), (f"+{report.maximization_bias:.2f}\n"),
-                (f"{report.estimate_method} {report.confidence_level:.0%} CI: ", "dim"),
-                (f"[{ci_low:.2f}, {ci_high:.2f}]\n\n"),
-                ("Pedagogical Interpretation:\n", "bold"),
-                (
-                    "Selecting the hyperparameter configuration with the highest raw average results "
-                    "in Maximization Bias. This bias represents how much we have overestimated the algorithm's "
-                    "true performance by selecting the 'lucky' configuration. The Corrected Mean represents "
-                    "a realistic expectation of performance on a fresh set of random seeds."
-                ),
-            ),
-            title="Maximization Bias Correction Log",
-        )
-    )
-    console.print(
-        Panel(
-            Text(f"Saved sensitivity visual artifact to: {report.sensitivity_plot_path}", style="italic green"),
-            title="Artifact Outputs Panel",
-        )
-    )
-
-
-def _analyze_hypers_group(
-    records: list[dict[str, Any]],
-    *,
-    target_hyperparameter: str,
-    experiment_slug: str,
-    verbose: bool,
-    group_label: str | None,
-    plot_suffix: str,
-    confidence_level: float,
-    n_resamples: int,
-    min_samples: int,
-    random_seed: int,
-) -> HyperparameterSensitivityReport:
-    """Run the maximization-bias-corrected sensitivity analysis over one set of run records."""
-    statistics = _compute_hyperparameter_statistics(
-        records,
-        target_hyperparameter=target_hyperparameter,
-        confidence_level=confidence_level,
-        n_resamples=n_resamples,
-        min_samples=min_samples,
-        random_seed=random_seed,
-    )
-    winning_val = statistics.winning_value
-    raw_winner_mean = statistics.raw_mean
-    corrected_mean = statistics.corrected_mean
-    maximization_bias = statistics.maximization_bias
-    slice_perf = statistics.sensitivity_slice
-    best_perf = statistics.sensitivity_best
-    sorted_keys = statistics.sorted_values
-    slice_perf_sorted = statistics.sorted_slice
-    best_perf_sorted = statistics.sorted_best
-    ci_low, ci_high = statistics.correction_ci
-
-    plot_path = _plot_hypers(
-        target_hyperparameter,
-        sorted_keys,
-        slice_perf_sorted,
-        best_perf_sorted,
-        experiment_slug,
-        plot_suffix,
-    )
-
-    report = HyperparameterSensitivityReport(
-        target_hyperparameter=target_hyperparameter,
-        winning_value=winning_val,
-        raw_mean=raw_winner_mean,
-        corrected_mean=corrected_mean,
-        maximization_bias=maximization_bias,
-        sensitivity_slice=slice_perf,
-        sensitivity_best=best_perf,
-        sensitivity_plot_path=plot_path,
-        estimate_method=statistics.estimate_method,
-        estimate_ci=statistics.correction_ci,
+        estimate_ci=interval,
         confidence_level=confidence_level,
     )
 
     if verbose:
-        _present_hypers(
-            report,
-            sorted_keys,
-            experiment_slug,
-            group_label,
-            statistics.correction_ci,
-        )
+        _present_best_hypers(report, experiment_slug, group_label)
 
     return report
 
