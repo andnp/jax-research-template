@@ -322,6 +322,10 @@ def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> No
 
     assert dataset.runs["algo_version_id"].unique().to_list() == [newer_algo]
     assert not any(item.code is DiagnosticCode.AMBIGUOUS_COHORT for item in dataset.diagnostics)
+    assert any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
+    provenance_versions = {item.version_id for item in dataset.provenance}
+    assert newer_algo in provenance_versions
+    assert fixture["algo_version"] not in provenance_versions
 
 
 def test_exact_versions_require_qualified_component_identity(tmp_path: Path) -> None:
