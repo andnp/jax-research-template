@@ -7,7 +7,8 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from experiment_definition import Experiment, ParameterValue
-from experiment_definition.db import DatabaseManager, PlannedExecution, RunRow
+from experiment_definition.db import DatabaseManager, PlannedExecution
+from experiment_definition.records import RunRow
 from research_instrument.seed_batch import write_seed_batch_curve
 from research_store.store import Store
 

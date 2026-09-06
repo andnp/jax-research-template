@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from experiment_definition.db import ExecutionRow, RunRow
+from experiment_definition.records import ExecutionRow, RunRow
 
 from research_analysis.dataset.types import (
     CohortSelection,

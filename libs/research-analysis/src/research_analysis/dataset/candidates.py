@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from experiment_definition.db import (
-    DatabaseManager,
+from experiment_definition.db import DatabaseManager
+from experiment_definition.records import (
     ExecutionArtifactRow,
     ExecutionRow,
     ExperimentRow,
