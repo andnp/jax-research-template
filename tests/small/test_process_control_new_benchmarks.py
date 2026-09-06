@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 from process_control.benchmarks.chlorine_two_stage import (
@@ -139,6 +141,8 @@ class TestEqualizationTankBenchmark:
         assert "overflow_flow" in info
         assert "unmet_outlet_flow" in info
         assert "tank_constraint_status" in info
+        assert "tracking_penalty" in info
+        assert "constraint_penalty" in info
         assert "inlet_flow" in info
 
     def test_level_stays_within_bounds(self) -> None:
@@ -156,7 +160,8 @@ class TestEqualizationTankBenchmark:
             assert level <= config.tank_max_level
             assert level >= config.tank_min_level
 
-    def test_reward_is_negative_mse(self) -> None:
+    def test_reward_contains_tracking_and_constraint_penalties(self) -> None:
+        """Reward exposes level tracking and physical constraint costs."""
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
         key = jax.random.PRNGKey(3)
@@ -164,10 +169,56 @@ class TestEqualizationTankBenchmark:
         state, _ = reset_fn(k1)
         _, _, reward, _, info = step_fn(state, jnp.array(75.0), k2)
 
-        # Reward is computed from sensor reading, not true state
-        target = config.target_level_fraction * config.tank_max_level
-        expected = -((info["measured_level"] - target) ** 2)
+        expected = -(
+            info["tracking_penalty"]
+            + info["overflow_penalty"]
+            + info["unmet_outlet_penalty"]
+        )
         assert jnp.allclose(reward, expected)
+
+    def test_overflow_worsens_reward_beyond_tracking_cost(self) -> None:
+        """Overflow contributes a negative cost when the tank reaches capacity."""
+        config = EqualizationTankBenchmarkConfig()
+        reset_fn, step_fn = make_equalization_tank_benchmark(config)
+        key = jax.random.PRNGKey(13)
+        key, reset_key = jax.random.split(key)
+        state, _ = reset_fn(reset_key)
+
+        for _ in range(200):
+            key, step_key = jax.random.split(key)
+            state, _, reward, _, info = step_fn(state, jnp.array(0.0), step_key)
+            if float(info["overflow_flow"]) > 0.0:
+                assert float(info["constraint_penalty"]) > 0.0
+                assert float(reward) < -float(info["tracking_penalty"])
+                return
+
+        raise AssertionError("zero outlet did not produce an overflow constraint violation")
+
+    def test_unmet_outlet_flow_worsens_reward_beyond_tracking_cost(self) -> None:
+        """Unmet requested outlet flow contributes a negative cost."""
+        config = EqualizationTankBenchmarkConfig()
+        reset_fn, step_fn = make_equalization_tank_benchmark(config)
+        key = jax.random.PRNGKey(17)
+        key, reset_key = jax.random.split(key)
+        state, _ = reset_fn(reset_key)
+        state = replace(
+            state,
+            tank_state=replace(state.tank_state, level=jnp.array(config.tank_min_level)),
+        )
+
+        for _ in range(20):
+            key, step_key = jax.random.split(key)
+            state, _, reward, _, info = step_fn(
+                state,
+                jnp.array(config.pump_max_flow),
+                step_key,
+            )
+            if float(info["unmet_outlet_flow"]) > 0.0:
+                assert float(info["constraint_penalty"]) > 0.0
+                assert float(reward) < -float(info["tracking_penalty"])
+                return
+
+        raise AssertionError("maximum outlet did not produce an unmet-flow violation")
 
     def test_jit_compatible(self) -> None:
         config = EqualizationTankBenchmarkConfig()

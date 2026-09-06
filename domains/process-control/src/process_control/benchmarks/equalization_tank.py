@@ -46,6 +46,10 @@ class EqualizationTankBenchmarkConfig:
     pi_output_max: float = 150.0
     pi_max_integral: float = 50.0
 
+    tracking_reward_scale: float = 1.0
+    overflow_penalty: float = 10.0
+    unmet_outlet_penalty: float = 10.0
+
     # Level sensor
     level_noise_std: float = 0.02
     level_lag_coefficient: float = 0.1
@@ -219,8 +223,14 @@ def make_equalization_tank_benchmark(
             ]
         )
 
-        # 7. Reward: from sensor reading (matches what an online agent would see)
-        reward = -((measured_level - target_level) ** 2)
+        # 7. Reward: track level while penalizing physical constraint violations
+        tracking_penalty = config.tracking_reward_scale * (measured_level - target_level) ** 2
+        overflow_penalty = config.overflow_penalty * (tank_result.overflow_flow / pump_max_flow) ** 2
+        unmet_outlet_penalty = config.unmet_outlet_penalty * (
+            tank_result.unmet_outlet_flow / pump_max_flow
+        ) ** 2
+        constraint_penalty = overflow_penalty + unmet_outlet_penalty
+        reward = -(tracking_penalty + constraint_penalty)
 
         new_state = EqualizationPlantState(
             step_count=state.step_count + 1,
@@ -241,6 +251,10 @@ def make_equalization_tank_benchmark(
             "overflow_flow": tank_result.overflow_flow,
             "unmet_outlet_flow": tank_result.unmet_outlet_flow,
             "tank_constraint_status": tank_result.constraint_status,
+            "tracking_penalty": tracking_penalty,
+            "overflow_penalty": overflow_penalty,
+            "unmet_outlet_penalty": unmet_outlet_penalty,
+            "constraint_penalty": constraint_penalty,
             "pi_outlet": pi_outlet,
             "inlet_flow": inlet_flow,
         }
