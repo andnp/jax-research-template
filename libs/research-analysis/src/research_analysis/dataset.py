@@ -380,6 +380,49 @@ def _metric_query_pairs(pairs: list[tuple[int, int]], metrics: tuple[str, ...] |
     )
 
 
+def _load_metric_frames(
+    rows: list[dict[str, object]], metrics: tuple[str, ...] | None, diagnostics: DiagnosticAccumulator
+) -> list[pl.DataFrame]:
+    metric_groups: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
+    run_rows = {(_required_int(row["run_id"]), _required_int(row["execution_id"])): row for row in rows}
+    for pair, row in run_rows.items():
+        path = row["metrics_db_path"]
+        if isinstance(path, str):
+            metric_groups[path].append(pair)
+
+    metric_frames: list[pl.DataFrame] = []
+    for path, pairs in metric_groups.items():
+        metric_path = Path(path)
+        if not metric_path.exists():
+            for run_id, execution_id in pairs:
+                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"metrics database does not exist: {metric_path}", run_id, execution_id)
+            continue
+        frame = load_sqlite_query(metric_path, _metric_query_pairs(pairs, metrics))
+        if frame.is_empty():
+            for run_id, execution_id in pairs:
+                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "metrics database has no requested rows", run_id, execution_id)
+            continue
+        metadata = pl.DataFrame([run_rows[pair] for pair in pairs])
+        metric_frames.append(
+            frame.join(metadata, on=["run_id", "execution_id"], how="inner")
+            .rename({"global_step": "step", "metric_name": "metric"})
+            .select(
+                [
+                    "condition_name",
+                    *(["env_name"] if "env_name" in metadata.columns else []),
+                    "seed",
+                    "run_id",
+                    "execution_id",
+                    "ablation",
+                    "step",
+                    "metric",
+                    "value",
+                ]
+            )
+        )
+    return metric_frames
+
+
 def load_experiment_dataset(
     experiments_db: Path | str,
     slug: str,
@@ -447,77 +490,38 @@ def load_experiment_dataset(
             if row is not None and (cohort is None or _cohort_matches(row, cohort)):
                 rows.append(row)
 
-        metric_groups: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
-        run_rows = {
-            (_required_int(row["run_id"]), _required_int(row["execution_id"])): row
-            for row in rows
-        }
-        for pair, row in run_rows.items():
-            path = row["metrics_db_path"]
-            if isinstance(path, str):
-                metric_groups[path].append(pair)
+    metric_frames = _load_metric_frames(rows, metrics, diagnostics)
 
-        metric_frames: list[pl.DataFrame] = []
-        for path, pairs in metric_groups.items():
-            metric_path = Path(path)
-            if not metric_path.exists():
-                for run_id, execution_id in pairs:
-                    diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"metrics database does not exist: {metric_path}", run_id, execution_id)
-                continue
-            frame = load_sqlite_query(metric_path, _metric_query_pairs(pairs, metrics))
-            if frame.is_empty():
-                for run_id, execution_id in pairs:
-                    diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "metrics database has no requested rows", run_id, execution_id)
-                continue
-            metadata = pl.DataFrame([run_rows[pair] for pair in pairs])
-            metric_frames.append(
-                frame.join(metadata, on=["run_id", "execution_id"], how="inner")
-                .rename({"global_step": "step", "metric_name": "metric"})
-                .select(
-                    [
-                        "condition_name",
-                        *(["env_name"] if "env_name" in metadata.columns else []),
-                        "seed",
-                        "run_id",
-                        "execution_id",
-                        "ablation",
-                        "step",
-                        "metric",
-                        "value",
-                    ]
-                )
-            )
-
-        if rows:
-            run_frame = pl.DataFrame(
-                rows,
-                schema_overrides={axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
-            )
-        else:
-            run_schema = {
-                "condition_name": pl.String,
-                **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
-                "seed": pl.Int64,
-                "run_id": pl.Int64,
-                "execution_id": pl.Int64,
-                "ablation": pl.String,
-                "metrics_db_path": pl.String,
-                **{axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
-            }
-            run_frame = pl.DataFrame(schema=run_schema)
-        metric_frame = pl.concat(metric_frames).sort(["condition_name", "seed", "step", "metric"]) if metric_frames else pl.DataFrame(
-            schema={
-                "condition_name": pl.String,
-                **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
-                "seed": pl.Int64,
-                "run_id": pl.Int64,
-                "execution_id": pl.Int64,
-                "ablation": pl.String,
-                "step": pl.Int64,
-                "metric": pl.String,
-                "value": pl.Float64,
-            }
+    if rows:
+        run_frame = pl.DataFrame(
+            rows,
+            schema_overrides={axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
         )
+    else:
+        run_schema = {
+            "condition_name": pl.String,
+            **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
+            "seed": pl.Int64,
+            "run_id": pl.Int64,
+            "execution_id": pl.Int64,
+            "ablation": pl.String,
+            "metrics_db_path": pl.String,
+            **{axis.name: _axis_dtype(axis) for axis in selected_dimensions.sweep_axes},
+        }
+        run_frame = pl.DataFrame(schema=run_schema)
+    metric_frame = pl.concat(metric_frames).sort(["condition_name", "seed", "step", "metric"]) if metric_frames else pl.DataFrame(
+        schema={
+            "condition_name": pl.String,
+            **({"env_name": pl.String} if selected_dimensions.environment is not None else {}),
+            "seed": pl.Int64,
+            "run_id": pl.Int64,
+            "execution_id": pl.Int64,
+            "ablation": pl.String,
+            "step": pl.Int64,
+            "metric": pl.String,
+            "value": pl.Float64,
+        }
+    )
 
     fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
     if fatal and not partial:
