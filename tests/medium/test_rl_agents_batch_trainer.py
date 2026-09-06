@@ -652,6 +652,59 @@ class TestAlgorithmRegistry:
         with pytest.raises(ValueError, match="'algorithm' must be text"):
             trainer(context)
 
+    def test_extra_specs_registers_a_project_local_algorithm(self, tmp_path: Path) -> None:
+        """A project's own AlgorithmSpec dispatches without touching ALGORITHM_TRAINERS."""
+        local_spec = AlgorithmSpec("qrc-variant", QRCAgent, QRCConfig, QRCHypers)
+        trainer = make_algorithm_batch_trainer(_make_env, ("qrc-variant",), extra_specs={"qrc-variant": local_spec})
+        static_config = {
+            "algorithm": "qrc-variant",
+            "env_name": "CartPole-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "hidden_width": 8,
+        }
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name="extra-specs-test",
+            static_config=static_config,
+            points=(RunPoint(0, {**static_config, "learning_rate": 1e-3, "seed": 0}),),
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / "metrics.sqlite",
+        )
+
+        result = trainer(context)
+
+        assert set(result.metric_curves) == {"reward", "loss", "epsilon", "q_max"}
+
+    def test_extra_specs_reports_returned_episode_returns_when_asked(self, tmp_path: Path) -> None:
+        """The flag added for GenericBatchTrainer must reach callers of the dispatcher too."""
+        trainer = make_algorithm_batch_trainer(_make_env, ("sac",), report_returned_episode_returns=True)
+        static_config = {
+            "algorithm": "sac",
+            "env_name": "Pendulum-v1",
+            "total_timesteps": 4,
+            "buffer_size": 8,
+            "batch_size": 2,
+            "learning_starts": 0,
+            "gamma": 0.99,
+        }
+        context = ExecutionContext(
+            execution_id=1,
+            experiment_id=1,
+            experiment_name="returned-episode-returns-dispatch-test",
+            static_config=static_config,
+            points=(RunPoint(0, {**static_config, "learning_rate": 1e-3, "seed": 0}),),
+            execution_root=tmp_path,
+            metrics_db_path=tmp_path / "metrics.sqlite",
+        )
+
+        result = trainer(context)
+
+        assert "returned_episode_returns" in result.metric_curves
+
     def test_rejects_mixed_h_regularization_axis(self, tmp_path: Path) -> None:
         """The intersected schema must reject a varying h_regularization axis before
         dispatch can pass a numeric GAC weight to the categorical QRC contract.
