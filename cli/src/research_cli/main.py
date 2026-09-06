@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import os
+import sys
+
+# JAX reads JAX_PLATFORMS when it is first imported (transitively, via research_runner
+# below), so this must be decided before any other import in this file.
+if not ("experiment" in sys.argv and "run" in sys.argv and "--gpu" in sys.argv):
+    os.environ["JAX_PLATFORMS"] = "cpu"
+
 import typer
 
 from research_cli.doctor import doctor_command

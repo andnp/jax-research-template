@@ -262,6 +262,9 @@ def run(
         help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
     ),
     only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
+    # Unused here: the real JAX_PLATFORMS decision must happen in main.py before jax is
+    # ever imported, so this is declared only so typer accepts/documents the flag.
+    gpu: bool = typer.Option(False, "--gpu", help="Use the GPU backend for JAX instead of CPU."),
 ):
     from research_runner import run_experiment
 
