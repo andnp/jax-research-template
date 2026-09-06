@@ -328,6 +328,38 @@ def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> No
     assert fixture["algo_version"] not in provenance_versions
 
 
+def test_version_selection_all_includes_every_completed_version_set(tmp_path: Path) -> None:
+    """VersionSelection.all() keeps every completed version set without excluding any."""
+    fixture = _create_experiment(tmp_path)
+    db_path = fixture["db_path"]
+    with DatabaseManager(db_path) as database:
+        experiment = database.get_experiment("dataset-test")
+        assert experiment is not None
+        component = database.get_component("ppo")
+        assert component is not None
+        newer_algo = database.add_component_version(component.id, "algo-v2")
+        hyper_id = database.add_hyperparam_config({"condition_name": "new", "learning_rate": 0.3, "seed": 9})
+        run_id = database.add_run(experiment.id, newer_algo, fixture["env_version"], hyper_id, 9)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id,
+            str(tmp_path / "execution-new"),
+            metadata={"metrics_db_path": str(fixture["metrics_path"])},
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?)", (run_id, execution_id, "reward", 0, 9.0))
+        connection.commit()
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test", version_selection=VersionSelection.all())
+
+    assert dataset.runs.height == 3
+    assert not any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
+    provenance_versions = {item.version_id for item in dataset.provenance}
+    assert {newer_algo, fixture["algo_version"]} <= provenance_versions
+
+
 def test_exact_versions_require_qualified_component_identity(tmp_path: Path) -> None:
     """Reject unqualified version numbers and accept a component hash selector."""
     fixture = _create_experiment(tmp_path)
