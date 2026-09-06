@@ -27,7 +27,8 @@ def _validate_leaf_shape(param: jax.Array, update: jax.Array) -> jax.Array:
 
 def gradient_snr(grads_batch: object, *, epsilon: float = 1e-8) -> jax.Array:
     """Return the global signal-to-noise ratio for a batched gradient pytree."""
-    leaves = jax.tree_util.tree_leaves(grads_batch)
+    grads = jax.tree_util.tree_map(_as_float32, grads_batch)
+    leaves = jax.tree_util.tree_leaves(grads)
     if not leaves:
         return jnp.float32(0.0)
     if any(leaf.ndim == 0 for leaf in leaves):
@@ -38,7 +39,6 @@ def gradient_snr(grads_batch: object, *, epsilon: float = 1e-8) -> jax.Array:
     if batch_size == 0:
         return jnp.float32(0.0)
 
-    grads = jax.tree_util.tree_map(_as_float32, grads_batch)
     mean_grads = jax.tree_util.tree_map(_mean_batch, grads)
     centered = jax.tree_util.tree_map(_subtract_mean, grads, mean_grads)
     variance = tree_sum_of_squares(centered) / jnp.float32(batch_size)
