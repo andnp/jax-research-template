@@ -31,7 +31,7 @@ from process_control.integration import rk4_step
 # ── Parameters ────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class ScrubberSumpParams:
     """Sump geometry and reduced-order chemistry constants."""
 
@@ -231,7 +231,7 @@ def step(
 # ── Derived quantities ────────────────────────────────────────────────
 
 
-def compute_ph(state: ScrubberSumpState, amplitude: float = 3.0) -> jax.Array:
+def compute_ph(state: ScrubberSumpState, amplitude: float | jax.Array = 3.0) -> jax.Array:
     """Approximate sump pH from alkalinity state.
 
     Simple sigmoid mapping: low alkalinity → acidic, high → basic.

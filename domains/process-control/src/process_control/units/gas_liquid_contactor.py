@@ -20,8 +20,10 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control._jax_dataclass import jax_dataclass
 
-@dataclass(frozen=True)
+
+@jax_dataclass
 class ContactorParams:
     """Gas-liquid contactor parameters."""
 

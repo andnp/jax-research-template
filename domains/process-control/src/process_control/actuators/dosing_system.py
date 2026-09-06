@@ -16,8 +16,6 @@ like integrator windup, slow response, and overshoot from poorly-tuned
 plant controllers.
 """
 
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
 
@@ -43,7 +41,7 @@ SUPERVISORY: int = 1
 FEEDFORWARD: int = 2
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class DosingSystemParams:
     # ── Control mode ──────────────────────────────────────────────
     control_mode: int = 1  # DIRECT=0, SUPERVISORY=1, FEEDFORWARD=2
@@ -80,7 +78,9 @@ class DosingSystemState:
     startup_remaining: jax.Array
 
     @staticmethod
-    def create(initial_pv: float = 0.0, initial_pump: float = 50.0) -> "DosingSystemState":
+    def create(
+        initial_pv: float | jax.Array = 0.0, initial_pump: float | jax.Array = 50.0
+    ) -> "DosingSystemState":
         return DosingSystemState(
             sensor_value=jnp.array(initial_pv),
             sensor_drift=jnp.array(0.0),
@@ -92,7 +92,7 @@ class DosingSystemState:
         )
 
 
-def reset(initial_pv: float, initial_pump: float, rng_key: jax.Array) -> DosingSystemState:
+def reset(initial_pv: float | jax.Array, initial_pump: float | jax.Array, rng_key: jax.Array) -> DosingSystemState:
     return DosingSystemState.create(initial_pv, initial_pump)
 
 
