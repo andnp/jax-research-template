@@ -574,3 +574,57 @@ def test_compare_bakeoff_normalized_scores_respect_a_median_estimand(temp_experi
     normalized_mean = (sum(values) / len(values)) / 200.0
     assert normalized_median == pytest.approx(1.0 / 200.0)
     assert normalized_median != pytest.approx(normalized_mean)
+
+
+def test_compare_bakeoff_accepts_two_algorithms(temp_experiment_setup: ExperimentSetup) -> None:
+    """The omnibus test and Holm correction both degenerate correctly at n=2."""
+    setup = temp_experiment_setup
+    algorithms = ["ppo", "sac"]
+    for algorithm in algorithms:
+        for seed in range(3):
+            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, float(seed))
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+    report = compare_bakeoff(
+        dataset,
+        algorithms,
+        ["cartpole"],
+        "metric",
+        verbose=False,
+        references={"cartpole": ReferenceRange(0.0, 10.0)},
+    )
+
+    assert report.algorithms == algorithms
+    assert report.posthoc_matrix["ppo"]["sac"] == report.posthoc_matrix["sac"]["ppo"]
+
+
+def test_compare_bakeoff_reports_raw_scores_without_references(temp_experiment_setup: ExperimentSetup) -> None:
+    """No references means no normalization: scores stay in raw units."""
+    setup = temp_experiment_setup
+    algorithms = ["ppo", "sac"]
+    for algorithm in algorithms:
+        for seed in range(3):
+            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, 42.0)
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+    report = compare_bakeoff(dataset, algorithms, ["cartpole"], "metric", verbose=False)
+
+    assert report.normalized_scores["ppo"]["cartpole"] == pytest.approx(42.0)
+    assert report.performance_profiles == {}
+    assert report.optimality_gaps == {}
+
+
+def test_compare_bakeoff_rejects_pooling_multiple_environments_without_references(
+    temp_experiment_setup: ExperimentSetup,
+) -> None:
+    """Raw scores from different environments cannot be pooled without a fixed anchor."""
+    setup = temp_experiment_setup
+    algorithms = ["ppo", "sac"]
+    for algorithm in algorithms:
+        for environment in ("cartpole", "mountaincar"):
+            for seed in range(3):
+                _add_observation(setup, {"algorithm": algorithm, "env_source": environment}, seed, 1.0)
+    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+    with pytest.raises(ValueError, match="requires references"):
+        compare_bakeoff(dataset, algorithms, ["cartpole", "mountaincar"], "metric", verbose=False)
