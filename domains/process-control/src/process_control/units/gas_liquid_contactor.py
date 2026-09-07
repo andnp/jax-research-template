@@ -15,6 +15,21 @@ Removal efficiency depends on:
   - liquid recirculation rate — higher recirc improves mass transfer
   - gas temperature — H₂S solubility falls as temperature rises (Henry's
     law), so absorption efficiency does too
+  - liquid pH — sets the H₂S/HS⁻ speciation equilibrium, which in turn
+    sets the residual H₂S vapor pressure the liquid can still absorb
+    against; not the same effect as alkalinity's Monod term above
+
+References for the mechanisms above (this reduced-order model is not
+itself derived from any of these, but its functional shape is chosen to
+be consistent with them):
+  - NaOH/H₂S scrubbing reactions and the pH-dependent NaHS/Na₂S product
+    split: Trimeric, "Caustic Scrubber Designs for H₂S Removal from
+    Refinery Gas Streams" (AFPM AM-14-48, 2014),
+    https://trimeric.com/assets/caustic-scrubber-designs-for-h2s-removal-from-refinery-gas-streams---afpm-2014.pdf
+  - H₂S Henry's law constant and its temperature dependence: NIST
+    WebBook, https://webbook.nist.gov/cgi/cbook.cgi?ID=C7783064
+  - pH/alkalinity/temperature/L-G dependence of packed-column H₂S
+    absorption: Azizi et al., https://pubmed.ncbi.nlm.nih.gov/25244138/
 """
 
 from dataclasses import dataclass

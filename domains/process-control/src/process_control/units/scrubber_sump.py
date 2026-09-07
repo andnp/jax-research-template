@@ -249,6 +249,12 @@ def compute_orp(state: ScrubberSumpState) -> jax.Array:
 
     ORP rises with oxidant availability and drops with dissolved sulfide.
     Typical scrubber ORP range: 200–800 mV.
+
+    For a real hypochlorite system the Nernst relation also carries a pH
+    term (E = E0 - (RT/2F) ln([ClO-][OH-]^2), i.e. ORP falls as pH rises
+    for fixed oxidant) that this reduced-order version omits — see Emerson,
+    "ORP Measurement Fundamentals",
+    https://www.emerson.co.jp/is/content/emerson/en/measurement-instrumentation/technical/products/unaudited/documents/dl-rmt-00800-0100-4044.pdf
     """
     # Nernst-like: ORP ∝ log(oxidant / sulfide)
     ratio = (state.oxidant + 0.01) / (state.sulfide + 0.01)
