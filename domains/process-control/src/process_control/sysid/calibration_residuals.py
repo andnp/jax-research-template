@@ -66,13 +66,23 @@ def trace_residuals(
     )
 
 
+# A candidate that diverges (e.g. to NaN) on every row of one signal pair
+# while others stay finite would otherwise silently drop that pair from the
+# objective entirely instead of being penalized for it, since invalid rows
+# contribute zero to both the numerator and the valid_count denominator —
+# letting an optimizer "win" by making inconvenient signals disappear.
+_MIN_SIGNAL_VALID_FRACTION = 0.99
+
+
 def summarize_trace_residuals(residuals: TraceResidualArrays) -> TraceObjectiveArrays:
     """Summarize valid residuals as a stable scalar calibration objective."""
     valid_count = jnp.sum(residuals.valid, dtype=jnp.int32)
     safe_count = jnp.maximum(valid_count, 1).astype(jnp.float32)
     squared = jnp.where(residuals.valid, residuals.residual**2, 0.0)
+    per_signal_valid_fraction = jnp.mean(residuals.valid.astype(jnp.float32), axis=0)
+    fully_covered = jnp.all(per_signal_valid_fraction >= _MIN_SIGNAL_VALID_FRACTION)
     return TraceObjectiveArrays(
         valid_count=valid_count,
         mean_squared_error=jnp.sum(squared) / safe_count,
-        defined=valid_count > 0,
+        defined=(valid_count > 0) & fully_covered,
     )

@@ -95,6 +95,20 @@ def test_empty_residuals_have_stable_undefined_objective() -> None:
     assert jnp.allclose(objective.mean_squared_error, jnp.array(0.0))
 
 
+def test_one_fully_invalid_signal_pair_marks_the_objective_undefined() -> None:
+    """Never let a divergent signal silently drop out of a multi-signal objective."""
+    residuals = TraceResidualArrays(
+        residual=jnp.ones((3, 2)),
+        valid=jnp.array([[True, False], [True, False], [True, False]]),
+        segment_id=jnp.array([0, 0, 0], dtype=jnp.int32),
+    )
+
+    objective = summarize_trace_residuals(residuals)
+
+    assert int(objective.valid_count) == 3
+    assert not bool(objective.defined)
+
+
 def test_residual_payload_is_jit_compatible() -> None:
     """Keep residual summaries usable inside compiled calibration code."""
     residuals = TraceResidualArrays(
