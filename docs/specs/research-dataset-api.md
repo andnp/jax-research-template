@@ -79,14 +79,14 @@ continues to validate alignment for the operation that needs it.
 The following functions accept an `ExperimentDataset` and never accept an
 experiments database path:
 
-- `compare_pairwise`
-- `analyze_hypers`
-- `compare_bakeoff`
+- `bakeoff_report`
+- `best_hypers`
+- `slice_hypers`
 
 They operate only on the already-selected runs and materialized metrics in the
 dataset. Statistical behavior, estimands, pairing, missingness, and fixed
-reference normalization remain governed by `ComparisonSpec` and the existing
-reporting contracts.
+reference normalization remain governed by `BakeoffSpec` and the existing
+reporting contracts. Low-level array comparisons expose pairing directly.
 
 ## 7. Artifact loading
 

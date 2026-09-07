@@ -99,8 +99,8 @@ def hierarchical_bootstrap_difference_ci(
     Each arm selects its champion hyperparameter independently (its own
     stage-1 draw), then evaluation samples are paired by run index across
     arms, so ``data_a`` and ``data_b`` must have the same number of columns
-    and represent the same seed order -- matching how
-    ``research_analysis.reporting.compare_pairwise`` pairs seeded runs to
+    and represent the same seed order -- matching the paired block-and-seed
+    observations used by ``research_analysis.reporting.bakeoff_report`` to
     reduce variance.
     """
     arr_a = np.asarray(data_a, dtype=np.float64)
@@ -171,5 +171,4 @@ def _build_hyper_matrix(
 
     matrix = np.array([[groups[key][s] for s in seeds_sorted] for key in keys_sorted], dtype=np.float64)
     return matrix, keys_sorted, seeds_sorted
-
 

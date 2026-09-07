@@ -152,8 +152,8 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    Reporting and analysis are library functions, not CLI subcommands. First call
    `research_analysis.dataset.load_experiment_dataset` with the experiment
    database and explicit dimensions/version policy, then pass the resulting
-   `ExperimentDataset` to `research_analysis.reporting.analyze_hypers`,
-   `compare_bakeoff`, `compare_pairwise`, or a bootstrap helper. Reporting does
+   `ExperimentDataset` to `research_analysis.reporting.best_hypers`,
+   `slice_hypers`, `bakeoff_report`, or a low-level bootstrap helper. Reporting does
    not open the two SQLite databases itself.
 
 For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and metrics together, see `core/examples/run_experiment.py`.

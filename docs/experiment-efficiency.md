@@ -153,5 +153,5 @@ execution and binds dynamic values to the trainer's batch axis. Custom trainers 
 publish the same schema rather than silently ignoring dynamic values.
 
 **Name axes `algorithm`, `env_name`, `learning_rate`, `seed`.** The reporting helpers in
-`research_analysis.reporting` key off those names, so you get `analyze_hypers` and
-`compare_bakeoff` for free instead of writing statistics by hand.
+`research_analysis.reporting` key off those names, so you get `best_hypers`,
+`slice_hypers`, and `bakeoff_report` for free instead of writing statistics by hand.

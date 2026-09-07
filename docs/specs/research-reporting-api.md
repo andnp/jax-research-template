@@ -28,96 +28,39 @@ requirements for operations that need aligned trajectories.
 ## 2. Goals
 
 - **Pedagogical Value:** Explain the *why* and *how* behind statistical test selections to guide researchers through correct empirical interpretation.
-- **Explicit Design:** Require callers to declare the estimand, pairing, alpha,
+- **Explicit Design:** Require bakeoff callers to declare the estimand, alpha,
   resampling, minimum sample size, and missingness policy.
 - **Statistical Rigor:** Directly integrate monorepo primitives such as BCa
   confidence intervals, permutation tests, Holm correction, fixed-reference
   aggregates, and cross-fitted tuning.
 - **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](../adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
 
-`ComparisonSpec` is the canonical design contract. Callers can set the
-estimand (`mean` or `median`), pairing (`auto`, `paired`, or `independent`),
-alpha, resample count, minimum sample size, pairing keys, random seed, and
-missingness policy (`error`, `complete_case`, or `blockwise`). Pairwise
-`blockwise` missingness is rejected because it would require silently dropping
-unmatched pairs; `blockwise` is reserved for repeated-block bakeoffs.
+`BakeoffSpec` is the design contract for `bakeoff_report`. Callers can set the
+estimand (`mean` or `median`), alpha, resample count, minimum sample size,
+random seed, and missingness policy (`error`, `complete_case`, or `blockwise`).
+Bakeoff comparisons always pair observations by block dimensions and seed; the
+low-level permutation and bootstrap functions are the separate entry points for
+choosing paired or independent designs directly.
 
 ---
 
-## 3. Specialized Entry Points
+## 3. Reporting entry points
 
-To avoid a monolithic API, the reporting framework exposes three distinct functions based on the user's research goal.
+`bakeoff_report(dataset, metric_name, conditions, ...)` is the canonical
+comparison entry point. It handles two or more conditions, optionally grouped
+by block dimensions such as environments, and always uses paired block-and-seed
+observations. It can also select champions over declared sweep axes before the
+comparison. Supply `BakeoffSpec` when the estimand, resampling, or missingness
+policy needs to differ from the defaults.
 
-### 3.1 Pairwise Comparison: `compare_pairwise`
+`best_hypers(dataset, metric_name, ...)` finds a bias-corrected champion for a
+declared sweep. `slice_hypers(dataset, metric_name, vary, ...)` reports the
+sensitivity curve for one axis. These functions own hyperparameter selection;
+`bakeoff_report` composes them when `select_champion_over` is requested.
 
-Used to compare exactly two experimental arms (e.g., a baseline and a proposed method or ablation).
-
-- **Function Signature:**
-  ```python
-  def compare_pairwise(
-      dataset: ExperimentDataset,
-      condition_a: str,
-      condition_b: str,
-      metric_name: str,
-      confidence_level: float = 0.95,
-      verbose: bool = True,
-      spec: ComparisonSpec | None = None,
-  ) -> ABComparisonReport: ...
-  ```
-- **Analysis Steps:**
-  1. Select final observations from the already materialized dataset.
-  2. Use a paired or independent permutation test for the declared estimand.
-  3. Compute a scalar BCa bootstrap interval with explicit confidence and
-     resample settings.
-
-### 3.2 Hyperparameter Sweep Analysis: `analyze_hypers`
-
-Used to evaluate hyperparameter tuning sweeps, identify optimal configurations, and report parameter sensitivity.
-
-- **Function Signature:**
-  ```python
-  def analyze_hypers(
-      dataset: ExperimentDataset,
-      target_hyperparameter: str,
-      metric_name: str,
-      group_by: list[str] | None = None,
-      verbose: bool = True,
-      confidence_level: float = 0.95,
-      n_resamples: int = 10000,
-      min_samples: int = 3,
-      random_seed: int = 0,
-  ) -> HyperparameterSensitivityReport: ...
-  ```
-- **Analysis Steps:**
-  1. Read declared typed sweep axes and final observations from the dataset.
-  2. Select each fold's winner on training seeds and estimate it on the held-out seed.
-  3. Compute the raw winner mean, corrected winner mean, and estimated maximization bias.
-  4. Generate sensitivity curve data using both the **Best** and **Slice** strategies described in the science guide.
-
-### 3.3 Multi-Task Bakeoff: `compare_bakeoff`
-
-Used to compare multiple algorithms ($K \ge 3$) across a benchmark suite of several environments.
-
-- **Function Signature:**
-  ```python
-  def compare_bakeoff(
-      dataset: ExperimentDataset,
-      algorithms: list[str],
-      environments: list[str],
-      metric_name: str,
-      verbose: bool = True,
-      references: dict[str, ReferenceRange] | None = None,
-      spec: ComparisonSpec | None = None,
-  ) -> BenchmarkBakeoffReport: ...
-  ```
-- **Analysis Steps:**
-  1. Select the requested algorithms and environments from the dataset.
-  2. Apply caller-supplied fixed-reference normalization to scale returns across environments with different boundaries.
-  3. Detect missing run data (e.g., if certain seeds/tasks failed or are incomplete).
-  4. Perform a block-stratified permutation omnibus test equivalent in purpose
-     to Skillings–Mack for incomplete blocks without listwise deletion. Require
-     explicit minimum data.
-  5. Run paired permutation post-hoc tests with true Holm step-down correction.
+For a direct comparison of two arrays, use the low-level
+`run_permutation_test` and `bootstrap_difference_ci` functions. Their `pairing`
+argument is the appropriate place to choose paired or independent inference.
 
 ---
 
@@ -138,40 +81,15 @@ class StatisticalTestDetails:
     intermediate_tests: dict[str, StatisticalTestDetails]
 
 @dataclass(frozen=True)
-class ABComparisonReport:
-    experiment_name: str
-    condition_a: str
-    condition_b: str
+class BakeoffReport:
+    conditions: list[str]
     metric_name: str
-    mean_a: float
-    mean_b: float
-    difference_in_means: float
-    difference_ci: tuple[float, float]
-    estimand: Literal["mean", "median"]
-    pairing: Literal["paired", "independent"]
-    alpha: float
-    n_resamples: int
-    min_samples: int
-    missingness: str
-    estimate_a: float
-    estimate_b: float
-    difference_in_estimand: float
-    test_details: StatisticalTestDetails
-    distribution_plot_path: Path | None  # Path to saved distribution PDF/violin plot
-
-@dataclass(frozen=True)
-class HyperparameterSensitivityReport:
-    target_hyperparameter: str
-    winning_value: Any
-    raw_mean: float
-    corrected_mean: float
-    maximization_bias: float
-    sensitivity_slice: dict[Any, float]  # Value -> performance
-    sensitivity_best: dict[Any, float]   # Value -> performance
-    sensitivity_plot_path: Path | None   # Path to saved sensitivity curve PDF
-    estimate_method: str
-    estimate_ci: tuple[float, float]
-    confidence_level: float
+    seed_counts: dict[str, dict[str, int]]
+    cell_means: dict[str, dict[str, float]]
+    cell_variances: dict[str, dict[str, float]]
+    champions: dict[str, dict[str, HyperparameterConfigReport]] | None
+    comparison: BenchmarkBakeoffReport
+    warnings: tuple[BakeoffWarning, ...]
 
 @dataclass(frozen=True)
 class BenchmarkBakeoffReport:

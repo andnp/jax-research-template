@@ -54,7 +54,7 @@ dataset = load_experiment_dataset(
     ),
     version_selection=VersionSelection.latest_completed(),
 )
-report = compare_pairwise(dataset, "baseline", "candidate", "reward")
+report = bakeoff_report(dataset, "reward", ["baseline", "candidate"])
 ```
 
 For a parameter declared only under an experiment condition, declare the same

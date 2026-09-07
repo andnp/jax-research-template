@@ -17,11 +17,10 @@ normal way to load experiment results.
 | You want | Use |
 |---|---|
 | Typed run metadata and long-form metrics | `load_experiment_dataset(experiments_db, slug, *, dimensions=..., version_selection=..., cohort=..., metrics=..., partial=...)` |
-| An A/B comparison between exactly two conditions | `compare_pairwise(dataset, condition_a, condition_b, metric_name, spec=...)` |
-| Hyperparameter sensitivity with leave-one-seed-out correction | `analyze_hypers(dataset, target_hyperparameter, metric_name, group_by=...)` |
-| A confidence interval for one tuned arm | `hierarchical_bootstrap_ci_from_experiment(dataset, hyperparameter_keys, metric_name, h_samples, e_samples, ...)` |
-| A paired difference between independently tuned arms | `hierarchical_bootstrap_difference_ci_from_experiment(dataset, hyperparameter_keys_a, hyperparameter_keys_b, metric_name, ..., condition_a=..., condition_b=...)` |
-| A multi-algorithm, multi-environment bakeoff | `compare_bakeoff(dataset, algorithms, environments, metric_name, references=..., spec=...)` |
+| A comparison between two or more conditions | `bakeoff_report(dataset, metric_name, conditions, spec=...)` |
+| Bias-corrected hyperparameter selection | `best_hypers(dataset, metric_name, group_by=...)` |
+| Hyperparameter sensitivity for one axis | `slice_hypers(dataset, metric_name, vary, group_by=...)` |
+| A direct array comparison | `run_permutation_test(...)` and `bootstrap_difference_ci(...)` |
 | A genuinely custom SQLite query | `load_sqlite_query(database_path, query)` |
 
 The reporting functions do not accept database paths, experiment slugs,
@@ -36,7 +35,7 @@ from research_analysis.dataset import (
     VersionSelection,
     load_experiment_dataset,
 )
-from research_analysis.reporting import compare_pairwise
+from research_analysis.reporting import bakeoff_report
 
 dataset = load_experiment_dataset(
     experiments_db,
@@ -48,7 +47,7 @@ dataset = load_experiment_dataset(
     ),
     version_selection=VersionSelection.latest_completed(),
 )
-report = compare_pairwise(dataset, "baseline", "candidate", "reward", verbose=False)
+report = bakeoff_report(dataset, "reward", ["baseline", "candidate"], verbose=False)
 ```
 
 `runs` contains canonical `condition_name`, `seed`, `run_id`, `execution_id`,
@@ -85,8 +84,9 @@ or falls back to `ExecutionArtifacts.root_path`.
 
 Use `partial=True` only when the analysis explicitly permits missing metric
 artifacts. The returned dataset retains `DatasetDiagnostic` values for missing
-metric artifacts and version-selection outcomes. Statistical functions still
-apply their own pairing and missingness rules through `ComparisonSpec`.
+metric artifacts and version-selection outcomes. Statistical functions apply
+their own pairing and missingness rules. Bakeoff comparisons use `BakeoffSpec`;
+low-level array functions expose their own pairing argument.
 
 ## Curves and step grids
 
@@ -97,7 +97,7 @@ materialized observation per run where their contract calls for a scalar.
 
 ## Selection-bias reminder
 
-`analyze_hypers` cross-fits winner selection because reporting the best raw mean
+`best_hypers` cross-fits winner selection because reporting the best raw mean
 on the same seeds used to select it overstates performance. The hierarchical
 bootstrap functions model a separate question: the performance of a champion
 selected under a stated tuning budget, including selection uncertainty. A

@@ -102,7 +102,7 @@ def resample_two_stage_difference(
     resample_two_stage), but both arms' e_samples draws reuse the same run
     index within a sample -- data_a and data_b must represent the same seed
     order in the same column positions -- to reduce variance from shared seeds
-    the way research_analysis.reporting.compare_pairwise does.
+    the way research_analysis.reporting.bakeoff_report does.
     """
     np.random.seed(seed)
     n_runs = data_a.shape[1]
