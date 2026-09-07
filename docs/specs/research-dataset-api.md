@@ -40,8 +40,8 @@ attribute it:
 - recorded code snapshot hash.
 
 An unset `Runs.algo_version_id` in a multi-ALGO experiment is preserved as
-unknown provenance and produces an explicit diagnostic. The dataset loader does
-not infer an algorithm component from condition names or hyperparameters.
+unknown provenance. The dataset loader does not infer an algorithm component
+from condition names or hyperparameters.
 
 ## 4. Version selection
 
@@ -49,8 +49,9 @@ The loader requires an explicit version policy. It supports:
 
 - `latest_completed`: one coherent set of component versions represented by
   completed runs, never independent maxima selected from different cohorts;
-- `exact`: component identity plus either a component-version row ID or its
-  recorded code hash; an unqualified version number is invalid;
+- `exact`: component identity plus either `ComponentVersionRef.by_id(...)` or
+  `ComponentVersionRef.by_code_snapshot_hash(...)`; an unqualified version
+  number is invalid;
 - `all`: retain every completed version set and expose excluded or ambiguous
   cohorts through diagnostics.
 

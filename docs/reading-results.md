@@ -63,31 +63,30 @@ component-version set represented by completed runs. It does not independently
 take the maximum algorithm and environment version, and it does not include
 unexecuted runs created by a later source change.
 
-Use `VersionSelection.exact(...)` to reproduce a historical cohort. Each
-`ComponentVersionRef` must identify both the component name and type, plus
-either its component-version row ID or recorded code snapshot hash. An
-unqualified version number is not a valid selector. Use `VersionSelection.all()`
-only when intentionally analyzing every completed version set; inspect the
-resulting excluded-version diagnostics before interpreting pooled data.
+Use `VersionSelection.exact(...)` to reproduce a historical cohort. Build each
+`ComponentVersionRef` with `ComponentVersionRef.by_id(...)` or
+`ComponentVersionRef.by_code_snapshot_hash(...)`; an unqualified version
+number is not a valid selector. Use `VersionSelection.all()` only when
+intentionally analyzing every completed version set; inspect the resulting
+excluded-version diagnostics before interpreting pooled data.
 
 The loader preserves `algo_version_id=None` when an experiment contains
 multiple algorithm components and the schema cannot attribute a particular run.
-It emits an explicit unknown-provenance diagnostic rather than guessing from a
-condition name.
+It does not guess from a condition name.
 
 ## Cohorts and incomplete data
 
 A cohort is defined by its selected component versions, dimensions, ablation,
 sweep values, and seed coverage. If the requested selection is ambiguous, strict
-loading fails with structured diagnostics. Missing recorded metric artifacts
-also fail strict loading; the loader never searches parent directories or falls
-back to `ExecutionArtifacts.root_path`.
+loading fails with structured diagnostics. Incomplete executions and malformed
+artifact metadata are filtered before materialization. Missing recorded metric
+artifacts also fail strict loading; the loader never searches parent directories
+or falls back to `ExecutionArtifacts.root_path`.
 
-Use `partial=True` only when the analysis explicitly permits incomplete data.
-The returned dataset retains `DatasetDiagnostic` values for missing artifacts,
-incomplete executions, excluded versions, and unknown provenance. Statistical
-functions still apply their own pairing and missingness rules through
-`ComparisonSpec`.
+Use `partial=True` only when the analysis explicitly permits missing metric
+artifacts. The returned dataset retains `DatasetDiagnostic` values for missing
+metric artifacts and version-selection outcomes. Statistical functions still
+apply their own pairing and missingness rules through `ComparisonSpec`.
 
 ## Curves and step grids
 
