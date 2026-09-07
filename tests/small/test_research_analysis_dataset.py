@@ -118,6 +118,36 @@ def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Pa
     assert "metrics_db_path" not in empty.runs.columns
 
 
+def test_dataset_loads_metric_cohorts_larger_than_one_sql_query(tmp_path: Path) -> None:
+    """Batch metric queries when one cohort exceeds SQLite's parameter budget."""
+    db_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_id = database.add_experiment("large-cohort-test")
+        algo_version = database.add_component_version(database.add_component("ppo", "ALGO"), "algo-v1")
+        env_version = database.add_component_version(database.add_component("cartpole", "ENV"), "env-v1")
+        metric_rows: list[tuple[int, int, str, int, float]] = []
+        for seed in range(451):
+            hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "seed": seed})
+            run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, seed)
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.record_execution_artifacts(
+                execution_id,
+                str(tmp_path / "execution"),
+                metadata={"metrics_db_path": str(metrics_path)},
+            )
+            database.update_execution_status(execution_id, "COMPLETED")
+            metric_rows.append((run_id, execution_id, "reward", 0, float(seed)))
+    _write_metrics(metrics_path, metric_rows)
+
+    dataset = load_experiment_dataset(db_path, "large-cohort-test")
+
+    assert dataset.runs.height == 451
+    assert dataset.metrics.height == 451
+
+
 def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> None:
     """Environment dimension resolves to env_name and stamps env component provenance."""
     db_path = tmp_path / "experiments.sqlite"

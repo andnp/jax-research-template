@@ -8,12 +8,15 @@ requirement that Polars be the first-class analysis data layer.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 
 import polars as pl
 
 
-def load_sqlite_query(database_path: str | Path, query: str) -> pl.DataFrame:
+def load_sqlite_query(
+    database_path: str | Path, query: str, parameters: Sequence[object] | None = None
+) -> pl.DataFrame:
     """Load a SQLite query result into a Polars DataFrame.
 
     Args:
@@ -31,4 +34,5 @@ def load_sqlite_query(database_path: str | Path, query: str) -> pl.DataFrame:
         raise FileNotFoundError(f"SQLite database does not exist: {path}")
 
     with sqlite3.connect(path) as connection:
-        return pl.read_database(query=query, connection=connection)
+        execute_options = {"parameters": list(parameters)} if parameters is not None else None
+        return pl.read_database(query=query, connection=connection, execute_options=execute_options)

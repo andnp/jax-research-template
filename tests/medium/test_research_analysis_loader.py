@@ -72,6 +72,17 @@ def test_load_sqlite_query_returns_polars_dataframe(sqlite_database_path: Path) 
     }
 
 
+def test_load_sqlite_query_binds_values_without_interpolation(sqlite_database_path: Path) -> None:
+    """Treat SQL filter values as data even when they contain SQL syntax."""
+    frame = load_sqlite_query(
+        sqlite_database_path,
+        "SELECT run_id FROM metrics WHERE run_id = ?",
+        ("seed-0' OR 1=1 --",),
+    )
+
+    assert frame.is_empty()
+
+
 def test_load_sqlite_query_feeds_step_weighted_returns_from_dataframe(
     sqlite_learning_curve_database_path: Path,
 ) -> None:
