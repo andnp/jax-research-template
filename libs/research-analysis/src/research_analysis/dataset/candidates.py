@@ -14,7 +14,7 @@ from experiment_definition.records import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from research_analysis.dataset.types import RunArtifacts
+from research_analysis.dataset.types import ResolvedArtifacts, RunArtifacts
 from research_analysis.validation import validate_json
 
 
@@ -32,22 +32,25 @@ class CompletedRun:
 
     run: RunRow
     execution: ExecutionRow
-    artifacts: RunArtifacts
+    artifacts: ResolvedArtifacts
 
 
-def _resolve_artifact(artifact: ExecutionArtifactRow | None) -> RunArtifacts | None:
+def _resolve_artifact(artifact: ExecutionArtifactRow | None) -> ResolvedArtifacts | None:
     if artifact is None:
         return None
     metadata = validate_json(_ArtifactMetadata, artifact.metadata_json or "{}")
     if metadata is None:
         return None
-    run_artifacts = RunArtifacts(
-        root_path=Path(artifact.root_path),
-        manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
-        metrics_db_path=metadata.metrics_db_path,
-        metadata=metadata.model_dump(),
+    metadata_values = metadata.model_dump()
+    metadata_values.pop("metrics_db_path")
+    return ResolvedArtifacts(
+        reference=RunArtifacts(
+            root_path=Path(artifact.root_path),
+            manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
+            metadata=metadata_values,
+        ),
+        metrics_db_path=Path(metadata.metrics_db_path),
     )
-    return run_artifacts
 
 
 def fetch_completed_runs(database: DatabaseManager, experiment: ExperimentRow) -> list[CompletedRun]:

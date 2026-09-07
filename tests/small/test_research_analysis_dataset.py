@@ -95,7 +95,27 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     run = dataset.runs.row(0, named=True)
     run_artifacts = dataset.artifacts[(run["run_id"], run["execution_id"])]
     assert run_artifacts.root_path == tmp_path / "execution"
-    assert run_artifacts.metadata["metrics_db_path"] == str(fixture["metrics_path"])
+    assert "metrics_db_path" not in run_artifacts.metadata
+    assert "metrics_db_path" not in dataset.runs.columns
+
+
+def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Path) -> None:
+    """Empty and populated datasets expose the same analysis columns."""
+    fixture = _create_experiment(tmp_path)
+    dimensions = ExperimentDimensions(
+        sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT),),
+    )
+
+    populated = load_experiment_dataset(fixture["db_path"], "dataset-test", dimensions=dimensions)
+    empty = load_experiment_dataset(
+        fixture["db_path"],
+        "dataset-test",
+        dimensions=dimensions,
+        cohort=CohortSelection(condition_name="missing"),
+    )
+
+    assert empty.runs.schema == populated.runs.schema
+    assert "metrics_db_path" not in empty.runs.columns
 
 
 def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> None:
@@ -129,6 +149,31 @@ def test_environment_dimension_populates_row_and_provenance(tmp_path: Path) -> N
     assert dataset.runs["env_name"].to_list() == ["cartpole-v1"]
     assert dataset.runs["env_component_name"].to_list() == ["cartpole"]
     assert dataset.runs["env_version_id"].to_list() == [env_version]
+
+
+def test_unsupported_component_provenance_fails_before_environment_projection(tmp_path: Path) -> None:
+    """Reject unsupported component roles instead of relabeling them as environments."""
+    fixture = _create_experiment(tmp_path)
+    with DatabaseManager(fixture["db_path"]) as database:
+        experiment = database.get_experiment("dataset-test")
+        assert experiment is not None
+        wrapper = database.add_component_version(database.add_component("wrapper", "WRAPPER"), "wrapper-v1")
+        hyper_id = database.add_hyperparam_config({"condition_name": "wrapper", "seed": 2})
+        run_id = database.add_run(experiment.id, fixture["algo_version"], wrapper, hyper_id, 2)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id,
+            str(tmp_path / "execution-wrapper"),
+            metadata={"metrics_db_path": str(fixture["metrics_path"])},
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?)", (run_id, execution_id, "reward", 0, 2.0))
+        connection.commit()
+
+    with pytest.raises(ValueError, match="unsupported dataset component type"):
+        load_experiment_dataset(fixture["db_path"], "dataset-test", version_selection=VersionSelection.all())
 
 
 def test_missing_environment_dimension_excludes_run(tmp_path: Path) -> None:

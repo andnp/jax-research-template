@@ -10,6 +10,7 @@ from experiment_definition.parameter import ParameterValue
 from research_analysis.dataset.types import (
     CohortSelection,
     ExperimentDimensions,
+    MaterializedRun,
     SweepAxis,
     SweepValue,
     SweepValueType,
@@ -40,17 +41,18 @@ def _coerce_axis_value(value: ParameterValue, axis: SweepAxis) -> SweepValue | N
     return None
 
 
-def cohort_matches(row: Mapping[str, object], selection: CohortSelection) -> bool:
-    if selection.condition_name is not None and row.get("condition_name") != selection.condition_name:
+def cohort_matches(row: MaterializedRun, selection: CohortSelection) -> bool:
+    values = row.dimension_values
+    if selection.condition_name is not None and values.get("condition_name") != selection.condition_name:
         return False
 
-    if selection.env_name is not None and row.get("env_name") != selection.env_name:
+    if selection.env_name is not None and values.get("env_name") != selection.env_name:
         return False
 
-    if selection.ablation is not None and row.get("ablation") != selection.ablation:
+    if selection.ablation is not None and row.ablation != selection.ablation:
         return False
 
-    return all(row.get(key) == value for key, value in selection.sweep_values)
+    return all(values.get(key) == value for key, value in selection.sweep_values)
 
 
 def _resolve_axis_value(

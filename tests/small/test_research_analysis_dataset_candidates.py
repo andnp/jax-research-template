@@ -37,7 +37,7 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         completed_run = completed_runs[0]
         assert completed_run.run.id == run_id
         assert completed_run.execution.id == execution_id
-        assert completed_run.artifacts.metrics_db_path == str(metrics_path)
+        assert completed_run.artifacts.metrics_db_path == metrics_path
 
         candidates = resolve_versioned_candidates(database, completed_runs)
         assert len(candidates) == 1

@@ -76,8 +76,29 @@ class RunArtifacts:
 
     root_path: Path
     manifest_path: Path | None
-    metrics_db_path: str
     metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class ResolvedArtifacts:
+    """Validated public artifacts plus the internal metrics database path."""
+
+    reference: RunArtifacts
+    metrics_db_path: Path
+
+
+@dataclass(frozen=True)
+class MaterializedRun:
+    """One selected run with typed dimensions, provenance, and metric storage."""
+
+    dimension_values: Mapping[str, SweepValue | None]
+    seed: int
+    run_id: int
+    execution_id: int
+    ablation: str | None
+    provenance: tuple[ComponentVersionProvenance, ...]
+    artifacts: RunArtifacts
+    metrics_db_path: Path
 
 
 class VersionSelectionKind(StrEnum):
