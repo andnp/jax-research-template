@@ -404,6 +404,7 @@ def make_h2s_scrubber_benchmark(
             gas_flow, h2s_ppm, gas_temperature = trajectory_step(gas_trajectory, state.step_count)
 
         # ── 3. Contactor: removal based on current sump chemistry ─
+        true_ph = compute_ph(state.sump, dynamic.ph_amplitude)
         gas_inlet = GasInlet(
             gas_flow=gas_flow,
             h2s_ppm=h2s_ppm,
@@ -414,11 +415,11 @@ def make_h2s_scrubber_benchmark(
             oxidant=state.sump.oxidant,
             alkalinity=state.sump.alkalinity,
             recirc_flow=recirc_flow,
+            ph=true_ph,
             params=dynamic.contactor,
         )
 
         # ── 4. Dosing loops: process true PVs from sump ──────────
-        true_ph = compute_ph(state.sump, dynamic.ph_amplitude)
         true_orp = compute_orp(state.sump)
         true_level = state.sump.volume
         true_makeup_flow = state.makeup_loop.pump_output

@@ -65,6 +65,12 @@ class ContactorParams:
     recirc_weight: float | jax.Array = 0.2  # relative importance (0–1)
     recirc_half_sat: float | jax.Array = 25.0  # m³/h – half-saturation
 
+    # ── pH speciation effect ───────────────────────────────────────
+    # Henderson-Hasselbalch factor for the H2S/HS- equilibrium; see
+    # module docstring (Trimeric, Azizi et al.). 7.0 is H2S's consensus
+    # aqueous pKa1 (NIST/EPA IRIS literature range 6.97-7.06 at 25°C).
+    h2s_pka1: float | jax.Array = 7.0
+
     # ── Temperature effect ────────────────────────────────────────
     # Van't Hoff/Arrhenius-style decay, mirroring ScrubberSumpParams'
     # reaction-rate temperature term but inverted: absorption efficiency
@@ -96,6 +102,7 @@ def compute_removal(
     oxidant: jax.Array,
     alkalinity: jax.Array,
     recirc_flow: jax.Array,
+    ph: jax.Array,
     params: ContactorParams,
 ) -> ContactorResult:
     """Compute H₂S removal for current conditions.
@@ -105,6 +112,7 @@ def compute_removal(
         oxidant: current sump oxidant level (mg/L)
         alkalinity: current sump alkalinity (meq/L)
         recirc_flow: liquid recirculation rate (m³/h)
+        ph: current sump liquid pH
         params: contactor parameters
     """
     # ── Oxidant factor: Monod saturation ──────────────────────────
@@ -112,6 +120,13 @@ def compute_removal(
 
     # ── Alkalinity factor: Monod saturation ───────────────────────
     f_alkalinity = alkalinity / (alkalinity + params.alkalinity_half_sat)
+
+    # ── pH speciation factor: Henderson-Hasselbalch ───────────────
+    # Fraction of dissolved sulfide present as HS- rather than
+    # un-ionized H2S(aq); un-ionized H2S sets the equilibrium vapor
+    # pressure the liquid absorbs against, so removal is throttled as
+    # pH falls toward pKa1 even with ample oxidant/alkalinity present.
+    f_ph = 1.0 / (1.0 + jnp.power(10.0, params.h2s_pka1 - ph))
 
     # ── Gas flow factor: power law ────────────────────────────────
     flow_ratio = gas_inlet.gas_flow / params.nominal_gas_flow
@@ -127,7 +142,7 @@ def compute_removal(
 
     # ── Weighted combination ──────────────────────────────────────
     # Chemistry factors (oxidant + alkalinity) and hydraulic factors (gas, recirc)
-    chem_factor = (params.oxidant_weight * f_oxidant + params.alkalinity_weight * f_alkalinity) / (params.oxidant_weight + params.alkalinity_weight)
+    chem_factor = f_ph * (params.oxidant_weight * f_oxidant + params.alkalinity_weight * f_alkalinity) / (params.oxidant_weight + params.alkalinity_weight)
 
     hydraulic_factor = f_gas * ((1.0 - params.recirc_weight) + params.recirc_weight * f_recirc)
 
