@@ -57,17 +57,39 @@ class ComponentVersionProvenance:
 
 
 @dataclass(frozen=True)
+class VersionIdSelector:
+    """Select a component version by its database row ID."""
+
+    value: int
+
+
+@dataclass(frozen=True)
+class CodeSnapshotSelector:
+    """Select a component version by its recorded code snapshot hash."""
+
+    value: str
+
+
+VersionSelector = VersionIdSelector | CodeSnapshotSelector
+
+
+@dataclass(frozen=True)
 class ComponentVersionRef:
     """Qualified component-version selector."""
 
     component_name: str
     component_type: str
-    version_id: int | None = None
-    code_snapshot_hash: str | None = None
+    selector: VersionSelector
 
-    def __post_init__(self) -> None:
-        if (self.version_id is None) == (self.code_snapshot_hash is None):
-            raise ValueError("exact component versions require exactly one version_id or code_snapshot_hash")
+    @classmethod
+    def by_id(cls, component_name: str, component_type: str, version_id: int) -> ComponentVersionRef:
+        return cls(component_name, component_type, VersionIdSelector(version_id))
+
+    @classmethod
+    def by_code_snapshot_hash(
+        cls, component_name: str, component_type: str, code_snapshot_hash: str
+    ) -> ComponentVersionRef:
+        return cls(component_name, component_type, CodeSnapshotSelector(code_snapshot_hash))
 
 
 @dataclass(frozen=True)

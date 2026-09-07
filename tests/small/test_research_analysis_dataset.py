@@ -413,16 +413,13 @@ def test_exact_versions_require_qualified_component_identity(tmp_path: Path) -> 
     """Reject unqualified version numbers and accept a component hash selector."""
     fixture = _create_experiment(tmp_path)
 
-    with pytest.raises(ValueError, match="exactly one version_id or code_snapshot_hash"):
-        ComponentVersionRef("ppo", "ALGO")
-
     dataset = load_experiment_dataset(
         fixture["db_path"],
         "dataset-test",
         version_selection=VersionSelection.exact(
             (
-                ComponentVersionRef("ppo", "ALGO", code_snapshot_hash="algo-v1"),
-                ComponentVersionRef("cartpole", "ENV", code_snapshot_hash="env-v1"),
+                ComponentVersionRef.by_code_snapshot_hash("ppo", "ALGO", "algo-v1"),
+                ComponentVersionRef.by_code_snapshot_hash("cartpole", "ENV", "env-v1"),
             )
         ),
     )
@@ -439,7 +436,7 @@ def test_exact_version_selection_without_matches_fails(tmp_path: Path) -> None:
             fixture["db_path"],
             "dataset-test",
             version_selection=VersionSelection.exact(
-                (ComponentVersionRef("ppo", "ALGO", code_snapshot_hash="algo-v-nonexistent"),)
+                (ComponentVersionRef.by_code_snapshot_hash("ppo", "ALGO", "algo-v-nonexistent"),)
             ),
         )
 

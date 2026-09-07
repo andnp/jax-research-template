@@ -8,7 +8,14 @@ from typing import NamedTuple
 from experiment_definition.db import DatabaseManager
 
 from research_analysis.dataset.candidates import CompletedRun
-from research_analysis.dataset.types import ComponentVersionProvenance, ComponentVersionRef, VersionSelection, VersionSelectionKind
+from research_analysis.dataset.types import (
+    CodeSnapshotSelector,
+    ComponentVersionProvenance,
+    ComponentVersionRef,
+    VersionIdSelector,
+    VersionSelection,
+    VersionSelectionKind,
+)
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
 
@@ -84,10 +91,10 @@ def _version_matches(
             for item in provenance
             if item.component_name == ref.component_name and item.component_type == ref.component_type
         ]
-        if ref.version_id is not None:
-            matches = [item for item in matches if item.version_id == ref.version_id]
-        if ref.code_snapshot_hash is not None:
-            matches = [item for item in matches if item.code_snapshot_hash == ref.code_snapshot_hash]
+        if isinstance(ref.selector, VersionIdSelector):
+            matches = [item for item in matches if item.version_id == ref.selector.value]
+        elif isinstance(ref.selector, CodeSnapshotSelector):
+            matches = [item for item in matches if item.code_snapshot_hash == ref.selector.value]
         if not matches:
             return False
     return True
