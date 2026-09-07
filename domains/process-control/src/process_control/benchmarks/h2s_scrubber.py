@@ -420,6 +420,7 @@ def make_h2s_scrubber_benchmark(
             alkalinity=state.sump.alkalinity,
             recirc_flow=recirc_flow,
             ph=true_ph,
+            sulfide=state.sump.sulfide,
             params=dynamic.contactor,
         )
 

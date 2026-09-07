@@ -18,6 +18,10 @@ Removal efficiency depends on:
   - liquid pH — sets the H₂S/HS⁻ speciation equilibrium, which in turn
     sets the residual H₂S vapor pressure the liquid can still absorb
     against; not the same effect as alkalinity's Monod term above
+  - dissolved sulfide already in the liquid — absorption is driven by
+    the gap between the liquid's equilibrium and actual H₂S loading
+    (two-film theory), so a liquid that is already loaded up absorbs
+    less regardless of oxidant/alkalinity/gas-flow conditions
 
 References for the mechanisms above (this reduced-order model is not
 itself derived from any of these, but its functional shape is chosen to
@@ -30,6 +34,12 @@ be consistent with them):
     WebBook, https://webbook.nist.gov/cgi/cbook.cgi?ID=C7783064
   - pH/alkalinity/temperature/L-G dependence of packed-column H₂S
     absorption: Azizi et al., https://pubmed.ncbi.nlm.nih.gov/25244138/
+  - Two-film theory of gas absorption (Lewis & Whitman, 1924): rate
+    N = kL·a·(C* - C_L), where C* is the liquid concentration in
+    equilibrium with the gas and C_L is the liquid's actual dissolved
+    load; this model's `loading_half_sat` term is a reduced-order proxy
+    for that driving-force gap, using the sump's `sulfide` state as a
+    stand-in for C_L rather than a literal Henry's-law concentration.
 """
 
 from dataclasses import dataclass
@@ -78,6 +88,13 @@ class ContactorParams:
     temp_reference: float | jax.Array = 15.0  # °C – reference gas temperature
     temp_coefficient: float | jax.Array = 0.98  # efficiency multiplier per °C above reference
 
+    # ── Liquid loading effect ──────────────────────────────────────
+    # Reduced-order proxy for two-film theory's driving-force gap (see
+    # module docstring): absorption throttles as the sump's dissolved
+    # sulfide state approaches this half-saturation level, standing in
+    # for the liquid's H2S load approaching its gas-equilibrium value.
+    loading_half_sat: float | jax.Array = 10.0  # mg/L
+
 
 @dataclass(frozen=True)
 class GasInlet:
@@ -103,6 +120,7 @@ def compute_removal(
     alkalinity: jax.Array,
     recirc_flow: jax.Array,
     ph: jax.Array,
+    sulfide: jax.Array,
     params: ContactorParams,
 ) -> ContactorResult:
     """Compute H₂S removal for current conditions.
@@ -113,6 +131,7 @@ def compute_removal(
         alkalinity: current sump alkalinity (meq/L)
         recirc_flow: liquid recirculation rate (m³/h)
         ph: current sump liquid pH
+        sulfide: current sump dissolved sulfide level (mg/L)
         params: contactor parameters
     """
     # ── Oxidant factor: Monod saturation ──────────────────────────
@@ -128,6 +147,12 @@ def compute_removal(
     # pH falls toward pKa1 even with ample oxidant/alkalinity present.
     f_ph = 1.0 / (1.0 + jnp.power(10.0, params.h2s_pka1 - ph))
 
+    # ── Liquid loading factor: two-film driving-force proxy ───────
+    # Absorption slows as the liquid's dissolved sulfide load approaches
+    # the equilibrium it would reach with the gas phase; see module
+    # docstring (Lewis & Whitman two-film theory).
+    f_loading = params.loading_half_sat / (params.loading_half_sat + sulfide)
+
     # ── Gas flow factor: power law ────────────────────────────────
     flow_ratio = gas_inlet.gas_flow / params.nominal_gas_flow
     f_gas = jnp.power(jnp.maximum(flow_ratio, 0.01), params.gas_flow_exponent)
@@ -142,7 +167,7 @@ def compute_removal(
 
     # ── Weighted combination ──────────────────────────────────────
     # Chemistry factors (oxidant + alkalinity) and hydraulic factors (gas, recirc)
-    chem_factor = f_ph * (params.oxidant_weight * f_oxidant + params.alkalinity_weight * f_alkalinity) / (params.oxidant_weight + params.alkalinity_weight)
+    chem_factor = f_ph * f_loading * (params.oxidant_weight * f_oxidant + params.alkalinity_weight * f_alkalinity) / (params.oxidant_weight + params.alkalinity_weight)
 
     hydraulic_factor = f_gas * ((1.0 - params.recirc_weight) + params.recirc_weight * f_recirc)
 
