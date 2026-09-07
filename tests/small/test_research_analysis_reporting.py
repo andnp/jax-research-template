@@ -13,7 +13,7 @@ import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
 from research_analysis.aggregates import ReferenceRange
-from research_analysis.comparison import ComparisonSpec
+from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
@@ -156,7 +156,7 @@ def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: Experim
     assert diff == pytest.approx(-50.0)
 
 
-def test_bakeoff_report_honors_declared_pairing_keys(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: ExperimentSetup) -> None:
     """Reject an incomplete block under missingness='error' unless complete_case is explicit."""
     setup = temp_experiment_setup
     for condition, seeds in (("a", (0, 1, 2, 4)), ("b", (0, 1, 2, 3))):
@@ -175,7 +175,7 @@ def test_bakeoff_report_honors_declared_pairing_keys(temp_experiment_setup: Expe
         "metric",
         ["a", "b"],
         verbose=False,
-        spec=ComparisonSpec(missingness="complete_case", n_resamples=64),
+        spec=BakeoffSpec(missingness="complete_case", n_resamples=64),
     )
     assert report.seed_counts["a"][""] == 4
     assert report.seed_counts["b"][""] == 4
@@ -596,7 +596,7 @@ def test_bakeoff_report_normalized_scores_respect_a_median_estimand(temp_experim
         block_by=["env_name"],
         verbose=False,
         references={"cartpole": ReferenceRange(0.0, 200.0)},
-        spec=ComparisonSpec(estimand="median", missingness="blockwise"),
+        spec=BakeoffSpec(estimand="median", missingness="blockwise"),
     )
 
     normalized_median = report.comparison.normalized_scores["ppo"]["cartpole"]

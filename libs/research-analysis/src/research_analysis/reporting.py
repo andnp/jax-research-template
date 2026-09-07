@@ -29,7 +29,7 @@ from research_analysis.aggregates import (
     probability_of_improvement,
 )
 from research_analysis.bootstrap import bootstrap_difference_ci
-from research_analysis.comparison import ComparisonSpec
+from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningAccumulator, BakeoffWarningCode
@@ -937,7 +937,7 @@ def _compute_bakeoff_statistics(
     conditions: list[str],
     block_keys: list[BlockKey],
     references: dict[str, ReferenceRange] | None,
-    spec: ComparisonSpec,
+    spec: BakeoffSpec,
 ) -> _BakeoffStatistics:
     if references is None and len(block_keys) > 1:
         raise ValueError(
@@ -989,9 +989,8 @@ def _compute_bakeoff_statistics(
     incomplete_rows = int(np.sum((observed_counts >= 1) & (observed_counts < len(conditions))))
     if incomplete_rows > 0 and spec.missingness == "error":
         raise ValueError(f"bakeoff contains {incomplete_rows} incomplete block(s) under missingness='error'")
-    # complete_case keeps only rows where every condition was observed, matching
-    # compare_pairwise's old pairing-key intersection; blockwise keeps any row with at
-    # least two observed conditions, retaining incomplete-but-usable blocks.
+    # complete_case keeps only rows where every condition was observed; blockwise keeps
+    # any row with at least two observed conditions, retaining usable incomplete blocks.
     required_observations = len(conditions) if spec.missingness == "complete_case" else 2
     valid_rows = observed_counts >= required_observations
     dropped_singleton_blocks = int(np.sum((observed_counts >= 1) & (observed_counts < required_observations)))
@@ -1212,27 +1211,22 @@ def bakeoff_report(
     select_champion_over: list[str] | None = None,
     block_by: list[str] | None = None,
     references: dict[str, ReferenceRange] | None = None,
-    spec: ComparisonSpec | None = None,
+    spec: BakeoffSpec | None = None,
     higher_is_better: bool = True,
-    confidence_level: float = 0.95,
     min_seeds: int = 5,
     verbose: bool = True,
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
-    Generalizes ``compare_pairwise`` (``block_by=[]``, two conditions) and
-    ``compare_bakeoff`` (``block_by=["env_name"]`` or similar, three or more
-    conditions) into one entry point, with an optional champion-selection stage
-    (``select_champion_over``, run via :func:`best_hypers` per block so a swept axis
-    like UTD never gets silently pooled across blocks) and a warnings layer covering
-    edge-of-grid champions, unstable selection, non-normal cells, flatlined curves,
-    and zero/extreme cross-seed variance.
+    Compare two or more conditions using paired block-and-seed observations, with an
+    optional champion-selection stage and warnings for unstable or poorly supported
+    comparisons.
     """
     if len(conditions) < 2:
         raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
     block_by = block_by or []
     if spec is None:
-        spec = ComparisonSpec(missingness="blockwise" if block_by else "error")
+        spec = BakeoffSpec(missingness="blockwise" if block_by else "error")
     missing_block_columns = [column for column in block_by if column not in dataset.runs.columns]
     if missing_block_columns:
         raise ValueError(f"block_by columns not present in the dataset: {missing_block_columns}")
@@ -1269,7 +1263,7 @@ def bakeoff_report(
             group_by=[dataset.dimensions.condition],
             higher_is_better=higher_is_better,
             verbose=False,
-            confidence_level=confidence_level,
+            confidence_level=spec.confidence_level,
         )
         block_champions = {key[0]: report for key, report in raw_champions.items() if key[0] in conditions}
         champions[_block_label(block_key)] = block_champions
