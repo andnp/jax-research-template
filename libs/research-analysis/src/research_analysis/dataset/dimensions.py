@@ -41,6 +41,12 @@ def _coerce_axis_value(value: ParameterValue, axis: SweepAxis) -> SweepValue | N
     return None
 
 
+def _coerce_dimension_label(value: ParameterValue) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value
+
+
 def cohort_matches(row: MaterializedRun, selection: CohortSelection) -> bool:
     values = row.dimension_values
     if selection.condition_name is not None and values.get("condition_name") != selection.condition_name:
@@ -85,10 +91,10 @@ def resolve_dimensions(
 
     values: dict[str, SweepValue | None] = {}
     for output_name, source_name in source_dimensions.items():
-        value = hyperparameters.get(source_name)
+        value = _coerce_dimension_label(hyperparameters.get(source_name))
         if value is None:
             return None
-        values[output_name] = str(value)
+        values[output_name] = value
 
     for axis in dimensions.sweep_axes:
         axis_value = _resolve_axis_value(axis, hyperparameters)

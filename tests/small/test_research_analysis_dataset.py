@@ -8,6 +8,7 @@ from typing import TypedDict
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from research_analysis.dataset.dimensions import resolve_dimensions
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import (
     CohortSelection,
@@ -116,6 +117,22 @@ def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Pa
 
     assert empty.runs.schema == populated.runs.schema
     assert "metrics_db_path" not in empty.runs.columns
+
+
+def test_invalid_dimension_labels_exclude_runs_without_stringifying_values() -> None:
+    """Exclude non-string or blank labels instead of coercing them into dimensions."""
+    dimensions = ExperimentDimensions()
+
+    for value in (True, 1.5, ""):
+        assert resolve_dimensions({"condition_name": value}, dimensions) is None
+
+
+def test_invalid_dimension_configuration_fails_at_construction() -> None:
+    """Reject empty source keys before dataset loading begins."""
+    with pytest.raises(ValueError, match="condition must name"):
+        ExperimentDimensions(condition=" ")
+    with pytest.raises(ValueError, match="environment must name"):
+        ExperimentDimensions(environment="")
 
 
 def test_dataset_loads_metric_cohorts_larger_than_one_sql_query(tmp_path: Path) -> None:

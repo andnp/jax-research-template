@@ -43,6 +43,12 @@ class ExperimentDimensions:
     environment: str | None = None
     sweep_axes: tuple[SweepAxis, ...] = ()
 
+    def __post_init__(self) -> None:
+        if not self.condition.strip():
+            raise ValueError("condition must name a hyperparameter")
+        if self.environment is not None and not self.environment.strip():
+            raise ValueError("environment must name a hyperparameter")
+
 
 @dataclass(frozen=True)
 class ComponentVersionProvenance:
