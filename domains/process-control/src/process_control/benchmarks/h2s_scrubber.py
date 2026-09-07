@@ -158,6 +158,7 @@ class H2SScrubberConfig:
     sump_alkalinity_consumption: float = 1.0
     sump_caustic_yield: float = 0.5
     sump_ph_amplitude: float = 3.0
+    sump_orp_ph_slope: float = 59.2
 
     # ── Contactor ─────────────────────────────────────────────────
     contactor_base_efficiency: float = 0.99
@@ -167,6 +168,7 @@ class H2SScrubberConfig:
     contactor_gas_flow_exponent: float = -0.005
     contactor_temp_reference: float = 15.0
     contactor_temp_coefficient: float = 0.98
+    contactor_h2s_pka1: float = 7.0
     recirc_flow: float = 50.0  # m³/h, fixed recirculation rate
 
     # ── Gas source ────────────────────────────────────────────────
@@ -253,6 +255,7 @@ def make_h2s_scrubber_benchmark(
         oxidation_rate=config.sump_oxidation_rate,
         alkalinity_consumption=config.sump_alkalinity_consumption,
         caustic_yield=config.sump_caustic_yield,
+        orp_ph_slope=config.sump_orp_ph_slope,
     )
 
     contactor_params = ContactorParams(
@@ -263,6 +266,7 @@ def make_h2s_scrubber_benchmark(
         gas_flow_exponent=config.contactor_gas_flow_exponent,
         temp_reference=config.contactor_temp_reference,
         temp_coefficient=config.contactor_temp_coefficient,
+        h2s_pka1=config.contactor_h2s_pka1,
     )
 
     caustic_params = DosingSystemParams(
