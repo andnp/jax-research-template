@@ -44,12 +44,22 @@ class TraceObjectiveArrays:
     defined: jax.Array
 
 
+# least_squares optimizes this raw, fixed-shape residual vector directly
+# (never summarize_trace_residuals' masked objective below), so an invalid
+# cell must read as a bad fit, not a neutral zero — otherwise a candidate
+# that diverges to NaN on an entire signal can look like a perfect fit to
+# the optimizer instead of the worst possible one. Comfortably larger than
+# any normalized in-fit residual this project has observed (the largest,
+# for a poorly-fit "efficiency" signal, was ~3.7).
+_INVALID_ROW_PENALTY = 10.0
+
+
 def trace_residuals(
     reference: UniformTrace,
     candidate: UniformTrace,
     spec: TraceResidualSpec,
 ) -> TraceResidualArrays:
-    """Build weighted normalized residuals without crossing invalid samples."""
+    """Build weighted normalized residuals, penalizing invalid samples."""
     aligned = prepare_trace_comparison(reference, candidate, spec.comparison)
     scales = jnp.asarray(
         [pair.normalization_scale or 1.0 for pair in spec.comparison.pairs],
@@ -58,7 +68,8 @@ def trace_residuals(
     weights = jnp.asarray(spec.weights, dtype=jnp.float32)
     safe_reference = jnp.where(aligned.valid, aligned.reference, 0.0)
     safe_candidate = jnp.where(aligned.valid, aligned.candidate, 0.0)
-    residual = (safe_candidate - safe_reference) / scales
+    fitted_residual = (safe_candidate - safe_reference) / scales
+    residual = jnp.where(aligned.valid, fitted_residual, _INVALID_ROW_PENALTY)
     return TraceResidualArrays(
         residual=residual * jnp.sqrt(weights),
         valid=aligned.valid,

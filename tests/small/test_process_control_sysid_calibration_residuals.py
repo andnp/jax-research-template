@@ -65,7 +65,8 @@ def test_trace_residuals_preserve_warmup_validity_and_segments() -> None:
     assert residuals.residual.shape == (3, 1)
     assert jnp.array_equal(residuals.valid[:, 0], jnp.array([True, False, True]))
     assert jnp.array_equal(residuals.segment_id, jnp.array([0, 1, 1]))
-    assert jnp.allclose(residuals.residual[:, 0], jnp.array([18.0, 0.0, 4.0]))
+    # invalid row reads as a penalty (10.0 * sqrt(weight)=2.0), not a free zero
+    assert jnp.allclose(residuals.residual[:, 0], jnp.array([18.0, 20.0, 4.0]))
 
 
 def test_trace_residual_spec_rejects_mismatched_or_nonpositive_weights() -> None:
