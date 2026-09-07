@@ -64,7 +64,11 @@ class ScrubberSumpParams:
 
     # ── ORP pH dependence ─────────────────────────────────────────
     # Nernstian slope for the hypochlorite ORP/pH term (see compute_orp);
-    # 59.2 mV/pH is the standard 25°C Nernst factor (RT ln(10) / F).
+    # 59.2 mV/pH is the standard 25°C Nernst factor (RT ln(10) / F), but a
+    # real platinum ORP electrode's response is a mixed potential, not a
+    # clean Nernstian one (Pt oxide formation passivates the electrode),
+    # so a fitted slope well above 59.2 is expected, not a red flag — see
+    # https://pmc.ncbi.nlm.nih.gov/articles/PMC6111276/
     # orp_ph_reference anchors the existing 450 mV baseline at a typical
     # plant operating pH so the term is a correction, not a new offset.
     orp_ph_slope: float | jax.Array = 59.2  # mV per pH unit
