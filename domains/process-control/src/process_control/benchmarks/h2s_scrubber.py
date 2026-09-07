@@ -348,7 +348,7 @@ def make_h2s_scrubber_benchmark(
             volume=config.sump_nominal_volume,
         )
         init_ph = compute_ph(sump_state, dynamic.ph_amplitude)
-        init_orp = compute_orp(sump_state)
+        init_orp = compute_orp(sump_state, init_ph, dynamic.sump)
         caustic_state = dosing_reset(
             init_ph,
             dynamic.caustic.ff,
@@ -420,7 +420,7 @@ def make_h2s_scrubber_benchmark(
         )
 
         # ── 4. Dosing loops: process true PVs from sump ──────────
-        true_orp = compute_orp(state.sump)
+        true_orp = compute_orp(state.sump, true_ph, dynamic.sump)
         true_level = state.sump.volume
         true_makeup_flow = state.makeup_loop.pump_output
 

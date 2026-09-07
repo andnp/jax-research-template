@@ -62,6 +62,14 @@ class ScrubberSumpParams:
     temp_reference: float | jax.Array = 25.0  # °C  – reference for Arrhenius-like scaling
     temp_coefficient: float | jax.Array = 1.05  # θ  – rate multiplier per °C above ref
 
+    # ── ORP pH dependence ─────────────────────────────────────────
+    # Nernstian slope for the hypochlorite ORP/pH term (see compute_orp);
+    # 59.2 mV/pH is the standard 25°C Nernst factor (RT ln(10) / F).
+    # orp_ph_reference anchors the existing 450 mV baseline at a typical
+    # plant operating pH so the term is a correction, not a new offset.
+    orp_ph_slope: float | jax.Array = 59.2  # mV per pH unit
+    orp_ph_reference: float | jax.Array = 9.8  # pH
+
 
 # ── State ─────────────────────────────────────────────────────────────
 
@@ -244,18 +252,22 @@ def compute_ph(state: ScrubberSumpState, amplitude: float | jax.Array = 3.0) -> 
     return jnp.array(7.0) + jnp.array(amplitude) * jnp.tanh((state.alkalinity - 2.0) / 3.0)
 
 
-def compute_orp(state: ScrubberSumpState) -> jax.Array:
-    """Approximate ORP (mV) from oxidant and sulfide state.
+def compute_orp(
+    state: ScrubberSumpState,
+    ph: jax.Array,
+    params: ScrubberSumpParams,
+) -> jax.Array:
+    """Approximate ORP (mV) from oxidant, sulfide, and pH.
 
     ORP rises with oxidant availability and drops with dissolved sulfide.
     Typical scrubber ORP range: 200–800 mV.
 
     For a real hypochlorite system the Nernst relation also carries a pH
     term (E = E0 - (RT/2F) ln([ClO-][OH-]^2), i.e. ORP falls as pH rises
-    for fixed oxidant) that this reduced-order version omits — see Emerson,
-    "ORP Measurement Fundamentals",
+    for fixed oxidant) — see Emerson, "ORP Measurement Fundamentals",
     https://www.emerson.co.jp/is/content/emerson/en/measurement-instrumentation/technical/products/unaudited/documents/dl-rmt-00800-0100-4044.pdf
     """
     # Nernst-like: ORP ∝ log(oxidant / sulfide)
     ratio = (state.oxidant + 0.01) / (state.sulfide + 0.01)
-    return jnp.array(450.0) + jnp.array(100.0) * jnp.log10(ratio)
+    ph_correction = params.orp_ph_slope * (ph - params.orp_ph_reference)
+    return jnp.array(450.0) + jnp.array(100.0) * jnp.log10(ratio) - ph_correction

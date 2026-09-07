@@ -237,20 +237,40 @@ def test_ph_amplitude_raises_the_saturation_ceiling():
     assert compute_ph(high, amplitude=3.0) < compute_ph(high, amplitude=7.0)
 
 
-def test_orp_increases_with_oxidant():
+def test_orp_increases_with_oxidant(params: ScrubberSumpParams):
     """Higher oxidant (at constant sulfide) should give higher ORP."""
     low = ScrubberSumpState.create(oxidant=1.0, sulfide=1.0)
     high = ScrubberSumpState.create(oxidant=10.0, sulfide=1.0)
+    ph = jnp.array(params.orp_ph_reference)
 
-    assert compute_orp(low) < compute_orp(high)
+    assert compute_orp(low, ph, params) < compute_orp(high, ph, params)
 
 
-def test_orp_decreases_with_sulfide():
+def test_orp_decreases_with_sulfide(params: ScrubberSumpParams):
     """Higher sulfide (at constant oxidant) should give lower ORP."""
     low_s = ScrubberSumpState.create(oxidant=5.0, sulfide=0.5)
     high_s = ScrubberSumpState.create(oxidant=5.0, sulfide=5.0)
+    ph = jnp.array(params.orp_ph_reference)
 
-    assert compute_orp(low_s) > compute_orp(high_s)
+    assert compute_orp(low_s, ph, params) > compute_orp(high_s, ph, params)
+
+
+def test_orp_decreases_with_ph(params: ScrubberSumpParams):
+    """Real hypochlorite ORP falls as pH rises for fixed oxidant (Nernst pH term)."""
+    state = ScrubberSumpState.create(oxidant=5.0, sulfide=1.0)
+
+    assert compute_orp(state, jnp.array(11.0), params) < compute_orp(state, jnp.array(8.0), params)
+
+
+def test_orp_matches_baseline_at_ph_reference(params: ScrubberSumpParams):
+    """At orp_ph_reference the pH term must vanish, leaving the original oxidant/sulfide formula."""
+    state = ScrubberSumpState.create(oxidant=5.0, sulfide=1.0)
+    ratio = (state.oxidant + 0.01) / (state.sulfide + 0.01)
+    expected = 450.0 + 100.0 * jnp.log10(ratio)
+
+    result = compute_orp(state, jnp.array(params.orp_ph_reference), params)
+
+    assert jnp.allclose(result, expected)
 
 
 def test_temperature_relaxes_to_ambient(params: ScrubberSumpParams, rng: jax.Array):
