@@ -81,3 +81,22 @@ def test_linear_probe_r2_preserves_negative_scores() -> None:
     result = linear_probe_r2(features, targets, fit_intercept=False)
 
     assert bool(result < 0.0)
+
+
+def test_linear_probe_r2_handles_empty_constant_and_low_precision_inputs() -> None:
+    """Return finite float32 scores for degenerate and low-precision inputs."""
+    assert jnp.allclose(linear_probe_r2(jnp.empty((0, 2)), jnp.empty((0, 1))), 0.0)
+    assert jnp.allclose(linear_probe_r2(jnp.ones((3, 2)), jnp.ones((3, 1))), 0.0)
+    result = linear_probe_r2(
+        jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=jnp.float16),
+        jnp.array([[1.0], [0.0]], dtype=jnp.bfloat16),
+    )
+    assert result.dtype == jnp.float32
+
+
+def test_linear_probe_r2_rejects_incompatible_shapes() -> None:
+    """Reject feature and target batches that cannot form paired observations."""
+    with pytest.raises(ValueError):
+        linear_probe_r2(jnp.ones((2, 2)), jnp.ones((3, 1)))
+    with pytest.raises(ValueError):
+        linear_probe_r2(jnp.ones(2), jnp.ones((2, 1)))
