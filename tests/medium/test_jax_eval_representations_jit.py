@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from jax_eval.representations import dead_neurons, feature_drift
+from jax_eval.representations import dead_neurons, feature_drift, linear_probe_r2
 
 
 def test_representation_kernels_run_under_jit() -> None:
@@ -73,3 +73,40 @@ def test_dead_neurons_runs_inside_lax_scan() -> None:
     _, fractions = jax.jit(scan_activations)(activations)
 
     assert jnp.allclose(fractions, jnp.array([0.5, 1.0, 0.0]))
+
+
+def test_linear_probe_r2_runs_under_jit_and_vmap() -> None:
+    """Compile independent probe fits across batched agents."""
+    features = jnp.array(
+        [
+            [[0.0, 1.0], [1.0, 0.0], [2.0, 1.0]],
+            [[1.0, 1.0], [2.0, 0.0], [3.0, 1.0]],
+        ]
+    )
+    targets = 2.0 * features[..., :1] + 1.0
+
+    scores = jax.jit(jax.vmap(linear_probe_r2))(features, targets)
+
+    assert jnp.allclose(scores, jnp.ones(2), atol=1e-5)
+
+
+def test_linear_probe_r2_runs_inside_lax_scan() -> None:
+    """Evaluate one probe score per scan step without Python callbacks."""
+    features = jnp.array(
+        [
+            [[0.0, 1.0], [1.0, 0.0], [2.0, 1.0]],
+            [[1.0, 1.0], [2.0, 0.0], [3.0, 1.0]],
+        ]
+    )
+    targets = 2.0 * features[..., :1] + 1.0
+
+    def step(_: jax.Array, pair: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+        score = linear_probe_r2(pair[0], pair[1])
+        return jnp.float32(0.0), score
+
+    def scan_scores(x: jax.Array, y: jax.Array) -> tuple[jax.Array, jax.Array]:
+        return jax.lax.scan(step, jnp.float32(0.0), (x, y))
+
+    _, scores = jax.jit(scan_scores)(features, targets)
+
+    assert jnp.allclose(scores, jnp.ones(2), atol=1e-5)
