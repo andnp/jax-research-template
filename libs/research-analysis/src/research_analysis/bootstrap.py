@@ -15,10 +15,12 @@ from numpy.typing import NDArray
 from scipy import stats
 
 from research_analysis._kernels import bootstrap_resample_means, mean_axis0, percentile_axis0
+from research_analysis.aggregates import interquartile_mean
 from research_analysis.comparison import Estimand
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
 type ScalarBootstrapMethod = Literal["BCa", "degenerate-point"]
+type PercentileBootstrapStatistic = Literal["mean", "interquartile_mean"]
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,18 @@ class ScalarBootstrapCI:
     method: ScalarBootstrapMethod = "BCa"
 
 
+@dataclass(frozen=True)
+class PercentileBootstrapCI:
+    """Percentile interval for one scalar sample."""
+
+    estimate: float
+    ci_low: float
+    ci_high: float
+    confidence: float
+    n_resamples: int
+    statistic: PercentileBootstrapStatistic
+
+
 def resolve_block_size(n_points: int, block_size: int | None = None) -> int:
     """Return the configured or cube-root moving-block length."""
     if isinstance(n_points, bool) or not isinstance(n_points, int) or n_points < 1:
@@ -97,6 +111,47 @@ def circular_moving_block_resample(
     offsets = np.arange(chosen_block_size, dtype=np.int64)
     indices = ((starts[:, None] + offsets) % values.size).reshape(-1)[: values.size]
     return np.ascontiguousarray(centered[indices])
+
+
+def bootstrap_percentile_ci(
+    values: NDArray[np.floating],
+    *,
+    statistic: PercentileBootstrapStatistic = "mean",
+    confidence: float = 0.95,
+    n_resamples: int = 10_000,
+    rng: np.random.Generator | None = None,
+) -> PercentileBootstrapCI:
+    """Compute a percentile interval for a scalar sample statistic."""
+    observations = np.asarray(values, dtype=np.float64)
+    if observations.ndim != 1 or observations.size < 2 or not np.isfinite(observations).all():
+        raise ValueError("bootstrap values must contain at least two finite observations")
+    if statistic not in ("mean", "interquartile_mean"):
+        raise ValueError(f"unsupported percentile bootstrap statistic: {statistic!r}")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be in (0, 1)")
+    if isinstance(n_resamples, bool) or not isinstance(n_resamples, int) or n_resamples < 2:
+        raise ValueError("n_resamples must be at least two")
+
+    if rng is None:
+        rng = np.random.default_rng()
+    indices = rng.integers(0, observations.size, size=(n_resamples, observations.size))
+    samples = observations[indices]
+    if statistic == "mean":
+        estimates = np.mean(samples, axis=1)
+        estimate = float(np.mean(observations))
+    else:
+        estimates = np.asarray([interquartile_mean(sample) for sample in samples], dtype=np.float64)
+        estimate = interquartile_mean(observations)
+
+    alpha = (1.0 - confidence) / 2.0
+    return PercentileBootstrapCI(
+        estimate=estimate,
+        ci_low=float(np.quantile(estimates, alpha)),
+        ci_high=float(np.quantile(estimates, 1.0 - alpha)),
+        confidence=confidence,
+        n_resamples=n_resamples,
+        statistic=statistic,
+    )
 
 
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
