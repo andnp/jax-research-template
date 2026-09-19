@@ -8,12 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any, overload
 
 import numpy as np
 import polars as pl
-from research_plot.plots import plot_ecdf, plot_sensitivity
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -41,6 +39,7 @@ from research_analysis._reporting_models import (
 from research_analysis._reporting_models import (
     StatisticalTestDetails as StatisticalTestDetails,
 )
+from research_analysis._reporting_plots import _plot_bakeoff, _plot_hypers
 from research_analysis.aggregates import (
     ReferenceRange,
     interquartile_mean,
@@ -598,19 +597,6 @@ def slice_hypers(
     )
 
 
-def _plot_hypers(
-    target_hyperparameter: str,
-    sorted_keys: list[Any],
-    slice_perf_sorted: list[float],
-    best_perf_sorted: list[float],
-    experiment_slug: str,
-    plot_suffix: str,
-) -> Path:
-    plot_path = Path("results/analysis") / experiment_slug / f"hyper_sensitivity{plot_suffix}.png"
-    plot_sensitivity(target_hyperparameter, sorted_keys, slice_perf_sorted, best_perf_sorted, plot_path)
-    return plot_path
-
-
 def _present_slice_hypers(
     report: HyperparameterSliceReport,
     experiment_slug: str,
@@ -1094,17 +1080,6 @@ def _compute_bakeoff_statistics(
         difference_ci=difference_ci,
         score_curves=score_curves,
     )
-
-
-def _plot_bakeoff(
-    score_curves: dict[str, tuple[list[float], list[float]]],
-    experiment_slug: str,
-) -> Path | None:
-    plot_path = Path("results/analysis") / experiment_slug / "normalized_score_comparison.png"
-    if score_curves:
-        plot_ecdf(score_curves, plot_path)
-        return plot_path
-    return None
 
 
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
