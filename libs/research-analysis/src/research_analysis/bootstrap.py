@@ -64,6 +64,19 @@ class ScalarBootstrapCI:
     method: ScalarBootstrapMethod = "BCa"
 
 
+def resolve_block_size(n_points: int, block_size: int | None = None) -> int:
+    """Return the configured or cube-root moving-block length."""
+    if isinstance(n_points, bool) or not isinstance(n_points, int) or n_points < 1:
+        raise ValueError("n_points must be a positive integer")
+    if block_size is not None and (
+        isinstance(block_size, bool)
+        or not isinstance(block_size, int)
+        or block_size < 1
+    ):
+        raise ValueError("block_size must be a positive integer when provided")
+    return max(1, round(n_points ** (1.0 / 3.0))) if block_size is None else block_size
+
+
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
     array = np.asarray(data, dtype=np.float64)
     squeeze = array.ndim == 1
