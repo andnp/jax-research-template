@@ -293,8 +293,6 @@ def _best_hypers_group(
         _present_best_hypers(report, experiment_slug, group_label)
 
     return report
-
-
 def _best_hypers_difference(
     dataset: ExperimentDataset,
     metric_name: str,
@@ -532,6 +530,5 @@ def _slice_hypers_group(
         _present_slice_hypers(report, experiment_slug, group_label)
 
     return report
-
 
 

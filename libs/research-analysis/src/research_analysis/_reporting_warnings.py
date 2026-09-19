@@ -122,7 +122,6 @@ def insufficient_seeds_warning(
         )
     return None
 
-
 def variance_warning(
     values: Sequence[float] | np.ndarray,
     *,
@@ -155,4 +154,3 @@ def variance_warning(
             cell=cell,
         )
     return None
-
