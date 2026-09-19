@@ -118,12 +118,20 @@ def _double_step_state(previous: _DoubleState) -> _DoubleState:
     )
 
 
+@dataclass(frozen=True)
+class _PlaygroundModel:
+    actuator_ctrlrange: jax.Array
+
+
 class _EndingPlaygroundEnv:
     """A playground env that terminates on its first step."""
 
     action_size = 1
     observation_size = 2
-    mj_model: Any = None
+
+    @property
+    def mj_model(self) -> _PlaygroundModel:
+        return _PlaygroundModel(jnp.array([[-jnp.inf, jnp.inf]], dtype=jnp.float32))
 
     def reset(self, rng: jax.Array) -> _DoubleState:
         del rng
@@ -135,7 +143,7 @@ class _EndingPlaygroundEnv:
 
 
 def _playground_boundary() -> Boundary:
-    env = MujocoPlaygroundAdapter(cast(Any, _EndingPlaygroundEnv()))
+    env = MujocoPlaygroundAdapter(_EndingPlaygroundEnv())
     key = jax.random.key(0)
 
     reset = env.reset(key)
@@ -145,7 +153,7 @@ def _playground_boundary() -> Boundary:
         observation=step.observation,
         reset_observation=env.reset(key).observation,
         ended=bool(step.terminated | step.truncated),
-        steps_taken=int(cast(_DoubleState, step.state).steps_taken),
+        steps_taken=int(step.state.steps_taken),
     )
 
 

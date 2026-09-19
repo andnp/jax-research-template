@@ -17,36 +17,55 @@ Usage::
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Protocol
 
 import jax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 
+class _PlaygroundModel(Protocol):
+    @property
+    def actuator_ctrlrange(self) -> ArrayLike | None: ...
+
+
 class _PlaygroundState(Protocol):
-    obs: jax.Array | Mapping[str, jax.Array]
-    reward: jax.Array
-    done: jax.Array
-    info: Mapping[str, Any]
+    @property
+    def obs(self) -> jax.Array | Mapping[str, jax.Array]: ...
+
+    @property
+    def reward(self) -> jax.Array: ...
+
+    @property
+    def done(self) -> jax.Array: ...
+
+    @property
+    def info(self) -> Mapping[str, object]: ...
 
 
-class _PlaygroundEnv(Protocol):
+class _PlaygroundEnv[StateT: _PlaygroundState](Protocol):
     @property
     def action_size(self) -> int: ...
 
     @property
-    def observation_size(self) -> int | Mapping[str, Any]: ...
+    def observation_size(self) -> int | Mapping[str, int | tuple[int, ...]]: ...
 
     @property
-    def mj_model(self) -> Any: ...
+    def mj_model(self) -> _PlaygroundModel: ...
 
-    def reset(self, rng: jax.Array) -> Any: ...
+    def reset(self, rng: jax.Array) -> StateT: ...
 
-    def step(self, state: Any, action: jax.Array) -> Any: ...
+    def step(self, state: StateT, action: jax.Array) -> StateT: ...
 
 
-def _action_bounds(mj_model: Any) -> tuple[jax.Array | None, jax.Array | None]:
+def _flat_observation(observation: jax.Array | Mapping[str, jax.Array]) -> jax.Array:
+    if isinstance(observation, Mapping):
+        raise TypeError("MujocoPlaygroundAdapter requires flat array observations")
+    return observation
+
+
+def _action_bounds(mj_model: _PlaygroundModel) -> tuple[jax.Array | None, jax.Array | None]:
     """Read the actuator control range as trace-time constants.
 
     ``spec`` is called from inside :func:`rl_components.loop.run`, which the caller
@@ -61,7 +80,7 @@ def _action_bounds(mj_model: Any) -> tuple[jax.Array | None, jax.Array | None]:
         The lower and upper bounds, or ``(None, None)`` when the model declares no
         usable range.
     """
-    ctrl_range = getattr(mj_model, "actuator_ctrlrange", None)
+    ctrl_range = mj_model.actuator_ctrlrange
     if ctrl_range is None:
         return None, None
     with jax.ensure_compile_time_eval():
@@ -74,10 +93,10 @@ def _action_bounds(mj_model: Any) -> tuple[jax.Array | None, jax.Array | None]:
         return low, high
 
 
-class MujocoPlaygroundAdapter:
+class MujocoPlaygroundAdapter[StateT: _PlaygroundState]:
     """Adapts a ``MjxEnv`` to the canonical ``EnvProtocol`` interface."""
 
-    def __init__(self, env: _PlaygroundEnv) -> None:
+    def __init__(self, env: _PlaygroundEnv[StateT]) -> None:
         self._env = env
 
     def spec(self, params: None = None) -> EnvSpec:
@@ -99,18 +118,18 @@ class MujocoPlaygroundAdapter:
             action_high=action_high,
         )
 
-    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, _PlaygroundState]:
+    def reset(self, key: jax.Array, params: None = None) -> EnvReset[jax.Array, StateT]:
         del params
         state = self._env.reset(key)
-        return EnvReset(observation=state.obs, state=state)
+        return EnvReset(observation=_flat_observation(state.obs), state=state)
 
     def step(
         self,
         key: jax.Array,
-        state: _PlaygroundState,
+        state: StateT,
         action: jax.Array,
         params: None = None,
-    ) -> EnvStep[jax.Array, _PlaygroundState]:
+    ) -> EnvStep[jax.Array, StateT]:
         del key, params
         next_state = self._env.step(state, action)
         info: dict[str, jax.Array] = {}
@@ -120,11 +139,10 @@ class MujocoPlaygroundAdapter:
         truncated = jnp.asarray(info.get("truncation", False), dtype=bool)
         terminated = jnp.asarray(next_state.done, dtype=bool) & ~truncated
         return EnvStep(
-            observation=next_state.obs,
+            observation=_flat_observation(next_state.obs),
             state=next_state,
             reward=next_state.reward,
             terminated=terminated,
             truncated=truncated,
             info=info,
         )
-

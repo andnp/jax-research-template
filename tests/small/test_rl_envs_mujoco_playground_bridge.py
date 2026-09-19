@@ -1,7 +1,6 @@
 """Small tests for the MuJoCo Playground bridge's truncation handling."""
 
 from dataclasses import dataclass
-from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,10 +11,15 @@ from rl_envs.mujoco_playground_bridge import MujocoPlaygroundAdapter
 
 @dataclass(frozen=True)
 class FakePlaygroundState:
-    obs: jnp.ndarray
+    obs: jax.Array | dict[str, jax.Array]
     reward: jnp.ndarray
     done: jnp.ndarray
-    info: dict[str, jnp.ndarray]
+    info: dict[str, object]
+
+
+@dataclass(frozen=True)
+class FakeMjModel:
+    actuator_ctrlrange: jax.Array | None
 
 
 class FakePlaygroundEnv:
@@ -23,16 +27,22 @@ class FakePlaygroundEnv:
 
     action_size = 1
     observation_size = 1
-    mj_model: Any = None
 
-    def __init__(self, next_state: FakePlaygroundState) -> None:
+    def __init__(self, next_state: FakePlaygroundState, mj_model: FakeMjModel | None = None) -> None:
         self._next_state = next_state
+        self._mj_model = (
+            FakeMjModel(jnp.array([[-jnp.inf, jnp.inf]], dtype=jnp.float32)) if mj_model is None else mj_model
+        )
 
-    def reset(self, rng: jnp.ndarray) -> FakePlaygroundState:
+    @property
+    def mj_model(self) -> FakeMjModel:
+        return self._mj_model
+
+    def reset(self, rng: jax.Array) -> FakePlaygroundState:
         del rng
         return self._next_state
 
-    def step(self, state: FakePlaygroundState, action: jnp.ndarray) -> FakePlaygroundState:
+    def step(self, state: FakePlaygroundState, action: jax.Array) -> FakePlaygroundState:
         del state, action
         return self._next_state
 
@@ -47,10 +57,11 @@ class TestMujocoPlaygroundAdapterTruncation:
     )
     def test_step_derives_terminated_and_truncated_from_done_and_truncation(
         self,
-        info: dict[str, jnp.ndarray],
+        info: dict[str, object],
         expected_terminated: bool,
         expected_truncated: bool,
     ) -> None:
+        """Maps Playground done and truncation signals to canonical boundary flags."""
         next_state = FakePlaygroundState(
             obs=jnp.zeros((1,), dtype=jnp.float32),
             reward=jnp.array(0.0, dtype=jnp.float32),
@@ -59,16 +70,42 @@ class TestMujocoPlaygroundAdapterTruncation:
         )
         adapter = MujocoPlaygroundAdapter(FakePlaygroundEnv(next_state))
 
-        result = adapter.step(jax.random.key(0), cast(Any, next_state), jnp.zeros((1,), dtype=jnp.float32))
+        result = adapter.step(jax.random.key(0), next_state, jnp.zeros((1,), dtype=jnp.float32))
 
         assert bool(result.terminated) is expected_terminated
         assert bool(result.truncated) is expected_truncated
         assert result.terminated.dtype == jnp.bool_
 
 
-@dataclass(frozen=True)
-class FakeMjModel:
-    actuator_ctrlrange: jax.Array
+class TestMujocoPlaygroundAdapterObservationBoundary:
+    def test_dict_observation_is_rejected(self) -> None:
+        """Unsupported mapping observations fail at the canonical array boundary."""
+        state = FakePlaygroundState(
+            obs={"position": jnp.zeros((1,), dtype=jnp.float32)},
+            reward=jnp.array(0.0, dtype=jnp.float32),
+            done=jnp.array(0.0, dtype=jnp.float32),
+            info={},
+        )
+        adapter = MujocoPlaygroundAdapter(FakePlaygroundEnv(state))
+
+        with pytest.raises(TypeError, match="flat array observations"):
+            adapter.reset(jax.random.key(0))
+
+    def test_step_info_keeps_only_array_values(self) -> None:
+        """Backend metadata is narrowed to the array-only canonical info contract."""
+        array_value = jnp.array(1.0, dtype=jnp.float32)
+        state = FakePlaygroundState(
+            obs=jnp.zeros((1,), dtype=jnp.float32),
+            reward=jnp.array(0.0, dtype=jnp.float32),
+            done=jnp.array(0.0, dtype=jnp.float32),
+            info={"array": array_value, "scalar": 1.0},
+        )
+        adapter = MujocoPlaygroundAdapter(FakePlaygroundEnv(state))
+
+        result = adapter.step(jax.random.key(0), state, jnp.zeros((1,), dtype=jnp.float32))
+
+        assert set(result.info) == {"array"}
+        assert jnp.array_equal(result.info["array"], array_value)
 
 
 class TestMujocoPlaygroundAdapterActionBounds:
@@ -88,9 +125,8 @@ class TestMujocoPlaygroundAdapterActionBounds:
             done=jnp.array(0.0, dtype=jnp.float32),
             info={},
         )
-        env = FakePlaygroundEnv(next_state)
-        env.mj_model = FakeMjModel(actuator_ctrlrange=ctrl_range)
-        return MujocoPlaygroundAdapter(cast(Any, env))
+        env = FakePlaygroundEnv(next_state, FakeMjModel(actuator_ctrlrange=ctrl_range))
+        return MujocoPlaygroundAdapter(env)
 
     @staticmethod
     def _spec_read_under_jit(adapter: MujocoPlaygroundAdapter) -> list[EnvSpec]:
