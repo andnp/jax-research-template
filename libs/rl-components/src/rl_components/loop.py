@@ -132,7 +132,7 @@ def run[ObsT, EnvStateT, ActT, ParamsT, AgentStateT](
     key: chex.PRNGKey,
     *,
     steps: int,
-    gamma: float,
+    gamma: float | jax.Array,
     episode_cutoff: int = -1,
     truncation_policy: TruncationPolicy | None = None,
     env_params: ParamsT | None = None,

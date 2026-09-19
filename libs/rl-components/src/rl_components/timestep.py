@@ -80,7 +80,7 @@ def bootstrap_terms(
     truncated: jax.Array,
     cutoff_reached: jax.Array,
     *,
-    gamma: float,
+    gamma: float | jax.Array,
     truncation_policy: TruncationPolicy,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Map raw environment boundary flags to a ``Timestep``'s two boundary quantities.

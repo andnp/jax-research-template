@@ -36,12 +36,13 @@ name to decide what a result should contain.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import MISSING, dataclass, fields
 from types import UnionType
-from typing import Any, Literal, TypeAliasType, cast, get_args, get_origin, get_type_hints
+from typing import Literal, Protocol, TypeAliasType, get_args, get_origin, get_type_hints, runtime_checkable
 
 import jax
 from experiment_definition import ParameterValue
+from flax.training.train_state import TrainState
 from research_runner import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
@@ -57,6 +58,36 @@ MetricProjector = Callable[
     dict[str, jax.Array],
 ]
 ArtifactProjector = Callable[[object], dict[str, object]]
+
+
+@runtime_checkable
+class _FinalState(Protocol):
+    @property
+    def agent_state(self) -> object: ...
+
+
+@runtime_checkable
+class _TrainStateAgent(Protocol):
+    @property
+    def train_state(self) -> TrainState: ...
+
+
+@runtime_checkable
+class _ActorStateAgent(Protocol):
+    @property
+    def actor_state(self) -> TrainState: ...
+
+
+@runtime_checkable
+class _BatchConfig(Protocol):
+    @property
+    def TOTAL_TIMESTEPS(self) -> int: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _AlgorithmMetadata:
+    dynamic_keys: frozenset[str]
+    integer_dynamic_keys: frozenset[str]
 
 GAMMA = "gamma"
 ENV_NAME = "env_name"
@@ -114,12 +145,26 @@ def no_artifacts(_: object) -> dict[str, object]:
 
 def extract_train_state_params(state: object) -> dict[str, object]:
     """Extract parameters from an agent state with one train state."""
-    return {"final_policy_params": cast(Any, state).agent_state.train_state.params}
+    if not isinstance(state, _FinalState) or not isinstance(state.agent_state, _TrainStateAgent):
+        raise TypeError(f"expected a final state with a train state, got {type(state).__name__}")
+    return {"final_policy_params": state.agent_state.train_state.params}
 
 
 def extract_actor_params(state: object) -> dict[str, object]:
     """Extract parameters from an agent state with an actor train state."""
-    return {"final_policy_params": cast(Any, state).agent_state.actor_state.params}
+    if not isinstance(state, _FinalState) or not isinstance(state.agent_state, _ActorStateAgent):
+        raise TypeError(f"expected a final state with an actor state, got {type(state).__name__}")
+    return {"final_policy_params": state.agent_state.actor_state.params}
+
+
+def _algorithm_metadata(agent_cls: type, config_cls: type, hypers_cls: type) -> _AlgorithmMetadata:
+    hypers_hints = get_type_hints(hypers_cls)
+    config_hints = get_type_hints(config_cls)
+    dynamic_keys = frozenset(name.lower() for name in hypers_hints) - _NEVER_DYNAMIC
+    dynamic_keys |= frozenset(name.lower() for name in agent_cls.INIT_SWEPT_FIELDS) | {GAMMA}
+    integer_hypers = frozenset(name.lower() for name, hint in hypers_hints.items() if hint is jax.Array)
+    integer_configs = frozenset(name.lower() for name, hint in config_hints.items() if hint is int)
+    return _AlgorithmMetadata(dynamic_keys, integer_hypers & integer_configs)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,10 +181,11 @@ class AlgorithmSpec:
 
     @property
     def parameter_schema(self) -> ParameterSchema:
-        fields = get_type_hints(self.hypers_cls)
-        dynamic_keys = frozenset(name.lower() for name in fields) - _NEVER_DYNAMIC
-        init_swept = frozenset(name.lower() for name in self.agent_cls.INIT_SWEPT_FIELDS)
-        return ParameterSchema(dynamic_keys=dynamic_keys | init_swept | {GAMMA})
+        return ParameterSchema(dynamic_keys=_algorithm_metadata(self.agent_cls, self.config_cls, self.hypers_cls).dynamic_keys)
+
+    @property
+    def _metadata(self) -> _AlgorithmMetadata:
+        return _algorithm_metadata(self.agent_cls, self.config_cls, self.hypers_cls)
 
 
 def _resolve_alias(hint: object) -> object:
@@ -157,8 +203,8 @@ def _resolve_alias(hint: object) -> object:
 def _scalar_type(hint: object) -> type | None:
     """The plain ``int``/``float``/``str``/``bool`` a ``Config`` field's annotation reduces to."""
     hint = _resolve_alias(hint)
-    if hint in (int, float, str, bool):
-        return cast(type, hint)
+    if hint is int or hint is float or hint is str or hint is bool:
+        return hint
     origin = get_origin(hint)
     if origin is Literal:
         return str
@@ -173,9 +219,11 @@ _MISSING = object()
 
 
 def _config_kwargs(config_cls: type, batch: BoundBatch, dynamic: Mapping[str, jax.Array]) -> dict[str, object]:
-    defaults = config_cls()
+    type_hints = get_type_hints(config_cls)
     kwargs: dict[str, object] = {}
-    for field_name, hint in get_type_hints(config_cls).items():
+    for config_field in fields(config_cls):
+        field_name = config_field.name
+        hint = type_hints[field_name]
         key = field_name.lower()
         if key == "env_name":
             kwargs[field_name] = batch.static(ENV_NAME, str)
@@ -191,7 +239,12 @@ def _config_kwargs(config_cls: type, batch: BoundBatch, dynamic: Mapping[str, ja
         if batch.static_config.get(key, _MISSING) is None:
             kwargs[field_name] = None
             continue
-        default = getattr(defaults, field_name)
+        if config_field.default is not MISSING:
+            default = config_field.default
+        elif config_field.default_factory is not MISSING:
+            default = config_field.default_factory()
+        else:
+            raise TypeError(f"{config_cls.__name__}.{field_name} has no default")
         resolved_hint = _resolve_alias(hint)
         scalar_type = _scalar_type(hint)
         value = default if scalar_type is None else batch.static_or(key, scalar_type, default)
@@ -215,7 +268,9 @@ class GenericBatchTrainer:
         report_returned_episode_returns: bool = False,
     ) -> None:
         self._spec = spec
-        self.parameter_schema = spec.parameter_schema
+        metadata = spec._metadata
+        self.parameter_schema = ParameterSchema(dynamic_keys=metadata.dynamic_keys)
+        self._integer_dynamic_keys = metadata.integer_dynamic_keys
         self._env_factory = env_factory
         self._extra_metric_names = extra_metric_names
         self._report_returned_episode_returns = report_returned_episode_returns or spec.report_returned_episode_returns
@@ -224,23 +279,23 @@ class GenericBatchTrainer:
         spec = self._spec
         batch = context.bind(self.parameter_schema)
         env, env_params = self._env_factory(batch.static_config)
-        integer_keys = {name.lower() for name, hint in get_type_hints(spec.hypers_cls).items() if hint is jax.Array} & {
-            name for name, hint in get_type_hints(spec.config_cls).items() if hint is int
-        }
         dynamic_axes = {
-            key: batch.dynamic(key, int if key in integer_keys else float)
+            key: batch.dynamic(key, int if key in self._integer_dynamic_keys else float)
             for key in self.parameter_schema.dynamic_keys
             if key in batch.dynamic_axes
         }
 
         def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array):
             config = spec.config_cls(**_config_kwargs(spec.config_cls, batch, dynamic))
+            if not isinstance(config, _BatchConfig):
+                raise TypeError(f"{spec.config_cls.__name__} does not expose TOTAL_TIMESTEPS")
+            gamma = dynamic.get(GAMMA, batch.static_or(GAMMA, float, 0.99))
             final_state, metrics = run(
                 spec.agent_cls(config),
                 env,
                 key,
-                steps=cast(int, config.TOTAL_TIMESTEPS),
-                gamma=cast(float, dynamic.get(GAMMA, batch.static_or(GAMMA, float, 0.99))),
+                steps=config.TOTAL_TIMESTEPS,
+                gamma=gamma,
                 env_params=env_params,
             )
             curves = spec.metric_projector(
@@ -252,10 +307,7 @@ class GenericBatchTrainer:
             return curves, spec.artifact_projector(final_state)
 
         result = run_batch(train_one, dynamic_axes, batch.seeds)
-        curves, artifacts = cast(
-            tuple[Mapping[str, jax.Array], Mapping[str, object]],
-            result,
-        )
+        curves, artifacts = result
         return ExecutionResult(
             metadata={
                 "algorithm": spec.name,
