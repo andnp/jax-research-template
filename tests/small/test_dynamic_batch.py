@@ -33,6 +33,22 @@ def test_run_batch_maps_dynamic_values_with_seed_keys() -> None:
     assert jnp.allclose(values, jnp.array([1e-4, 1e-3]))
 
 
+def test_run_batch_maps_seed_only_values_in_input_order() -> None:
+    """
+    Verify seed-only batches preserve independent keys and seed ordering.
+    """
+    def train_one(dynamic: Mapping[str, jax.Array], key: jax.Array) -> jax.Array:
+        del dynamic
+        return jax.random.uniform(key)
+
+    values = run_batch(train_one, {}, (0, 1))
+    keys = jnp.stack([jax.random.PRNGKey(seed) for seed in (0, 1)])
+    expected = jax.vmap(jax.random.uniform)(keys)
+
+    assert values.shape == (2,)
+    assert jnp.allclose(values, expected)
+
+
 def test_context_binds_typed_static_and_dynamic_values() -> None:
     """
     Verify trainers receive validated native values and ordered dynamic axes.
