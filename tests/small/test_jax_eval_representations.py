@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import pytest
-from jax_eval.representations import dead_neurons, feature_drift
+from jax_eval.representations import dead_neurons, feature_drift, linear_probe_r2
 
 
 def test_dead_neurons_counts_units_across_observations() -> None:
@@ -61,3 +61,23 @@ def test_feature_drift_handles_empty_observations_and_shape_mismatch() -> None:
         feature_drift(jnp.ones((2, 3)), jnp.ones((2, 4)))
     with pytest.raises(ValueError):
         feature_drift(jnp.ones((2, 1, 3)), jnp.ones((2, 3)))
+
+
+def test_linear_probe_r2_fits_intercepts_and_multiple_targets() -> None:
+    """Fit centered multi-target linear relationships without clipping the score."""
+    features = jnp.array([[0.0, 1.0], [1.0, 0.0], [2.0, 1.0], [3.0, 2.0]])
+    targets = jnp.stack((2.0 * features[:, 0] + 3.0, -features[:, 1] + 1.0), axis=1)
+
+    result = linear_probe_r2(features, targets, ridge=1e-8)
+
+    assert jnp.allclose(result, 1.0, atol=1e-5)
+
+
+def test_linear_probe_r2_preserves_negative_scores() -> None:
+    """Expose a probe that predicts worse than the target mean as negative R²."""
+    features = jnp.array([[1.0], [2.0], [3.0]])
+    targets = jnp.array([[10.0], [11.0], [10.0]])
+
+    result = linear_probe_r2(features, targets, fit_intercept=False)
+
+    assert bool(result < 0.0)
