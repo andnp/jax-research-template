@@ -8,6 +8,7 @@ from research_analysis.bootstrap import (
     bootstrap_ci,
     bootstrap_difference_ci,
     bootstrap_scalar_ci,
+    resolve_block_size,
 )
 
 
@@ -27,6 +28,29 @@ def _reference_bootstrap_ci(
         ci_high=np.percentile(boot_means, 100 * (1 - alpha / 2), axis=0),
         confidence=confidence,
     )
+
+
+def test_resolve_block_size_uses_cube_root_default() -> None:
+    """
+    Verify the default moving-block length follows the cube-root rule.
+    """
+    assert resolve_block_size(1) == 1
+    assert resolve_block_size(8) == 2
+    assert resolve_block_size(27) == 3
+    assert resolve_block_size(20, block_size=4) == 4
+    assert resolve_block_size(20, block_size=40) == 40
+
+
+def test_resolve_block_size_rejects_invalid_values() -> None:
+    """
+    Verify block-size inputs require positive integer configuration values.
+    """
+    with pytest.raises(ValueError):
+        resolve_block_size(0)
+    with pytest.raises(ValueError):
+        resolve_block_size(4, block_size=0)
+    with pytest.raises(ValueError):
+        resolve_block_size(4, block_size=True)
 
 
 class TestBootstrapCI:
