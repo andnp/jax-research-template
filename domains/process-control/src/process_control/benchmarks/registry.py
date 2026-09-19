@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from process_control.actuators.dosing_system import DIRECT
 
@@ -245,7 +244,7 @@ def get_action_bounds(
 ) -> tuple[ActionBound | None, ActionBound | None]:
     if entry.action_control_mode is not None:
         mode_config = entry.action_control_mode_config
-        if mode_config is not None and cast(int, object.__getattribute__(config, mode_config)) != entry.action_control_mode:
+        if mode_config is not None and _config_value(config, mode_config) != entry.action_control_mode:
             return None, None
     low = entry.action_low
     if entry.action_low_config is not None:
@@ -262,8 +261,12 @@ def _configured_bound(config: object, fields: ConfigBound) -> ActionBound:
     return tuple(_config_float(config, field) for field in fields)
 
 
+def _config_value(config: object, field: str) -> object:
+    return object.__getattribute__(config, field)
+
+
 def _config_float(config: object, field: str) -> float:
-    value = object.__getattribute__(config, field)
+    value = _config_value(config, field)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TypeError(f"configured action bound {field!r} must be numeric, got {value!r}")
     return float(value)
