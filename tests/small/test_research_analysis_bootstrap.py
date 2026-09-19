@@ -8,6 +8,7 @@ from research_analysis.bootstrap import (
     bootstrap_ci,
     bootstrap_difference_ci,
     bootstrap_scalar_ci,
+    circular_moving_block_resample,
     resolve_block_size,
 )
 
@@ -51,6 +52,57 @@ def test_resolve_block_size_rejects_invalid_values() -> None:
         resolve_block_size(4, block_size=0)
     with pytest.raises(ValueError):
         resolve_block_size(4, block_size=True)
+
+
+def test_circular_resample_preserves_centered_circular_blocks() -> None:
+    """
+    Verify sampled blocks remain contiguous across the circular boundary.
+    """
+    residuals = np.arange(6, dtype=np.float64)
+    result = circular_moving_block_resample(
+        residuals,
+        block_size=4,
+        rng=np.random.default_rng(7),
+    )
+    indices = np.rint(result + residuals.mean()).astype(np.int64)
+
+    assert result.shape == residuals.shape
+    assert np.all(np.isin(result, residuals - residuals.mean()))
+    assert np.all(np.diff(indices[:4]) % residuals.size == 1)
+    assert np.all(np.diff(indices[4:]) % residuals.size == 1)
+
+
+def test_circular_resample_is_reproducible_and_centered() -> None:
+    """
+    Verify seeded resampling is reproducible and centers its residual distribution.
+    """
+    residuals = np.asarray([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0])
+    draws = [
+        circular_moving_block_resample(
+            residuals,
+            block_size=4,
+            rng=np.random.default_rng(seed),
+        )
+        for seed in range(512)
+    ]
+
+    first = circular_moving_block_resample(residuals, rng=np.random.default_rng(7))
+    second = circular_moving_block_resample(residuals, rng=np.random.default_rng(7))
+
+    assert np.allclose(first, second)
+    assert np.mean(np.concatenate(draws)) == pytest.approx(0.0, abs=0.1)
+
+
+def test_circular_resample_rejects_invalid_inputs() -> None:
+    """
+    Verify empty, non-one-dimensional, and non-finite residuals are rejected.
+    """
+    with pytest.raises(ValueError):
+        circular_moving_block_resample(np.asarray([]), rng=np.random.default_rng(1))
+    with pytest.raises(ValueError):
+        circular_moving_block_resample(np.ones((2, 2)), rng=np.random.default_rng(1))
+    with pytest.raises(ValueError):
+        circular_moving_block_resample(np.asarray([1.0, np.nan]), rng=np.random.default_rng(1))
 
 
 class TestBootstrapCI:
