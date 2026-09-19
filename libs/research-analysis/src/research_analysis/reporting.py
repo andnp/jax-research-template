@@ -20,6 +20,27 @@ from rich.table import Table
 from rich.text import Text
 from scipy import stats as scipy_stats
 
+from research_analysis._reporting_models import (
+    BakeoffReport as BakeoffReport,
+)
+from research_analysis._reporting_models import (
+    BenchmarkBakeoffReport as BenchmarkBakeoffReport,
+)
+from research_analysis._reporting_models import (
+    BlockKey as BlockKey,
+)
+from research_analysis._reporting_models import (
+    HyperparameterConfigReport as HyperparameterConfigReport,
+)
+from research_analysis._reporting_models import (
+    HyperparameterDifferenceReport as HyperparameterDifferenceReport,
+)
+from research_analysis._reporting_models import (
+    HyperparameterSliceReport as HyperparameterSliceReport,
+)
+from research_analysis._reporting_models import (
+    StatisticalTestDetails as StatisticalTestDetails,
+)
 from research_analysis.aggregates import (
     ReferenceRange,
     interquartile_mean,
@@ -37,76 +58,6 @@ from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
-
-
-@dataclass(frozen=True)
-class StatisticalTestDetails:
-    test_name: str
-    statistic: float
-    p_value: float
-    effect_size: float | None
-    is_significant: bool
-    assumptions: dict[str, Any]
-    justification: str
-    intermediate_tests: dict[str, StatisticalTestDetails]
-
-
-@dataclass(frozen=True)
-class HyperparameterConfigReport:
-    """Bias-corrected estimate of the best hyperparameter configuration's true performance."""
-
-    winning_config: dict[str, Any]
-    raw_mean: float
-    corrected_mean: float
-    maximization_bias: float
-    estimate_ci: tuple[float, float]
-    confidence_level: float = 0.95
-    # 0 when the same config wins under every resample; approaches 1 as the winner
-    # becomes as unpredictable as a uniform draw over every candidate config.
-    normalized_selection_entropy: float = 0.0
-
-
-@dataclass(frozen=True)
-class HyperparameterDifferenceReport:
-    """Bias-corrected paired difference between two groups' best hyperparameter configurations."""
-
-    minuend_config: dict[str, Any]
-    subtrahend_config: dict[str, Any]
-    mean_diff: float
-    estimate_ci: tuple[float, float]
-    confidence_level: float = 0.95
-
-
-@dataclass(frozen=True)
-class HyperparameterSliceReport:
-    """Sensitivity curve for one hyperparameter: best-achievable performance vs. a champion-pinned slice."""
-
-    vary: str
-    values: list[Any]
-    best_performance: list[float]
-    slice_performance: list[float]
-    plot_path: Path | None
-
-
-@dataclass(frozen=True)
-class BenchmarkBakeoffReport:
-    algorithms: list[str]
-    environments: list[str]
-    normalized_scores: dict[str, dict[str, float]]
-    performance_profiles: dict[str, dict[float, float]]
-    probability_of_improvement: dict[str, dict[str, float | None]]
-    optimality_gaps: dict[str, float]
-    dispersion: dict[str, float]
-    lower_tail: dict[str, float]
-    supplementary_iqm: dict[str, float]
-    omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float | None]]
-    difference_estimate: dict[str, dict[str, float | None]]
-    """[condition_a][condition_b] = condition_a's estimand minus condition_b's, paired by
-    (block, seed); None where fewer than min_samples paired observations were shared."""
-    difference_ci: dict[str, dict[str, tuple[float, float] | None]]
-    aggregate_plot_path: Path | None
-
 
 # ── Entry Points ─────────────────────────────────────────────────────────────
 
@@ -878,10 +829,6 @@ def variance_warning(
     return None
 
 
-BlockKey = tuple[tuple[str, object], ...]
-"""A block's coordinates as (column, value) pairs; empty when a report has no blocking axes."""
-
-
 def _block_label(block_key: BlockKey) -> str:
     return "|".join(str(value) for _column, value in block_key)
 
@@ -1158,24 +1105,6 @@ def _plot_bakeoff(
         plot_ecdf(score_curves, plot_path)
         return plot_path
     return None
-
-
-@dataclass(frozen=True)
-class BakeoffReport:
-    """A repeatable bakeoff analysis: champion selection, comparison, and caveats in one call.
-
-    ``champions`` is ``None`` when ``select_champion_over`` was not given (the metric is
-    already one value per condition per seed per block, nothing to select over).
-    """
-
-    conditions: list[str]
-    metric_name: str
-    seed_counts: dict[str, dict[str, int]]
-    cell_means: dict[str, dict[str, float]]
-    cell_variances: dict[str, dict[str, float]]
-    champions: dict[str, dict[str, HyperparameterConfigReport]] | None
-    comparison: BenchmarkBakeoffReport
-    warnings: tuple[BakeoffWarning, ...]
 
 
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
