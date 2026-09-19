@@ -6,6 +6,7 @@ suitable for reporting RL learning curves across multiple seeds.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -75,6 +76,27 @@ def resolve_block_size(n_points: int, block_size: int | None = None) -> int:
     ):
         raise ValueError("block_size must be a positive integer when provided")
     return max(1, round(n_points ** (1.0 / 3.0))) if block_size is None else block_size
+
+
+def circular_moving_block_resample(
+    residuals: NDArray[np.floating],
+    *,
+    block_size: int | None = None,
+    rng: np.random.Generator,
+) -> NDArray[np.float64]:
+    """Resample centered residuals in circular contiguous blocks."""
+    values = np.asarray(residuals, dtype=np.float64)
+    if values.ndim != 1 or values.size < 1:
+        raise ValueError("residuals must be a non-empty one-dimensional array")
+    if not np.isfinite(values).all():
+        raise ValueError("residuals must contain only finite values")
+    chosen_block_size = resolve_block_size(int(values.size), block_size)
+    centered = values - np.mean(values)
+    n_blocks = math.ceil(values.size / chosen_block_size)
+    starts = rng.integers(0, values.size, size=n_blocks)
+    offsets = np.arange(chosen_block_size, dtype=np.int64)
+    indices = ((starts[:, None] + offsets) % values.size).reshape(-1)[: values.size]
+    return np.ascontiguousarray(centered[indices])
 
 
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
