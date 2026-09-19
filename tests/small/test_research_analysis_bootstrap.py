@@ -4,9 +4,11 @@ import numpy as np
 import pytest
 from research_analysis.bootstrap import (
     BootstrapCI,
+    PercentileBootstrapCI,
     ScalarBootstrapCI,
     bootstrap_ci,
     bootstrap_difference_ci,
+    bootstrap_percentile_ci,
     bootstrap_scalar_ci,
     circular_moving_block_resample,
     resolve_block_size,
@@ -103,6 +105,61 @@ def test_circular_resample_rejects_invalid_inputs() -> None:
         circular_moving_block_resample(np.ones((2, 2)), rng=np.random.default_rng(1))
     with pytest.raises(ValueError):
         circular_moving_block_resample(np.asarray([1.0, np.nan]), rng=np.random.default_rng(1))
+
+
+def test_percentile_bootstrap_matches_numpy_mean_reference() -> None:
+    """
+    Verify the mean percentile interval matches direct NumPy resampling.
+    """
+    values = np.asarray([1.0, 2.0, 4.0, 7.0])
+    confidence = 0.9
+    n_resamples = 128
+    result = bootstrap_percentile_ci(
+        values,
+        confidence=confidence,
+        n_resamples=n_resamples,
+        rng=np.random.default_rng(1234),
+    )
+    rng = np.random.default_rng(1234)
+    indices = rng.integers(0, values.size, size=(n_resamples, values.size))
+    estimates = values[indices].mean(axis=1)
+    alpha = (1.0 - confidence) / 2.0
+
+    assert isinstance(result, PercentileBootstrapCI)
+    assert result.statistic == "mean"
+    assert result.estimate == pytest.approx(values.mean())
+    assert result.ci_low == pytest.approx(np.quantile(estimates, alpha))
+    assert result.ci_high == pytest.approx(np.quantile(estimates, 1.0 - alpha))
+
+
+def test_percentile_bootstrap_supports_interquartile_mean() -> None:
+    """
+    Verify percentile resampling supports the shared interquartile mean statistic.
+    """
+    result = bootstrap_percentile_ci(
+        np.asarray([1.0, 2.0, 4.0, 7.0]),
+        statistic="interquartile_mean",
+        n_resamples=128,
+        rng=np.random.default_rng(42),
+    )
+
+    assert result.statistic == "interquartile_mean"
+    assert result.estimate == pytest.approx(3.0)
+    assert result.ci_low <= result.estimate <= result.ci_high
+
+
+def test_percentile_bootstrap_rejects_invalid_inputs() -> None:
+    """
+    Verify percentile bootstrap validation rejects underpowered and invalid samples.
+    """
+    with pytest.raises(ValueError):
+        bootstrap_percentile_ci(np.asarray([1.0]))
+    with pytest.raises(ValueError):
+        bootstrap_percentile_ci(np.asarray([1.0, np.nan]))
+    with pytest.raises(ValueError):
+        bootstrap_percentile_ci(np.ones(3), confidence=1.0)
+    with pytest.raises(ValueError):
+        bootstrap_percentile_ci(np.ones(3), n_resamples=1)
 
 
 class TestBootstrapCI:
