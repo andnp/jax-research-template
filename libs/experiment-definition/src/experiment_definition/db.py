@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 
 from . import _definition_repository as _definition
 from . import _execution_repository as _execution
+from . import _planning_service as _planning
 from ._database_utils import _hash_dict, _json_stable  # noqa: F401
+from ._planning_service import _run_matches, _static_config_json  # noqa: F401
 from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
 from .records import (
@@ -427,62 +429,7 @@ class DatabaseManager:
         is a vmap zone, so narrowing one changes how wide it trains but not the identity of
         the runs in it, and skipping would make a single-seed selector silently do nothing.
         """
-        rows = self.conn.execute(
-            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
-            "       hc.json_blob, hc.vmap_zone_json "
-            "FROM Runs r "
-            "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
-            "LEFT JOIN ("
-            "    SELECT DISTINCT er.run_id AS run_id "
-            "    FROM ExecutionRuns er "
-            "    INNER JOIN Executions e ON e.id = er.execution_id "
-            "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
-            ") claimed ON claimed.run_id = r.id "
-            "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
-            "ORDER BY r.hyper_id, r.seed, r.id",
-            (experiment_id,),
-        ).fetchall()
-
-        grouped_runs: dict[tuple[int | None, int | None, str | None, str, str | None], list[int]] = {}
-        for row in rows:
-            run = _record_from_row(RunRow, row)
-            hyper_json = str(row[7])
-            if only and not _run_matches(json.loads(hyper_json), run, only):
-                continue
-            vmap_zone_json = str(row[8]) if row[8] is not None else None
-            static_config_json = _static_config_json(hyper_json, vmap_zone_json)
-            batch_key = (
-                run.algo_version_id,
-                run.env_version_id,
-                run.ablation,
-                static_config_json,
-                vmap_zone_json,
-            )
-            grouped_runs.setdefault(batch_key, []).append(run.id)
-
-        def batch_key_of(
-            item: tuple[tuple[int | None, int | None, str | None, str, str | None], list[int]],
-        ) -> tuple[int | None, int | None, str | None, str, str | None]:
-            return item[0]
-
-        batches: list[RunBatch] = []
-        for batch_key, run_ids in sorted(grouped_runs.items(), key=batch_key_of):
-            algo_version_id, env_version_id, ablation, static_config_json, vmap_zone_json = batch_key
-            static_config = json.loads(static_config_json)
-            vmap_zone = json.loads(vmap_zone_json) if vmap_zone_json is not None else None
-            chunk_size = len(run_ids) if max_runs_per_batch is None else max_runs_per_batch
-            for start in range(0, len(run_ids), chunk_size):
-                batches.append(
-                    RunBatch(
-                        algo_version_id,
-                        env_version_id,
-                        ablation,
-                        static_config,
-                        vmap_zone,
-                        run_ids[start : start + chunk_size],
-                    )
-                )
-        return batches
+        return _planning.list_unsatisfied_run_batches(self.conn, experiment_id, max_runs_per_batch, only)
 
     # ------------------------------------------------------------------
     # Executions
@@ -618,7 +565,14 @@ class DatabaseManager:
             raise ValueError("run_ids must not be empty.")
 
         with self.conn:
-            return self._plan_execution(run_ids, hostname, git_commit, git_diff_blob, jax_config)
+            return _planning.plan_execution(
+                self.conn,
+                run_ids,
+                hostname,
+                git_commit,
+                git_diff_blob,
+                jax_config,
+            )
 
     def _plan_execution(
         self,
@@ -628,10 +582,14 @@ class DatabaseManager:
         git_diff_blob: str | None,
         jax_config: Mapping[str, ParameterValue] | None,
     ) -> int:
-        execution_id = self._insert_execution(hostname, git_commit, git_diff_blob, jax_config)
-        for run_id in run_ids:
-            self._link_execution_run(execution_id, run_id)
-        return execution_id
+        return _planning._plan_execution(
+            self.conn,
+            run_ids,
+            hostname,
+            git_commit,
+            git_diff_blob,
+            jax_config,
+        )
 
     def plan_unsatisfied_execution(
         self,
@@ -644,26 +602,11 @@ class DatabaseManager:
         jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> int | None:
         """Create a pending execution covering unsatisfied runs for an experiment."""
-        rows = self.conn.execute(
-            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
-            "FROM Runs r "
-            "LEFT JOIN ("
-            "    SELECT DISTINCT er.run_id AS run_id "
-            "    FROM ExecutionRuns er "
-            "    INNER JOIN Executions e ON e.id = er.execution_id "
-            "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
-            ") claimed ON claimed.run_id = r.id "
-            "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
-            "ORDER BY r.seed, r.hyper_id, r.id",
-            (experiment_id,),
-        ).fetchall()
-        if not rows:
+        run_ids = _planning.unsatisfied_run_ids(self.conn, experiment_id, limit)
+        if run_ids is None:
             return None
-
-        unsatisfied_runs = [_record_from_row(RunRow, row) for row in rows]
-        selected_runs = unsatisfied_runs if limit is None else unsatisfied_runs[:limit]
         return self.plan_execution(
-            [run.id for run in selected_runs],
+            run_ids,
             hostname=hostname,
             git_commit=git_commit,
             git_diff_blob=git_diff_blob,
@@ -684,9 +627,18 @@ class DatabaseManager:
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             execution_ids: list[int] = []
-            for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
+            for batch in _planning.list_unsatisfied_run_batches(
+                self.conn, experiment_id, max_runs_per_batch, None
+            ):
                 execution_ids.append(
-                    self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
+                    _planning._plan_execution(
+                        self.conn,
+                        batch.run_ids,
+                        hostname,
+                        git_commit,
+                        git_diff_blob,
+                        jax_config,
+                    )
                 )
             self.conn.commit()
             return execution_ids
@@ -711,22 +663,20 @@ class DatabaseManager:
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             planned: list[PlannedExecution] = []
-            for batch in self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch):
-                execution_id = self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
-                root_path = str(base_path / str(execution_id))
-                manifest_path = str(Path(root_path) / manifest_name)
-                self._record_execution_artifacts(
-                    execution_id,
-                    root_path,
-                    manifest_path,
-                    {
-                        "run_ids": batch.run_ids,
-                        "static_config_json": _json_stable(batch.static_config),
-                        "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
-                    },
-                )
+            for batch in _planning.list_unsatisfied_run_batches(
+                self.conn, experiment_id, max_runs_per_batch, None
+            ):
                 planned.append(
-                    PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config, batch.vmap_zone)
+                    _planning.plan_batch_with_artifacts(
+                        self.conn,
+                        batch,
+                        base_path,
+                        manifest_name,
+                        hostname,
+                        git_commit,
+                        git_diff_blob,
+                        jax_config,
+                    )
                 )
             self.conn.commit()
             return planned
@@ -754,25 +704,23 @@ class DatabaseManager:
         base_path = Path(artifacts_root)
         self.conn.execute("BEGIN IMMEDIATE")
         try:
-            batches = self.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=max_runs_per_batch, only=only)
+            batches = _planning.list_unsatisfied_run_batches(
+                self.conn, experiment_id, max_runs_per_batch, only
+            )
             if not batches:
                 self.conn.commit()
                 return None
             batch = batches[0]
-            execution_id = self._plan_execution(batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
-            root_path = str(base_path / str(execution_id))
-            manifest_path = str(Path(root_path) / manifest_name)
-            self._record_execution_artifacts(
-                execution_id,
-                root_path,
-                manifest_path,
-                {
-                    "run_ids": batch.run_ids,
-                    "static_config_json": _json_stable(batch.static_config),
-                    "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
-                },
+            planned = _planning.plan_batch_with_artifacts(
+                self.conn,
+                batch,
+                base_path,
+                manifest_name,
+                hostname,
+                git_commit,
+                git_diff_blob,
+                jax_config,
             )
-            planned = PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config, batch.vmap_zone)
             self.conn.commit()
             return planned
         except Exception:
@@ -949,55 +897,3 @@ class DatabaseManager:
             static_config=json.loads(metadata.get("static_config_json", "{}")),
             vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
         )
-
-
-def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
-    hyper_params = json.loads(hyper_json)
-    if vmap_zone_json is None:
-        return _json_stable(hyper_params)
-
-    vmap_zone = json.loads(vmap_zone_json)
-    static_keys = list(vmap_zone.get("static_keys", []))
-    if not static_keys:
-        return _json_stable(hyper_params)
-
-    static_params = {key: hyper_params[key] for key in static_keys if key in hyper_params}
-    return _json_stable(static_params)
-
-
-def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: Mapping[str, str]) -> bool:
-    """Whether one run satisfies every clause in ``only``.
-
-    Clauses AND together; a clause's comma-separated values OR within it, so
-    ``seed=0,1,2`` selects a range that repeated strict-equality clauses could not
-    express. Values compare as strings against ``str()`` of the stored value, as
-    ``find_executions_by_hyperparams`` does, so ``learning_rate=1e-3`` does not match a
-    stored ``0.001``.
-
-    ``seed`` and ``ablation`` live on ``Runs`` rather than in the hyperparameter config,
-    and shadow a config key of the same name -- the column is the identity the run was
-    planned under.
-    """
-    fields: dict[str, object] = {**hyperparams, "seed": run.seed, "ablation": run.ablation}
-    return all(
-        key in fields and str(fields[key]) in set(value.split(","))
-        for key, value in only.items()
-    )
-
-
-def _vmap_zone_for_hyper_config(
-    state: "_ExperimentState",
-    hyper_config: dict[str, ParameterValue],
-    *,
-    static_parameter_names: frozenset[str] | None = None,
-) -> dict[str, list[str]]:
-    static_keys = sorted(
-        {
-            param.name
-            for param in state.parameters
-            if (param.is_static if static_parameter_names is None else param.name in static_parameter_names)
-            and param.name in hyper_config
-        }
-    )
-    dynamic_keys = sorted(key for key in hyper_config if key not in static_keys)
-    return {"static_keys": static_keys, "dynamic_keys": dynamic_keys}
