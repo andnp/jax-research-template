@@ -7,17 +7,19 @@ programmatic access without the Fluent API.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .experiment import _ExperimentState
 
+from . import _definition_repository as _definition
+from ._database_utils import _hash_dict, _json_stable  # noqa: F401
+from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
 from .records import (
     ComponentRow,
@@ -32,15 +34,6 @@ from .records import (
 )
 from .schema import ALL_DDL, DEFAULT_DB_NAME
 
-
-def _json_stable(obj: object) -> str:
-    return json.dumps(obj, sort_keys=True, default=str)
-
-
-def _hash_dict(d: Mapping[str, object]) -> str:
-    return hashlib.sha256(_json_stable(d).encode()).hexdigest()
-
-
 _EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
     "PENDING": frozenset({"RUNNING", "COMPLETED", "FAILED", "INVALID"}),
     "RUNNING": frozenset({"COMPLETED", "FAILED", "INVALID"}),
@@ -48,82 +41,6 @@ _EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
     "FAILED": frozenset({"INVALID"}),
     "INVALID": frozenset(),
 }
-
-
-def _upsert_component(cur: sqlite3.Cursor, name: str, comp_type: str, code_hash: str) -> tuple[int, int]:
-    """Insert or look up a component and ensure a version row exists.
-
-    Returns:
-        Tuple of (component_id, component_version_id).
-    """
-    cur.execute("INSERT OR IGNORE INTO Components(name, type) VALUES (?, ?)", (name, comp_type))
-    cur.execute("SELECT id FROM Components WHERE name = ?", (name,))
-    row = cur.fetchone()
-    assert row is not None
-    comp_id: int = row[0]
-
-    # Find the latest version for this component
-    cur.execute(
-        "SELECT id, version_number, code_snapshot_hash FROM ComponentVersions "
-        "WHERE component_id = ? ORDER BY version_number DESC LIMIT 1",
-        (comp_id,),
-    )
-    existing = cur.fetchone()
-
-    if existing is None or existing[2] != code_hash:
-        next_version = 1 if existing is None else existing[1] + 1
-        now = datetime.now(timezone.utc).isoformat()
-        cur.execute(
-            "INSERT INTO ComponentVersions(component_id, version_number, created_at, code_snapshot_hash) "
-            "VALUES (?, ?, ?, ?)",
-            (comp_id, next_version, now, code_hash),
-        )
-        assert cur.lastrowid is not None
-        version_id: int = cur.lastrowid
-    else:
-        version_id = existing[0]
-
-    return comp_id, version_id
-
-
-def _upsert_hyperparam_config(
-    cur: sqlite3.Cursor,
-    config: dict[str, ParameterValue],
-    vmap_zone: dict[str, list[str]] | None = None,
-) -> int:
-    h = _hash_dict(config)
-    blob = _json_stable(config)
-    vmap_json = _json_stable(vmap_zone) if vmap_zone is not None else None
-    cur.execute(
-        "INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
-        (h, blob, vmap_json),
-    )
-    cur.execute("SELECT id, vmap_zone_json FROM HyperparamConfigs WHERE hash = ?", (h,))
-    row = cur.fetchone()
-    assert row is not None
-    result = int(row[0])
-    existing_vmap_json = row[1]
-    if vmap_json is not None and existing_vmap_json != vmap_json:
-        cur.execute(
-            "UPDATE HyperparamConfigs SET vmap_zone_json = ? WHERE id = ?",
-            (vmap_json, result),
-        )
-    return result
-
-
-def _upsert_experiment(cur: sqlite3.Cursor, name: str, description: str | None) -> int:
-    cur.execute("SELECT id FROM Experiments WHERE name = ?", (name,))
-    row = cur.fetchone()
-    if row is not None:
-        return int(row[0])
-
-    cur.execute(
-        "INSERT INTO Experiments(name, description) VALUES (?, ?)",
-        (name, description),
-    )
-    if cur.lastrowid is None:
-        raise RuntimeError("Insert failed: no experiment ID returned.")
-    return int(cur.lastrowid)
 
 
 def sync_to_db(
@@ -155,17 +72,17 @@ def sync_to_db(
             cur = con.cursor()
 
             # ── Experiment row ────────────────────────────────────────────────
-            exp_id = _upsert_experiment(cur, state.name, state.description)
+            exp_id = _definition._upsert_experiment(cur, state.name, state.description)
 
             # ── Components ───────────────────────────────────────────────────
             comp_version_ids: dict[str, int] = {}  # component.name → version_id
             for comp in state.components:
-                _, vid = _upsert_component(cur, comp.name, comp.type.value, comp.code_hash())
+                _, vid = _definition._upsert_component(cur, comp.name, comp.type.value, comp.code_hash())
                 comp_version_ids[comp.name] = vid
 
             # ── Generate runs ─────────────────────────────────────────────────
             configs = _generate_configs(state)
-            wanted = _insert_runs(
+            wanted = _definition.sync_runs(
                 cur,
                 exp_id,
                 comp_version_ids,
@@ -234,104 +151,6 @@ def _expand_conditionals(
         results.extend(_expand_conditionals(merged, remaining))
 
     return results
-
-
-def _insert_runs(
-    cur: sqlite3.Cursor,
-    exp_id: int,
-    comp_version_ids: dict[str, int],
-    configs: list[dict[str, ParameterValue]],
-    state: "_ExperimentState",
-    *,
-    static_parameter_names: frozenset[str] | None = None,
-) -> set[int]:
-    """Insert Run rows for each (config × ablation) combination, returning every wanted id.
-
-    Seeds are extracted from the ``seed`` key in the config; all other keys
-    form the ``HyperparamConfig``.
-
-    The returned set covers rows that already existed as well as rows inserted here, so a
-    caller can tell the definition's runs apart from rows an earlier definition left
-    behind. Those orphans are invisible to the ``UNIQUE`` identity: a component-hash
-    change or a dropped hyperparameter mints new rows rather than updating old ones.
-    """
-    # Determine algo/env version ids. When exactly one component of a type is
-    # declared it unambiguously authored every run, so its version id is
-    # stamped as before. When *more than one* component of the same type is
-    # declared (e.g. a two-agent bakeoff), the schema has no per-run record
-    # of which component actually produced a given run, so picking one
-    # arbitrarily (previously: "first wins") silently mislabels provenance
-    # for every run that used a different component. Leaving the column
-    # NULL is the honest smallest fix: "unknown" instead of a specific,
-    # wrong, answer.
-    from .component import ComponentType
-
-    algo_components = [comp for comp in state.components if comp.type == ComponentType.ALGO]
-    env_components = [comp for comp in state.components if comp.type == ComponentType.ENV]
-    algo_vid: int | None = comp_version_ids.get(algo_components[0].name) if len(algo_components) == 1 else None
-    env_vid: int | None = comp_version_ids.get(env_components[0].name) if len(env_components) == 1 else None
-
-    ablation_list: list[tuple[str | None, dict[str, ParameterValue]]] = [(None, {})]
-    for abl in state.ablations:
-        ablation_list.append((abl.name, abl.overrides))
-
-    wanted: set[int] = set()
-    for config in configs:
-        raw_seed = config.get("seed", 0)
-        if raw_seed is None:
-            raise TypeError("experiment seed must not be None")
-        seed = int(raw_seed)
-        hyper_config = {k: v for k, v in config.items() if k != "seed"}
-
-        for abl_name, abl_overrides in ablation_list:
-            final_hyper = {**hyper_config, **abl_overrides}
-            hyper_id = _upsert_hyperparam_config(
-                cur,
-                final_hyper,
-                _vmap_zone_for_hyper_config(
-                    state,
-                    final_hyper,
-                    static_parameter_names=static_parameter_names,
-                ),
-            )
-
-            existing = cur.execute(
-                "SELECT id FROM Runs "
-                "WHERE experiment_id = ? AND algo_version_id IS ? AND env_version_id IS ? "
-                "AND hyper_id = ? AND seed = ? AND ablation IS ?",
-                (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
-            ).fetchone()
-            if existing is not None:
-                wanted.add(int(existing[0]))
-                continue
-
-            cur.execute(
-                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
-            )
-            new_run_id = cur.lastrowid
-            assert new_run_id is not None, "INSERT into Runs did not assign a rowid"
-            wanted.add(new_run_id)
-    return wanted
-
-
-class RunBatch(NamedTuple):
-    algo_version_id: int | None
-    env_version_id: int | None
-    ablation: str | None
-    static_config: Mapping[str, ParameterValue]
-    vmap_zone: Mapping[str, list[str]] | None
-    run_ids: list[int]
-
-
-class PlannedExecution(NamedTuple):
-    execution_id: int
-    run_ids: list[int]
-    root_path: str
-    manifest_path: str
-    static_config: Mapping[str, ParameterValue]
-    vmap_zone: Mapping[str, list[str]] | None
 
 
 # ---------------------------------------------------------------------------
@@ -421,18 +240,11 @@ class DatabaseManager:
         if component_type not in ("ALGO", "ENV", "WRAPPER"):
             raise ValueError(f"Invalid component_type {component_type!r}. Must be ALGO, ENV, or WRAPPER.")
         with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO Components(name, type) VALUES (?, ?)",
-                (name, component_type),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no component ID returned.")
-            return int(cur.lastrowid)
+            return _definition.add_component(self.conn, name, component_type)
 
     def get_component(self, name: str) -> ComponentRow | None:
         """Fetch a component by name."""
-        row = self.conn.execute("SELECT id, name, type FROM Components WHERE name = ?", (name,)).fetchone()
-        return _record_from_row(ComponentRow, row) if row else None
+        return _definition.get_component(self.conn, name)
 
     # ------------------------------------------------------------------
     # ComponentVersions  (researcher-in-the-loop auto-increment)
@@ -459,19 +271,7 @@ class DatabaseManager:
             The integer ``id`` of the newly inserted ``ComponentVersions`` row.
         """
         with self.conn:
-            row = self.conn.execute(
-                "SELECT COALESCE(MAX(version_number), 0) FROM ComponentVersions WHERE component_id = ?",
-                (component_id,),
-            ).fetchone()
-            next_version = int(row[0]) + 1
-            cur = self.conn.execute(
-                "INSERT INTO ComponentVersions(component_id, version_number, code_snapshot_hash, notes) "
-                "VALUES (?, ?, ?, ?)",
-                (component_id, next_version, code_snapshot_hash, notes),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no component version ID returned.")
-            return int(cur.lastrowid)
+            return _definition.add_component_version(self.conn, component_id, code_snapshot_hash, notes)
 
     def get_latest_version(self, component_id: int) -> ComponentVersionRow | None:
         """Resolve the "latest" virtual pointer for a component.
@@ -483,23 +283,11 @@ class DatabaseManager:
         Args:
             component_id: FK into ``Components``.
         """
-        row = self.conn.execute(
-            "SELECT id, component_id, version_number, created_at, code_snapshot_hash, notes "
-            "FROM ComponentLatestVersions WHERE component_id = ?",
-            (component_id,),
-        ).fetchone()
-        return _record_from_row(ComponentVersionRow, row) if row else None
+        return _definition.get_latest_version(self.conn, component_id)
 
     def get_component_version_provenance(self, version_id: int) -> ComponentVersionProvenanceRow | None:
         """Fetch component identity and provenance for one version."""
-        row = self.conn.execute(
-            "SELECT c.id AS component_id, c.name AS component_name, c.type AS component_type, "
-            "cv.id AS version_id, cv.version_number, cv.code_snapshot_hash "
-            "FROM ComponentVersions cv INNER JOIN Components c ON c.id = cv.component_id "
-            "WHERE cv.id = ?",
-            (version_id,),
-        ).fetchone()
-        return _record_from_row(ComponentVersionProvenanceRow, row) if row else None
+        return _definition.get_component_version_provenance(self.conn, version_id)
 
     def hash_changed(self, component_id: int, new_hash: str) -> bool:
         """Return ``True`` if ``new_hash`` differs from the latest stored hash.
@@ -542,33 +330,12 @@ class DatabaseManager:
         Returns:
             The integer ``id`` of the (possibly pre-existing) row.
         """
-        json_blob = json.dumps(params, sort_keys=True)
-        config_hash = hashlib.sha256(json_blob.encode()).hexdigest()
-        vmap_json = json.dumps(vmap_zone, sort_keys=True) if vmap_zone is not None else None
-
         with self.conn:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
-                (config_hash, json_blob, vmap_json),
-            )
-            row = self.conn.execute("SELECT id FROM HyperparamConfigs WHERE hash = ?", (config_hash,)).fetchone()
-            return int(row[0])
+            return _definition.add_hyperparam_config(self.conn, params, vmap_zone)
 
     def get_hyperparam_config(self, config_id: int) -> HyperparamConfigRow | None:
         """Fetch a HyperparamConfig by id."""
-        row = self.conn.execute(
-            "SELECT id, hash, json_blob, vmap_zone_json FROM HyperparamConfigs WHERE id = ?",
-            (config_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        row_id, config_hash, json_blob, vmap_zone_json = row
-        return HyperparamConfigRow(
-            id=row_id,
-            hash=config_hash,
-            hyperparameters=json.loads(json_blob),
-            vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
-        )
+        return _definition.get_hyperparam_config(self.conn, config_id)
 
     # ------------------------------------------------------------------
     # Experiments
@@ -577,13 +344,7 @@ class DatabaseManager:
     def add_experiment(self, name: str, description: str | None = None) -> int:
         """Insert a new experiment and return its id."""
         with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO Experiments(name, description) VALUES (?, ?)",
-                (name, description),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no experiment ID returned.")
-            return int(cur.lastrowid)
+            return _definition.add_experiment(self.conn, name, description)
 
     def ensure_experiment(self, name: str, description: str | None = None) -> int:
         """Return the existing experiment id for ``name`` or create it.
@@ -591,33 +352,22 @@ class DatabaseManager:
         This is the additive-registration primitive needed for declarative
         experiment expansion. Repeated calls with the same name are idempotent.
         """
-        existing = self.get_experiment(name)
+        existing = _definition.get_experiment(self.conn, name)
         if existing is not None:
             return existing.id
         return self.add_experiment(name, description)
 
     def get_experiment(self, name: str) -> ExperimentRow | None:
         """Fetch an experiment by name."""
-        row = self.conn.execute(
-            "SELECT id, name, description, created_at FROM Experiments WHERE name = ?",
-            (name,),
-        ).fetchone()
-        return _record_from_row(ExperimentRow, row) if row else None
+        return _definition.get_experiment(self.conn, name)
 
     def list_experiments(self) -> list[ExperimentRow]:
         """Return all experiments ordered by name."""
-        rows = self.conn.execute(
-            "SELECT id, name, description, created_at FROM Experiments ORDER BY name",
-        ).fetchall()
-        return [_record_from_row(ExperimentRow, row) for row in rows]
+        return _definition.list_experiments(self.conn)
 
     def get_experiment_by_id(self, experiment_id: int) -> ExperimentRow | None:
         """Fetch an experiment by id."""
-        row = self.conn.execute(
-            "SELECT id, name, description, created_at FROM Experiments WHERE id = ?",
-            (experiment_id,),
-        ).fetchone()
-        return _record_from_row(ExperimentRow, row) if row else None
+        return _definition.get_experiment_by_id(self.conn, experiment_id)
 
     # ------------------------------------------------------------------
     # Runs
@@ -637,23 +387,11 @@ class DatabaseManager:
         Raises ``sqlite3.IntegrityError`` if an identical run already exists.
         """
         with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation),
-            )
-            if cur.lastrowid is None:
-                raise RuntimeError("Insert failed: no run ID returned.")
-            return int(cur.lastrowid)
+            return _definition.add_run(self.conn, experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation)
 
     def list_runs(self, experiment_id: int) -> list[RunRow]:
         """Return all logical runs for an experiment ordered by seed and id."""
-        rows = self.conn.execute(
-            "SELECT id, experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation "
-            "FROM Runs WHERE experiment_id = ? ORDER BY seed, hyper_id, id",
-            (experiment_id,),
-        ).fetchall()
-        return [_record_from_row(RunRow, row) for row in rows]
+        return _definition.list_runs(self.conn, experiment_id)
 
     def list_unsatisfied_runs(self, experiment_id: int) -> list[RunRow]:
         """Return runs lacking any linked ``COMPLETED`` execution.
@@ -662,20 +400,7 @@ class DatabaseManager:
         has status ``COMPLETED``. Runs linked only to ``FAILED`` or ``INVALID``
         executions are returned here and should be rescheduled by the runner.
         """
-        rows = self.conn.execute(
-            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
-            "FROM Runs r "
-            "LEFT JOIN ("
-            "    SELECT DISTINCT er.run_id AS run_id "
-            "    FROM ExecutionRuns er "
-            "    INNER JOIN Executions e ON e.id = er.execution_id "
-            "    WHERE e.status = 'COMPLETED'"
-            ") completed ON completed.run_id = r.id "
-            "WHERE r.experiment_id = ? AND completed.run_id IS NULL "
-            "ORDER BY r.seed, r.hyper_id, r.id",
-            (experiment_id,),
-        ).fetchall()
-        return [_record_from_row(RunRow, row) for row in rows]
+        return _definition.list_unsatisfied_runs(self.conn, experiment_id)
 
     def list_orphan_runs(self, experiment_id: int, wanted_run_ids: frozenset[int]) -> list[RunRow]:
         """Return runs the current definition does not want and that no execution ever touched.
@@ -685,15 +410,7 @@ class DatabaseManager:
         RUNNING one is a live claim, so neither is garbage even when the definition has
         moved on.
         """
-        rows = self.conn.execute(
-            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
-            "FROM Runs r "
-            "LEFT JOIN ExecutionRuns er ON er.run_id = r.id "
-            "WHERE r.experiment_id = ? AND er.run_id IS NULL "
-            "ORDER BY r.hyper_id, r.seed, r.id",
-            (experiment_id,),
-        ).fetchall()
-        return [_record_from_row(RunRow, row) for row in rows if int(row["id"]) not in wanted_run_ids]
+        return _definition.list_orphan_runs(self.conn, experiment_id, wanted_run_ids)
 
     def delete_runs(self, run_ids: list[int]) -> int:
         """Delete runs by id, skipping any that an execution touched, and return the count.
@@ -702,16 +419,8 @@ class DatabaseManager:
         deletes rows from a durable results database, and a stale id list must not be able
         to remove a run that has results.
         """
-        deleted = 0
         with self.conn:
-            for run_id in run_ids:
-                cursor = self.conn.execute(
-                    "DELETE FROM Runs WHERE id = ? "
-                    "AND NOT EXISTS (SELECT 1 FROM ExecutionRuns er WHERE er.run_id = Runs.id)",
-                    (run_id,),
-                )
-                deleted += cursor.rowcount
-        return deleted
+            return _definition.delete_runs(self.conn, run_ids)
 
     def list_unsatisfied_run_batches(
         self,
