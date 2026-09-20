@@ -474,6 +474,17 @@ def test_plan_execution_requires_non_empty_run_ids(db: DatabaseManager) -> None:
         db.plan_execution([])
 
 
+def test_plan_execution_rolls_back_when_linking_a_run_fails(populated_db: Populated) -> None:
+    """A failed run link must not leave behind the execution inserted before it."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    valid_run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.plan_execution([valid_run_id, 999999])
+
+    assert db.list_executions() == []
+
+
 def test_plan_unsatisfied_execution_selects_only_unsatisfied_runs(populated_db: Populated) -> None:
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
     completed_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
@@ -805,6 +816,35 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
     assert db.plan_experiment_execution_batches(exp_id, "/tmp/experiment-executions") == []
 
 
+def test_plan_experiment_execution_batches_rolls_back_all_batches_on_artifact_failure(
+    db: DatabaseManager,
+) -> None:
+    """A later artifact failure must roll back every execution from the batch plan."""
+    algo_id = db.add_component("AtomicPlannerAlgo", "ALGO")
+    env_id = db.add_component("AtomicPlannerEnv", "ENV")
+    algo_ver = db.add_component_version(algo_id, "algo-hash")
+    env_ver = db.add_component_version(env_id, "env-hash")
+    exp_id = db.add_experiment("Atomic Planner Experiment")
+    vmap_zone = {"static_keys": ["arch"], "dynamic_keys": []}
+    mlp_hyper_id = db.add_hyperparam_config({"arch": "mlp"}, vmap_zone=vmap_zone)
+    cnn_hyper_id = db.add_hyperparam_config({"arch": "cnn"}, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, mlp_hyper_id, seed=0)
+    db.add_run(exp_id, algo_ver, env_ver, cnn_hyper_id, seed=1)
+    db.conn.execute(
+        "CREATE TRIGGER fail_second_artifact_insert "
+        "BEFORE INSERT ON ExecutionArtifacts "
+        "WHEN (SELECT COUNT(*) FROM ExecutionArtifacts) >= 1 "
+        "BEGIN SELECT RAISE(ABORT, 'forced artifact failure'); END;",
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced artifact failure"):
+        db.plan_experiment_execution_batches(exp_id, "/tmp/atomic-experiment-executions")
+
+    assert db.list_executions() == []
+    artifact_count = db.conn.execute("SELECT COUNT(*) FROM ExecutionArtifacts").fetchone()[0]
+    assert artifact_count == 0
+
+
 # ---------------------------------------------------------------------------
 # Context manager
 # ---------------------------------------------------------------------------
@@ -816,6 +856,22 @@ def test_context_manager_opens_and_closes() -> None:
         assert db.conn is not None
     # After __exit__, conn should be None
     assert db._conn is None  # noqa: SLF001
+
+
+def test_reconnect_uses_the_current_connection(tmp_path: Path) -> None:
+    """Repository calls after reconnecting must use the replacement SQLite connection."""
+    db_path = tmp_path / "reconnect.sqlite"
+    database = DatabaseManager(db_path)
+    database.connect()
+    database.initialize()
+    database.add_experiment("Reconnect Experiment")
+    database.close()
+
+    database.connect()
+    database.initialize()
+
+    assert database.get_experiment("Reconnect Experiment") is not None
+    database.close()
 
 
 # ---------------------------------------------------------------------------
