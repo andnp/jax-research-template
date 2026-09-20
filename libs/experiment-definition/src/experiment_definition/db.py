@@ -7,7 +7,6 @@ programmatic access without the Fluent API.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,7 +18,8 @@ if TYPE_CHECKING:
 from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from . import _planning_service as _planning
-from ._database_utils import _hash_dict, _json_stable  # noqa: F401
+from . import _query_repository as _query
+from ._database_utils import _hash_dict  # noqa: F401
 from ._planning_service import _run_matches, _static_config_json  # noqa: F401
 from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
@@ -32,7 +32,6 @@ from .records import (
     ExperimentRow,
     HyperparamConfigRow,
     RunRow,
-    _record_from_row,
 )
 from .schema import ALL_DDL, DEFAULT_DB_NAME
 
@@ -729,35 +728,15 @@ class DatabaseManager:
 
     def list_execution_runs(self, execution_id: int) -> list[RunRow]:
         """Return the logical runs linked to an execution."""
-        rows = self.conn.execute(
-            "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
-            "FROM Runs r "
-            "INNER JOIN ExecutionRuns er ON er.run_id = r.id "
-            "WHERE er.execution_id = ? "
-            "ORDER BY r.seed, r.hyper_id, r.id",
-            (execution_id,),
-        ).fetchall()
-        return [_record_from_row(RunRow, row) for row in rows]
+        return _query.list_execution_runs(self.conn, execution_id)
 
     def get_latest_completed_execution_for_run(self, run_id: int) -> ExecutionRow | None:
         """Return the latest completed execution linked to a run, if any."""
-        row = self.conn.execute(
-            "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, e.git_commit, e.git_diff_blob, e.jax_config_json "
-            "FROM Executions e "
-            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-            "WHERE er.run_id = ? AND e.status = 'COMPLETED' "
-            "ORDER BY COALESCE(e.end_time, e.start_time, '') DESC, e.id DESC "
-            "LIMIT 1",
-            (run_id,),
-        ).fetchone()
-        return _record_from_row(ExecutionRow, row) if row else None
+        return _query.get_latest_completed_execution_for_run(self.conn, run_id)
 
     def get_latest_completed_artifacts_for_run(self, run_id: int) -> ExecutionArtifactRow | None:
         """Resolve artifact linkage for the latest completed execution of a run."""
-        latest_execution = self.get_latest_completed_execution_for_run(run_id)
-        if latest_execution is None:
-            return None
-        return self.get_execution_artifacts(latest_execution.id)
+        return _query.get_latest_completed_artifacts_for_run(self.conn, run_id)
 
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""
@@ -768,25 +747,10 @@ class DatabaseManager:
         _execution._link_execution_run(self.conn, execution_id, run_id)
 
     def invalidate_execution(self, execution_id: int):
-        existing = self.get_execution(execution_id)
-        if existing is None:
-            return False
-        self.update_execution_status(execution_id, "INVALID")
-        return True
+        return _query.invalidate_execution(self.conn, execution_id)
 
     def invalidate_executions_by_commit(self, git_commit: str):
-        with self.conn:
-            rows = self.conn.execute(
-                "SELECT id FROM Executions WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
-                (git_commit,),
-            ).fetchall()
-            if not rows:
-                return []
-            self.conn.execute(
-                "UPDATE Executions SET status = 'INVALID' WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
-                (git_commit,),
-            )
-        return [int(row[0]) for row in rows]
+        return _query.invalidate_executions_by_commit(self.conn, git_commit)
 
     def find_executions_for_experiment(self, experiment_id: int) -> list[ExecutionRow]:
         """Return every COMPLETED/FAILED execution covering a run of ``experiment_id``.
@@ -795,17 +759,7 @@ class DatabaseManager:
         targeted correction. Unlike ``find_executions_by_hyperparams`` there is no
         per-batch filter to under-select against: the caller asked for all of them.
         """
-        rows = self.conn.execute(
-            "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-            "e.git_commit, e.git_diff_blob, e.jax_config_json "
-            "FROM Executions e "
-            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-            "INNER JOIN Runs r ON r.id = er.run_id "
-            "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
-            "ORDER BY e.id",
-            (experiment_id,),
-        ).fetchall()
-        return [_record_from_row(ExecutionRow, row) for row in rows]
+        return _query.find_executions_for_experiment(self.conn, experiment_id)
 
     def find_executions_by_hyperparams(self, experiment_id: int, where: Mapping[str, str]) -> list[ExecutionRow]:
         """Return COMPLETED/FAILED executions whose covered runs all match ``where``.
@@ -818,30 +772,10 @@ class DatabaseManager:
         invalidating runs the caller did not select is worse than
         under-selecting.
         """
-        rows = self.conn.execute(
-            "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-            "e.git_commit, e.git_diff_blob, e.jax_config_json "
-            "FROM Executions e "
-            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-            "INNER JOIN Runs r ON r.id = er.run_id "
-            "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
-            "ORDER BY e.id",
-            (experiment_id,),
-        ).fetchall()
-        matched = []
-        for row in rows:
-            execution = _record_from_row(ExecutionRow, row)
-            runs = self.list_execution_runs(execution.id)
-            if runs and all(self._hyperparams_match(run.hyper_id, where) for run in runs):
-                matched.append(execution)
-        return matched
+        return _query.find_executions_by_hyperparams(self.conn, experiment_id, where)
 
     def _hyperparams_match(self, hyper_id: int, where: Mapping[str, str]) -> bool:
-        config = self.get_hyperparam_config(hyper_id)
-        if config is None:
-            return False
-        params = config.hyperparameters
-        return all(key in params and str(params[key]) == value for key, value in where.items())
+        return _query._hyperparams_match(self.conn, hyper_id, where)
 
     def list_executions(
         self,
@@ -850,50 +784,12 @@ class DatabaseManager:
         status: str | None = None,
         git_commit: str | None = None,
     ):
-        clauses: list[str] = []
-        params: list[object] = []
-
-        if experiment_id is not None:
-            clauses.append(
-                "e.id IN ("
-                "  SELECT er.execution_id FROM ExecutionRuns er"
-                "  INNER JOIN Runs r ON r.id = er.run_id"
-                "  WHERE r.experiment_id = ?"
-                ")"
-            )
-            params.append(experiment_id)
-        if status is not None:
-            clauses.append("e.status = ?")
-            params.append(status)
-        if git_commit is not None:
-            clauses.append("e.git_commit = ?")
-            params.append(git_commit)
-
-        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        rows = self.conn.execute(
-            "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-            "e.git_commit, e.git_diff_blob, e.jax_config_json "
-            f"FROM Executions e{where} ORDER BY e.id DESC",
-            params,
-        ).fetchall()
-        return [_record_from_row(ExecutionRow, row) for row in rows]
+        return _query.list_executions(
+            self.conn,
+            experiment_id,
+            status=status,
+            git_commit=git_commit,
+        )
 
     def get_planned_execution(self, execution_id: int):
-        execution = self.get_execution(execution_id)
-        if execution is None:
-            return None
-        artifacts = self.get_execution_artifacts(execution_id)
-        if artifacts is None:
-            return None
-        runs = self.list_execution_runs(execution_id)
-        run_ids = [r.id for r in runs]
-        metadata = json.loads(artifacts.metadata_json) if artifacts.metadata_json else {}
-        vmap_zone_json = metadata.get("vmap_zone_json")
-        return PlannedExecution(
-            execution_id=execution_id,
-            run_ids=run_ids,
-            root_path=artifacts.root_path,
-            manifest_path=artifacts.manifest_path or "",
-            static_config=json.loads(metadata.get("static_config_json", "{}")),
-            vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
-        )
+        return _query.get_planned_execution(self.conn, execution_id)
