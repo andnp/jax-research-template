@@ -3,6 +3,7 @@
 import math
 import sqlite3
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -247,6 +248,22 @@ class TestSQLiteBackendBasic:
             assert result[1].global_step == 1
             assert math.isnan(result[1].value)
 
+    def test_wal_journal_mode_is_enabled(self) -> None:
+        """WAL is what lets a writer proceed without a reader blocking it; verified
+        via journal_mode and the on-disk WAL file it produces while open."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "wal.db"
+            backend = make_backend(db_path, batch_size=1)
+            backend.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
+
+            with sqlite3.connect(db_path) as conn:
+                mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            wal_file_exists = Path(f"{db_path}-wal").exists()
+            backend.close()
+
+            assert str(mode).lower() == "wal"
+            assert wal_file_exists
+
     def test_legacy_table_without_identity_columns_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "legacy.db"
@@ -266,6 +283,43 @@ class TestSQLiteBackendBasic:
 
             with pytest.raises(RuntimeError, match="legacy schema without required identity columns"):
                 make_backend(db_path)
+
+
+class TestConcurrentWriters:
+    def test_two_connections_write_concurrently_without_database_locked_errors(self) -> None:
+        """Two SQLiteBackend connections (simulating separate Slurm array tasks
+        sharing one metrics.sqlite) both complete under contention instead of
+        one raising 'database is locked'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "concurrent.db"
+            errors: list[BaseException] = []
+
+            def write_many(run_id: int, seed_id: int) -> None:
+                try:
+                    backend = SQLiteBackend(
+                        db_path, experiment_id=10, run_id=run_id, execution_id=run_id, batch_size=1
+                    )
+                    for step in range(200):
+                        backend.write_batch(
+                            [MetricFrame(name="reward", value=float(step), global_step=step, seed_id=seed_id)]
+                        )
+                    backend.close()
+                except BaseException as exc:  # noqa: BLE001
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=write_many, args=(101, 0)),
+                threading.Thread(target=write_many, args=(102, 1)),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            assert errors == []
+            with sqlite3.connect(db_path) as conn:
+                counts = dict(conn.execute("SELECT run_id, COUNT(*) FROM metrics GROUP BY run_id").fetchall())
+            assert counts == {101: 200, 102: 200}
 
 
 class TestWriteSeedBatchCurve:

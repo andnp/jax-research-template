@@ -89,6 +89,13 @@ class SQLiteBackend:
         self._lock = threading.Lock()
         self._buffer: list[MetricFrame] = []
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        # metrics.sqlite is written concurrently by multiple Slurm array tasks on a
+        # shared filesystem: the default rollback-journal mode serializes writers and
+        # raises "database is locked" under contention. WAL lets writers proceed
+        # without a reader blocking them and only needs mmap/shared-memory support
+        # from the underlying filesystem, which the durable results/ tree provides.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=30000")
         self._initialize_schema()
 
     def _initialize_schema(self) -> None:
