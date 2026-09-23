@@ -228,18 +228,24 @@ class TestSQLiteBackendBasic:
                 ]
 
     def test_not_null_value_table_is_migrated_to_accept_nan(self) -> None:
-        """A database created before NaN support still records a diverged value after reopening."""
+        """A database created before NaN support keeps its rows and records a diverged value after reopening."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "strict.db"
             with sqlite3.connect(db_path) as conn:
                 conn.execute(_NOT_NULL_VALUE_TABLE_SQL)
+                conn.execute(
+                    "INSERT INTO metrics (metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id) "
+                    "VALUES ('loss', 0.5, 0, 0, 10, 101, 1001)"
+                )
 
             backend = make_backend(db_path, batch_size=1)
-            backend.write_batch([MetricFrame(name="loss", value=math.nan, global_step=0, seed_id=0)])
+            backend.write_batch([MetricFrame(name="loss", value=math.nan, global_step=1, seed_id=0)])
             result = backend.query("loss")
             backend.close()
 
-            assert math.isnan(result[0].value)
+            assert [(frame.global_step, frame.value) for frame in result[:1]] == [(0, 0.5)]
+            assert result[1].global_step == 1
+            assert math.isnan(result[1].value)
 
     def test_legacy_table_without_identity_columns_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
