@@ -181,6 +181,21 @@ def test_stored_null_metric_values_load_as_nan(tmp_path: Path) -> None:
     assert dataset.metrics["value"].is_nan().to_list() == [True, True]
 
 
+def test_diverged_run_is_kept_and_flagged(tmp_path: Path) -> None:
+    """A run whose metric went infinite stays in the dataset, is flagged, and is reported per metric."""
+    fixture = _create_experiment(tmp_path)
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("UPDATE metrics SET value = ? WHERE value = 1.0", (float("-inf"),))
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    flags = dict(zip(dataset.runs["condition_name"], dataset.runs["non_finite_metrics"].to_list(), strict=True))
+    assert flags == {"baseline": [], "candidate": ["reward"]}
+    assert [(item.code, item.run_id) for item in dataset.diagnostics] == [
+        (DiagnosticCode.NON_FINITE_METRIC, dataset.runs["run_id"][1])
+    ]
+
+
 def test_run_without_metric_rows_fails_loading(tmp_path: Path) -> None:
     """A run absent from a metrics database that holds other runs' rows is reported, not dropped."""
     fixture = _create_experiment(tmp_path)
