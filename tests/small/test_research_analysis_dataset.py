@@ -13,6 +13,7 @@ from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionRef,
+    ExclusionReason,
     ExperimentDimensions,
     SweepAxis,
     SweepValueType,
@@ -144,6 +145,48 @@ def test_undeclared_hyperparameter_variation_within_a_cell_fails_loading(tmp_pat
         load_experiment_dataset(fixture["db_path"], "dataset-test")
 
     assert {item.code for item in error.value.diagnostics} == {DiagnosticCode.AMBIGUOUS_COHORT}
+
+
+def test_accounting_records_every_planned_run_per_cell(tmp_path: Path) -> None:
+    """Every planned run appears in its cell's accounting as completed, failed, pending, or excluded with a reason.
+
+    Diverged runs count as completed and are tallied per metric; runs with no resolvable cell are unassigned.
+    """
+    fixture = _create_experiment(tmp_path)
+    _add_incomplete_run(fixture["db_path"], fixture, 10, ("FAILED",))
+    _add_incomplete_run(fixture["db_path"], fixture, 11, ())
+    with DatabaseManager(fixture["db_path"]) as database:
+        experiment = database.get_experiment("dataset-test")
+        component = database.get_component("ppo")
+        assert experiment is not None
+        assert component is not None
+        newer_algo = database.add_component_version(component.id, "algo-v2")
+        hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "learning_rate": 0.1, "seed": 12})
+        newer_run = database.add_run(experiment.id, newer_algo, fixture["env_version"], hyper_id, 12)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, newer_run)
+        database.update_execution_status(execution_id, "COMPLETED")
+        unlabelled_id = database.add_hyperparam_config({"algorithm": "ppo", "seed": 13})
+        database.add_run(experiment.id, fixture["algo_version"], fixture["env_version"], unlabelled_id, 13)
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("UPDATE metrics SET value = NULL WHERE value = 1.0")
+
+    dataset = load_experiment_dataset(
+        fixture["db_path"],
+        "dataset-test",
+        version_selection=VersionSelection.exact(
+            (ComponentVersionRef.by_id("ppo", "ALGO", fixture["algo_version"]),)
+        ),
+        partial=True,
+    )
+
+    cells = {dict(item.cell)["condition_name"]: item for item in dataset.accounting.cells}
+    baseline, candidate = cells["baseline"], cells["candidate"]
+    assert (baseline.planned, baseline.completed, baseline.failed, baseline.pending) == (4, 1, 1, 1)
+    assert baseline.excluded == {ExclusionReason.VERSION_NOT_SELECTED: 1}
+    assert baseline.diverged == {}
+    assert (candidate.planned, candidate.completed, candidate.diverged) == (1, 1, {"reward": 1})
+    assert dataset.accounting.unassigned == {ExclusionReason.UNRESOLVED_DIMENSION: 1}
 
 
 def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path) -> None:
