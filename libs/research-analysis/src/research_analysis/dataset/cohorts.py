@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from research_analysis.dataset.rows import ResolvedRun
-from research_analysis.dataset.types import SweepValue, VersionSelection, VersionSelectionKind
+from research_analysis.dataset.types import CellKey, VersionSelection, VersionSelectionKind
 from research_analysis.dataset.versions import VersionSet
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
-
-CellKey = tuple[tuple[str, SweepValue | None], ...]
 
 
 def cell_key(item: ResolvedRun) -> CellKey:

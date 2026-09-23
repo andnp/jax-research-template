@@ -176,6 +176,40 @@ class CohortSelection:
     sweep_values: tuple[tuple[str, SweepValue], ...] = ()
 
 
+CellKey = tuple[tuple[str, SweepValue | None], ...]
+
+
+class ExclusionReason(StrEnum):
+    """Why a planned run is absent from the dataset's runs table."""
+
+    VERSION_NOT_SELECTED = "version_not_selected"
+    MALFORMED_ARTIFACT = "malformed_artifact"
+    MISSING_METRIC_ARTIFACT = "missing_metric_artifact"
+    UNRESOLVED_DIMENSION = "unresolved_dimension"
+    MISSING_HYPER_CONFIG = "missing_hyper_config"
+
+
+@dataclass(frozen=True)
+class CellAccounting:
+    """Outcome counts for every planned run of one cell; diverged runs are also counted as completed."""
+
+    cell: CellKey
+    planned: int
+    completed: int
+    failed: int
+    pending: int
+    diverged: Mapping[str, int]
+    excluded: Mapping[ExclusionReason, int]
+
+
+@dataclass(frozen=True)
+class RunAccounting:
+    """Per-cell run outcomes plus planned runs that could not be placed in any cell."""
+
+    cells: tuple[CellAccounting, ...] = ()
+    unassigned: Mapping[ExclusionReason, int] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class ExperimentDataset:
     """Typed runs, metrics, dimensions, provenance, and loader diagnostics."""
