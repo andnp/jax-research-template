@@ -548,6 +548,22 @@ def test_get_latest_completed_execution_for_run_returns_latest(populated_db: Pop
     assert latest.id == newer_execution
 
 
+def test_list_run_execution_statuses_reports_every_attempt(populated_db: Populated) -> None:
+    """Each run maps to all its execution statuses, and a never-executed run maps to none."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    retried_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=21)
+    unexecuted_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=22)
+    for status in ("FAILED", "COMPLETED"):
+        execution = db.add_execution()
+        db.link_execution_run(execution, retried_run)
+        db.update_execution_status(execution, status)
+
+    statuses = db.list_run_execution_statuses(exp_id)
+
+    assert statuses[retried_run] == frozenset({"FAILED", "COMPLETED"})
+    assert statuses[unexecuted_run] == frozenset()
+
+
 def test_get_latest_completed_artifacts_for_run_returns_artifacts_for_latest_execution(populated_db: Populated) -> None:
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
     run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=11)
