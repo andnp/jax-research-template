@@ -536,8 +536,8 @@ def test_exact_version_selection_without_matches_fails(tmp_path: Path) -> None:
     assert error.value.diagnostics[0].code is DiagnosticCode.INVALID_VERSION_SELECTION
 
 
-def test_missing_artifact_excludes_run_before_version_selection(tmp_path: Path) -> None:
-    """A run with no recorded artifact is excluded before version selection, not after it."""
+def test_missing_artifact_is_diagnosed_before_version_selection(tmp_path: Path) -> None:
+    """A run with no recorded artifact is reported and cannot make its version set win selection."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -568,12 +568,13 @@ def test_missing_artifact_excludes_run_before_version_selection(tmp_path: Path) 
     dataset = load_experiment_dataset(db_path, "broken-latest-test", partial=True)
 
     assert dataset.runs["run_id"].to_list() == [older_run_id]
-    assert dataset.diagnostics == ()
-    assert not any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
+    assert [(item.code, item.run_id) for item in dataset.diagnostics] == [
+        (DiagnosticCode.MALFORMED_ARTIFACT, newer_run_id)
+    ]
 
 
-def test_missing_recorded_metric_path_excludes_run_without_root_fallback(tmp_path: Path) -> None:
-    """Exclude an artifact without a recorded metric path even if root has a database."""
+def test_missing_recorded_metric_path_fails_without_root_fallback(tmp_path: Path) -> None:
+    """Fail on an artifact without a recorded metric path even if root has a database."""
     db_path = tmp_path / "experiments.sqlite"
     root = tmp_path / "execution"
     root.mkdir()
@@ -592,10 +593,10 @@ def test_missing_recorded_metric_path_excludes_run_without_root_fallback(tmp_pat
         database.record_execution_artifacts(execution_id, str(root))
         database.update_execution_status(execution_id, "COMPLETED")
 
-    dataset = load_experiment_dataset(db_path, "missing-artifact")
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(db_path, "missing-artifact")
 
-    assert dataset.runs.height == 0
-    assert dataset.diagnostics == ()
+    assert [(item.code, item.run_id) for item in error.value.diagnostics] == [(DiagnosticCode.MALFORMED_ARTIFACT, run_id)]
 
 
 def test_partial_mode_returns_valid_rows_and_diagnostics(tmp_path: Path) -> None:

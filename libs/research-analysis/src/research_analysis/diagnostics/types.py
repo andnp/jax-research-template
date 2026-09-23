@@ -15,6 +15,7 @@ class DiagnosticCode(StrEnum):
     INVALID_VERSION_SELECTION = "invalid_version_selection"
     RUN_FAILED = "run_failed"
     RUN_PENDING = "run_pending"
+    MALFORMED_ARTIFACT = "malformed_artifact"
 
 
 @dataclass(frozen=True)
@@ -40,5 +41,6 @@ FATAL_DIAGNOSTIC_CODES = frozenset(
         DiagnosticCode.AMBIGUOUS_COHORT,
         DiagnosticCode.MISSING_METRIC_ARTIFACT,
         DiagnosticCode.INVALID_VERSION_SELECTION,
+        DiagnosticCode.MALFORMED_ARTIFACT,
     }
 )

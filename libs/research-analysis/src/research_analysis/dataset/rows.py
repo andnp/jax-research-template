@@ -85,14 +85,22 @@ def materialize_rows(resolved: list[ResolvedRun], selected_sets: frozenset[Versi
     return rows
 
 
-def diagnose_incomplete_runs(
+def diagnose_unusable_runs(
     resolved: list[ResolvedRun], selected_sets: frozenset[VersionSet], diagnostics: DiagnosticAccumulator
 ) -> None:
     for item in resolved:
         run = item.candidate.run
+        if item.candidate.state is RunState.COMPLETED:
+            if item.candidate.completed is None:
+                diagnostics.add(
+                    DiagnosticCode.MALFORMED_ARTIFACT,
+                    f"run {run.id} (seed {run.seed}) completed without a valid artifact record naming its metrics database",
+                    run.id,
+                )
+            continue
         if selected_sets and item.version.version_set not in selected_sets:
             continue
         if item.candidate.state is RunState.FAILED:
             diagnostics.add(DiagnosticCode.RUN_FAILED, f"run {run.id} (seed {run.seed}) has only failed executions", run.id)
-        elif item.candidate.state is RunState.PENDING:
+        else:
             diagnostics.add(DiagnosticCode.RUN_PENDING, f"run {run.id} (seed {run.seed}) has not completed yet", run.id)
