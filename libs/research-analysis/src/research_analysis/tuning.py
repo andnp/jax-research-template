@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from research_analysis.duplicates import duplicate_seed_error
+
 
 @dataclass(frozen=True)
 class HierarchicalBootstrapCI:
@@ -154,9 +156,15 @@ def _build_hyper_matrix(
     for pairing two arms' matrices in a difference evaluation.
     """
     groups: dict[tuple[Any, ...], dict[int, float]] = {}
+    run_ids: dict[tuple[tuple[Any, ...], int], object] = {}
     for record in records:
         key = tuple(record["hypers"].get(k) for k in hyperparameter_keys)
-        groups.setdefault(key, {})[record["seed"]] = record["value"]
+        seed = record["seed"]
+        if (key, seed) in run_ids:
+            cell = f"configuration {dict(zip(hyperparameter_keys, key, strict=True))}"
+            raise duplicate_seed_error(cell, seed, (run_ids[(key, seed)], record["run_id"]))
+        run_ids[(key, seed)] = record["run_id"]
+        groups.setdefault(key, {})[seed] = record["value"]
 
     if len(groups) < 2:
         raise ValueError(

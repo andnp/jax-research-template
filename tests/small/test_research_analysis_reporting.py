@@ -813,3 +813,17 @@ class TestNonFiniteChampionInputs:
 
         with pytest.raises(NonFiniteValuesError, match="final 'metric' values"):
             best_hypers(dataset, "metric", verbose=False)
+
+
+class TestDuplicateSeedObservations:
+    def test_best_hypers_rejects_runs_pooled_across_ablations(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """An ablated and a base run of one configuration and seed must not silently overwrite each other."""
+        setup = temp_experiment_setup
+        for learning_rate in ("low", "high"):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, 1.0)
+        _add_observation(setup, {"condition_name": "baseline", "learning_rate": "low"}, 0, 9.0, ablation="no_target")
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        with pytest.raises(ValueError, match=r"'learning_rate': 'low'\} has more than one run for seed 0"):
+            best_hypers(dataset, "metric", verbose=False)
