@@ -339,67 +339,36 @@ def _asm1_derivatives(
         kla: Oxygen mass transfer coefficient (h⁻¹).
         params: ASM1 kinetic/stoichiometric parameters.
     """
-    v = params.volume
-    qv = flow_in / v
-
-    # Read state variables
-    s_i = state.s_i
-    s_s = state.s_s
-    x_i = state.x_i
-    x_s = state.x_s
-    x_bh = state.x_bh
-    x_ba = state.x_ba
-    x_p = state.x_p
-    s_o = state.s_o
-    s_no = state.s_no
-    s_nh = state.s_nh
-    s_nd = state.s_nd
-    x_nd = state.x_nd
-    s_alk = state.s_alk
-
-    # Common saturations / modifiers
-    s_s_eff = jnp.maximum(s_s, 1e-6)
-    s_o_eff = jnp.maximum(s_o, 1e-6)
-    s_no_eff = jnp.maximum(s_no, 1e-6)
-    s_nh_eff = jnp.maximum(s_nh, 1e-6)
-
-    rho_h_aer = params.mu_h * (s_s / (params.k_s + s_s_eff)) * (s_o / (params.k_o_h + s_o_eff)) * x_bh
-    rho_h_anox = params.mu_h * params.eta_g * (s_s / (params.k_s + s_s_eff)) * (params.k_o_h / (params.k_o_h + s_o_eff)) * (s_no / (params.k_no + s_no_eff)) * x_bh
-    rho_aer = params.mu_a * (s_nh / (params.k_nh + s_nh_eff)) * (s_o / (params.k_o_a + s_o_eff)) * x_ba
-    rho_decay_h = params.b_h * x_bh
-    rho_decay_a = params.b_a * x_ba
-    rho_hydrolysis = params.k_h * (x_s / (params.k_x + jnp.maximum(x_s, 1e-6))) * (s_o / (params.k_o_h + s_o_eff))
-    rho_ammonif = params.k_a * x_nd
-
-    # Mass balances (simplified, enough for benchmark dynamics)
-    d_s_i = qv * (influent.s_i - s_i)
-    d_s_s = qv * (influent.s_s - s_s) - rho_h_aer - rho_h_anox + rho_hydrolysis
-    d_x_i = qv * (influent.x_i - x_i)
-    d_x_s = qv * (influent.x_s - x_s) - rho_hydrolysis
-    d_x_bh = qv * (influent.x_bh - x_bh) + rho_h_aer + rho_h_anox - rho_decay_h
-    d_x_ba = qv * (influent.x_ba - x_ba) + rho_aer - rho_decay_a
-    d_x_p = qv * (influent.x_p - x_p) + params.f_p * (rho_decay_h + rho_decay_a)
-    d_s_o = qv * (influent.s_o - s_o) + kla * (params.s_o_sat - s_o) - 1.42 * rho_h_aer - 1.42 * rho_aer
-    d_s_no = qv * (influent.s_no - s_no) - 0.12 * rho_h_anox + 0.14 * rho_decay_h
-    d_s_nh = qv * (influent.s_nh - s_nh) - 0.08 * rho_aer + rho_decay_h + rho_decay_a + rho_ammonif
-    d_s_nd = qv * (influent.s_nd - s_nd) - rho_ammonif
-    d_x_nd = qv * (influent.x_nd - x_nd) - rho_ammonif
-    d_s_alk = qv * (influent.s_alk - s_alk) - 0.1 * rho_aer + 0.1 * rho_h_anox
+    state_vector = jnp.array(
+        (
+            state.s_i, state.s_s, state.x_i, state.x_s, state.x_bh, state.x_ba, state.x_p,
+            state.s_o, state.s_no, state.s_nh, state.s_nd, state.x_nd, state.s_alk,
+        )
+    )
+    influent_vector = jnp.array(
+        (
+            influent.s_i, influent.s_s, influent.x_i, influent.x_s, influent.x_bh, influent.x_ba, influent.x_p,
+            influent.s_o, influent.s_no, influent.s_nh, influent.s_nd, influent.x_nd, influent.s_alk,
+        )
+    )
+    derivatives = flow_in / params.volume * (influent_vector - state_vector)
+    derivatives = derivatives.at[7].add(kla * (params.s_o_sat - state.s_o))
+    derivatives = derivatives + asm1_reaction_rates(state_vector, params)
 
     return ASM1State(
-        s_i=d_s_i,
-        s_s=d_s_s,
-        x_i=d_x_i,
-        x_s=d_x_s,
-        x_bh=d_x_bh,
-        x_ba=d_x_ba,
-        x_p=d_x_p,
-        s_o=d_s_o,
-        s_no=d_s_no,
-        s_nh=d_s_nh,
-        s_nd=d_s_nd,
-        x_nd=d_x_nd,
-        s_alk=d_s_alk,
+        s_i=derivatives[0],
+        s_s=derivatives[1],
+        x_i=derivatives[2],
+        x_s=derivatives[3],
+        x_bh=derivatives[4],
+        x_ba=derivatives[5],
+        x_p=derivatives[6],
+        s_o=derivatives[7],
+        s_no=derivatives[8],
+        s_nh=derivatives[9],
+        s_nd=derivatives[10],
+        x_nd=derivatives[11],
+        s_alk=derivatives[12],
     )
 
 
