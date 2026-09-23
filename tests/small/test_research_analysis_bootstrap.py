@@ -332,3 +332,16 @@ def test_scalar_bootstrap_of_a_constant_sample_is_a_point() -> None:
 
     assert result.ci_low == pytest.approx(4.0)
     assert result.ci_high == pytest.approx(4.0)
+
+
+def test_scalar_bootstrap_supports_interquartile_mean() -> None:
+    """The IQM estimand trims each resample the same way as the point estimate."""
+    values = np.array([1.0, 2.0, 4.0, 7.0])
+    result = bootstrap_scalar_ci(values, estimand="interquartile_mean", n_resamples=64, rng=np.random.default_rng(5))
+    indices = np.random.default_rng(5).integers(0, values.size, size=(64, values.size))
+    replicates = np.sort(values[indices], axis=1)[:, 1:3].mean(axis=1)
+
+    assert result.estimand == "interquartile_mean"
+    assert result.estimate == pytest.approx(3.0)
+    assert result.ci_low == pytest.approx(np.quantile(replicates, 0.025))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 0.975))
