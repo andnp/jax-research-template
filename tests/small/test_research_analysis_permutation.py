@@ -68,4 +68,4 @@ def test_rejects_invalid_permutation_samples(
 ) -> None:
     """Underpowered, misaligned, and non-finite samples fail explicitly."""
     with pytest.raises(ValueError, match=message):
-        run_permutation_test(values_a, values_b, pairing=pairing)
+        run_permutation_test(values_a, values_b, pairing=pairing, rng=np.random.default_rng(0))

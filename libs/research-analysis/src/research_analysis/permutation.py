@@ -37,7 +37,7 @@ def run_permutation_test(
     alpha: float = 0.05,
     n_resamples: int = 10_000,
     min_samples: int = 3,
-    rng: np.random.Generator | None = None,
+    rng: np.random.Generator,
 ) -> PermutationResult:
     """Compare two finite samples using a declared permutation design."""
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())

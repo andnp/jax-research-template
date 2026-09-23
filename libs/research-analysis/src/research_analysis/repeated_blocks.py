@@ -37,7 +37,7 @@ def block_stratified_permutation_test(
     *,
     n_resamples: int = 10_000,
     min_blocks: int = 3,
-    rng: np.random.Generator | None = None,
+    rng: np.random.Generator,
 ) -> BlockPermutationResult:
     """Test repeated blocks while retaining their distinct missingness patterns.
 
@@ -60,8 +60,6 @@ def block_stratified_permutation_test(
             f"need at least {min_blocks} blocks with two observations, got {int(valid_rows.sum())}"
         )
     matrix = matrix[valid_rows]
-    if rng is None:
-        rng = np.random.default_rng()
     observed_statistic = _rank_score(matrix)
     exceedances = 0
     for _ in range(n_resamples):
