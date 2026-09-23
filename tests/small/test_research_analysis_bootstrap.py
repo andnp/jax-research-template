@@ -214,6 +214,13 @@ class TestBootstrapCI:
         with pytest.raises(ValueError, match="at least 2 seeds"):
             bootstrap_ci(np.array([[1.0, 2.0]]))
 
+    def test_non_finite_values_raise_naming_the_seed_rows(self) -> None:
+        """A diverged seed must not silently turn the interval into NaN."""
+        data = np.ones((3, 4))
+        data[1, 2] = np.nan
+        with pytest.raises(ValueError, match=r"seed rows \[1\]"):
+            bootstrap_ci(data)
+
     def test_invalid_confidence_raises(self) -> None:
         with pytest.raises(ValueError, match="Confidence must be in"):
             bootstrap_ci(np.ones((3, 5)), confidence=1.5)

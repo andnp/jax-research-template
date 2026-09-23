@@ -196,6 +196,9 @@ def bootstrap_ci(
         raise ValueError(f"Need at least 2 seeds for bootstrap, got {n_seeds}")
     if not 0 < confidence < 1:
         raise ValueError(f"Confidence must be in (0, 1), got {confidence}")
+    if not np.isfinite(working_data).all():
+        bad_seeds = np.flatnonzero(~np.isfinite(working_data).all(axis=1)).tolist()
+        raise ValueError(f"bootstrap_ci data has non-finite values in seed rows {bad_seeds}")
 
     if rng is None:
         rng = np.random.default_rng()
