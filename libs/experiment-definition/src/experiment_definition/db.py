@@ -734,6 +734,10 @@ class DatabaseManager:
         """Return the latest completed execution linked to a run, if any."""
         return _query.get_latest_completed_execution_for_run(self.conn, run_id)
 
+    def list_run_execution_statuses(self, experiment_id: int) -> dict[int, frozenset[str]]:
+        """Return every execution status linked to each of an experiment's runs, empty when never executed."""
+        return _query.list_run_execution_statuses(self.conn, experiment_id)
+
     def get_latest_completed_artifacts_for_run(self, run_id: int) -> ExecutionArtifactRow | None:
         """Resolve artifact linkage for the latest completed execution of a run."""
         return _query.get_latest_completed_artifacts_for_run(self.conn, run_id)

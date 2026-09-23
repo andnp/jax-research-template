@@ -40,6 +40,22 @@ def get_latest_completed_execution_for_run(
     return _record_from_row(ExecutionRow, row) if row else None
 
 
+def list_run_execution_statuses(conn: sqlite3.Connection, experiment_id: int) -> dict[int, frozenset[str]]:
+    rows = conn.execute(
+        "SELECT r.id, e.status FROM Runs r "
+        "LEFT JOIN ExecutionRuns er ON er.run_id = r.id "
+        "LEFT JOIN Executions e ON e.id = er.execution_id "
+        "WHERE r.experiment_id = ?",
+        (experiment_id,),
+    ).fetchall()
+    statuses: dict[int, set[str]] = {}
+    for run_id, status in rows:
+        run_statuses = statuses.setdefault(int(run_id), set())
+        if status is not None:
+            run_statuses.add(str(status))
+    return {run_id: frozenset(values) for run_id, values in statuses.items()}
+
+
 def get_latest_completed_artifacts_for_run(
     conn: sqlite3.Connection,
     run_id: int,
