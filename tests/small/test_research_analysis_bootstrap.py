@@ -255,26 +255,38 @@ class TestBootstrapCI:
         np.testing.assert_allclose(result.ci_high, expected.ci_high)
 
 
-def test_difference_bootstrap_returns_bca_interval() -> None:
-    """Scalar paired comparisons expose a finite BCa interval with settings."""
+def test_paired_difference_resamples_runs_jointly() -> None:
+    """A paired interval resamples each seed's pair together, matching a NumPy reference."""
+    a = np.array([1.0, 2.0, 4.0, 7.0, 9.0])
+    b = np.array([0.0, 1.0, 2.0, 4.0, 5.0])
     result = bootstrap_difference_ci(
-        np.array([1.0, 2.0, 4.0, 7.0, 9.0]),
-        np.array([0.0, 1.0, 2.0, 4.0, 5.0]),
-        pairing="paired",
-        confidence=0.90,
-        n_resamples=128,
-        rng=np.random.default_rng(42),
+        a, b, pairing="paired", confidence=0.90, n_resamples=128, rng=np.random.default_rng(42)
     )
+    indices = np.random.default_rng(42).integers(0, a.size, size=(128, a.size))
+    replicates = a[indices].mean(axis=1) - b[indices].mean(axis=1)
 
     assert result.estimate == pytest.approx(2.2)
-    assert result.ci_low <= result.estimate <= result.ci_high
+    assert result.ci_low == pytest.approx(np.quantile(replicates, 0.05))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 0.95))
     assert result.confidence == 0.90
     assert result.n_resamples == 128
     assert result.pairing == "paired"
 
 
+def test_independent_difference_resamples_each_arm_separately() -> None:
+    """An independent interval draws each arm's resample on its own, so arms may differ in size."""
+    a = np.array([1.0, 2.0, 4.0, 7.0])
+    b = np.array([0.0, 1.0, 2.0])
+    result = bootstrap_difference_ci(a, b, n_resamples=64, rng=np.random.default_rng(3))
+    rng = np.random.default_rng(3)
+    replicates = a[rng.integers(0, 4, size=(64, 4))].mean(axis=1) - b[rng.integers(0, 3, size=(64, 3))].mean(axis=1)
+
+    assert result.ci_low == pytest.approx(np.quantile(replicates, 0.025))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 0.975))
+
+
 def test_difference_bootstrap_rejects_invalid_inputs() -> None:
-    """Scalar BCa intervals reject underpowered, misaligned, and non-finite data."""
+    """Difference intervals reject underpowered, misaligned, and non-finite data."""
     with pytest.raises(ValueError, match="at least 3"):
         bootstrap_difference_ci(np.array([1.0, 2.0]), np.array([0.0, 1.0]))
     with pytest.raises(ValueError, match="equal lengths"):
@@ -290,15 +302,12 @@ def test_difference_bootstrap_rejects_invalid_inputs() -> None:
         )
 
 
-def test_difference_bootstrap_labels_constant_declared_statistic() -> None:
-    """Return a finite point interval only when the paired difference is constant."""
+def test_constant_paired_difference_is_a_point() -> None:
+    """A constant paired difference resamples to itself, so its interval collapses to it."""
     result = bootstrap_difference_ci(
-        np.array([2.0, 3.0, 4.0]),
-        np.array([1.0, 2.0, 3.0]),
-        pairing="paired",
+        np.array([2.0, 3.0, 4.0]), np.array([1.0, 2.0, 3.0]), pairing="paired", rng=np.random.default_rng(0)
     )
 
-    assert result.method == "degenerate-point"
     assert result.ci_low == pytest.approx(1.0)
     assert result.ci_high == pytest.approx(1.0)
 

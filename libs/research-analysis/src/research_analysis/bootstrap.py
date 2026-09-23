@@ -12,7 +12,6 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy import stats
 
 from research_analysis._kernels import bootstrap_resample_means
 from research_analysis.aggregates import interquartile_mean
@@ -20,7 +19,6 @@ from research_analysis.comparison import Estimand
 from research_analysis.non_finite import require_finite_array
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
-type ScalarBootstrapMethod = Literal["BCa", "degenerate-point"]
 type PercentileBootstrapStatistic = Literal["mean", "interquartile_mean"]
 
 
@@ -43,7 +41,7 @@ class BootstrapCI:
 
 @dataclass(frozen=True)
 class DifferenceBootstrapCI:
-    """BCa interval for a scalar difference between two samples."""
+    """Percentile-bootstrap interval for a scalar difference between two samples."""
 
     estimate: float
     ci_low: float
@@ -52,7 +50,6 @@ class DifferenceBootstrapCI:
     n_resamples: int
     pairing: Literal["paired", "independent"]
     estimand: Estimand
-    method: ScalarBootstrapMethod = "BCa"
 
 
 @dataclass(frozen=True)
@@ -240,7 +237,7 @@ def bootstrap_difference_ci(
     min_samples: int = 3,
     rng: np.random.Generator | None = None,
 ) -> DifferenceBootstrapCI:
-    """Compute a BCa interval or label an exact constant-statistic point interval."""
+    """Compute a percentile-bootstrap interval for a difference, resampling runs jointly when paired."""
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
@@ -260,53 +257,21 @@ def bootstrap_difference_ci(
     if not np.isfinite(a).all() or not np.isfinite(b).all():
         raise ValueError("bootstrap samples must contain only finite values")
 
-    statistic = np.mean if estimand == "mean" else np.median
-
-    def difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
-        return float(statistic(left) - statistic(right))
-
-    estimate = difference(a, b)
-    is_constant = (
-        (pairing == "paired" and np.all((a - b) == (a - b)[0]))
-        or (pairing == "independent" and np.all(a == a[0]) and np.all(b == b[0]))
-    )
-    if is_constant:
-        return DifferenceBootstrapCI(
-            estimate=estimate,
-            ci_low=estimate,
-            ci_high=estimate,
-            confidence=confidence,
-            n_resamples=n_resamples,
-            pairing=pairing,
-            estimand=estimand,
-            method="degenerate-point",
-        )
-
     if rng is None:
         rng = np.random.default_rng()
-    result = stats.bootstrap(
-        (a, b),
-        difference,
-        vectorized=False,
-        paired=pairing == "paired",
-        confidence_level=confidence,
-        n_resamples=n_resamples,
-        method="BCa",
-        rng=rng,
-    )
-    low = float(result.confidence_interval.low)
-    high = float(result.confidence_interval.high)
-    if not np.isfinite(low) or not np.isfinite(high):
-        raise ValueError("BCa bootstrap interval is undefined for these samples")
+    indices_a = rng.integers(0, len(a), size=(n_resamples, len(a)))
+    indices_b = indices_a if pairing == "paired" else rng.integers(0, len(b), size=(n_resamples, len(b)))
+    replicates = _sample_statistic(a[indices_a], estimand) - _sample_statistic(b[indices_b], estimand)
+    ci_low, ci_high = _percentile_interval(replicates, confidence)
+    estimate = _sample_statistic(a[np.newaxis], estimand)[0] - _sample_statistic(b[np.newaxis], estimand)[0]
     return DifferenceBootstrapCI(
-        estimate=estimate,
-        ci_low=low,
-        ci_high=high,
+        estimate=float(estimate),
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
         confidence=confidence,
         n_resamples=n_resamples,
         pairing=pairing,
         estimand=estimand,
-        method="BCa",
     )
 
 
