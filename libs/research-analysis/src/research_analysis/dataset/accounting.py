@@ -9,8 +9,8 @@ import polars as pl
 from research_analysis.dataset.candidates import RunState
 from research_analysis.dataset.cohorts import cell_key
 from research_analysis.dataset.rows import ResolvedRun
-from research_analysis.dataset.types import CellAccounting, CellKey, ExclusionReason, RunAccounting
-from research_analysis.dataset.versions import VersionSet
+from research_analysis.dataset.types import CellAccounting, CellKey, ExclusionReason, RunAccounting, VersionSelection
+from research_analysis.dataset.versions import VersionSet, version_selected
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
 
 _UNASSIGNED_REASONS = {
@@ -22,10 +22,11 @@ _UNASSIGNED_REASONS = {
 def _outcome(
     item: ResolvedRun,
     selected_sets: frozenset[VersionSet],
+    selection: VersionSelection,
     missing_metrics: set[int | None],
     unreadable_metrics: set[int | None],
 ) -> RunState | ExclusionReason:
-    if selected_sets and item.version.version_set not in selected_sets:
+    if not version_selected(item.version.version_set, selected_sets, selection):
         return ExclusionReason.VERSION_NOT_SELECTED
     if item.candidate.state is not RunState.COMPLETED:
         return item.candidate.state
@@ -55,6 +56,7 @@ def _cell_accounting(key: CellKey, outcomes: list[tuple[RunState | ExclusionReas
 def account_runs(
     resolved: list[ResolvedRun],
     selected_sets: frozenset[VersionSet],
+    selection: VersionSelection,
     diagnostics: tuple[DatasetDiagnostic, ...],
     divergence: pl.DataFrame,
 ) -> RunAccounting:
@@ -67,7 +69,7 @@ def account_runs(
     outcomes: dict[CellKey, list[tuple[RunState | ExclusionReason, list[str]]]] = {}
     for item in resolved:
         run_id = item.candidate.run.id
-        outcome = _outcome(item, selected_sets, missing_metrics, unreadable_metrics)
+        outcome = _outcome(item, selected_sets, selection, missing_metrics, unreadable_metrics)
         outcomes.setdefault(cell_key(item), []).append((outcome, diverged_metrics.get(run_id, [])))
 
     unassigned = Counter(_UNASSIGNED_REASONS[item.code] for item in diagnostics if item.code in _UNASSIGNED_REASONS)

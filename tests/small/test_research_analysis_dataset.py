@@ -189,6 +189,28 @@ def test_accounting_records_every_planned_run_per_cell(tmp_path: Path) -> None:
     assert dataset.accounting.unassigned == {ExclusionReason.UNRESOLVED_DIMENSION: 1}
 
 
+def test_exact_selection_without_matches_counts_every_run_as_not_selected(tmp_path: Path) -> None:
+    """An exact selection that matches nothing must not count the unselected completed runs as completed."""
+    fixture = _create_experiment(tmp_path)
+    _add_incomplete_run(fixture["db_path"], fixture, 10, ())
+
+    dataset = load_experiment_dataset(
+        fixture["db_path"],
+        "dataset-test",
+        version_selection=VersionSelection.exact((ComponentVersionRef.by_id("ppo", "ALGO", 999),)),
+        partial=True,
+    )
+
+    assert [(cell.completed, cell.pending, dict(cell.excluded)) for cell in dataset.accounting.cells] == [
+        (0, 0, {ExclusionReason.VERSION_NOT_SELECTED: 2}),
+        (0, 0, {ExclusionReason.VERSION_NOT_SELECTED: 1}),
+    ]
+    assert [item.code for item in dataset.diagnostics] == [
+        DiagnosticCode.INVALID_VERSION_SELECTION,
+        DiagnosticCode.EXCLUDED_VERSION,
+    ]
+
+
 def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path) -> None:
     """Load canonical dimensions, sweep axes, provenance, and metric identity."""
     fixture = _create_experiment(tmp_path)

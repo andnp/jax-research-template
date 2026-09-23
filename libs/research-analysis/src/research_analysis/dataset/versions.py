@@ -90,6 +90,13 @@ def _version_matches(
     return True
 
 
+def version_selected(version_set: VersionSet, selected_sets: frozenset[VersionSet], selection: VersionSelection) -> bool:
+    """Whether a run's version set is selected; with no completed version to choose from, any set is."""
+    if selected_sets or selection.kind is VersionSelectionKind.EXACT:
+        return version_set in selected_sets
+    return True
+
+
 def select_version_sets(
     candidates: list[RunVersion], selection: VersionSelection, diagnostics: DiagnosticAccumulator
 ) -> tuple[frozenset[VersionSet], dict[int, ComponentVersionProvenance]]:

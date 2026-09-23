@@ -16,8 +16,9 @@ from research_analysis.dataset.types import (
     ExperimentDimensions,
     MaterializedRun,
     SweepValue,
+    VersionSelection,
 )
-from research_analysis.dataset.versions import RunVersion, VersionSet, resolve_run_version
+from research_analysis.dataset.versions import RunVersion, VersionSet, resolve_run_version, version_selected
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import DiagnosticCode
 
@@ -93,7 +94,10 @@ def materialize_rows(resolved: list[ResolvedRun], selected_sets: frozenset[Versi
 
 
 def diagnose_unusable_runs(
-    resolved: list[ResolvedRun], selected_sets: frozenset[VersionSet], diagnostics: DiagnosticAccumulator
+    resolved: list[ResolvedRun],
+    selected_sets: frozenset[VersionSet],
+    selection: VersionSelection,
+    diagnostics: DiagnosticAccumulator,
 ) -> None:
     for item in resolved:
         run = item.candidate.run
@@ -105,7 +109,7 @@ def diagnose_unusable_runs(
                     run.id,
                 )
             continue
-        if selected_sets and item.version.version_set not in selected_sets:
+        if not version_selected(item.version.version_set, selected_sets, selection):
             continue
         if item.candidate.state is RunState.FAILED:
             diagnostics.add(DiagnosticCode.RUN_FAILED, f"run {run.id} (seed {run.seed}) has only failed executions", run.id)

@@ -47,7 +47,7 @@ def load_experiment_dataset(
     selected_sets, all_provenance = select_version_sets(completed_versions, selected_versions, diagnostics)
     diagnose_orphaned_cells(resolved, selected_versions, selected_sets, diagnostics)
     diagnose_undeclared_variation(resolved, selected_sets, diagnostics)
-    diagnose_unusable_runs(resolved, selected_sets, diagnostics)
+    diagnose_unusable_runs(resolved, selected_sets, selected_versions, diagnostics)
     rows = materialize_rows(resolved, selected_sets)
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)
@@ -55,7 +55,7 @@ def load_experiment_dataset(
     divergence = non_finite_summary(metric_frame)
     diagnose_non_finite(divergence, diagnostics)
     run_frame = with_non_finite_metrics(run_frame, divergence)
-    accounting = account_runs(resolved, selected_sets, diagnostics.as_tuple(), divergence)
+    accounting = account_runs(resolved, selected_sets, selected_versions, diagnostics.as_tuple(), divergence)
     artifacts = {(row.run_id, row.execution_id): row.artifacts for row in rows}
 
     fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
