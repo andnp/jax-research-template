@@ -39,7 +39,11 @@ def block_stratified_permutation_test(
     min_blocks: int = 3,
     rng: np.random.Generator | None = None,
 ) -> BlockPermutationResult:
-    """Test repeated blocks while retaining their distinct missingness patterns."""
+    """Test repeated blocks while retaining their distinct missingness patterns.
+
+    NaN marks a missing cell, so it cannot also stand for a diverged run: reject or substitute
+    non-finite run values before building ``scores`` (``bakeoff_report`` rejects them).
+    """
     matrix = np.asarray(scores, dtype=np.float64)
     if matrix.ndim != 2 or matrix.shape[1] < 2:
         raise ValueError("scores must be a 2-D matrix with at least two treatments")
