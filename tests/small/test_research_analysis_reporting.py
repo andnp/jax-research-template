@@ -812,7 +812,7 @@ class TestNonFiniteChampionInputs:
                 _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, value)
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-        with pytest.raises(NonFiniteValuesError, match="final 'metric' values"):
+        with pytest.raises(NonFiniteValuesError, match="'metric' run scores"):
             best_hypers(dataset, "metric", verbose=False)
 
 

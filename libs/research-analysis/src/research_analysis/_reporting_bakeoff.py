@@ -41,6 +41,7 @@ from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, Bak
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.non_finite import require_finite
+from research_analysis.performance import FinalValue
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 
@@ -412,7 +413,9 @@ def bakeoff_report(
             # Raw per-value means, not best_hypers/slice_hypers: those require at least one
             # OTHER declared axis to search over while vary is grouped out, which a
             # single-axis sweep (very common) can never satisfy.
-            records = _load_dataset_hyperparameter_records(block_dataset, [dataset.dimensions.condition, axis], metric_name)
+            records = _load_dataset_hyperparameter_records(
+                block_dataset, [dataset.dimensions.condition, axis], metric_name, FinalValue()
+            )
             curves: dict[str, dict[Any, list[float]]] = {}
             for record in records:
                 cond = record["hypers"][dataset.dimensions.condition]

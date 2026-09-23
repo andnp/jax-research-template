@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from typing import Any, overload
 
 import numpy as np
-import polars as pl
 
 from research_analysis._reporting_console import (
     _present_best_hypers,
@@ -21,6 +20,7 @@ from research_analysis._reporting_models import (
 from research_analysis._reporting_plots import _plot_hypers
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.non_finite import require_finite
+from research_analysis.performance import FinalValue, PerformanceMeasure, run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 
@@ -28,8 +28,9 @@ def _load_dataset_hyperparameter_records(
     dataset: ExperimentDataset,
     hyperparameter_keys: Sequence[str],
     metric_name: str,
+    measure: PerformanceMeasure,
 ) -> list[dict[str, Any]]:
-    """Return final metric values joined to the dataset's declared sweep axes and condition.
+    """Return per-run scores joined to the dataset's declared sweep axes and condition.
 
     A requested key equal to ``dataset.dimensions.condition`` is read from the
     physical ``condition_name`` column, since the condition dimension is never
@@ -42,16 +43,11 @@ def _load_dataset_hyperparameter_records(
     if missing_keys:
         raise ValueError(f"No declared sweep axes found for {missing_keys!r}")
 
-    final_metrics = (
-        dataset.metrics.filter(pl.col("metric") == metric_name)
-        .sort(["run_id", "execution_id", "step"])
-        .group_by(["run_id", "execution_id"])
-        .agg(pl.col("value").last().alias("value"))
-    )
-    joined = final_metrics.join(
+    scores = run_scores(dataset.metrics, metric_name, measure).select(["run_id", "value"])
+    joined = scores.join(
         dataset.runs.select(["run_id", "seed", *run_columns.values()]), on=["run_id"], how="inner"
     )
-    require_finite(joined, f"final {metric_name!r} values")
+    require_finite(joined, f"{metric_name!r} run scores")
     records: list[dict[str, Any]] = []
     for row in joined.iter_rows(named=True):
         hypers = {key: row[column] for key, column in run_columns.items()}
@@ -174,7 +170,7 @@ def best_hypers(
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, FinalValue())
 
     if group_keys:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -324,7 +320,7 @@ def _best_hypers_difference(
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | {group_axis}), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | {group_axis}), metric_name, FinalValue())
     records_a = [record for record in records if record["hypers"].get(group_axis) == minuend]
     records_b = [record for record in records if record["hypers"].get(group_axis) == subtrahend]
     if not records_a:
@@ -460,7 +456,7 @@ def slice_hypers(
         min_samples=min_samples,
         random_seed=random_seed,
     )
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name)
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, FinalValue())
 
     if group_keys:
         assert isinstance(champions, dict)
