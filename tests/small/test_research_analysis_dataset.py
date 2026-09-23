@@ -292,8 +292,8 @@ def test_unsupported_component_provenance_fails_before_environment_projection(tm
         load_experiment_dataset(fixture["db_path"], "dataset-test", version_selection=VersionSelection.all())
 
 
-def test_missing_environment_dimension_excludes_run(tmp_path: Path) -> None:
-    """An unset environment key excludes the run without a diagnostic."""
+def test_missing_environment_dimension_fails_loading(tmp_path: Path) -> None:
+    """An unset environment key fails strict loading instead of silently excluding the run."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -311,18 +311,18 @@ def test_missing_environment_dimension_excludes_run(tmp_path: Path) -> None:
         database.update_execution_status(execution_id, "COMPLETED")
     _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
 
-    dataset = load_experiment_dataset(
-        db_path,
-        "missing-environment-test",
-        dimensions=ExperimentDimensions(environment="env_id"),
-    )
+    with pytest.raises(DatasetLoadError, match="env_name dimension key 'env_id' is missing") as error:
+        load_experiment_dataset(
+            db_path,
+            "missing-environment-test",
+            dimensions=ExperimentDimensions(environment="env_id"),
+        )
 
-    assert dataset.runs.height == 0
-    assert dataset.diagnostics == ()
+    assert [item.code for item in error.value.diagnostics] == [DiagnosticCode.UNRESOLVED_DIMENSION]
 
 
-def test_missing_applicable_sweep_axis_excludes_run(tmp_path: Path) -> None:
-    """An applicable axis without a value excludes the run without a diagnostic."""
+def test_missing_applicable_sweep_axis_fails_loading(tmp_path: Path) -> None:
+    """An applicable axis without a value fails strict loading and names the axis."""
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -340,18 +340,16 @@ def test_missing_applicable_sweep_axis_excludes_run(tmp_path: Path) -> None:
         database.update_execution_status(execution_id, "COMPLETED")
     _write_metrics(metrics_path, [(run_id, execution_id, "reward", 0, 1.0)])
 
-    dataset = load_experiment_dataset(
-        db_path,
-        "required-axis-test",
-        dimensions=ExperimentDimensions(
-            sweep_axes=(
-                SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": "baseline"}),
+    with pytest.raises(DatasetLoadError, match="sweep axis 'learning_rate' is missing"):
+        load_experiment_dataset(
+            db_path,
+            "required-axis-test",
+            dimensions=ExperimentDimensions(
+                sweep_axes=(
+                    SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": "baseline"}),
+                ),
             ),
-        ),
-    )
-
-    assert dataset.runs.height == 0
-    assert dataset.diagnostics == ()
+        )
 
 
 def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path) -> None:
@@ -443,20 +441,18 @@ def test_inapplicable_sweep_axis_with_value_is_ignored(tmp_path: Path) -> None:
     assert dataset.diagnostics == ()
 
 
-def test_missing_applicability_key_excludes_run(tmp_path: Path) -> None:
-    """Exclude an applicability rule that cannot be evaluated from run metadata."""
+def test_missing_applicability_key_fails_loading(tmp_path: Path) -> None:
+    """An applicability rule that cannot be evaluated from run metadata fails strict loading."""
     fixture = _create_experiment(tmp_path)
 
-    dataset = load_experiment_dataset(
-        fixture["db_path"],
-        "dataset-test",
-        dimensions=ExperimentDimensions(
-            sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
-        ),
-    )
-
-    assert dataset.runs.height == 0
-    assert dataset.diagnostics == ()
+    with pytest.raises(DatasetLoadError, match=r"applicability keys \['unknown'\] are missing"):
+        load_experiment_dataset(
+            fixture["db_path"],
+            "dataset-test",
+            dimensions=ExperimentDimensions(
+                sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
+            ),
+        )
 
 
 def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> None:

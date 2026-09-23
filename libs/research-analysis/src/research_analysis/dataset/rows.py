@@ -52,6 +52,9 @@ def resolve_runs(
 
         dimension_values = resolve_dimensions(hyper_config.hyperparameters, dimensions)
         if isinstance(dimension_values, UnresolvedDimension):
+            diagnostics.add(
+                DiagnosticCode.UNRESOLVED_DIMENSION, f"run {run.id} (seed {run.seed}): {dimension_values.reason}", run.id
+            )
             continue
 
         if cohort is not None and not cohort_matches(dimension_values.values, run.ablation, cohort):
