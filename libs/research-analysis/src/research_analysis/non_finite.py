@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import math
+from dataclasses import replace
+
 import polars as pl
+
+from research_analysis.dataset.types import ExperimentDataset
 
 _IDENTITY_COLUMNS = ("condition_name", "env_name", "run_id", "seed")
 _LISTED_RUNS = 10
@@ -28,3 +33,18 @@ def require_finite(frame: pl.DataFrame, context: str) -> None:
         return
     columns = [column for column in _IDENTITY_COLUMNS if column in frame.columns]
     raise NonFiniteValuesError(context, offenders.select(columns).unique(maintain_order=True))
+
+
+def substitute_non_finite(dataset: ExperimentDataset, metric: str, worst_case: float) -> ExperimentDataset:
+    """Replace one metric's non-finite values with a declared worst-case value, as a deliberate analysis choice.
+
+    The runs table keeps its ``non_finite_metrics`` flags and the accounting keeps its diverged counts, so the
+    substitution never hides that the runs diverged.
+    """
+    if not math.isfinite(worst_case):
+        raise ValueError(f"worst_case must be finite, got {worst_case!r}")
+    diverged = (pl.col("metric") == metric) & ~pl.col("value").is_finite()
+    metrics = dataset.metrics.with_columns(
+        pl.when(diverged).then(pl.lit(worst_case)).otherwise(pl.col("value")).alias("value")
+    )
+    return replace(dataset, metrics=metrics)
