@@ -23,6 +23,14 @@ def make_backend(db_path: Path, *, batch_size: int = 100) -> SQLiteBackend:
     )
 
 
+_NOT_NULL_VALUE_TABLE_SQL = (
+    "CREATE TABLE metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, metric_name TEXT NOT NULL, "
+    "value REAL NOT NULL, global_step INTEGER NOT NULL, seed_id INTEGER NOT NULL, "
+    "experiment_id INTEGER NOT NULL, run_id INTEGER NOT NULL, execution_id INTEGER NOT NULL, "
+    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+)
+
+
 class TestSQLiteBackendBasic:
     def test_requires_explicit_experiment_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -218,6 +226,20 @@ class TestSQLiteBackendBasic:
                     (10, 101, 1001, "reward", 6, 2.5),
                     (10, 101, 1001, "reward", 7, 3.0),
                 ]
+
+    def test_not_null_value_table_is_migrated_to_accept_nan(self) -> None:
+        """A database created before NaN support still records a diverged value after reopening."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "strict.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(_NOT_NULL_VALUE_TABLE_SQL)
+
+            backend = make_backend(db_path, batch_size=1)
+            backend.write_batch([MetricFrame(name="loss", value=math.nan, global_step=0, seed_id=0)])
+            result = backend.query("loss")
+            backend.close()
+
+            assert math.isnan(result[0].value)
 
     def test_legacy_table_without_identity_columns_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
