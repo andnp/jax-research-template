@@ -147,6 +147,22 @@ class TestASM1Unit:
 
 
 class TestBSM1Benchmark:
+    def test_mid_range_aeration_keeps_effluent_ammonium_bounded(self) -> None:
+        """A long mid-range run keeps effluent ammonium finite and below 50 mg N/L."""
+        config = BSM1BenchmarkConfig()
+        reset_fn, step_fn = make_bsm1_benchmark(config)
+        key = jax.random.PRNGKey(4)
+        key, reset_key = jax.random.split(key)
+        state, _ = reset_fn(reset_key)
+
+        for _ in range(2000):
+            key, step_key = jax.random.split(key)
+            state, _, _, _, info = step_fn(state, jnp.array([5.0, 5.0]), step_key)
+
+        effluent_nh = info["s_nh_effluent"]
+        assert bool(jnp.isfinite(effluent_nh))
+        assert float(effluent_nh) < 50.0
+
     def test_reset_returns_state_and_obs(self) -> None:
         config = BSM1BenchmarkConfig()
         reset_fn, _step_fn = make_bsm1_benchmark(config)

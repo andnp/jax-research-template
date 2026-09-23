@@ -382,9 +382,7 @@ def step(
 ) -> ASM1State:
     """Advance ASM1 state by one time step.
 
-    Integrate with RK4 then enforce simple physical bounds to avoid numerical
-    explosions in edge-cases (non-negative concentrations and a safety cap on
-    ammonium). This keeps benchmarks stable while preserving realistic dynamics.
+    Integrate with RK4 then enforce non-negative concentrations.
     """
     def derivatives(x: ASM1State) -> ASM1State:
         return _asm1_derivatives(x, flow_in, influent, kla, params)
@@ -402,8 +400,7 @@ def step(
         x_p=jnp.maximum(new_state.x_p, 0.0),
         s_o=jnp.maximum(new_state.s_o, 0.0),
         s_no=jnp.maximum(new_state.s_no, 0.0),
-        # Cap ammonium to a conservative upper bound to prevent runaway during tests
-        s_nh=jnp.clip(new_state.s_nh, 0.0, 100.0),
+        s_nh=jnp.maximum(new_state.s_nh, 0.0),
         s_nd=jnp.maximum(new_state.s_nd, 0.0),
         x_nd=jnp.maximum(new_state.x_nd, 0.0),
         s_alk=jnp.maximum(new_state.s_alk, 0.0),
