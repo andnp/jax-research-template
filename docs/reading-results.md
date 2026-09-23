@@ -76,15 +76,29 @@ It does not guess from a condition name.
 ## Cohorts and incomplete data
 
 A cohort is defined by its selected component versions, dimensions, ablation,
-sweep values, and seed coverage. If the requested selection is ambiguous, strict
-loading fails with structured diagnostics. Incomplete executions and malformed
-artifact metadata are filtered before materialization. Missing recorded metric
-artifacts also fail strict loading; the loader never searches parent directories
-or falls back to `ExecutionArtifacts.root_path`.
+sweep values, and seed coverage. If the requested selection is ambiguous (a
+partial re-run under `latest_completed`, or runs of one cell differing in an
+undeclared hyperparameter), strict loading fails with structured diagnostics.
+Failed and pending runs are reported as non-fatal diagnostics; malformed
+artifacts, missing hyperparameter configs, unresolved dimensions, and missing
+metric artifacts fail strict loading. The loader never searches parent
+directories or falls back to `ExecutionArtifacts.root_path`.
 
-Use `partial=True` only when the analysis explicitly permits missing metric
-artifacts. The returned dataset retains `DatasetDiagnostic` values for missing
-metric artifacts and version-selection outcomes. Statistical functions apply
+If loading fails with an unresolved condition dimension, check which key labels
+your arms: `ExperimentDimensions.condition` defaults to `condition_name`, so an
+experiment that labels arms with `algorithm` needs
+`ExperimentDimensions(condition="algorithm")`.
+
+Use `partial=True` only when the analysis explicitly permits the reported
+problems. `dataset.diagnostics` keeps every diagnostic, and
+`dataset.accounting` counts each cell's planned, completed, failed, pending,
+diverged, and excluded runs; read both before interpreting a comparison.
+
+Diverged runs (NaN or infinite metrics) are outcomes, not missing data. They
+stay in the dataset, are listed in `runs["non_finite_metrics"]`, and make
+statistical functions raise `NonFiniteValuesError` unless you apply
+`research_analysis.non_finite.substitute_non_finite(dataset, metric,
+worst_case)` with a declared worst-case value. Statistical functions apply
 their own pairing and missingness rules. Bakeoff comparisons use `BakeoffSpec`;
 low-level array functions expose their own pairing argument.
 
