@@ -1,5 +1,7 @@
 """Small tests for research_analysis.hypothesis."""
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from research_analysis.hypothesis import (
@@ -8,6 +10,14 @@ from research_analysis.hypothesis import (
     mann_whitney_u_test,
     welch_ttest,
 )
+
+
+class TestNonFiniteInputs:
+    @pytest.mark.parametrize("test", [welch_ttest, mann_whitney_u_test])
+    def test_rejects_a_diverged_observation(self, test: Callable[..., object]) -> None:
+        """A NaN or infinite run must fail the test instead of yielding a NaN or arbitrary statistic."""
+        with pytest.raises(ValueError, match=r"group B has non-finite values in rows \[2\]"):
+            test(np.arange(4.0), np.array([1.0, 2.0, np.inf, 4.0]))
 
 
 class TestWelchTtest:

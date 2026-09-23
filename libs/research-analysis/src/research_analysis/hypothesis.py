@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 from scipy import stats
 
 from research_analysis._kernels import mann_whitney_rank_sum
+from research_analysis.non_finite import require_finite_array
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,8 @@ def mann_whitney_u_test(
         raise ValueError(f"Group B needs at least 1 observation, got {len(b)}")
     if not 0 < alpha < 1:
         raise ValueError(f"Alpha must be in (0, 1), got {alpha}")
+    require_finite_array(a, "group A")
+    require_finite_array(b, "group B")
 
     n_a = len(a)
     n_b = len(b)
@@ -173,6 +176,8 @@ def welch_ttest(
         raise ValueError(f"Group B needs at least 2 observations, got {len(b)}")
     if not 0 < alpha < 1:
         raise ValueError(f"Alpha must be in (0, 1), got {alpha}")
+    require_finite_array(a, "group A")
+    require_finite_array(b, "group B")
 
     test_result = stats.ttest_ind(a, b, equal_var=False)
     statistic = test_result[0]
