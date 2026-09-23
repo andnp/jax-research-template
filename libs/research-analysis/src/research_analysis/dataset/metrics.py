@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
@@ -60,10 +61,15 @@ def load_metric_frames(
             for run_id, execution_id in pairs:
                 diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"metrics database does not exist: {metric_path}", run_id, execution_id)
             continue
-        frames = [
-            load_sqlite_query(metric_path, query, parameters)
-            for query, parameters in _metric_query_batches(pairs, metrics)
-        ]
+        try:
+            frames = [
+                load_sqlite_query(metric_path, query, parameters)
+                for query, parameters in _metric_query_batches(pairs, metrics)
+            ]
+        except sqlite3.DatabaseError as error:
+            for run_id, execution_id in pairs:
+                diagnostics.add(DiagnosticCode.MALFORMED_ARTIFACT, f"metrics database {metric_path} is unreadable: {error}", run_id, execution_id)
+            continue
         frames = [frame for frame in frames if not frame.is_empty()]
         if not frames:
             for run_id, execution_id in pairs:

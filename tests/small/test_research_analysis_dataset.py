@@ -239,6 +239,28 @@ def test_diverged_run_is_kept_and_flagged(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.parametrize("corruption", ["directory", "not_sqlite", "no_metrics_table"])
+def test_unreadable_metrics_database_is_a_malformed_artifact(tmp_path: Path, corruption: str) -> None:
+    """A recorded metrics path that is not a readable metrics database yields a structured diagnostic, not a crash."""
+    fixture = _create_experiment(tmp_path)
+    metrics_path = fixture["metrics_path"]
+    metrics_path.unlink()
+    if corruption == "directory":
+        metrics_path.mkdir()
+    elif corruption == "not_sqlite":
+        metrics_path.write_bytes(b"not a database" * 100)
+    else:
+        sqlite3.connect(metrics_path).close()
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(fixture["db_path"], "dataset-test")
+    partial = load_experiment_dataset(fixture["db_path"], "dataset-test", partial=True)
+
+    assert {item.code for item in error.value.diagnostics} == {DiagnosticCode.MALFORMED_ARTIFACT}
+    assert partial.metrics.height == 0
+    assert [dict(cell.excluded) for cell in partial.accounting.cells] == [{ExclusionReason.MALFORMED_ARTIFACT: 1}] * 2
+
+
 def test_run_without_metric_rows_fails_loading(tmp_path: Path) -> None:
     """A run absent from a metrics database that holds other runs' rows is reported, not dropped."""
     fixture = _create_experiment(tmp_path)

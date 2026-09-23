@@ -20,13 +20,16 @@ _UNASSIGNED_REASONS = {
 
 
 def _outcome(
-    item: ResolvedRun, selected_sets: frozenset[VersionSet], missing_metrics: set[int | None]
+    item: ResolvedRun,
+    selected_sets: frozenset[VersionSet],
+    missing_metrics: set[int | None],
+    unreadable_metrics: set[int | None],
 ) -> RunState | ExclusionReason:
     if selected_sets and item.version.version_set not in selected_sets:
         return ExclusionReason.VERSION_NOT_SELECTED
     if item.candidate.state is not RunState.COMPLETED:
         return item.candidate.state
-    if item.candidate.completed is None:
+    if item.candidate.completed is None or item.candidate.run.id in unreadable_metrics:
         return ExclusionReason.MALFORMED_ARTIFACT
     if item.candidate.run.id in missing_metrics:
         return ExclusionReason.MISSING_METRIC_ARTIFACT
@@ -56,6 +59,7 @@ def account_runs(
     divergence: pl.DataFrame,
 ) -> RunAccounting:
     missing_metrics = {item.run_id for item in diagnostics if item.code is DiagnosticCode.MISSING_METRIC_ARTIFACT}
+    unreadable_metrics = {item.run_id for item in diagnostics if item.code is DiagnosticCode.MALFORMED_ARTIFACT}
     diverged_metrics: dict[int, list[str]] = {}
     for run_id, metric in divergence.select(["run_id", "metric"]).iter_rows():
         diverged_metrics.setdefault(run_id, []).append(metric)
@@ -63,7 +67,7 @@ def account_runs(
     outcomes: dict[CellKey, list[tuple[RunState | ExclusionReason, list[str]]]] = {}
     for item in resolved:
         run_id = item.candidate.run.id
-        outcome = _outcome(item, selected_sets, missing_metrics)
+        outcome = _outcome(item, selected_sets, missing_metrics, unreadable_metrics)
         outcomes.setdefault(cell_key(item), []).append((outcome, diverged_metrics.get(run_id, [])))
 
     unassigned = Counter(_UNASSIGNED_REASONS[item.code] for item in diagnostics if item.code in _UNASSIGNED_REASONS)
