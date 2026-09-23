@@ -49,6 +49,35 @@ def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
     assert rows == [(1, 0, 0, 1.0), (1, 0, 2, 3.0), (2, 1, 0, 4.0), (2, 1, 2, 6.0)]
 
 
+def test_execute_batch_completes_diverged_curves(tmp_path: Path) -> None:
+    """
+    Verify a NaN curve is recorded as an outcome of a COMPLETED execution, not a failure.
+    """
+    database_path = tmp_path / "experiments.sqlite"
+    experiment = Experiment("diverged-test")
+    experiment.add_parameter("seed", [0])
+    experiment.sync(database_path)
+    with DatabaseManager(database_path) as database:
+        database.initialize()
+        experiment_row = database.get_experiment(experiment.name)
+        assert experiment_row is not None
+        planned = database.plan_next_execution_batch(experiment_row.id, tmp_path / "executions")
+        assert planned is not None
+
+    def train(context: ExecutionContext) -> ExecutionResult:
+        return ExecutionResult(metric_curves={"reward": ((1.0, float("nan")),)})
+
+    execute_batch(database_path, planned, train, metrics_db_path=tmp_path / "metrics.sqlite", capture_git=False)
+
+    with DatabaseManager(database_path) as database:
+        execution = database.get_execution(planned.execution_id)
+    with sqlite3.connect(tmp_path / "metrics.sqlite") as connection:
+        values = connection.execute("SELECT value FROM metrics ORDER BY global_step").fetchall()
+    assert execution is not None
+    assert execution.status == "COMPLETED"
+    assert values == [(1.0,), (None,)]
+
+
 def test_execute_batch_persists_result_artifacts(tmp_path: Path) -> None:
     """
     Verify the runner owns artifact storage and records its URI in the manifest.
