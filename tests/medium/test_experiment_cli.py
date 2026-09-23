@@ -470,6 +470,69 @@ def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
     assert "completed" in result.output.lower()
 
 
+def _write_metric_logging_spec_file(tmp_path: Path, results_root: Path) -> Path:
+    spec_file = tmp_path / "metric_spec.py"
+    spec_file.write_text(
+        textwrap.dedent(f"""\
+            from __future__ import annotations
+            from pathlib import Path
+            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult, spec
+            from experiment_definition import Experiment, Component, ComponentType
+
+            @spec
+            def my_spec() -> ExperimentSpec:
+                experiment = Experiment("test-experiment", description="Test")
+                with experiment.for_component(Component(name="test-algo", path=Path("algo.py"), type=ComponentType.ALGO)):
+                    experiment.add_parameter("learning_rate", [0.01])
+                with experiment.for_component(Component(name="test-env", path=Path("env.py"), type=ComponentType.ENV)):
+                    pass
+                experiment.add_parameter("seed", [0])
+
+                def train(ctx: ExecutionContext) -> ExecutionResult:
+                    return ExecutionResult(metric_curves={{"reward": [[1.0, 2.0]]}})
+
+                return ExperimentSpec(
+                    experiment=experiment,
+                    train_fn=train,
+                    results_root=Path("{results_root}"),
+                    capture_git=False,
+                )
+        """),
+    )
+    return spec_file
+
+
+def test_execute_batch_honors_results_root_override(tmp_path: Path) -> None:
+    """--results-root must redirect metrics writes, not just the spec's own db_path."""
+    results_root = tmp_path / "eb_original"
+    override_root = tmp_path / "eb_override"
+    db_path = override_root / "experiments.sqlite"
+    spec_file = _write_metric_logging_spec_file(tmp_path, results_root)
+
+    plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file), "--results-root", str(override_root)])
+    assert plan_result.exit_code == 0, plan_result.output
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment("test-experiment")
+        assert exp_row is not None
+        planned = database.plan_experiment_execution_batches(
+            exp_row.id, override_root / "executions",
+        )
+        execution_id = planned[0].execution_id
+
+    result = runner.invoke(app, [
+        "experiment", "execute-batch", str(db_path),
+        "--execution-id", str(execution_id),
+        "--spec-file", str(spec_file),
+        "--spec", "my_spec",
+        "--results-root", str(override_root),
+    ])
+    assert result.exit_code == 0, result.output
+    assert (override_root / "metrics.sqlite").exists()
+    assert not (results_root / "metrics.sqlite").exists()
+
+
 def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
     results_root = tmp_path / "eb_fail"
     db_path = results_root / "experiments.sqlite"

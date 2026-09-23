@@ -434,6 +434,7 @@ def execute_batch_cmd(
     execution_id: int = typer.Option(..., "--execution-id", help="Planned execution ID to run."),
     spec_file: Path = typer.Option(..., "--spec-file", help="Path to the Python spec file."),
     spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
 ):
     from research_runner import execute_batch
 
@@ -443,7 +444,7 @@ def execute_batch_cmd(
         typer.echo(f"Error: expected exactly one spec, found {len(specs)}.", err=True)
         raise typer.Exit(code=1)
 
-    experiment_spec = next(iter(specs.values()))()
+    experiment_spec = _with_results_root(next(iter(specs.values()))(), results_root)
 
     with DatabaseManager(db_path) as database:
         database.initialize()
