@@ -16,6 +16,7 @@ class DiagnosticCode(StrEnum):
     RUN_FAILED = "run_failed"
     RUN_PENDING = "run_pending"
     MALFORMED_ARTIFACT = "malformed_artifact"
+    MISSING_HYPER_CONFIG = "missing_hyper_config"
 
 
 @dataclass(frozen=True)
@@ -42,5 +43,6 @@ FATAL_DIAGNOSTIC_CODES = frozenset(
         DiagnosticCode.MISSING_METRIC_ARTIFACT,
         DiagnosticCode.INVALID_VERSION_SELECTION,
         DiagnosticCode.MALFORMED_ARTIFACT,
+        DiagnosticCode.MISSING_HYPER_CONFIG,
     }
 )

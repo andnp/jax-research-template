@@ -37,6 +37,7 @@ def resolve_runs(
     candidates: list[RunCandidate],
     dimensions: ExperimentDimensions,
     cohort: CohortSelection | None,
+    diagnostics: DiagnosticAccumulator,
 ) -> list[ResolvedRun]:
     provenance_cache: dict[int, ComponentVersionProvenance] = {}
     resolved: list[ResolvedRun] = []
@@ -44,6 +45,9 @@ def resolve_runs(
         run = candidate.run
         hyper_config = database.get_hyperparam_config(run.hyper_id)
         if hyper_config is None:
+            diagnostics.add(
+                DiagnosticCode.MISSING_HYPER_CONFIG, f"run {run.id} references missing hyperparameter config {run.hyper_id}", run.id
+            )
             continue
 
         dimension_values = resolve_dimensions(hyper_config.hyperparameters, dimensions)

@@ -111,6 +111,18 @@ def test_incomplete_runs_are_diagnosed_as_failed_or_pending(tmp_path: Path) -> N
     assert dataset.runs.height == 2
 
 
+def test_missing_hyperparameter_config_fails_loading(tmp_path: Path) -> None:
+    """A run whose hyperparameter config is gone cannot be placed in a cell, so strict loading fails."""
+    fixture = _create_experiment(tmp_path)
+    with sqlite3.connect(fixture["db_path"]) as connection:
+        connection.execute("UPDATE Runs SET hyper_id = 999 WHERE seed = 0")
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert [item.code for item in error.value.diagnostics] == [DiagnosticCode.MISSING_HYPER_CONFIG]
+
+
 def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path) -> None:
     """Load canonical dimensions, sweep axes, provenance, and metric identity."""
     fixture = _create_experiment(tmp_path)

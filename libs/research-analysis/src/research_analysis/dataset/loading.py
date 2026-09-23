@@ -38,7 +38,7 @@ def load_experiment_dataset(
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
         run_candidates = fetch_run_candidates(database, experiment)
-        resolved = resolve_runs(database, run_candidates, selected_dimensions, cohort)
+        resolved = resolve_runs(database, run_candidates, selected_dimensions, cohort, diagnostics)
 
     completed_versions = [item.version for item in resolved if item.candidate.completed is not None]
     selected_sets, all_provenance = select_version_sets(completed_versions, selected_versions, diagnostics)
