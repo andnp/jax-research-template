@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from research_analysis.comparison import BakeoffSpec
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
 from research_analysis.performance import FinalValue, PerformanceMeasure
 
@@ -95,6 +96,8 @@ class BakeoffReport:
 
     conditions: list[str]
     metric_name: str
+    measure: PerformanceMeasure
+    spec: BakeoffSpec
     seed_counts: dict[str, dict[str, int]]
     cell_means: dict[str, dict[str, float]]
     cell_variances: dict[str, dict[str, float]]

@@ -41,7 +41,7 @@ from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, Bak
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.non_finite import require_finite
-from research_analysis.performance import FinalValue, run_scores
+from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 
@@ -55,12 +55,13 @@ def _load_bakeoff_data(
     conditions: list[str],
     block_by: list[str],
     metric_name: str,
+    measure: PerformanceMeasure,
 ) -> dict[tuple[str, BlockKey], dict[int, float]]:
     missing = [column for column in block_by if column not in dataset.runs.columns]
     if missing:
         raise ValueError(f"block_by columns not present in the dataset: {missing}")
 
-    scores = run_scores(dataset.metrics, metric_name, FinalValue()).select(["run_id", "value"])
+    scores = run_scores(dataset.metrics, metric_name, measure).select(["run_id", "value"])
     joined = scores.join(
         dataset.runs.select(["run_id", "seed", "condition_name", *block_by]),
         on="run_id",
@@ -351,6 +352,7 @@ def bakeoff_report(
     higher_is_better: bool = True,
     min_seeds: int = 5,
     verbose: bool = True,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
@@ -400,6 +402,7 @@ def bakeoff_report(
             higher_is_better=higher_is_better,
             verbose=False,
             confidence_level=spec.confidence_level,
+            measure=measure,
         )
         block_champions = {key[0]: report for key, report in raw_champions.items() if key[0] in conditions}
         champions[_block_label(block_key)] = block_champions
@@ -409,7 +412,7 @@ def bakeoff_report(
             # OTHER declared axis to search over while vary is grouped out, which a
             # single-axis sweep (very common) can never satisfy.
             records = _load_dataset_hyperparameter_records(
-                block_dataset, [dataset.dimensions.condition, axis], metric_name, FinalValue()
+                block_dataset, [dataset.dimensions.condition, axis], metric_name, measure
             )
             curves: dict[str, dict[Any, list[float]]] = {}
             for record in records:
@@ -434,7 +437,7 @@ def bakeoff_report(
         comparison_metrics.append(champion_dataset.metrics)
 
     combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
-    data_by_group = _load_bakeoff_data(combined, conditions, block_by, metric_name)
+    data_by_group = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
     comparison_statistics = _compute_bakeoff_statistics(data_by_group, conditions, block_keys, references, spec)
 
     seed_counts: dict[str, dict[str, int]] = {condition: {} for condition in conditions}
@@ -486,6 +489,8 @@ def bakeoff_report(
     report = BakeoffReport(
         conditions=conditions,
         metric_name=metric_name,
+        measure=measure,
+        spec=spec,
         seed_counts=seed_counts,
         cell_means=cell_means,
         cell_variances=cell_variances,
