@@ -14,13 +14,31 @@ class FinalValue:
     """The last logged value of each run, ordered by step."""
 
 
-type PerformanceMeasure = FinalValue
+@dataclass(frozen=True)
+class TailMean:
+    """Mean of each run's values over the final ``fraction`` of its logged step span.
+
+    Per-episode return metrics should be step-weighted before they are reduced.
+    """
+
+    fraction: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.fraction <= 1.0:
+            raise ValueError(f"fraction must be in (0, 1], got {self.fraction}")
+
+
+type PerformanceMeasure = FinalValue | TailMean
 
 
 def _score(measure: PerformanceMeasure) -> pl.Expr:
     match measure:
         case FinalValue():
             return pl.col("value").sort_by("step").last()
+        case TailMean(fraction=fraction):
+            step = pl.col("step")
+            cutoff = step.min() + (1.0 - fraction) * (step.max() - step.min())
+            return pl.col("value").filter(step >= cutoff).mean()
 
 
 def run_scores(frame: pl.DataFrame, metric: str, measure: PerformanceMeasure) -> pl.DataFrame:
