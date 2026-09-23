@@ -238,7 +238,7 @@ class SQLiteBackend:
         *,
         seed_id: int | None = None,
     ) -> list[MetricFrame]:
-        """Retrieve stored frames for a given metric name.
+        """Retrieve frames for a given metric name, scoped to this backend's bound run.
 
         Args:
             name: Metric name to query.
@@ -252,13 +252,15 @@ class SQLiteBackend:
 
         if seed_id is not None:
             rows = self._conn.execute(
-                "SELECT metric_name, value, global_step, seed_id FROM metrics WHERE metric_name = ? AND seed_id = ? ORDER BY global_step",
-                (name, seed_id),
+                "SELECT metric_name, value, global_step, seed_id FROM metrics "
+                "WHERE metric_name = ? AND run_id = ? AND seed_id = ? ORDER BY global_step",
+                (name, self._run_id, seed_id),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT metric_name, value, global_step, seed_id FROM metrics WHERE metric_name = ? ORDER BY global_step",
-                (name,),
+                "SELECT metric_name, value, global_step, seed_id FROM metrics "
+                "WHERE metric_name = ? AND run_id = ? ORDER BY global_step",
+                (name, self._run_id),
             ).fetchall()
 
         return [
@@ -267,10 +269,11 @@ class SQLiteBackend:
         ]
 
     def metric_names(self) -> list[str]:
-        """Return all distinct metric names stored in the database."""
+        """Return distinct metric names stored for this backend's bound run."""
         with self._lock:
             self._flush_locked()
         rows = self._conn.execute(
-            "SELECT DISTINCT metric_name FROM metrics ORDER BY metric_name"
+            "SELECT DISTINCT metric_name FROM metrics WHERE run_id = ? ORDER BY metric_name",
+            (self._run_id,),
         ).fetchall()
         return [r[0] for r in rows]

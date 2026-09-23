@@ -322,6 +322,40 @@ class TestConcurrentWriters:
             assert counts == {101: 200, 102: 200}
 
 
+class TestRunScopedQueries:
+    def test_query_only_returns_rows_for_the_bound_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "shared.db"
+            backend_one = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=101, execution_id=1001)
+            backend_two = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=102, execution_id=1002)
+            backend_one.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
+            backend_two.write_batch([MetricFrame(name="reward", value=2.0, global_step=0, seed_id=0)])
+
+            result_one = backend_one.query("reward")
+            result_two = backend_two.query("reward")
+            backend_one.close()
+            backend_two.close()
+
+            assert [frame.value for frame in result_one] == [1.0]
+            assert [frame.value for frame in result_two] == [2.0]
+
+    def test_metric_names_only_returns_names_for_the_bound_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "shared.db"
+            backend_one = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=101, execution_id=1001)
+            backend_two = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=102, execution_id=1002)
+            backend_one.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
+            backend_two.write_batch([MetricFrame(name="loss", value=0.5, global_step=0, seed_id=0)])
+
+            names_one = backend_one.metric_names()
+            names_two = backend_two.metric_names()
+            backend_one.close()
+            backend_two.close()
+
+            assert names_one == ["reward"]
+            assert names_two == ["loss"]
+
+
 class TestWriteSeedBatchCurve:
     def test_each_row_lands_under_its_own_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
