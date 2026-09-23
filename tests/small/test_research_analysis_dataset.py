@@ -137,6 +137,8 @@ def test_undeclared_hyperparameter_variation_within_a_cell_fails_loading(tmp_pat
             execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(fixture["metrics_path"])}
         )
         database.update_execution_status(execution_id, "COMPLETED")
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?)", (run_id, execution_id, "reward", 0, 2.0))
 
     with pytest.raises(DatasetLoadError, match=r"undeclared hyperparameters \['learning_rate'\] differ") as error:
         load_experiment_dataset(fixture["db_path"], "dataset-test")
@@ -177,6 +179,18 @@ def test_stored_null_metric_values_load_as_nan(tmp_path: Path) -> None:
     dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
 
     assert dataset.metrics["value"].is_nan().to_list() == [True, True]
+
+
+def test_run_without_metric_rows_fails_loading(tmp_path: Path) -> None:
+    """A run absent from a metrics database that holds other runs' rows is reported, not dropped."""
+    fixture = _create_experiment(tmp_path)
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("DELETE FROM metrics WHERE value = 1.0")
+
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert [item.code for item in error.value.diagnostics] == [DiagnosticCode.MISSING_METRIC_ARTIFACT]
 
 
 def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Path) -> None:

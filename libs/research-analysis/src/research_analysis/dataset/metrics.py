@@ -71,6 +71,10 @@ def load_metric_frames(
             continue
         # The metric store records NaN as NULL; restore it so divergence is never skipped as missing.
         frame = pl.concat(frames).with_columns(pl.col("value").cast(pl.Float64).fill_null(float("nan")))
+        present = set(frame.select(["run_id", "execution_id"]).unique().iter_rows())
+        for run_id, execution_id in pairs:
+            if (run_id, execution_id) not in present:
+                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"no requested metric rows in {metric_path}", run_id, execution_id)
         metadata = pl.DataFrame(
             [
                 {
