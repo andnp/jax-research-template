@@ -830,6 +830,18 @@ class TestDuplicateSeedObservations:
             best_hypers(dataset, "metric", verbose=False)
 
 
+    def test_bakeoff_rejects_runs_pooled_across_ablations(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A base run and its ablation must not overwrite each other as one paired observation."""
+        setup = temp_experiment_setup
+        for condition in ("a", "b"):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": condition}, seed, float(seed))
+        _add_observation(setup, {"condition_name": "a"}, 1, 9.0, ablation="no_target")
+
+        with pytest.raises(ValueError, match="condition 'a' in block '' has more than one run for seed 1"):
+            bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False)
+
+
 class TestUnpairedRunReporting:
     def test_best_hypers_lists_runs_whose_seed_is_not_shared_by_every_configuration(
         self, temp_experiment_setup: ExperimentSetup

@@ -38,6 +38,7 @@ from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, BakeoffWarningCode
+from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.non_finite import require_finite
 from research_analysis.permutation import run_permutation_test
@@ -72,10 +73,15 @@ def _load_bakeoff_data(
     require_finite(joined, f"final {metric_name!r} values")
 
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
+    run_ids: dict[tuple[str, BlockKey, int], int] = {}
     for row in joined.iter_rows(named=True):
         block_key: BlockKey = tuple((column, row[column]) for column in block_by)
-        key = (str(row["condition_name"]), block_key)
-        data_by_group.setdefault(key, {})[int(row["seed"])] = float(row["value"])
+        condition, seed = str(row["condition_name"]), int(row["seed"])
+        if (condition, block_key, seed) in run_ids:
+            cell = f"condition {condition!r} in block {_block_label(block_key)!r}"
+            raise duplicate_seed_error(cell, seed, (run_ids[(condition, block_key, seed)], row["run_id"]))
+        run_ids[(condition, block_key, seed)] = int(row["run_id"])
+        data_by_group.setdefault((condition, block_key), {})[seed] = float(row["value"])
     return data_by_group
 
 
