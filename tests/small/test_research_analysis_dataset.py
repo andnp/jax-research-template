@@ -455,8 +455,8 @@ def test_missing_applicability_key_fails_loading(tmp_path: Path) -> None:
         )
 
 
-def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> None:
-    """Select a completed algorithm/environment pair without mixing version maxima."""
+def test_latest_completed_rejects_cells_orphaned_by_a_partial_rerun(tmp_path: Path) -> None:
+    """A newer version set covering only some cells must not silently drop the cells it lacks."""
     fixture = _create_experiment(tmp_path)
     db_path = fixture["db_path"]
     with DatabaseManager(db_path) as database:
@@ -479,14 +479,13 @@ def test_latest_completed_selects_one_coherent_version_set(tmp_path: Path) -> No
         connection.execute("INSERT INTO metrics VALUES (?, ?, ?, ?, ?)", (run_id, execution_id, "reward", 0, 9.0))
         connection.commit()
 
-    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+    with pytest.raises(DatasetLoadError) as error:
+        load_experiment_dataset(fixture["db_path"], "dataset-test")
 
-    assert dataset.runs["algo_version_id"].unique().to_list() == [newer_algo]
-    assert not any(item.code is DiagnosticCode.AMBIGUOUS_COHORT for item in dataset.diagnostics)
-    assert any(item.code is DiagnosticCode.EXCLUDED_VERSION for item in dataset.diagnostics)
-    provenance_versions = {item.version_id for item in dataset.provenance}
-    assert newer_algo in provenance_versions
-    assert fixture["algo_version"] not in provenance_versions
+    orphaned = [item.message for item in error.value.diagnostics if item.code is DiagnosticCode.AMBIGUOUS_COHORT]
+    assert len(orphaned) == 2
+    assert any("'baseline'" in message for message in orphaned)
+    assert any("'candidate'" in message for message in orphaned)
 
 
 def test_version_selection_all_includes_every_completed_version_set(tmp_path: Path) -> None:
