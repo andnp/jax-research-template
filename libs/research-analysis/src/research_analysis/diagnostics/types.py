@@ -18,6 +18,7 @@ class DiagnosticCode(StrEnum):
     MALFORMED_ARTIFACT = "malformed_artifact"
     MISSING_HYPER_CONFIG = "missing_hyper_config"
     UNRESOLVED_DIMENSION = "unresolved_dimension"
+    NON_FINITE_METRIC = "non_finite_metric"
 
 
 @dataclass(frozen=True)
