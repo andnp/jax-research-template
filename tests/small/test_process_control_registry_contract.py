@@ -41,3 +41,26 @@ def test_registry_resets_are_jit_traceable(entry: BenchmarkEntry):
     assert batched_obs.shape == (2, entry.obs_dim)
     assert jax.tree.leaves(state)
     assert jax.tree.leaves(batched_states)
+
+
+@pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
+def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
+    """Every registered benchmark stays finite during a compiled short rollout."""
+    (reset, step), config = _make_benchmark(entry)
+    action = _mid_range_action(entry, config)
+    state, _ = reset(jax.random.PRNGKey(1))
+
+    def scan_step(carry: tuple[object, jax.Array], step_index: jax.Array):
+        current_state, key = carry
+        next_key = jax.random.fold_in(key, step_index)
+        next_state, obs, reward, _done, _info = step(current_state, action, next_key)
+        return (next_state, key), (obs, reward)
+
+    def rollout(s: object):
+        return jax.lax.scan(scan_step, (s, jax.random.PRNGKey(2)), jnp.arange(200))
+
+    (_, _), (obs, reward) = jax.jit(rollout)(state)
+
+    assert obs.shape == (200, entry.obs_dim)
+    assert jnp.all(jnp.isfinite(obs))
+    assert jnp.all(jnp.isfinite(reward))
