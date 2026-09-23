@@ -50,6 +50,105 @@ _STRICT_COLUMN_NAMES = {
 }
 
 
+def open_metrics_connection(db_path: Path | str) -> sqlite3.Connection:
+    """Open a metrics.sqlite connection with WAL enabled and the schema ready.
+
+    metrics.sqlite is written concurrently by multiple Slurm array tasks on a
+    shared filesystem: the default rollback-journal mode serializes writers
+    and raises "database is locked" under contention. WAL lets writers
+    proceed without a reader blocking them and only needs mmap/shared-memory
+    support from the underlying filesystem, which the durable results/ tree
+    provides. busy_timeout makes a writer that does contend wait and retry
+    instead of failing immediately.
+    """
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    _initialize_schema(conn)
+    return conn
+
+
+def _initialize_schema(conn: sqlite3.Connection) -> None:
+    """Create or upgrade the metrics schema in place."""
+    existing_columns = _metrics_table_info(conn)
+    if not existing_columns:
+        conn.execute(_CREATE_TABLE_SQL)
+    elif not _has_strict_metrics_schema(existing_columns):
+        _migrate_metrics_table(conn, existing_columns)
+
+    conn.executescript(_CREATE_INDEXES_SQL)
+    conn.commit()
+
+
+def _metrics_table_info(conn: sqlite3.Connection) -> dict[str, tuple[str, bool]]:
+    return {
+        str(row[1]): (str(row[2]), bool(row[3])) for row in conn.execute("PRAGMA table_info(metrics)").fetchall()
+    }
+
+
+def _has_strict_metrics_schema(columns: dict[str, tuple[str, bool]]) -> bool:
+    return (
+        columns.keys() == _STRICT_COLUMN_NAMES
+        and not columns["value"][1]
+        and all(
+            columns[column_name][1]
+            for column_name in ("metric_name", "global_step", "seed_id", "experiment_id", "run_id", "execution_id")
+        )
+    )
+
+
+def _migrate_metrics_table(conn: sqlite3.Connection, columns: dict[str, tuple[str, bool]]) -> None:
+    """Upgrade a legacy metrics table in place, preserving existing rows.
+
+    Kept so a database created before NaN support (``value REAL NOT NULL``,
+    or the older ``name`` column) migrates forward instead of failing outright.
+    """
+    source_metric_column = "metric_name" if "metric_name" in columns else "name" if "name" in columns else None
+    if source_metric_column is None:
+        raise RuntimeError("metrics table is missing the canonical metric name column")
+
+    missing_identity_columns = [
+        column_name for column_name in ("experiment_id", "run_id", "execution_id") if column_name not in columns
+    ]
+    if missing_identity_columns:
+        joined_columns = ", ".join(missing_identity_columns)
+        raise RuntimeError(f"metrics table uses a legacy schema without required identity columns: {joined_columns}")
+
+    missing_identity_count = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM metrics WHERE experiment_id IS NULL OR run_id IS NULL OR execution_id IS NULL"
+        ).fetchone()[0]
+    )
+    if missing_identity_count:
+        raise RuntimeError(
+            "metrics table contains legacy rows without full experiment identity; create a fresh database or migrate those rows explicitly"
+        )
+
+    conn.execute("DROP TABLE IF EXISTS metrics__new")
+    conn.execute(
+        "CREATE TABLE metrics__new ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "metric_name TEXT NOT NULL, "
+        "value REAL, "
+        "global_step INTEGER NOT NULL, "
+        "seed_id INTEGER NOT NULL, "
+        "experiment_id INTEGER NOT NULL, "
+        "run_id INTEGER NOT NULL, "
+        "execution_id INTEGER NOT NULL, "
+        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    conn.execute(
+        "INSERT INTO metrics__new ("
+        "id, metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id, created_at"
+        ") SELECT "
+        f"id, {source_metric_column}, value, global_step, seed_id, experiment_id, run_id, execution_id, created_at "
+        "FROM metrics"
+    )
+    conn.execute("DROP TABLE metrics")
+    conn.execute("ALTER TABLE metrics__new RENAME TO metrics")
+
+
 class SQLiteBackend:
     """Thread-safe SQLite storage backend for metrics.
 
@@ -88,92 +187,7 @@ class SQLiteBackend:
         self._execution_id = execution_id
         self._lock = threading.Lock()
         self._buffer: list[MetricFrame] = []
-        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        # metrics.sqlite is written concurrently by multiple Slurm array tasks on a
-        # shared filesystem: the default rollback-journal mode serializes writers and
-        # raises "database is locked" under contention. WAL lets writers proceed
-        # without a reader blocking them and only needs mmap/shared-memory support
-        # from the underlying filesystem, which the durable results/ tree provides.
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA busy_timeout=30000")
-        self._initialize_schema()
-
-    def _initialize_schema(self) -> None:
-        """Create or upgrade the metrics schema in place."""
-        existing_columns = self._metrics_table_info()
-        if not existing_columns:
-            self._conn.execute(_CREATE_TABLE_SQL)
-        elif not self._has_strict_metrics_schema(existing_columns):
-            self._migrate_metrics_table(existing_columns)
-
-        self._conn.executescript(_CREATE_INDEXES_SQL)
-        self._conn.commit()
-
-    def _metrics_table_info(self) -> dict[str, tuple[str, bool]]:
-        return {
-            str(row[1]): (str(row[2]), bool(row[3]))
-            for row in self._conn.execute("PRAGMA table_info(metrics)").fetchall()
-        }
-
-    def _has_strict_metrics_schema(self, columns: dict[str, tuple[str, bool]]) -> bool:
-        return (
-            columns.keys() == _STRICT_COLUMN_NAMES
-            and not columns["value"][1]
-            and all(
-                columns[column_name][1]
-                for column_name in ("metric_name", "global_step", "seed_id", "experiment_id", "run_id", "execution_id")
-            )
-        )
-
-    def _migrate_metrics_table(self, columns: dict[str, tuple[str, bool]]) -> None:
-        source_metric_column = "metric_name" if "metric_name" in columns else "name" if "name" in columns else None
-        if source_metric_column is None:
-            raise RuntimeError("metrics table is missing the canonical metric name column")
-
-        missing_identity_columns = [
-            column_name
-            for column_name in ("experiment_id", "run_id", "execution_id")
-            if column_name not in columns
-        ]
-        if missing_identity_columns:
-            joined_columns = ", ".join(missing_identity_columns)
-            raise RuntimeError(
-                f"metrics table uses a legacy schema without required identity columns: {joined_columns}"
-            )
-
-        missing_identity_count = int(
-            self._conn.execute(
-                "SELECT COUNT(*) FROM metrics WHERE experiment_id IS NULL OR run_id IS NULL OR execution_id IS NULL"
-            ).fetchone()[0]
-        )
-        if missing_identity_count:
-            raise RuntimeError(
-                "metrics table contains legacy rows without full experiment identity; create a fresh database or migrate those rows explicitly"
-            )
-
-        self._conn.execute("DROP TABLE IF EXISTS metrics__new")
-        self._conn.execute(
-            "CREATE TABLE metrics__new ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "metric_name TEXT NOT NULL, "
-            "value REAL, "
-            "global_step INTEGER NOT NULL, "
-            "seed_id INTEGER NOT NULL, "
-            "experiment_id INTEGER NOT NULL, "
-            "run_id INTEGER NOT NULL, "
-            "execution_id INTEGER NOT NULL, "
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-            ")"
-        )
-        self._conn.execute(
-            "INSERT INTO metrics__new ("
-            "id, metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id, created_at"
-            ") SELECT "
-            f"id, {source_metric_column}, value, global_step, seed_id, experiment_id, run_id, execution_id, created_at "
-            "FROM metrics"
-        )
-        self._conn.execute("DROP TABLE metrics")
-        self._conn.execute("ALTER TABLE metrics__new RENAME TO metrics")
+        self._conn = open_metrics_connection(self._db_path)
 
     def write_batch(self, frames: list[MetricFrame]) -> None:
         """Buffer frames and flush when batch_size is reached."""
