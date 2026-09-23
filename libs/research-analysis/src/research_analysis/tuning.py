@@ -86,7 +86,7 @@ def hierarchical_bootstrap_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     selection_trials: int = 200,
-    seed: int = 42,
+    rng: np.random.Generator,
 ) -> HierarchicalBootstrapCI:
     """Evaluate hyperparameter selection with hierarchical bootstrap resampling.
 
@@ -97,7 +97,6 @@ def hierarchical_bootstrap_ci(
     arr = np.asarray(data, dtype=np.float64)
     _validate_hyper_matrix(arr, confidence)
 
-    rng = np.random.default_rng(seed)
     probs, entropy = _selection_distribution(arr, h_samples, selection_trials, rng)
     boot_means = np.concatenate(
         [
@@ -141,7 +140,7 @@ def hierarchical_bootstrap_difference_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     selection_trials: int = 200,
-    seed: int = 42,
+    rng: np.random.Generator,
 ) -> HierarchicalBootstrapDifferenceCI:
     """Evaluate the difference (arm A minus arm B) between two independently-tuned grids.
 
@@ -161,7 +160,6 @@ def hierarchical_bootstrap_difference_ci(
             f"data_a and data_b must have the same number of paired runs, got {arr_a.shape[1]} and {arr_b.shape[1]}"
         )
 
-    rng = np.random.default_rng(seed)
     probs_a, entropy_a = _selection_distribution(arr_a, h_samples, selection_trials, rng)
     probs_b, entropy_b = _selection_distribution(arr_b, h_samples, selection_trials, rng)
     diff_chunks = []

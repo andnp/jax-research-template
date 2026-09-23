@@ -269,7 +269,7 @@ def _best_hypers_group(
         n_runs,
         confidence=confidence_level,
         n_resamples=n_resamples,
-        seed=random_seed,
+        rng=np.random.default_rng(random_seed),
     )
     corrected_mean = bootstrap.mean
     interval = (bootstrap.ci_low, bootstrap.ci_high)
@@ -355,7 +355,7 @@ def _best_hypers_difference(
         n_runs,
         confidence=confidence_level,
         n_resamples=n_resamples,
-        seed=random_seed,
+        rng=np.random.default_rng(random_seed),
     )
     mean_diff = diff.mean_diff
     interval = (diff.ci_low, diff.ci_high)

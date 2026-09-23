@@ -18,8 +18,8 @@ class TestHierarchicalBootstrapCI:
         data = rng.normal(loc=0.0, scale=1.0, size=(3, 20))
         data[2] += 2.0  # Hyper 2 is distinctly better
 
-        res1 = hierarchical_bootstrap_ci(data, h_samples=5, e_samples=10, seed=123)
-        res2 = hierarchical_bootstrap_ci(data, h_samples=5, e_samples=10, seed=123)
+        res1 = hierarchical_bootstrap_ci(data, h_samples=5, e_samples=10, rng=np.random.default_rng(123))
+        res2 = hierarchical_bootstrap_ci(data, h_samples=5, e_samples=10, rng=np.random.default_rng(123))
 
         assert isinstance(res1, HierarchicalBootstrapCI)
         assert np.isclose(res1.mean, res2.mean)
@@ -42,8 +42,8 @@ class TestHierarchicalBootstrapCI:
         # Ambiguous hypers with high overlap
         ambiguous = rng.normal(loc=5.0, scale=2.0, size=(3, 30))
 
-        res_dom = hierarchical_bootstrap_ci(dominant, h_samples=5, e_samples=10, seed=42)
-        res_amb = hierarchical_bootstrap_ci(ambiguous, h_samples=5, e_samples=10, seed=42)
+        res_dom = hierarchical_bootstrap_ci(dominant, h_samples=5, e_samples=10, rng=np.random.default_rng(42))
+        res_amb = hierarchical_bootstrap_ci(ambiguous, h_samples=5, e_samples=10, rng=np.random.default_rng(42))
 
         # Dominant hyper has near-zero selection entropy and concentrated probability
         assert res_dom.selection_entropy < res_amb.selection_entropy
@@ -60,7 +60,7 @@ class TestHierarchicalBootstrapCI:
             data = np.zeros((2, n))
             data[0] = rng.normal(loc=0.0, scale=1.0, size=n)
             data[1] = rng.normal(loc=1.0, scale=1.0, size=n)
-            res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, seed=1, n_resamples=5_000)
+            res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, rng=np.random.default_rng(1), n_resamples=5_000)
             widths.append(res.ci_high - res.ci_low)
 
         assert widths[0] > widths[1] > widths[2]
@@ -77,31 +77,31 @@ class TestHierarchicalBootstrapCI:
         data[0] = rng.normal(loc=0.0, scale=1.0, size=n)
         data[1] = rng.normal(loc=0.05, scale=1.0, size=n)  # genuinely close true means
 
-        res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, n_resamples=100, seed=1)
+        res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, n_resamples=100, rng=np.random.default_rng(1))
         assert res.selection_entropy > 0.0
         assert not np.any(res.hyper_probs == 1.0)
 
     def test_validation_rejects_invalid_inputs(self) -> None:
         """Reject 1D inputs and single-hyper inputs."""
         with pytest.raises(ValueError, match="must be 2D array"):
-            hierarchical_bootstrap_ci(np.ones(10), h_samples=3, e_samples=5)
+            hierarchical_bootstrap_ci(np.ones(10), h_samples=3, e_samples=5, rng=np.random.default_rng(0))
 
         with pytest.raises(ValueError, match="need at least 2 hyperparameters"):
-            hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5)
+            hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5, rng=np.random.default_rng(0))
 
     def test_validation_rejects_non_finite_values(self) -> None:
         """A diverged run must not flow into the resampling, which would propagate NaN silently."""
         data = np.ones((2, 5))
         data[0, 3] = np.inf
         with pytest.raises(ValueError, match="non-finite"):
-            hierarchical_bootstrap_ci(data, h_samples=3, e_samples=5)
+            hierarchical_bootstrap_ci(data, h_samples=3, e_samples=5, rng=np.random.default_rng(0))
 
     def test_h_and_e_samples_may_exceed_n_runs(self) -> None:
         """Both selection and evaluation resampling are with replacement, so neither
         h_samples nor e_samples is bounded by n_runs."""
         rng = np.random.default_rng(7)
         data = rng.normal(size=(2, 8))
-        res = hierarchical_bootstrap_ci(data, h_samples=50, e_samples=50, seed=1)
+        res = hierarchical_bootstrap_ci(data, h_samples=50, e_samples=50, rng=np.random.default_rng(1))
         assert res.ci_low <= res.mean <= res.ci_high
 
 
@@ -117,7 +117,7 @@ class TestHierarchicalBootstrapDifferenceCI:
         data_b[0] = rng.normal(loc=0.0, scale=0.5, size=200)
         data_b[1] = rng.normal(loc=0.0, scale=0.5, size=200)  # arm B's champion, much worse
 
-        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, seed=1)
+        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, rng=np.random.default_rng(1))
         assert isinstance(res, HierarchicalBootstrapDifferenceCI)
         assert res.ci_low > 0.0
         assert res.mean_diff == pytest.approx(5.0, abs=1.0)
@@ -128,7 +128,7 @@ class TestHierarchicalBootstrapDifferenceCI:
         data_a = rng.normal(loc=0.0, scale=1.0, size=(2, 200))
         data_b = rng.normal(loc=0.0, scale=1.0, size=(2, 200))
 
-        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, seed=1)
+        res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, rng=np.random.default_rng(1))
         assert res.ci_low < 0.0 < res.ci_high
 
     def test_rejects_mismatched_run_counts(self) -> None:
@@ -136,4 +136,4 @@ class TestHierarchicalBootstrapDifferenceCI:
         data_a = np.ones((2, 10))
         data_b = np.ones((2, 8))
         with pytest.raises(ValueError, match="same number of paired runs"):
-            hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=3, e_samples=5)
+            hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=3, e_samples=5, rng=np.random.default_rng(0))
