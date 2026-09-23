@@ -41,7 +41,7 @@ from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, Bak
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import holm_step_down
 from research_analysis.non_finite import require_finite
-from research_analysis.performance import FinalValue
+from research_analysis.performance import FinalValue, run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 
@@ -60,18 +60,13 @@ def _load_bakeoff_data(
     if missing:
         raise ValueError(f"block_by columns not present in the dataset: {missing}")
 
-    final_metrics = (
-        dataset.metrics.filter(pl.col("metric") == metric_name)
-        .sort(["run_id", "execution_id", "step"])
-        .group_by(["run_id", "execution_id"])
-        .agg(pl.col("value").last().alias("value"))
-    )
-    joined = final_metrics.join(
+    scores = run_scores(dataset.metrics, metric_name, FinalValue()).select(["run_id", "value"])
+    joined = scores.join(
         dataset.runs.select(["run_id", "seed", "condition_name", *block_by]),
         on="run_id",
         how="inner",
     ).filter(pl.col("condition_name").is_in(conditions))
-    require_finite(joined, f"final {metric_name!r} values")
+    require_finite(joined, f"{metric_name!r} run scores")
 
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     run_ids: dict[tuple[str, BlockKey, int], int] = {}
