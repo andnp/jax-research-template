@@ -345,3 +345,16 @@ def test_scalar_bootstrap_supports_interquartile_mean() -> None:
     assert result.estimate == pytest.approx(3.0)
     assert result.ci_low == pytest.approx(np.quantile(replicates, 0.025))
     assert result.ci_high == pytest.approx(np.quantile(replicates, 0.975))
+
+
+def test_scalar_bootstrap_accepts_two_runs_only_when_declared() -> None:
+    """Two runs need an explicit min_samples=2; one run never forms an interval."""
+    values = np.array([1.0, 3.0])
+    with pytest.raises(ValueError, match="at least 3"):
+        bootstrap_scalar_ci(values, rng=np.random.default_rng(0))
+    with pytest.raises(ValueError, match="at least 2"):
+        bootstrap_scalar_ci(values[:1], min_samples=2, rng=np.random.default_rng(0))
+
+    result = bootstrap_scalar_ci(values, min_samples=2, rng=np.random.default_rng(0))
+
+    assert 1.0 <= result.ci_low <= result.ci_high <= 3.0

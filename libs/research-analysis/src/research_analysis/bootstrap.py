@@ -295,7 +295,7 @@ def bootstrap_scalar_ci(
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
     if n_resamples < 1:
         raise ValueError(f"n_resamples must be positive, got {n_resamples}")
-    if min_samples < 3 or len(data) < min_samples:
+    if min_samples < 2 or len(data) < min_samples:
         raise ValueError(f"need at least {min_samples} finite observations, got {len(data)}")
     if not np.isfinite(data).all():
         raise ValueError("bootstrap samples must contain only finite values")
