@@ -100,6 +100,17 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     assert "metrics_db_path" not in dataset.runs.columns
 
 
+def test_stored_null_metric_values_load_as_nan(tmp_path: Path) -> None:
+    """The metric store records NaN as NULL; the dataset must surface it as NaN, not a missing value."""
+    fixture = _create_experiment(tmp_path)
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("UPDATE metrics SET value = NULL")
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert dataset.metrics["value"].is_nan().to_list() == [True, True]
+
+
 def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Path) -> None:
     """Empty and populated datasets expose the same analysis columns."""
     fixture = _create_experiment(tmp_path)
