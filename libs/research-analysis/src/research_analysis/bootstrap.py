@@ -57,7 +57,7 @@ class DifferenceBootstrapCI:
 
 @dataclass(frozen=True)
 class ScalarBootstrapCI:
-    """BCa interval for one scalar sample."""
+    """Percentile-bootstrap interval for one scalar sample."""
 
     estimate: float
     ci_low: float
@@ -65,7 +65,6 @@ class ScalarBootstrapCI:
     confidence: float
     n_resamples: int
     estimand: Estimand
-    method: ScalarBootstrapMethod = "BCa"
 
 
 @dataclass(frozen=True)
@@ -161,6 +160,11 @@ def _percentile_interval(
     """Return the percentile-bootstrap bounds of ``replicates`` along the resample axis."""
     alpha = (1.0 - confidence) / 2.0
     return np.quantile(replicates, alpha, axis=0), np.quantile(replicates, 1.0 - alpha, axis=0)
+
+
+def _sample_statistic(samples: NDArray[np.float64], estimand: Estimand) -> NDArray[np.float64]:
+    """Apply the estimand across each row of ``samples``."""
+    return np.mean(samples, axis=1) if estimand == "mean" else np.median(samples, axis=1)
 
 
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
@@ -315,7 +319,7 @@ def bootstrap_scalar_ci(
     min_samples: int = 3,
     rng: np.random.Generator | None = None,
 ) -> ScalarBootstrapCI:
-    """Compute a BCa interval or label an exact constant-statistic point interval."""
+    """Compute a percentile-bootstrap interval for one scalar sample statistic."""
     data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
         raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
@@ -328,44 +332,15 @@ def bootstrap_scalar_ci(
     if not np.isfinite(data).all():
         raise ValueError("bootstrap samples must contain only finite values")
 
-    statistic = np.mean if estimand == "mean" else np.median
-
-    def estimate(sample: NDArray[np.float64]) -> float:
-        return float(statistic(sample))
-
-    point_estimate = estimate(data)
-    if np.all(data == data[0]):
-        return ScalarBootstrapCI(
-            estimate=point_estimate,
-            ci_low=point_estimate,
-            ci_high=point_estimate,
-            confidence=confidence,
-            n_resamples=n_resamples,
-            estimand=estimand,
-            method="degenerate-point",
-        )
-
     if rng is None:
         rng = np.random.default_rng()
-    result = stats.bootstrap(
-        (data,),
-        estimate,
-        vectorized=False,
-        confidence_level=confidence,
-        n_resamples=n_resamples,
-        method="BCa",
-        rng=rng,
-    )
-    low = float(result.confidence_interval.low)
-    high = float(result.confidence_interval.high)
-    if not np.isfinite(low) or not np.isfinite(high):
-        raise ValueError("BCa bootstrap interval is undefined for these samples")
+    indices = rng.integers(0, len(data), size=(n_resamples, len(data)))
+    ci_low, ci_high = _percentile_interval(_sample_statistic(data[indices], estimand), confidence)
     return ScalarBootstrapCI(
-        estimate=point_estimate,
-        ci_low=low,
-        ci_high=high,
+        estimate=float(_sample_statistic(data[np.newaxis], estimand)[0]),
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
         confidence=confidence,
         n_resamples=n_resamples,
         estimand=estimand,
-        method="BCa",
     )

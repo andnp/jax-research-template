@@ -303,25 +303,23 @@ def test_difference_bootstrap_labels_constant_declared_statistic() -> None:
     assert result.ci_high == pytest.approx(1.0)
 
 
-def test_scalar_bootstrap_returns_bca_interval() -> None:
-    """Scalar estimates expose a finite BCa interval with explicit settings."""
-    result = bootstrap_scalar_ci(
-        np.array([1.0, 2.0, 4.0, 7.0, 9.0]),
-        confidence=0.90,
-        n_resamples=128,
-        rng=np.random.default_rng(42),
-    )
+def test_scalar_bootstrap_matches_numpy_percentile_reference() -> None:
+    """Scalar intervals are the percentile bounds of resampled seed statistics."""
+    values = np.array([1.0, 2.0, 4.0, 7.0, 9.0])
+    result = bootstrap_scalar_ci(values, confidence=0.90, n_resamples=128, rng=np.random.default_rng(42))
+    indices = np.random.default_rng(42).integers(0, values.size, size=(128, values.size))
+    replicates = values[indices].mean(axis=1)
 
     assert isinstance(result, ScalarBootstrapCI)
     assert result.estimate == pytest.approx(4.6)
-    assert result.ci_low <= result.estimate <= result.ci_high
+    assert result.ci_low == pytest.approx(np.quantile(replicates, 0.05))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 0.95))
     assert result.confidence == 0.90
 
 
-def test_scalar_bootstrap_labels_constant_declared_statistic() -> None:
-    """Return a finite point interval for an exactly constant scalar sample."""
-    result = bootstrap_scalar_ci(np.array([4.0, 4.0, 4.0]))
+def test_scalar_bootstrap_of_a_constant_sample_is_a_point() -> None:
+    """A constant sample resamples to itself, so its interval collapses to the value."""
+    result = bootstrap_scalar_ci(np.array([4.0, 4.0, 4.0]), rng=np.random.default_rng(0))
 
-    assert result.method == "degenerate-point"
     assert result.ci_low == pytest.approx(4.0)
     assert result.ci_high == pytest.approx(4.0)
