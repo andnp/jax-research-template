@@ -38,3 +38,30 @@ def diagnose_orphaned_cells(
             f"{sorted(version_sets)}; finish re-running it under the selected versions or choose "
             "VersionSelection.exact(...) or VersionSelection.all() explicitly",
         )
+
+
+def _varying_keys(runs: list[ResolvedRun]) -> list[str]:
+    keys = {key for item in runs for key in item.hyperparameters} - {"seed"}
+    return sorted(
+        key
+        for key in keys
+        if len({(key in item.hyperparameters, item.hyperparameters.get(key)) for item in runs}) > 1
+    )
+
+
+def diagnose_undeclared_variation(
+    resolved: list[ResolvedRun], selected_sets: frozenset[VersionSet], diagnostics: DiagnosticAccumulator
+) -> None:
+    cells: dict[CellKey, list[ResolvedRun]] = {}
+    for item in resolved:
+        if item.candidate.completed is not None and item.version.version_set in selected_sets:
+            cells.setdefault(cell_key(item), []).append(item)
+
+    for key, runs in cells.items():
+        varying = _varying_keys(runs)
+        if varying:
+            diagnostics.add(
+                DiagnosticCode.AMBIGUOUS_COHORT,
+                f"cell {dict(key)} pools runs whose undeclared hyperparameters {varying} differ; declare them as "
+                "SweepAxis entries (or as the condition/environment dimension) so each configuration is its own cell",
+            )

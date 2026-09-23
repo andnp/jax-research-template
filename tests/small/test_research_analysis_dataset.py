@@ -123,6 +123,27 @@ def test_missing_hyperparameter_config_fails_loading(tmp_path: Path) -> None:
     assert [item.code for item in error.value.diagnostics] == [DiagnosticCode.MISSING_HYPER_CONFIG]
 
 
+def test_undeclared_hyperparameter_variation_within_a_cell_fails_loading(tmp_path: Path) -> None:
+    """Runs of one condition that differ in an undeclared hyperparameter are ambiguous, not pooled."""
+    fixture = _create_experiment(tmp_path)
+    with DatabaseManager(fixture["db_path"]) as database:
+        experiment = database.get_experiment("dataset-test")
+        assert experiment is not None
+        hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "learning_rate": 0.5, "seed": 5})
+        run_id = database.add_run(experiment.id, fixture["algo_version"], fixture["env_version"], hyper_id, 5)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.record_execution_artifacts(
+            execution_id, str(tmp_path / "execution"), metadata={"metrics_db_path": str(fixture["metrics_path"])}
+        )
+        database.update_execution_status(execution_id, "COMPLETED")
+
+    with pytest.raises(DatasetLoadError, match=r"undeclared hyperparameters \['learning_rate'\] differ") as error:
+        load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert {item.code for item in error.value.diagnostics} == {DiagnosticCode.AMBIGUOUS_COHORT}
+
+
 def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path) -> None:
     """Load canonical dimensions, sweep axes, provenance, and metric identity."""
     fixture = _create_experiment(tmp_path)
