@@ -284,6 +284,45 @@ def compute_alkalinity(state: ASM1State) -> jax.Array:
     return state.s_alk
 
 
+def asm1_reaction_rates(state: jax.Array, params: ASM1Params) -> jax.Array:
+    """Compute full ASM1 biological reaction rates for the 13 ASM1 states."""
+    s_s, x_s, x_bh, x_ba = state[1], state[3], state[4], state[5]
+    s_o, s_no, s_nh = state[7], state[8], state[9]
+    s_nd, x_nd = state[10], state[11]
+
+    def monod(s: jax.Array, k: float) -> jax.Array:
+        return s / (k + s)
+
+    def inhibition(s: jax.Array, k: float) -> jax.Array:
+        return k / (k + s)
+
+    rho_1 = params.mu_h * monod(s_s, params.k_s) * monod(s_o, params.k_o_h) * x_bh
+    rho_2 = params.mu_h * monod(s_s, params.k_s) * inhibition(s_o, params.k_o_h) * monod(s_no, params.k_no) * params.eta_g * x_bh
+    rho_3 = params.mu_a * monod(s_nh, params.k_nh) * monod(s_o, params.k_o_a) * x_ba
+    rho_4 = params.b_h * x_bh
+    rho_5 = params.b_a * x_ba
+    rho_6 = params.k_a * s_nd * x_bh
+    x_ratio = x_s / (x_bh + 1e-10)
+    rho_7 = params.k_h * x_ratio / (params.k_x + x_ratio) * (monod(s_o, params.k_o_h) + params.eta_h * inhibition(s_o, params.k_o_h) * monod(s_no, params.k_no)) * x_bh
+    rho_8 = rho_7 * (x_nd / (x_s + 1e-10))
+
+    dc = jnp.zeros(13)
+    dc = dc.at[1].add(-rho_1 / params.y_h - rho_2 / params.y_h + rho_7)
+    dc = dc.at[3].add((1.0 - params.f_p) * rho_4 + (1.0 - params.f_p) * rho_5 - rho_7)
+    dc = dc.at[4].add(rho_1 + rho_2 - rho_4)
+    dc = dc.at[5].add(rho_3 - rho_5)
+    dc = dc.at[6].add(params.f_p * rho_4 + params.f_p * rho_5)
+    dc = dc.at[7].add(-(1.0 - params.y_h) / params.y_h * rho_1 - (4.57 - params.y_a) / params.y_a * rho_3)
+    dc = dc.at[8].add(-(1.0 - params.y_h) / (2.86 * params.y_h) * rho_2 + rho_3 / params.y_a)
+    dc = dc.at[9].add(-params.i_xb * rho_1 - params.i_xb * rho_2 - (params.i_xb + 1.0 / params.y_a) * rho_3 + rho_6)
+    dc = dc.at[10].add(-rho_6 + rho_8)
+    dc = dc.at[11].add((params.i_xb - params.f_p * params.i_xp) * rho_4 + (params.i_xb - params.f_p * params.i_xp) * rho_5 - rho_8)
+    alk_anox = (1.0 - params.y_h) / (14.0 * 2.86 * params.y_h) - params.i_xb / 14.0
+    alk_aer = params.i_xb / 14.0 + 1.0 / (7.0 * params.y_a)
+    dc = dc.at[12].add(-params.i_xb / 14.0 * rho_1 + alk_anox * rho_2 - alk_aer * rho_3 + rho_6 / 14.0)
+    return dc
+
+
 def _asm1_derivatives(
     state: ASM1State,
     flow_in: jax.Array,

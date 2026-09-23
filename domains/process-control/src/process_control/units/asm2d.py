@@ -45,7 +45,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.units.asm1 import ASM1Params
+from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
 
 N_COMPONENTS_ASM2D = 17
 
@@ -102,14 +102,9 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
     """
     # Unpack ASM1 states
     s_s = state[1]
-    x_s = state[3]
-    x_bh = state[4]
-    x_ba = state[5]
     s_o = state[7]
     s_no = state[8]
     s_nh = state[9]
-    s_nd = state[10]
-    x_nd = state[11]
     _s_alk = state[12]  # noqa: F841 — unpacked for structural clarity matching ASM1 patterns
 
     # Unpack ASM2d states
@@ -120,66 +115,7 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
 
     p = params.asm1
 
-    # ===================== ASM1 REACTIONS (processes 1-8) =====================
-    # Process 1: Aerobic growth of heterotrophs
-    rho_1 = p.mu_h * _monod(s_s, p.k_s) * _monod(s_o, p.k_o_h) * x_bh
-
-    # Process 2: Anoxic growth of heterotrophs
-    rho_2 = p.mu_h * _monod(s_s, p.k_s) * _inhibition(s_o, p.k_o_h) * _monod(s_no, p.k_no) * p.eta_g * x_bh
-
-    # Process 3: Aerobic growth of autotrophs
-    rho_3 = p.mu_a * _monod(s_nh, p.k_nh) * _monod(s_o, p.k_o_a) * x_ba
-
-    # Process 4: Decay of heterotrophs
-    rho_4 = p.b_h * x_bh
-
-    # Process 5: Decay of autotrophs
-    rho_5 = p.b_a * x_ba
-
-    # Process 6: Ammonification
-    rho_6 = p.k_a * s_nd * x_bh
-
-    # Process 7: Hydrolysis of X_S
-    rho_7 = p.k_h * (x_s / (x_bh + 1e-10)) / (p.k_x + x_s / (x_bh + 1e-10)) * (_monod(s_o, p.k_o_h) + p.eta_h * _inhibition(s_o, p.k_o_h) * _monod(s_no, p.k_no)) * x_bh
-
-    # Process 8: Hydrolysis of X_ND
-    rho_8 = rho_7 * (x_nd / (x_s + 1e-10))
-
-    # ASM1 derivatives for states 0-12
-    dc = jnp.zeros(N_COMPONENTS_ASM2D)
-
-    # S_S (index 1)
-    dc = dc.at[1].add(-rho_1 / p.y_h - rho_2 / p.y_h + rho_7)
-
-    # X_S (index 3)
-    dc = dc.at[3].add((1.0 - p.f_p) * rho_4 + (1.0 - p.f_p) * rho_5 - rho_7)
-
-    # X_BH (index 4)
-    dc = dc.at[4].add(rho_1 + rho_2 - rho_4)
-
-    # X_BA (index 5)
-    dc = dc.at[5].add(rho_3 - rho_5)
-
-    # X_P (index 6)
-    dc = dc.at[6].add(p.f_p * rho_4 + p.f_p * rho_5)
-
-    # S_O (index 7)
-    dc = dc.at[7].add(-(1.0 - p.y_h) / p.y_h * rho_1 - (4.57 - p.y_a) / p.y_a * rho_3)
-
-    # S_NO (index 8)
-    dc = dc.at[8].add(-(1.0 - p.y_h) / (2.86 * p.y_h) * rho_2 + rho_3 / p.y_a)
-
-    # S_NH (index 9)
-    dc = dc.at[9].add(-p.i_xb * rho_1 - p.i_xb * rho_2 - (p.i_xb + 1.0 / p.y_a) * rho_3 + rho_6)
-
-    # S_ND (index 10)
-    dc = dc.at[10].add(-rho_6 + rho_8)
-
-    # X_ND (index 11)
-    dc = dc.at[11].add((p.i_xb - p.f_p * p.i_xp) * rho_4 + (p.i_xb - p.f_p * p.i_xp) * rho_5 - rho_8)
-
-    # S_ALK (index 12)
-    dc = dc.at[12].add(-p.i_xb / 14.0 * rho_1 + ((1.0 - p.y_h) / (14.0 * 2.86 * p.y_h) - p.i_xb / 14.0) * rho_2 - (p.i_xb / 14.0 + 1.0 / (7.0 * p.y_a)) * rho_3 + rho_6 / 14.0)
+    dc = jnp.zeros(N_COMPONENTS_ASM2D).at[:13].set(asm1_reaction_rates(state, p))
 
     # ===================== PAO REACTIONS (processes 9-14) =====================
 
