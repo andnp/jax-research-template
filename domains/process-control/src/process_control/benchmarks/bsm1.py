@@ -206,6 +206,7 @@ class BSM1BenchmarkConfig:
     # Fixed flow fractions (ratios of Q_in)
     internal_recycle_ratio: float = 3.0  # Q_a = ratio × Q_in
     return_sludge_ratio: float = 1.0  # Q_r = ratio × Q_in
+    waste_sludge_ratio: float = 385.0 / 18446.0  # BSM1 Q_w = 385 m³/d
 
     # Influent flow variation
     mean_flow: float = 769.0
@@ -257,13 +258,14 @@ def _clarify_asm1(
     r5: ASM1State,
     q_aerobic: jax.Array,
     q_rs: jax.Array,
+    q_w: jax.Array,
 ) -> tuple[ASM1State, ASM1State]:
     """Perfect-settler clarifier: effluent has no particulates; return sludge
     concentrates particulate matter by mass conservation.
 
     Returns: (effluent_state, return_sludge_state)
     """
-    concentration_factor = q_aerobic / jnp.maximum(q_rs, 1.0)
+    concentration_factor = q_aerobic / jnp.maximum(q_rs + q_w, 1.0)
 
     effluent = ASM1State(
         s_i=r5.s_i,
@@ -408,7 +410,7 @@ def make_bsm1_benchmark(
             sensors=sensors,
         )
 
-        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio)
+        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio, mean_flow * config.waste_sludge_ratio)
         obs = jnp.array(
             [
                 effluent.s_nh / 35.0,
@@ -465,7 +467,7 @@ def make_bsm1_benchmark(
         q_to_clarifier = q_in + q_rs  # flow from R5 into clarifier
 
         # 4. Clarifier: return sludge from previous R5
-        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs)
+        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs, q_in * config.waste_sludge_ratio)
 
         # 5. R1 inlet: influent + return sludge + internal recycle (R5)
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
@@ -483,7 +485,7 @@ def make_bsm1_benchmark(
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5, p5, dt)
 
         # 9. Effluent quality from clarifier
-        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
+        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs, q_in * config.waste_sludge_ratio)
 
         # 10. Standalone observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)

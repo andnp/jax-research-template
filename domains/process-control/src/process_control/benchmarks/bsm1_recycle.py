@@ -225,7 +225,7 @@ def make_bsm1_recycle_benchmark(
             sensors=sensors,
         )
 
-        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * init_q_rs_ratio)
+        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * init_q_rs_ratio, mean_flow * bsm1.waste_sludge_ratio)
         obs = jnp.array(
             [
                 effluent.s_nh / 35.0,
@@ -274,7 +274,7 @@ def make_bsm1_recycle_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 5. Clarifier
-        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs)
+        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
 
         # 6. R1: influent + return sludge + internal recycle
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
@@ -292,7 +292,7 @@ def make_bsm1_recycle_benchmark(
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5_fixed, p5, dt)
 
         # 10. Effluent
-        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
+        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
 
         # 11. Standalone observation sensors
         new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)

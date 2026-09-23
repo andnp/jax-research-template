@@ -208,7 +208,7 @@ def make_bsm1_lt_benchmark(
         )
 
         temp = _compute_temperature(state.step_count)
-        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio)
+        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio, mean_flow * c.waste_sludge_ratio)
         obs = jnp.array(
             [
                 effluent.s_nh / 35.0,
@@ -274,7 +274,7 @@ def make_bsm1_lt_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 4. Clarifier
-        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs)
+        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
 
         # 5. Reactor chain (corrected params)
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
@@ -286,7 +286,7 @@ def make_bsm1_lt_benchmark(
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5, p5, dt)
 
         # 6. Effluent
-        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs)
+        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
 
         # 7. Observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
