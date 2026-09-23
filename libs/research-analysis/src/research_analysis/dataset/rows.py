@@ -40,7 +40,7 @@ def build_rows(
             metrics_db_path=completed_run.artifacts.metrics_db_path,
         )
 
-        if cohort is not None and not cohort_matches(row, cohort):
+        if cohort is not None and not cohort_matches(row.dimension_values, row.ablation, cohort):
             continue
 
         rows.append(row)
