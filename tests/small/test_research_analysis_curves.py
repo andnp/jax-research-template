@@ -78,6 +78,15 @@ class TestInterleavedRuns:
             mean_curves(pl.concat([df, df.filter(pl.col("seed") == 0)]), "r", n_resamples=10)
 
 
+    def test_final_values_reject_two_runs_sharing_a_seed(self) -> None:
+        """Reducing to one value per seed must not silently keep only one of two pooled runs."""
+        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float(t)).with_columns(run_id=pl.col("seed") + 1)
+        other_config = df.filter(pl.col("seed") == 1).with_columns(run_id=pl.lit(7, dtype=pl.Int64))
+
+        with pytest.raises(ValueError, match=r"more than one run for seed 1 \(runs \['2', '7'\]\)"):
+            final_values(pl.concat([df, other_config]), "r")
+
+
 class TestFinalValues:
     def test_returns_last_step_per_seed(self) -> None:
         df = _make_df(["A"], [0, 1], [0, 1, 2], "r", lambda c, s, t: t + s * 10)

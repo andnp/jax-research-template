@@ -67,16 +67,18 @@ _FLATLINE_SCHEMA: dict[str, type[pl.DataType]] = {
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _require_one_run_per_seed(subset: pl.DataFrame, cell: str) -> None:
-    if "run_id" not in subset.columns:
-        repeated = subset.filter(pl.struct("seed", "step").is_duplicated())
-        if not repeated.is_empty():
-            raise duplicate_seed_error(cell, repeated["seed"][0])
+def _require_one_run_per_seed(frame: pl.DataFrame, metric: str) -> None:
+    keys = ["condition_name", "seed"]
+    if "run_id" in frame.columns:
+        shared = frame.group_by(keys).agg(pl.col("run_id").unique().sort()).filter(pl.col("run_id").list.len() > 1)
+        run_ids = shared["run_id"][0].to_list() if not shared.is_empty() else []
+    else:
+        shared = frame.filter(pl.struct([*keys, "step"]).is_duplicated())
+        run_ids = []
+    if shared.is_empty():
         return
-    shared = subset.group_by("seed").agg(pl.col("run_id").unique().sort()).filter(pl.col("run_id").list.len() > 1)
-    if not shared.is_empty():
-        seed, run_ids = shared.sort("seed").row(0)
-        raise duplicate_seed_error(cell, seed, run_ids)
+    first = shared.sort(keys).row(0, named=True)
+    raise duplicate_seed_error(f"metric {metric!r} for condition {first['condition_name']!r}", first["seed"], run_ids)
 
 
 def _condition_curve_array(
@@ -87,7 +89,7 @@ def _condition_curve_array(
         (pl.col("metric") == metric) & (pl.col("condition_name") == condition)
     ).sort(["seed", "step"])
     require_finite(subset, f"metric {metric!r} for condition {condition!r}")
-    _require_one_run_per_seed(subset, f"metric {metric!r} for condition {condition!r}")
+    _require_one_run_per_seed(subset, metric)
 
     seed_frames = subset.partition_by("seed", maintain_order=True)
     steps = seed_frames[0]["step"].to_list()
@@ -116,12 +118,9 @@ def final_values(df: pl.DataFrame, metric: str) -> pl.DataFrame:
 
     Returns a DataFrame with columns: ``condition_name | seed | value``.
     """
-    result = (
-        df.filter(pl.col("metric") == metric)
-        .group_by(["condition_name", "seed"])
-        .agg(pl.col("value").last())
-        .sort(["condition_name", "seed"])
-    )
+    subset = df.filter(pl.col("metric") == metric)
+    _require_one_run_per_seed(subset, metric)
+    result = subset.group_by(["condition_name", "seed"]).agg(pl.col("value").last()).sort(["condition_name", "seed"])
     require_finite(result, f"final {metric!r} values")
     return result
 
