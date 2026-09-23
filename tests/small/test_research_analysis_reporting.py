@@ -19,6 +19,7 @@ from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.non_finite import NonFiniteValuesError
+from research_analysis.performance import ReturnRate, TailMean
 from research_analysis.reporting import (
     BenchmarkBakeoffReport,
     HyperparameterConfigReport,
@@ -882,3 +883,36 @@ class TestUnpairedRunReporting:
         )
 
         assert list(report.unpaired_run_ids) == seed_three_runs
+
+
+class TestDeclaredMeasure:
+    @staticmethod
+    def _early_and_late_learners(setup: ExperimentSetup) -> ExperimentDataset:
+        for seed in range(3):
+            _add_curve_observation(setup, {"condition_name": "a", "learning_rate": "early"}, seed, [9.0, 1.0])
+            _add_curve_observation(setup, {"condition_name": "a", "learning_rate": "late"}, seed, [0.0, 4.0])
+        return _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+    def test_best_hypers_selects_on_the_declared_measure(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The champion depends on the estimand: final value favors the late learner, return rate the early one."""
+        dataset = self._early_and_late_learners(temp_experiment_setup)
+
+        final = best_hypers(dataset, "metric", verbose=False, n_resamples=200)
+        rate = best_hypers(dataset, "metric", verbose=False, n_resamples=200, measure=ReturnRate())
+
+        assert final.winning_config == {"learning_rate": "late"}
+        assert rate.winning_config == {"learning_rate": "early"}
+        assert rate.raw_mean == pytest.approx(5.0)
+        assert rate.measure == ReturnRate()
+
+    def test_bakeoff_scores_runs_with_the_declared_measure(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Cell estimates summarize each run's tail window, and the report records that measure."""
+        setup = temp_experiment_setup
+        for seed in range(3):
+            _add_curve_observation(setup, {"condition_name": "a"}, seed, [0.0, 2.0, 4.0, 6.0])
+            _add_curve_observation(setup, {"condition_name": "b"}, seed, [1.0, 1.0, 1.0, 1.0])
+
+        report = bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False, measure=TailMean(0.5))
+
+        assert report.measure == TailMean(0.5)
+        assert report.cell_means["a"][""] == pytest.approx(5.0)
