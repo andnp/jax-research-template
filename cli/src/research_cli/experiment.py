@@ -498,17 +498,28 @@ def submit(
             if exp_row is None:
                 typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
                 raise typer.Exit(code=1)
-            planned = database.plan_experiment_execution_batches(
-                exp_row.id,
-                experiment_spec.executions_root,
-                max_runs_per_batch=experiment_spec.max_runs_per_batch,
-            )
+            if dry_run:
+                # A real plan claims runs PENDING and commits; a dry run must leave the
+                # DB untouched, so preview batch counts instead of planning them.
+                batches = database.list_unsatisfied_run_batches(
+                    exp_row.id,
+                    max_runs_per_batch=experiment_spec.max_runs_per_batch,
+                )
+                if not batches:
+                    typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
+                    continue
+                execution_ids = list(range(1, len(batches) + 1))
+            else:
+                planned = database.plan_experiment_execution_batches(
+                    exp_row.id,
+                    experiment_spec.executions_root,
+                    max_runs_per_batch=experiment_spec.max_runs_per_batch,
+                )
+                if not planned:
+                    typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
+                    continue
+                execution_ids = [p.execution_id for p in planned]
 
-        if not planned:
-            typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
-            continue
-
-        execution_ids = [p.execution_id for p in planned]
         config = SlurmConfig(
             account=account,
             partition=partition,
@@ -528,6 +539,9 @@ def submit(
         )
 
         if dry_run:
-            typer.echo(f"Spec '{name}': {len(planned)} batch(es) planned (dry-run, not submitted)")
+            typer.echo(
+                f"Spec '{name}': {len(execution_ids)} batch(es) would be planned "
+                "(dry-run, not submitted; execution IDs in the script are provisional)"
+            )
         else:
-            typer.echo(f"Spec '{name}': submitted {len(planned)} batch(es) — {job_result}")
+            typer.echo(f"Spec '{name}': submitted {len(execution_ids)} batch(es) — {job_result}")

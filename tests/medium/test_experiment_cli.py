@@ -572,6 +572,42 @@ def test_submit_dry_run(tmp_path: Path) -> None:
     assert script_path.exists()
 
 
+def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
+    """A dry run must not claim runs PENDING; planning them is a real DB commit."""
+    results_root = tmp_path / "submit_dry_no_mutate"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    db_path = results_root / "experiments.sqlite"
+
+    plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    assert plan_result.exit_code == 0, plan_result.output
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_row = db.get_experiment("test-experiment")
+        assert exp_row is not None
+        before_run_ids = [r.id for r in db.list_runs(exp_row.id)]
+        before_execution_ids = [e.id for e in db.list_executions(exp_row.id)]
+
+    result = runner.invoke(app, [
+        "experiment", "submit", str(spec_file),
+        "--dry-run",
+        "--script-path", str(tmp_path / "slurm_submit.sh"),
+    ])
+    assert result.exit_code == 0, result.output
+
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_row = db.get_experiment("test-experiment")
+        assert exp_row is not None
+        after_run_ids = [r.id for r in db.list_runs(exp_row.id)]
+        after_execution_ids = [e.id for e in db.list_executions(exp_row.id)]
+        after_unsatisfied = db.list_unsatisfied_runs(exp_row.id)
+
+    assert after_run_ids == before_run_ids
+    assert after_execution_ids == before_execution_ids
+    assert len(after_unsatisfied) == len(after_run_ids)
+
+
 # ── prune ────────────────────────────────────────────────────────────────────────
 
 
