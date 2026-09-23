@@ -117,15 +117,26 @@ def status(
 
         for exp_row in exp_rows:
             all_runs = db.list_runs(exp_row.id)
-            unsatisfied = db.list_unsatisfied_runs(exp_row.id)
+            statuses = db.list_run_execution_statuses(exp_row.id)
+            # FAILED must not hide behind "pending": a run with only failed executions is
+            # neither satisfied nor merely unrun, and an agent needs to see it separately.
+            completed_ids = {r.id for r in all_runs if "COMPLETED" in statuses.get(r.id, frozenset())}
+            failed_ids = {
+                r.id
+                for r in all_runs
+                if r.id not in completed_ids and "FAILED" in statuses.get(r.id, frozenset())
+            }
             total = len(all_runs)
-            pending = len(unsatisfied)
-            completed = total - pending
-            typer.echo(f"{exp_row.name}: {total} runs ({completed} completed, {pending} pending)")
+            completed = len(completed_ids)
+            failed = len(failed_ids)
+            pending = total - completed - failed
+            typer.echo(
+                f"{exp_row.name}: {total} runs "
+                f"({completed} completed, {failed} failed, {pending} pending)"
+            )
 
             pairs = {(r.algo_version_id, r.env_version_id) for r in all_runs}
             if len(pairs) > 1:
-                unsatisfied_ids = {r.id for r in unsatisfied}
                 counts = {
                     pair: [r for r in all_runs if (r.algo_version_id, r.env_version_id) == pair]
                     for pair in pairs
@@ -134,20 +145,21 @@ def status(
                 # mints a version and its unexecuted runs for any source edit, cosmetic
                 # ones included, so the newest pair is routinely one nothing has run.
                 with_results = [
-                    pair for pair, runs in counts.items() if any(r.id not in unsatisfied_ids for r in runs)
+                    pair for pair, runs in counts.items() if any(r.id in completed_ids for r in runs)
                 ]
                 newest_pair = max(with_results, key=_version_pair_newest_key) if with_results else None
                 for pair in sorted(pairs, key=_version_pair_sort_key):
                     pair_runs = counts[pair]
                     pair_total = len(pair_runs)
-                    pair_pending = sum(1 for r in pair_runs if r.id in unsatisfied_ids)
-                    pair_completed = pair_total - pair_pending
+                    pair_completed = sum(1 for r in pair_runs if r.id in completed_ids)
+                    pair_failed = sum(1 for r in pair_runs if r.id in failed_ids)
+                    pair_pending = pair_total - pair_completed - pair_failed
                     marker = " (newest with results)" if pair == newest_pair else ""
                     algo_display = _render_version(pair[0])
                     env_display = _render_version(pair[1])
                     typer.echo(
                         f"  algo_version={algo_display} env_version={env_display}: "
-                        f"{pair_total} runs ({pair_completed} completed, {pair_pending} pending){marker}"
+                        f"{pair_total} runs ({pair_completed} completed, {pair_failed} failed, {pair_pending} pending){marker}"
                     )
 
 

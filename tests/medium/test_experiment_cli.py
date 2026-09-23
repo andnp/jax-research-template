@@ -53,6 +53,7 @@ def test_experiment_status_shows_run_counts(tmp_path: Path) -> None:
     assert "status-exp" in result.output
     assert "2 runs" in result.output
     assert "0 completed" in result.output
+    assert "0 failed" in result.output
     assert "2 pending" in result.output
     assert "algo_version" not in result.output
 
@@ -80,9 +81,9 @@ def test_experiment_status_breaks_down_by_version_pair(tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["experiment", "status", str(db_path)])
     assert result.exit_code == 0
-    assert "multi-version-exp: 3 runs (1 completed, 2 pending)" in result.output
-    assert f"algo_version={old_ver_id} env_version={env_ver_id}: 2 runs (1 completed, 1 pending)" in result.output
-    assert f"algo_version={new_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 1 pending)" in result.output
+    assert "multi-version-exp: 3 runs (1 completed, 0 failed, 2 pending)" in result.output
+    assert f"algo_version={old_ver_id} env_version={env_ver_id}: 2 runs (1 completed, 0 failed, 1 pending)" in result.output
+    assert f"algo_version={new_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 0 failed, 1 pending)" in result.output
 
 
 def test_status_marks_the_newest_version_that_has_results(tmp_path: Path) -> None:
@@ -113,8 +114,8 @@ def test_status_marks_the_newest_version_that_has_results(tmp_path: Path) -> Non
     result = runner.invoke(app, ["experiment", "status", str(db_path)])
 
     assert result.exit_code == 0, result.output
-    assert f"algo_version={ran_ver_id} env_version={env_ver_id}: 1 runs (1 completed, 0 pending) (newest with results)" in result.output
-    assert f"algo_version={unrun_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 1 pending)\n" in result.output
+    assert f"algo_version={ran_ver_id} env_version={env_ver_id}: 1 runs (1 completed, 0 failed, 0 pending) (newest with results)" in result.output
+    assert f"algo_version={unrun_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 0 failed, 1 pending)\n" in result.output
 
 
 def test_experiment_status_renders_null_version_ids(tmp_path: Path) -> None:
@@ -136,6 +137,30 @@ def test_experiment_status_renders_null_version_ids(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert f"algo_version=unknown env_version={env_ver_id}: 1 runs" in result.output
     assert f"algo_version={ver_id} env_version={env_ver_id}: 1 runs" in result.output
+
+
+def test_experiment_status_separates_failed_from_never_run(tmp_path: Path) -> None:
+    """A FAILED execution must not read as merely 'pending' alongside a never-run seed."""
+    db_path = tmp_path / "test.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment("failure-exp")
+        comp_id = db.add_component("test-algo", "ALGO")
+        ver_id = db.add_component_version(comp_id, "abc123")
+        env_id = db.add_component("test-env", "ENV")
+        env_ver_id = db.add_component_version(env_id, "def456")
+        hyper_id = db.add_hyperparam_config({"lr": 0.01})
+
+        failed_run_id = db.add_run(exp_id, ver_id, env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, ver_id, env_ver_id, hyper_id, seed=1)
+
+        execution = db.add_execution(hostname="n1")
+        db.link_execution_run(execution, failed_run_id)
+        db.update_execution_status(execution, "FAILED")
+
+    result = runner.invoke(app, ["experiment", "status", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "failure-exp: 2 runs (0 completed, 1 failed, 1 pending)" in result.output
 
 
 def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
