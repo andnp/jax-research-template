@@ -48,7 +48,7 @@ class TakacsSettlerState:
     layer_tss: jax.Array
 
 
-def reset(feed_tss: float, params: TakacsSettlerParams, rng_key: jax.Array) -> TakacsSettlerState:
+def reset(feed_tss: float | jax.Array, params: TakacsSettlerParams, rng_key: jax.Array) -> TakacsSettlerState:
     """Initialise settler with an approximate steady-state TSS profile.
 
     Below the feed layer: linearly increasing from feed_tss to 2× feed_tss.

@@ -258,7 +258,7 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         r5 = asm1_reset(c.initial_states.r5, jax.random.PRNGKey(0))
 
         # Initialize settler with typical MLSS
-        feed_tss_init = float(_compute_tss(r5))
+        feed_tss_init = _compute_tss(r5)
         settler = settler_reset(feed_tss_init, config.settler, k2)
 
         kla34_loop = dosing_reset(2.0, c.do_ff, k3)
