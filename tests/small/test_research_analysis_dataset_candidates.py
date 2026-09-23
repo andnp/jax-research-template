@@ -6,8 +6,8 @@ from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
 from research_analysis.dataset.candidates import RunState, fetch_run_candidates
-from research_analysis.dataset.types import VersionSelection
-from research_analysis.dataset.versions import resolve_versioned_candidates, select_version_sets
+from research_analysis.dataset.types import ComponentVersionProvenance, VersionSelection
+from research_analysis.dataset.versions import resolve_run_version, select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 
 
@@ -41,13 +41,11 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
         assert completed_run.execution.id == execution_id
         assert completed_run.artifacts.metrics_db_path == metrics_path
 
-        candidates = resolve_versioned_candidates(database, [completed_run])
-        assert len(candidates) == 1
-        candidate = candidates[0]
-        assert candidate.completed_run == completed_run
-        assert candidate.version_set.algo_version_id == algo_version
-        assert candidate.version_set.env_version_id == env_version
-        assert len(candidate.provenance) == 2
+        cache: dict[int, ComponentVersionProvenance] = {}
+        version = resolve_run_version(database, completed_run.run, cache)
+        assert version.version_set.algo_version_id == algo_version
+        assert version.version_set.env_version_id == env_version
+        assert len(version.provenance) == 2
 
-        selected_sets, _ = select_version_sets(candidates, VersionSelection.latest_completed(), DiagnosticAccumulator())
-        assert candidate.version_set in selected_sets
+        selected_sets, _ = select_version_sets([version], VersionSelection.latest_completed(), DiagnosticAccumulator())
+        assert version.version_set in selected_sets

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from experiment_definition.db import DatabaseManager
+from experiment_definition.records import RunRow
 
-from research_analysis.dataset.candidates import CompletedRun
 from research_analysis.dataset.types import (
     CodeSnapshotSelector,
     ComponentVersionProvenance,
@@ -28,10 +28,9 @@ class VersionSet(NamedTuple):
 
 
 @dataclass(frozen=True)
-class VersionedCandidate:
-    """A completed run enriched with component identity for version selection."""
+class RunVersion:
+    """One run's component-version pairing and the provenance of each component."""
 
-    completed_run: CompletedRun
     version_set: VersionSet
     provenance: tuple[ComponentVersionProvenance, ...]
 
@@ -58,24 +57,15 @@ def _cached_component_provenance(
     return cache[version_id]
 
 
-def resolve_versioned_candidates(database: DatabaseManager, completed_runs: list[CompletedRun]) -> list[VersionedCandidate]:
-    provenance_by_version: dict[int, ComponentVersionProvenance] = {}
-    candidates: list[VersionedCandidate] = []
-    for completed_run in completed_runs:
-        run = completed_run.run
-        version_items = tuple(
-            _cached_component_provenance(database, version_id, provenance_by_version)
-            for version_id in (run.algo_version_id, run.env_version_id)
-            if version_id is not None
-        )
-        candidates.append(
-            VersionedCandidate(
-                completed_run=completed_run,
-                version_set=VersionSet(run.algo_version_id, run.env_version_id),
-                provenance=version_items,
-            )
-        )
-    return candidates
+def resolve_run_version(
+    database: DatabaseManager, run: RunRow, cache: dict[int, ComponentVersionProvenance]
+) -> RunVersion:
+    provenance = tuple(
+        _cached_component_provenance(database, version_id, cache)
+        for version_id in (run.algo_version_id, run.env_version_id)
+        if version_id is not None
+    )
+    return RunVersion(VersionSet(run.algo_version_id, run.env_version_id), provenance)
 
 
 def _version_sort_key(version_set: VersionSet) -> tuple[int, int]:
@@ -101,7 +91,7 @@ def _version_matches(
 
 
 def select_version_sets(
-    candidates: list[VersionedCandidate], selection: VersionSelection, diagnostics: DiagnosticAccumulator
+    candidates: list[RunVersion], selection: VersionSelection, diagnostics: DiagnosticAccumulator
 ) -> tuple[frozenset[VersionSet], dict[int, ComponentVersionProvenance]]:
     available_sets = {candidate.version_set for candidate in candidates}
     selected_sets = available_sets

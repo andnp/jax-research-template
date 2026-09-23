@@ -1,27 +1,46 @@
-"""Materialize typed rows for selected candidates, fetching each run's hyperparameters."""
+"""Resolve every planned run's dimensions, then materialize the selected completed rows."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+
 from experiment_definition.db import DatabaseManager
+from experiment_definition.parameter import ParameterValue
 
+from research_analysis.dataset.candidates import RunCandidate
 from research_analysis.dataset.dimensions import cohort_matches, resolve_dimensions
-from research_analysis.dataset.types import CohortSelection, ExperimentDimensions, MaterializedRun
-from research_analysis.dataset.versions import VersionedCandidate, VersionSet
+from research_analysis.dataset.types import (
+    CohortSelection,
+    ComponentVersionProvenance,
+    ExperimentDimensions,
+    MaterializedRun,
+    SweepValue,
+)
+from research_analysis.dataset.versions import RunVersion, VersionSet, resolve_run_version
 
 
-def build_rows(
+@dataclass(frozen=True)
+class ResolvedRun:
+    """A planned run with its analysis dimensions, hyperparameters, and component versions."""
+
+    candidate: RunCandidate
+    version: RunVersion
+    dimension_values: Mapping[str, SweepValue | None]
+    hyperparameters: Mapping[str, ParameterValue]
+
+
+def resolve_runs(
     database: DatabaseManager,
-    candidates: list[VersionedCandidate],
-    selected_sets: frozenset[VersionSet],
+    candidates: list[RunCandidate],
     dimensions: ExperimentDimensions,
     cohort: CohortSelection | None,
-) -> list[MaterializedRun]:
-    rows: list[MaterializedRun] = []
+) -> list[ResolvedRun]:
+    provenance_cache: dict[int, ComponentVersionProvenance] = {}
+    resolved: list[ResolvedRun] = []
     for candidate in candidates:
-        if candidate.version_set not in selected_sets:
-            continue
-        completed_run = candidate.completed_run
-        hyper_config = database.get_hyperparam_config(completed_run.run.hyper_id)
+        run = candidate.run
+        hyper_config = database.get_hyperparam_config(run.hyper_id)
         if hyper_config is None:
             continue
 
@@ -29,19 +48,36 @@ def build_rows(
         if dimension_values is None:
             continue
 
-        row = MaterializedRun(
-            dimension_values=dimension_values.values,
-            seed=completed_run.run.seed,
-            run_id=completed_run.run.id,
-            execution_id=completed_run.execution.id,
-            ablation=completed_run.run.ablation,
-            provenance=candidate.provenance,
-            artifacts=completed_run.artifacts.reference,
-            metrics_db_path=completed_run.artifacts.metrics_db_path,
-        )
-
-        if cohort is not None and not cohort_matches(row.dimension_values, row.ablation, cohort):
+        if cohort is not None and not cohort_matches(dimension_values.values, run.ablation, cohort):
             continue
 
-        rows.append(row)
+        resolved.append(
+            ResolvedRun(
+                candidate=candidate,
+                version=resolve_run_version(database, run, provenance_cache),
+                dimension_values=dimension_values.values,
+                hyperparameters=hyper_config.hyperparameters,
+            )
+        )
+    return resolved
+
+
+def materialize_rows(resolved: list[ResolvedRun], selected_sets: frozenset[VersionSet]) -> list[MaterializedRun]:
+    rows: list[MaterializedRun] = []
+    for item in resolved:
+        completed = item.candidate.completed
+        if completed is None or item.version.version_set not in selected_sets:
+            continue
+        rows.append(
+            MaterializedRun(
+                dimension_values=item.dimension_values,
+                seed=completed.run.seed,
+                run_id=completed.run.id,
+                execution_id=completed.execution.id,
+                ablation=completed.run.ablation,
+                provenance=item.version.provenance,
+                artifacts=completed.artifacts.reference,
+                metrics_db_path=completed.artifacts.metrics_db_path,
+            )
+        )
     return rows

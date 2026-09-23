@@ -9,9 +9,9 @@ from experiment_definition.db import DatabaseManager
 from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
-from research_analysis.dataset.rows import build_rows
+from research_analysis.dataset.rows import materialize_rows, resolve_runs
 from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
-from research_analysis.dataset.versions import resolve_versioned_candidates, select_version_sets
+from research_analysis.dataset.versions import select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetLoadError
 
@@ -38,10 +38,11 @@ def load_experiment_dataset(
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
         run_candidates = fetch_run_candidates(database, experiment)
-        completed_runs = [candidate.completed for candidate in run_candidates if candidate.completed is not None]
-        candidates = resolve_versioned_candidates(database, completed_runs)
-        selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
-        rows = build_rows(database, candidates, selected_sets, selected_dimensions, cohort)
+        resolved = resolve_runs(database, run_candidates, selected_dimensions, cohort)
+
+    completed_versions = [item.version for item in resolved if item.candidate.completed is not None]
+    selected_sets, all_provenance = select_version_sets(completed_versions, selected_versions, diagnostics)
+    rows = materialize_rows(resolved, selected_sets)
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)
     run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)
