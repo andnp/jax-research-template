@@ -5,7 +5,9 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+import numpy as np
 import polars as pl
+from numpy.typing import NDArray
 
 from research_analysis.dataset.types import ExperimentDataset
 
@@ -33,6 +35,18 @@ def require_finite(frame: pl.DataFrame, context: str) -> None:
         return
     columns = [column for column in _IDENTITY_COLUMNS if column in frame.columns]
     raise NonFiniteValuesError(context, offenders.select(columns).unique(maintain_order=True))
+
+
+def require_finite_array(values: NDArray[np.floating], name: str) -> None:
+    array = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(array)
+    if finite.all():
+        return
+    rows = np.flatnonzero(~finite.reshape(finite.shape[0], -1).all(axis=1)).tolist() if array.ndim else [0]
+    raise ValueError(
+        f"{name} has non-finite values in rows {rows}; diverged runs are outcomes, not missing data. Declare a "
+        "worst-case value with research_analysis.non_finite.substitute_non_finite or analyse divergence separately."
+    )
 
 
 def substitute_non_finite(dataset: ExperimentDataset, metric: str, worst_case: float) -> ExperimentDataset:
