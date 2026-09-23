@@ -14,7 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import stats
 
-from research_analysis._kernels import bootstrap_resample_means, mean_axis0, percentile_axis0
+from research_analysis._kernels import bootstrap_resample_means
 from research_analysis.aggregates import interquartile_mean
 from research_analysis.comparison import Estimand
 from research_analysis.non_finite import require_finite_array
@@ -155,6 +155,14 @@ def bootstrap_percentile_ci(
     )
 
 
+def _percentile_interval(
+    replicates: NDArray[np.float64], confidence: float
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return the percentile-bootstrap bounds of ``replicates`` along the resample axis."""
+    alpha = (1.0 - confidence) / 2.0
+    return np.quantile(replicates, alpha, axis=0), np.quantile(replicates, 1.0 - alpha, axis=0)
+
+
 def _as_bootstrap_input(data: NDArray[np.floating]) -> tuple[NDArray[np.float64], bool]:
     array = np.asarray(data, dtype=np.float64)
     squeeze = array.ndim == 1
@@ -206,12 +214,8 @@ def bootstrap_ci(
     indices = rng.integers(0, n_seeds, size=(n_resamples, n_seeds))
     # Bootstrap means: (n_resamples, n_steps)
     boot_means = bootstrap_resample_means(working_data, indices)
-    sorted_boot_means = np.sort(boot_means, axis=0)
-
-    alpha = 1.0 - confidence
-    ci_low = percentile_axis0(sorted_boot_means, 100 * alpha / 2)
-    ci_high = percentile_axis0(sorted_boot_means, 100 * (1 - alpha / 2))
-    mean = mean_axis0(working_data)
+    ci_low, ci_high = _percentile_interval(boot_means, confidence)
+    mean = np.mean(working_data, axis=0)
 
     if squeeze:
         mean = np.float64(mean[0])

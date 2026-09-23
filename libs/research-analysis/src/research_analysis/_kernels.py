@@ -25,43 +25,6 @@ def bootstrap_resample_means(
 
 
 @numba.njit(cache=True)
-def mean_axis0(data: NDArray[np.float64]) -> NDArray[np.float64]:
-    n_rows, n_cols = data.shape
-    mean = np.empty(n_cols, dtype=np.float64)
-
-    for column_index in range(n_cols):
-        total = 0.0
-        for row_index in range(n_rows):
-            total += data[row_index, column_index]
-        mean[column_index] = total / n_rows
-
-    return mean
-
-
-@numba.njit(cache=True)
-def percentile_axis0(
-    sorted_values: NDArray[np.float64],
-    percentile: float,
-) -> NDArray[np.float64]:
-    n_rows, n_cols = sorted_values.shape
-    quantile = percentile / 100.0
-    position = (n_rows - 1) * quantile
-    lower_index = int(np.floor(position))
-    upper_index = int(np.ceil(position))
-    interpolation = position - lower_index
-
-    percentile_values = np.empty(n_cols, dtype=np.float64)
-    for column_index in range(n_cols):
-        lower_value = sorted_values[lower_index, column_index]
-        upper_value = sorted_values[upper_index, column_index]
-        percentile_values[column_index] = (
-            lower_value + (upper_value - lower_value) * interpolation
-        )
-
-    return percentile_values
-
-
-@numba.njit(cache=True)
 def mann_whitney_rank_sum(
     sorted_order: NDArray[np.int64],
     sorted_values: NDArray[np.float64],
