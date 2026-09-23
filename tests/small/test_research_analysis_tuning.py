@@ -91,6 +91,13 @@ class TestHierarchicalBootstrapCI:
         with pytest.raises(ValueError, match="need at least 2 hyperparameters"):
             hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5)
 
+    def test_validation_rejects_non_finite_values(self) -> None:
+        """A diverged run must not flow into the numba kernels, which would propagate NaN silently."""
+        data = np.ones((2, 5))
+        data[0, 3] = np.inf
+        with pytest.raises(ValueError, match="non-finite"):
+            hierarchical_bootstrap_ci(data, h_samples=3, e_samples=5)
+
     def test_h_and_e_samples_may_exceed_n_runs(self) -> None:
         """Both selection and evaluation resampling are with replacement, so neither
         h_samples nor e_samples is bounded by n_runs."""

@@ -28,6 +28,8 @@ def _validate_hyper_matrix(arr: NDArray[np.float64], confidence: float) -> None:
         raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
     if not 0.0 < confidence < 1.0:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    if not np.isfinite(arr).all():
+        raise ValueError("hyperparameter matrix has non-finite values; diverged runs need an explicit policy")
 
 
 def hierarchical_bootstrap_ci(
