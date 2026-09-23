@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from research_analysis.duplicates import duplicate_seed_error
+
 _IDENTITY_COLUMNS = ("condition_name", "env_name", "seed", "run_id", "execution_id", "ablation")
 
 
@@ -56,9 +58,13 @@ def _score(measure: PerformanceMeasure) -> pl.Expr:
 def run_scores(frame: pl.DataFrame, metric: str, measure: PerformanceMeasure) -> pl.DataFrame:
     """Reduce each run's ``metric`` curve to one ``value``, keeping the frame's run identity columns."""
     keys = [column for column in _IDENTITY_COLUMNS if column in frame.columns]
+    curves = frame.filter(pl.col("metric") == metric)
+    pooled = curves.filter(pl.struct([*keys, "step"]).is_duplicated())
+    if not pooled.is_empty():
+        first = pooled.row(0, named=True)
+        raise duplicate_seed_error(f"metric {metric!r} for {first.get('condition_name')!r}", first.get("seed"))
     return (
-        frame.filter(pl.col("metric") == metric)
-        .group_by(keys)
+        curves.group_by(keys)
         .agg(_score(measure).alias("value"))
         .sort(keys)
     )

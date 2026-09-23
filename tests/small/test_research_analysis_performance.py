@@ -39,6 +39,13 @@ class TestFinalValue:
         assert math.isnan(scores[0])
         assert scores[1] == 3.0
 
+    def test_rejects_two_runs_pooled_under_one_seed(self) -> None:
+        """Without a run id, a repeated step for one seed means runs were pooled, not one curve."""
+        frame = _curves([(0, 0, 1.0), (0, 0, 2.0)])
+
+        with pytest.raises(ValueError, match="more than one run for seed 0"):
+            run_scores(frame, "return", FinalValue())
+
 
 class TestTailMean:
     def test_averages_the_final_fraction_of_each_runs_step_span(self) -> None:
