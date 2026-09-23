@@ -221,6 +221,7 @@ class ExperimentDataset:
     provenance: tuple[ComponentVersionProvenance, ...]
     artifacts: Mapping[tuple[int, int], RunArtifacts] = field(default_factory=dict)
     diagnostics: tuple[DatasetDiagnostic, ...] = ()
+    accounting: RunAccounting = field(default_factory=RunAccounting)
 
     def __post_init__(self) -> None:
         required_runs = {

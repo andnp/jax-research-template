@@ -6,6 +6,7 @@ from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
 
+from research_analysis.dataset.accounting import account_runs
 from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.cohorts import diagnose_orphaned_cells, diagnose_undeclared_variation
 from research_analysis.dataset.frames import assemble_frames
@@ -54,6 +55,7 @@ def load_experiment_dataset(
     divergence = non_finite_summary(metric_frame)
     diagnose_non_finite(divergence, diagnostics)
     run_frame = with_non_finite_metrics(run_frame, divergence)
+    accounting = account_runs(resolved, selected_sets, diagnostics.as_tuple(), divergence)
     artifacts = {(row.run_id, row.execution_id): row.artifacts for row in rows}
 
     fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
@@ -67,4 +69,5 @@ def load_experiment_dataset(
         provenance=tuple(all_provenance.values()),
         artifacts=artifacts,
         diagnostics=diagnostics.as_tuple(),
+        accounting=accounting,
     )
