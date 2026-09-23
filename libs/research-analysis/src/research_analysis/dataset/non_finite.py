@@ -26,3 +26,10 @@ def diagnose_non_finite(summary: pl.DataFrame, diagnostics: DiagnosticAccumulato
             row["run_id"],
             row["execution_id"],
         )
+
+
+def with_non_finite_metrics(runs: pl.DataFrame, summary: pl.DataFrame) -> pl.DataFrame:
+    flagged = summary.group_by(["run_id", "execution_id"]).agg(pl.col("metric").sort().alias("non_finite_metrics"))
+    return runs.join(flagged, on=["run_id", "execution_id"], how="left", maintain_order="left").with_columns(
+        pl.col("non_finite_metrics").fill_null(pl.lit([], dtype=pl.List(pl.String)))
+    )

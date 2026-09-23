@@ -10,7 +10,7 @@ from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.cohorts import diagnose_orphaned_cells, diagnose_undeclared_variation
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
-from research_analysis.dataset.non_finite import diagnose_non_finite, non_finite_summary
+from research_analysis.dataset.non_finite import diagnose_non_finite, non_finite_summary, with_non_finite_metrics
 from research_analysis.dataset.rows import diagnose_unusable_runs, materialize_rows, resolve_runs
 from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
 from research_analysis.dataset.versions import select_version_sets
@@ -51,7 +51,9 @@ def load_experiment_dataset(
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)
     run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)
-    diagnose_non_finite(non_finite_summary(metric_frame), diagnostics)
+    divergence = non_finite_summary(metric_frame)
+    diagnose_non_finite(divergence, diagnostics)
+    run_frame = with_non_finite_metrics(run_frame, divergence)
     artifacts = {(row.run_id, row.execution_id): row.artifacts for row in rows}
 
     fatal = diagnostics.fatal(FATAL_DIAGNOSTIC_CODES)
