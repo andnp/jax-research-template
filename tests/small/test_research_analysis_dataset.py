@@ -488,6 +488,36 @@ def test_latest_completed_rejects_cells_orphaned_by_a_partial_rerun(tmp_path: Pa
     assert any("'candidate'" in message for message in orphaned)
 
 
+def test_latest_completed_supersedes_a_fully_rerun_version_set(tmp_path: Path) -> None:
+    """When the newer version set covers every cell, older runs are excluded with a non-fatal diagnostic."""
+    fixture = _create_experiment(tmp_path)
+    metric_rows: list[tuple[int, int, str, int, float]] = []
+    with DatabaseManager(fixture["db_path"]) as database:
+        experiment = database.get_experiment("dataset-test")
+        component = database.get_component("ppo")
+        assert experiment is not None
+        assert component is not None
+        newer_algo = database.add_component_version(component.id, "algo-v2")
+        for seed, condition in enumerate(("baseline", "candidate")):
+            hyper_id = database.add_hyperparam_config({"condition_name": condition, "learning_rate": 0.1 + seed, "seed": seed})
+            run_id = database.add_run(experiment.id, newer_algo, fixture["env_version"], hyper_id, seed)
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.record_execution_artifacts(
+                execution_id, str(tmp_path / "execution-new"), metadata={"metrics_db_path": str(fixture["metrics_path"])}
+            )
+            database.update_execution_status(execution_id, "COMPLETED")
+            metric_rows.append((run_id, execution_id, "reward", 0, 5.0))
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.executemany("INSERT INTO metrics VALUES (?, ?, ?, ?, ?)", metric_rows)
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert dataset.runs["algo_version_id"].to_list() == [newer_algo, newer_algo]
+    assert [item.code for item in dataset.diagnostics] == [DiagnosticCode.EXCLUDED_VERSION]
+    assert {item.version_id for item in dataset.provenance} == {newer_algo, fixture["env_version"]}
+
+
 def test_version_selection_all_includes_every_completed_version_set(tmp_path: Path) -> None:
     """VersionSelection.all() keeps every completed version set without excluding any."""
     fixture = _create_experiment(tmp_path)
