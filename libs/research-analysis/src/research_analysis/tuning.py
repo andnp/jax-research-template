@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from research_analysis.bootstrap import _percentile_interval
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.non_finite import require_finite_array
 
@@ -58,15 +59,12 @@ def hierarchical_bootstrap_ci(
     probs, entropy = get_hyper_distribution(arr, h_samples, selection_trials, seed)
     boot_means = resample_two_stage(arr, probs, e_samples, n_resamples, seed + 1)
 
-    alpha = 1.0 - confidence
-    ci_low = float(np.percentile(boot_means, 100 * alpha / 2))
-    ci_high = float(np.percentile(boot_means, 100 * (1.0 - alpha / 2)))
-    mean_val = float(np.mean(boot_means))
+    ci_low, ci_high = _percentile_interval(boot_means, confidence)
 
     return HierarchicalBootstrapCI(
-        mean=mean_val,
-        ci_low=ci_low,
-        ci_high=ci_high,
+        mean=float(np.mean(boot_means)),
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
         confidence=confidence,
         hyper_probs=probs,
         selection_entropy=entropy,
@@ -122,15 +120,12 @@ def hierarchical_bootstrap_difference_ci(
     probs_b, entropy_b = get_hyper_distribution(arr_b, h_samples, selection_trials, seed + 1)
     diffs = resample_two_stage_difference(arr_a, probs_a, arr_b, probs_b, e_samples, n_resamples, seed + 2)
 
-    alpha = 1.0 - confidence
-    ci_low = float(np.percentile(diffs, 100 * alpha / 2))
-    ci_high = float(np.percentile(diffs, 100 * (1.0 - alpha / 2)))
-    mean_diff = float(np.mean(diffs))
+    ci_low, ci_high = _percentile_interval(diffs, confidence)
 
     return HierarchicalBootstrapDifferenceCI(
-        mean_diff=mean_diff,
-        ci_low=ci_low,
-        ci_high=ci_high,
+        mean_diff=float(np.mean(diffs)),
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
         confidence=confidence,
         hyper_probs_a=probs_a,
         hyper_probs_b=probs_b,
