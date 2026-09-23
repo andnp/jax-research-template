@@ -127,7 +127,7 @@ def bootstrap_ci(
     *,
     confidence: float = 0.95,
     n_resamples: int = 10_000,
-    rng: np.random.Generator | None = None,
+    rng: np.random.Generator,
 ) -> BootstrapCI:
     """Compute bootstrap confidence intervals for learning curves.
 
@@ -139,7 +139,7 @@ def bootstrap_ci(
             containing metric values (e.g. episodic returns).
         confidence: Confidence level in ``(0, 1)``. Default 0.95.
         n_resamples: Number of bootstrap resamples.
-        rng: NumPy random generator. Defaults to unseeded.
+        rng: NumPy random generator.
 
     Returns:
         A :class:`BootstrapCI` with arrays of shape ``(n_steps,)`` or
@@ -157,8 +157,6 @@ def bootstrap_ci(
         raise ValueError(f"Confidence must be in (0, 1), got {confidence}")
     require_finite_array(working_data, "bootstrap_ci data")
 
-    if rng is None:
-        rng = np.random.default_rng()
 
     # Resample seed indices: (n_resamples, n_seeds)
     indices = rng.integers(0, n_seeds, size=(n_resamples, n_seeds))
@@ -184,7 +182,7 @@ def bootstrap_difference_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
-    rng: np.random.Generator | None = None,
+    rng: np.random.Generator,
 ) -> DifferenceBootstrapCI:
     """Compute a percentile-bootstrap interval for a difference, resampling runs jointly when paired."""
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
@@ -206,8 +204,6 @@ def bootstrap_difference_ci(
     if not np.isfinite(a).all() or not np.isfinite(b).all():
         raise ValueError("bootstrap samples must contain only finite values")
 
-    if rng is None:
-        rng = np.random.default_rng()
     indices_a = rng.integers(0, len(a), size=(n_resamples, len(a)))
     indices_b = indices_a if pairing == "paired" else rng.integers(0, len(b), size=(n_resamples, len(b)))
     replicates = _sample_statistic(a[indices_a], estimand) - _sample_statistic(b[indices_b], estimand)
@@ -231,7 +227,7 @@ def bootstrap_scalar_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
-    rng: np.random.Generator | None = None,
+    rng: np.random.Generator,
 ) -> ScalarBootstrapCI:
     """Compute a percentile-bootstrap interval for one scalar sample statistic."""
     data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
@@ -246,8 +242,6 @@ def bootstrap_scalar_ci(
     if not np.isfinite(data).all():
         raise ValueError("bootstrap samples must contain only finite values")
 
-    if rng is None:
-        rng = np.random.default_rng()
     indices = rng.integers(0, len(data), size=(n_resamples, len(data)))
     ci_low, ci_high = _percentile_interval(_sample_statistic(data[indices], estimand), confidence)
     return ScalarBootstrapCI(

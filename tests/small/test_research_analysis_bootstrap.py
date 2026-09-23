@@ -155,18 +155,18 @@ class TestBootstrapCI:
 
     def test_too_few_seeds_raises(self) -> None:
         with pytest.raises(ValueError, match="at least 2 seeds"):
-            bootstrap_ci(np.array([[1.0, 2.0]]))
+            bootstrap_ci(np.array([[1.0, 2.0]]), rng=np.random.default_rng(0))
 
     def test_non_finite_values_raise_naming_the_seed_rows(self) -> None:
         """A diverged seed must not silently turn the interval into NaN."""
         data = np.ones((3, 4))
         data[1, 2] = np.nan
         with pytest.raises(ValueError, match=r"rows \[1\]"):
-            bootstrap_ci(data)
+            bootstrap_ci(data, rng=np.random.default_rng(0))
 
     def test_invalid_confidence_raises(self) -> None:
         with pytest.raises(ValueError, match="Confidence must be in"):
-            bootstrap_ci(np.ones((3, 5)), confidence=1.5)
+            bootstrap_ci(np.ones((3, 5)), confidence=1.5, rng=np.random.default_rng(0))
 
     def test_matches_reference_numpy_bootstrap(self) -> None:
         data = np.array(
@@ -231,17 +231,19 @@ def test_independent_difference_resamples_each_arm_separately() -> None:
 def test_difference_bootstrap_rejects_invalid_inputs() -> None:
     """Difference intervals reject underpowered, misaligned, and non-finite data."""
     with pytest.raises(ValueError, match="at least 3"):
-        bootstrap_difference_ci(np.array([1.0, 2.0]), np.array([0.0, 1.0]))
+        bootstrap_difference_ci(np.array([1.0, 2.0]), np.array([0.0, 1.0]), rng=np.random.default_rng(0))
     with pytest.raises(ValueError, match="equal lengths"):
         bootstrap_difference_ci(
             np.array([1.0, 2.0, 3.0]),
             np.array([0.0, 1.0]),
             pairing="paired",
+            rng=np.random.default_rng(0),
         )
     with pytest.raises(ValueError, match="finite"):
         bootstrap_difference_ci(
             np.array([1.0, np.nan, 3.0]),
             np.array([0.0, 1.0, 2.0]),
+            rng=np.random.default_rng(0),
         )
 
 
