@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from research_analysis.non_finite import require_finite_array
+
 
 @dataclass(frozen=True)
 class ToleranceInterval:
@@ -66,6 +68,7 @@ def pointwise_tolerance_interval(
     if squeeze:
         array = array[:, np.newaxis]
 
+    require_finite_array(array, "tolerance interval data")
     n_seeds = array.shape[0]
     lower_idx, upper_idx = tolerance_interval_order_indices(n_seeds, confidence=confidence, coverage=coverage)
 
@@ -104,6 +107,7 @@ def select_quantile_run_index(data: NDArray[np.floating], *, quantile: float) ->
 
     if mean_scores.size == 0:
         raise ValueError("Input data must not be empty.")
+    require_finite_array(array, "run selection data")
 
     quantile_score = np.quantile(mean_scores, quantile)
 

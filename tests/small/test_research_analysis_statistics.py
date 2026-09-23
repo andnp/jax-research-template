@@ -12,6 +12,20 @@ from research_analysis.statistics import (
 )
 
 
+class TestNonFiniteInputs:
+    def test_tolerance_interval_rejects_a_diverged_seed(self) -> None:
+        """Sorting NaN into an order statistic would silently corrupt the interval bounds."""
+        data = np.ones((20, 3))
+        data[4, 1] = np.nan
+        with pytest.raises(ValueError, match=r"rows \[4\]"):
+            pointwise_tolerance_interval(data)
+
+    def test_run_selection_rejects_a_diverged_seed(self) -> None:
+        """A NaN mean score cannot be compared, so selection must fail rather than return index -1."""
+        with pytest.raises(ValueError, match=r"rows \[0\]"):
+            select_median_run_index(np.array([np.nan, 1.0, 2.0]))
+
+
 class TestToleranceInterval:
     def test_tolerance_interval_confidence(self) -> None:
         # For n = 4, coverage = 0.90
