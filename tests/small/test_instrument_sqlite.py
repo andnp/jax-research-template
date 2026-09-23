@@ -419,6 +419,50 @@ class TestWriteSeedBatchCurve:
             # Steps are not renumbered 0..3 — the original step indices survive.
             assert rows == [(0, 0.0), (5, 5.0), (10, 10.0), (15, 15.0)]
 
+    def test_nan_values_round_trip(self) -> None:
+        """Diverged runs are recorded as NaN, not dropped, by the single-transaction write path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+
+            write_seed_batch_curve(
+                db_path,
+                [[1.0, math.nan]],
+                metric_name="reward",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=[301],
+                seed_ids=[7],
+            )
+
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute("SELECT global_step, value FROM metrics ORDER BY global_step").fetchall()
+            assert rows[0] == (0, 1.0)
+            assert rows[1][1] is None  # SQLite stores NaN as NULL.
+
+    def test_rows_spanning_multiple_batch_chunks_all_persist(self) -> None:
+        """A batch_size smaller than the total row count still writes every row
+        under the one connection/transaction, with schema DDL applied only once."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "seed_batch.db"
+            curves = [[float(step) for step in range(5)] for _ in range(3)]
+            run_ids = [201, 202, 203]
+            seed_ids = [1, 2, 3]
+
+            write_seed_batch_curve(
+                db_path,
+                curves,
+                metric_name="reward",
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=run_ids,
+                seed_ids=seed_ids,
+                batch_size=4,
+            )
+
+            with sqlite3.connect(db_path) as conn:
+                count = conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
+            assert count == 15
+
     def test_creates_parent_directories(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "nested" / "dir" / "seed_batch.db"

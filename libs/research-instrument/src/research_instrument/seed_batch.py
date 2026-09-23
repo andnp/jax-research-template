@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from research_instrument.collector import MetricFrame, subsample_frames
-from research_instrument.sqlite_backend import SQLiteBackend
+from research_instrument.sqlite_backend import open_metrics_connection
 
 
 def write_seed_batch_curve(
@@ -52,25 +52,32 @@ def write_seed_batch_curve(
         seed_ids: Seed id for each row of ``curves``, same length and order.
         subsample_factor: Keep one frame every N steps; see
             ``subsample_frames``. True step indices are preserved.
-        batch_size: Forwarded to ``SQLiteBackend``.
+        batch_size: Rows are inserted in chunks of this size within the
+            single transaction.
     """
     resolved_path = Path(database_path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
+    rows_to_insert: list[tuple[str, float, int, int, int, int, int]] = []
     for row, run_id, seed_id in zip(curves, run_ids, seed_ids, strict=True):
         frames = [
             MetricFrame(name=metric_name, value=float(value), global_step=step, seed_id=seed_id)
             for step, value in enumerate(row)
         ]
-        backend = SQLiteBackend(
-            resolved_path,
-            batch_size=batch_size,
-            experiment_id=experiment_id,
-            run_id=run_id,
-            execution_id=execution_id,
+        rows_to_insert.extend(
+            (f.name, f.value, f.global_step, f.seed_id, experiment_id, run_id, execution_id)
+            for f in subsample_frames(frames, subsample_factor)
         )
-        try:
-            backend.write_batch(subsample_frames(frames, subsample_factor))
-            backend.flush()
-        finally:
-            backend.close()
+
+    conn = open_metrics_connection(resolved_path)
+    try:
+        for batch_start in range(0, len(rows_to_insert), batch_size):
+            conn.executemany(
+                "INSERT INTO metrics ("
+                "metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows_to_insert[batch_start : batch_start + batch_size],
+            )
+        conn.commit()
+    finally:
+        conn.close()
