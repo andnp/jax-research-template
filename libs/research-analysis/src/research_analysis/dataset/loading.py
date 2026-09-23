@@ -6,7 +6,7 @@ from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
 
-from research_analysis.dataset.candidates import fetch_completed_runs
+from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
 from research_analysis.dataset.rows import build_rows
@@ -37,7 +37,8 @@ def load_experiment_dataset(
         if experiment is None:
             raise ValueError(f"Unknown experiment slug {slug!r} in {experiments_db}.")
 
-        completed_runs = fetch_completed_runs(database, experiment)
+        run_candidates = fetch_run_candidates(database, experiment)
+        completed_runs = [candidate.completed for candidate in run_candidates if candidate.completed is not None]
         candidates = resolve_versioned_candidates(database, completed_runs)
         selected_sets, all_provenance = select_version_sets(candidates, selected_versions, diagnostics)
         rows = build_rows(database, candidates, selected_sets, selected_dimensions, cohort)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
@@ -24,6 +25,14 @@ class _ArtifactMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     metrics_db_path: str
+
+
+class RunState(StrEnum):
+    """Outcome of a run's execution attempts."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PENDING = "pending"
 
 
 @dataclass(frozen=True)
@@ -53,14 +62,38 @@ def _resolve_artifact(artifact: ExecutionArtifactRow | None) -> ResolvedArtifact
     )
 
 
-def fetch_completed_runs(database: DatabaseManager, experiment: ExperimentRow) -> list[CompletedRun]:
-    completed_runs: list[CompletedRun] = []
+@dataclass(frozen=True)
+class RunCandidate:
+    """One planned run, its execution outcome, and its usable completed execution if any."""
+
+    run: RunRow
+    state: RunState
+    completed: CompletedRun | None
+
+
+def _run_state(statuses: frozenset[str]) -> RunState:
+    if "COMPLETED" in statuses:
+        return RunState.COMPLETED
+    if "FAILED" in statuses and not statuses & {"PENDING", "RUNNING"}:
+        return RunState.FAILED
+    return RunState.PENDING
+
+
+def _completed_run(database: DatabaseManager, run: RunRow) -> CompletedRun | None:
+    execution = database.get_latest_completed_execution_for_run(run.id)
+    if execution is None:
+        return None
+    artifacts = _resolve_artifact(database.get_execution_artifacts(execution.id))
+    if artifacts is None:
+        return None
+    return CompletedRun(run=run, execution=execution, artifacts=artifacts)
+
+
+def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow) -> list[RunCandidate]:
+    statuses = database.list_run_execution_statuses(experiment.id)
+    candidates: list[RunCandidate] = []
     for run in database.list_runs(experiment.id):
-        execution = database.get_latest_completed_execution_for_run(run.id)
-        if execution is None:
-            continue
-        artifacts = _resolve_artifact(database.get_execution_artifacts(execution.id))
-        if artifacts is None:
-            continue
-        completed_runs.append(CompletedRun(run=run, execution=execution, artifacts=artifacts))
-    return completed_runs
+        state = _run_state(statuses.get(run.id, frozenset()))
+        completed = _completed_run(database, run) if state is RunState.COMPLETED else None
+        candidates.append(RunCandidate(run=run, state=state, completed=completed))
+    return candidates

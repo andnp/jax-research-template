@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
-from research_analysis.dataset.candidates import fetch_completed_runs
+from research_analysis.dataset.candidates import RunState, fetch_run_candidates
 from research_analysis.dataset.types import VersionSelection
 from research_analysis.dataset.versions import resolve_versioned_candidates, select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
@@ -31,15 +31,17 @@ def test_fetch_and_select_use_named_run_candidate_fields(tmp_path: Path) -> None
 
         experiment = database.get_experiment("candidate-test")
         assert experiment is not None
-        completed_runs = fetch_completed_runs(database, experiment)
+        run_candidates = fetch_run_candidates(database, experiment)
 
-        assert len(completed_runs) == 1
-        completed_run = completed_runs[0]
+        assert len(run_candidates) == 1
+        assert run_candidates[0].state is RunState.COMPLETED
+        completed_run = run_candidates[0].completed
+        assert completed_run is not None
         assert completed_run.run.id == run_id
         assert completed_run.execution.id == execution_id
         assert completed_run.artifacts.metrics_db_path == metrics_path
 
-        candidates = resolve_versioned_candidates(database, completed_runs)
+        candidates = resolve_versioned_candidates(database, [completed_run])
         assert len(candidates) == 1
         candidate = candidates[0]
         assert candidate.completed_run == completed_run
