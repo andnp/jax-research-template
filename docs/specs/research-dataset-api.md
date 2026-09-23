@@ -62,14 +62,42 @@ silently pool incompatible code versions.
 
 A cohort is identified by its selected component-version set, condition,
 optional environment, declared sweep-axis values, ablation, and seed coverage.
-If the requested dimensions identify more than one cohort, the default loader
-fails with an ambiguous-cohort diagnostic. An explicit cohort selector is
-required to disambiguate it.
+The loader fails strict loading with an ambiguous-cohort diagnostic when:
 
-Rows that cannot satisfy the requested dimension projection are omitted without
-diagnostics. The loader still reports missing recorded metric artifacts,
-ambiguous cohorts, and invalid version selections; `partial=True` returns valid
-rows while retaining those diagnostics.
+- `latest_completed` selects a version set that lacks completed runs for a
+  cell present only in excluded version sets (a partial re-run);
+- runs of one cell differ in an undeclared hyperparameter other than `seed`;
+  the message names the keys to declare as sweep axes or dimensions.
+
+An explicit cohort selector, version selection, or declared axis resolves it.
+
+Nothing is dropped silently. Every planned run matching the cohort produces
+either a materialized row or a diagnostic:
+
+| Code | Fatal | Meaning |
+| --- | --- | --- |
+| `run_failed` | no | only failed executions |
+| `run_pending` | no | pending, running, or never executed |
+| `malformed_artifact` | yes | completed without a valid artifact record |
+| `missing_hyper_config` | yes | the run's hyperparameter config is missing |
+| `unresolved_dimension` | yes | a dimension or applicable axis is missing or mistyped |
+| `missing_metric_artifact` | yes | no metrics database or no rows for the run |
+| `ambiguous_cohort` | yes | see above |
+| `invalid_version_selection` | yes | exact versions have no completed runs |
+| `excluded_version` | no | a superseded completed version set |
+| `non_finite_metric` | no | a metric has NaN or infinite values (a diverged run) |
+
+`partial=True` returns valid rows while retaining every diagnostic.
+`ExperimentDataset.accounting` counts, per cell, planned, completed, failed,
+pending, and excluded runs (with reasons) and diverged runs per metric; runs
+with no resolvable cell are counted as unassigned.
+
+Diverged runs stay in the dataset: NaN is stored as NULL in the metric store
+and restored as NaN, and `runs["non_finite_metrics"]` lists the affected
+metrics. Statistical consumers raise `NonFiniteValuesError` naming the runs;
+`research_analysis.non_finite.substitute_non_finite` applies a declared
+worst-case value instead. Consumers also reject two runs sharing one cell and
+seed, naming the likely pooling cause.
 
 Step-grid alignment is not a dataset-loader responsibility; curve analysis
 continues to validate alignment for the operation that needs it.
