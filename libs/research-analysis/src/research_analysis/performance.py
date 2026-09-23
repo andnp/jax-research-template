@@ -28,7 +28,15 @@ class TailMean:
             raise ValueError(f"fraction must be in (0, 1], got {self.fraction}")
 
 
-type PerformanceMeasure = FinalValue | TailMean
+@dataclass(frozen=True)
+class ReturnRate:
+    """Mean over every logged point of each run's curve, the handbook's return rate.
+
+    Per-episode return metrics should be step-weighted before they are reduced.
+    """
+
+
+type PerformanceMeasure = FinalValue | TailMean | ReturnRate
 
 
 def _score(measure: PerformanceMeasure) -> pl.Expr:
@@ -39,6 +47,8 @@ def _score(measure: PerformanceMeasure) -> pl.Expr:
             step = pl.col("step")
             cutoff = step.min() + (1.0 - fraction) * (step.max() - step.min())
             return pl.col("value").filter(step >= cutoff).mean()
+        case ReturnRate():
+            return pl.col("value").mean()
 
 
 def run_scores(frame: pl.DataFrame, metric: str, measure: PerformanceMeasure) -> pl.DataFrame:
