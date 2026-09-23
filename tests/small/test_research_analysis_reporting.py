@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import numpy as np
+import polars as pl
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
@@ -827,3 +828,45 @@ class TestDuplicateSeedObservations:
 
         with pytest.raises(ValueError, match=r"'learning_rate': 'low'\} has more than one run for seed 0"):
             best_hypers(dataset, "metric", verbose=False)
+
+
+class TestUnpairedRunReporting:
+    def test_best_hypers_lists_runs_whose_seed_is_not_shared_by_every_configuration(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """A run with a seed missing from another configuration is excluded from the matrix and reported."""
+        setup = temp_experiment_setup
+        for learning_rate in ("low", "high"):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, float(seed))
+        _add_observation(setup, {"condition_name": "baseline", "learning_rate": "high"}, 7, 5.0)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+        seed_seven_run = dataset.runs.filter(pl.col("seed") == 7)["run_id"].to_list()
+
+        report = best_hypers(dataset, "metric", verbose=False, n_resamples=64)
+
+        assert isinstance(report, HyperparameterConfigReport)
+        assert list(report.unpaired_run_ids) == seed_seven_run
+
+    def test_best_hypers_difference_lists_runs_outside_the_shared_seeds(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """Seeds seen by only one compared group are reported rather than silently narrowed away."""
+        setup = temp_experiment_setup
+        for algorithm, seeds in (("a", range(4)), ("b", range(3))):
+            for learning_rate in ("low", "high"):
+                for seed in seeds:
+                    _add_arm_observation(setup, algorithm, learning_rate, seed, float(seed))
+        dataset = _load(
+            setup,
+            ExperimentDimensions(
+                condition="algorithm", sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)
+            ),
+        )
+        seed_three_runs = sorted(dataset.runs.filter(pl.col("seed") == 3)["run_id"].to_list())
+
+        report = best_hypers(
+            dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), verbose=False, n_resamples=64
+        )
+
+        assert list(report.unpaired_run_ids) == seed_three_runs
