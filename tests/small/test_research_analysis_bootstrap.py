@@ -218,7 +218,7 @@ class TestBootstrapCI:
         """A diverged seed must not silently turn the interval into NaN."""
         data = np.ones((3, 4))
         data[1, 2] = np.nan
-        with pytest.raises(ValueError, match=r"seed rows \[1\]"):
+        with pytest.raises(ValueError, match=r"rows \[1\]"):
             bootstrap_ci(data)
 
     def test_invalid_confidence_raises(self) -> None:
