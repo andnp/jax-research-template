@@ -15,6 +15,7 @@ from research_analysis.curves import (
     quantile_run_curve,
     tolerance_bands,
 )
+from research_analysis.non_finite import NonFiniteValuesError
 
 
 def _make_df(
@@ -38,6 +39,24 @@ def _make_df(
         for step in steps
     ]
     return pl.DataFrame(rows)
+
+
+class TestNonFiniteCurves:
+    def test_mean_curves_reject_a_diverged_seed(self) -> None:
+        """A NaN seed must fail the curve instead of being averaged into NaN bands."""
+        df = _make_df(["A"], [0, 1, 2], [0, 1], "r", lambda c, s, t: float("nan") if (s, t) == (1, 1) else 1.0)
+
+        with pytest.raises(NonFiniteValuesError) as error:
+            mean_curves(df, "r", n_resamples=10)
+
+        assert error.value.offenders["seed"].to_list() == [1]
+
+    def test_final_values_reject_an_infinite_final_value(self) -> None:
+        """A run that ends at infinity is reported rather than returned as a score."""
+        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float("inf") if s == 0 and t == 1 else 1.0)
+
+        with pytest.raises(NonFiniteValuesError, match="final 'r' values"):
+            final_values(df, "r")
 
 
 class TestFinalValues:

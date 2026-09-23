@@ -17,6 +17,7 @@ import polars as pl
 from numpy.typing import NDArray
 
 from research_analysis.bootstrap import bootstrap_ci
+from research_analysis.non_finite import require_finite
 from research_analysis.statistics import (
     pointwise_tolerance_interval,
     select_quantile_run_index,
@@ -72,6 +73,7 @@ def _condition_curve_array(
     subset = df.filter(
         (pl.col("metric") == metric) & (pl.col("condition_name") == condition)
     ).sort(["seed", "step"])
+    require_finite(subset, f"metric {metric!r} for condition {condition!r}")
 
     seed_frames = subset.partition_by("seed", maintain_order=True)
     steps = seed_frames[0]["step"].to_list()
@@ -100,12 +102,14 @@ def final_values(df: pl.DataFrame, metric: str) -> pl.DataFrame:
 
     Returns a DataFrame with columns: ``condition_name | seed | value``.
     """
-    return (
+    result = (
         df.filter(pl.col("metric") == metric)
         .group_by(["condition_name", "seed"])
         .agg(pl.col("value").last())
         .sort(["condition_name", "seed"])
     )
+    require_finite(result, f"final {metric!r} values")
+    return result
 
 
 def mean_curves(
