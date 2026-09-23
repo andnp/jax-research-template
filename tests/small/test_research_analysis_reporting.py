@@ -17,6 +17,7 @@ from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
+from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.reporting import (
     BenchmarkBakeoffReport,
     HyperparameterConfigReport,
@@ -783,3 +784,32 @@ class TestBakeoffReport:
 
         boundary_warnings = [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
         assert any(w.condition == "a" for w in boundary_warnings)
+
+
+class TestNonFiniteChampionInputs:
+    def test_bakeoff_rejects_a_diverged_run_instead_of_treating_it_as_missing(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """A NaN final score is an outcome; the bakeoff must not read it as a missing cell."""
+        setup = temp_experiment_setup
+        for condition in ("a", "b"):
+            for seed in range(4):
+                value = float("nan") if (condition, seed) == ("b", 2) else float(seed)
+                _add_observation(setup, {"condition_name": condition}, seed, value)
+
+        with pytest.raises(NonFiniteValuesError) as error:
+            bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False)
+
+        assert error.value.offenders.select(["condition_name", "seed"]).to_dicts() == [{"condition_name": "b", "seed": 2}]
+
+    def test_best_hypers_rejects_a_diverged_run(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Champion selection must not rank configurations on NaN scores."""
+        setup = temp_experiment_setup
+        for learning_rate in ("low", "high"):
+            for seed in range(3):
+                value = float("-inf") if (learning_rate, seed) == ("high", 1) else 1.0
+                _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, value)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        with pytest.raises(NonFiniteValuesError, match="final 'metric' values"):
+            best_hypers(dataset, "metric", verbose=False)

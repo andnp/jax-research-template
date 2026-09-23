@@ -20,6 +20,7 @@ from research_analysis._reporting_models import (
 )
 from research_analysis._reporting_plots import _plot_hypers
 from research_analysis.dataset.types import ExperimentDataset
+from research_analysis.non_finite import require_finite
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 
@@ -50,6 +51,7 @@ def _load_dataset_hyperparameter_records(
     joined = final_metrics.join(
         dataset.runs.select(["run_id", "seed", *run_columns.values()]), on=["run_id"], how="inner"
     )
+    require_finite(joined, f"final {metric_name!r} values")
     records: list[dict[str, Any]] = []
     for row in joined.iter_rows(named=True):
         hypers = {key: row[column] for key, column in run_columns.items()}

@@ -39,6 +39,7 @@ from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, BakeoffWarningCode
 from research_analysis.multiplicity import holm_step_down
+from research_analysis.non_finite import require_finite
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 
@@ -68,6 +69,7 @@ def _load_bakeoff_data(
         on="run_id",
         how="inner",
     ).filter(pl.col("condition_name").is_in(conditions))
+    require_finite(joined, f"final {metric_name!r} values")
 
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     for row in joined.iter_rows(named=True):
