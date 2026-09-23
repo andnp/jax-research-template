@@ -71,17 +71,15 @@ class TestHierarchicalBootstrapCI:
         size, unlike sampling without replacement, where drawing the whole pool is a
         fixed permutation with an invariant mean regardless of true selection ambiguity.
         """
-        from research_analysis._tuning_kernels import get_hyper_distribution
-
         rng = np.random.default_rng(0)
         n = 30
         data = np.zeros((2, n))
         data[0] = rng.normal(loc=0.0, scale=1.0, size=n)
         data[1] = rng.normal(loc=0.05, scale=1.0, size=n)  # genuinely close true means
 
-        probs, entropy = get_hyper_distribution(data, h_samples=n, selection_trials=200, seed=1)
-        assert entropy > 0.0
-        assert not np.any(probs == 1.0)
+        res = hierarchical_bootstrap_ci(data, h_samples=n, e_samples=n, n_resamples=100, seed=1)
+        assert res.selection_entropy > 0.0
+        assert not np.any(res.hyper_probs == 1.0)
 
     def test_validation_rejects_invalid_inputs(self) -> None:
         """Reject 1D inputs and single-hyper inputs."""
@@ -92,7 +90,7 @@ class TestHierarchicalBootstrapCI:
             hierarchical_bootstrap_ci(np.ones((1, 10)), h_samples=3, e_samples=5)
 
     def test_validation_rejects_non_finite_values(self) -> None:
-        """A diverged run must not flow into the numba kernels, which would propagate NaN silently."""
+        """A diverged run must not flow into the resampling, which would propagate NaN silently."""
         data = np.ones((2, 5))
         data[0, 3] = np.inf
         with pytest.raises(ValueError, match="non-finite"):

@@ -11,6 +11,8 @@ from research_analysis.bootstrap import _percentile_interval
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.non_finite import require_finite_array
 
+_DRAWS_PER_CHUNK = 1 << 20
+
 
 @dataclass(frozen=True)
 class HierarchicalBootstrapCI:
@@ -35,6 +37,47 @@ def _validate_hyper_matrix(arr: NDArray[np.float64], confidence: float) -> None:
     require_finite_array(arr, "hyperparameter matrix")
 
 
+def _selection_distribution(
+    data: NDArray[np.float64],
+    h_samples: int,
+    selection_trials: int,
+    rng: np.random.Generator,
+) -> tuple[NDArray[np.float64], float]:
+    """Empirical distribution of the argmax hyperparameter under a with-replacement budget of ``h_samples``.
+
+    Drawing with replacement keeps trial-to-trial variation even at ``h_samples == n_runs``, where
+    drawing the whole pool without replacement would always pick the same winner.
+    """
+    n_hypers, n_runs = data.shape
+    counts = np.zeros(n_hypers, dtype=np.float64)
+    for _ in range(selection_trials):
+        draws = rng.integers(0, n_runs, size=(n_hypers, h_samples))
+        counts[int(np.argmax(np.take_along_axis(data, draws, axis=1).mean(axis=1)))] += 1.0
+    probs = counts / selection_trials
+    selected = probs[probs > 0.0]
+    return probs, float(-np.sum(selected * np.log(selected)))
+
+
+def _chunk_sizes(n_resamples: int, e_samples: int) -> list[int]:
+    step = max(1, _DRAWS_PER_CHUNK // e_samples)
+    return [min(step, n_resamples - start) for start in range(0, n_resamples, step)]
+
+
+def _mixture_means(
+    data: NDArray[np.float64],
+    probs: NDArray[np.float64],
+    runs: NDArray[np.int64],
+    rng: np.random.Generator,
+) -> NDArray[np.float64]:
+    """Mean of each row of ``runs`` with a hyperparameter drawn per sample from ``probs``.
+
+    Drawing the hyperparameter per sample rather than per replicate averages over the whole
+    selection mixture, which is better calibrated when ``e_samples == h_samples == n_runs``.
+    """
+    hypers = rng.choice(data.shape[0], size=runs.shape, p=probs)
+    return data[hypers, runs].mean(axis=1)
+
+
 def hierarchical_bootstrap_ci(
     data: NDArray[np.floating],
     h_samples: int,
@@ -54,10 +97,14 @@ def hierarchical_bootstrap_ci(
     arr = np.asarray(data, dtype=np.float64)
     _validate_hyper_matrix(arr, confidence)
 
-    from research_analysis._tuning_kernels import get_hyper_distribution, resample_two_stage
-
-    probs, entropy = get_hyper_distribution(arr, h_samples, selection_trials, seed)
-    boot_means = resample_two_stage(arr, probs, e_samples, n_resamples, seed + 1)
+    rng = np.random.default_rng(seed)
+    probs, entropy = _selection_distribution(arr, h_samples, selection_trials, rng)
+    boot_means = np.concatenate(
+        [
+            _mixture_means(arr, probs, rng.integers(0, arr.shape[1], size=(size, e_samples)), rng)
+            for size in _chunk_sizes(n_resamples, e_samples)
+        ]
+    )
 
     ci_low, ci_high = _percentile_interval(boot_means, confidence)
 
@@ -114,11 +161,14 @@ def hierarchical_bootstrap_difference_ci(
             f"data_a and data_b must have the same number of paired runs, got {arr_a.shape[1]} and {arr_b.shape[1]}"
         )
 
-    from research_analysis._tuning_kernels import get_hyper_distribution, resample_two_stage_difference
-
-    probs_a, entropy_a = get_hyper_distribution(arr_a, h_samples, selection_trials, seed)
-    probs_b, entropy_b = get_hyper_distribution(arr_b, h_samples, selection_trials, seed + 1)
-    diffs = resample_two_stage_difference(arr_a, probs_a, arr_b, probs_b, e_samples, n_resamples, seed + 2)
+    rng = np.random.default_rng(seed)
+    probs_a, entropy_a = _selection_distribution(arr_a, h_samples, selection_trials, rng)
+    probs_b, entropy_b = _selection_distribution(arr_b, h_samples, selection_trials, rng)
+    diff_chunks = []
+    for size in _chunk_sizes(n_resamples, e_samples):
+        runs = rng.integers(0, arr_a.shape[1], size=(size, e_samples))
+        diff_chunks.append(_mixture_means(arr_a, probs_a, runs, rng) - _mixture_means(arr_b, probs_b, runs, rng))
+    diffs = np.concatenate(diff_chunks)
 
     ci_low, ci_high = _percentile_interval(diffs, confidence)
 
