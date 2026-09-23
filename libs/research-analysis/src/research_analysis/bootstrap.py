@@ -20,6 +20,7 @@ from research_analysis.non_finite import require_finite_array
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
 type PercentileBootstrapStatistic = Literal["mean", "interquartile_mean"]
+type ScalarEstimand = Estimand | Literal["interquartile_mean"]
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ class ScalarBootstrapCI:
     ci_high: float
     confidence: float
     n_resamples: int
-    estimand: Estimand
+    estimand: ScalarEstimand
 
 
 @dataclass(frozen=True)
@@ -159,8 +160,10 @@ def _percentile_interval(
     return np.quantile(replicates, alpha, axis=0), np.quantile(replicates, 1.0 - alpha, axis=0)
 
 
-def _sample_statistic(samples: NDArray[np.float64], estimand: Estimand) -> NDArray[np.float64]:
+def _sample_statistic(samples: NDArray[np.float64], estimand: ScalarEstimand) -> NDArray[np.float64]:
     """Apply the estimand across each row of ``samples``."""
+    if estimand == "interquartile_mean":
+        return np.apply_along_axis(interquartile_mean, 1, samples)
     return np.mean(samples, axis=1) if estimand == "mean" else np.median(samples, axis=1)
 
 
@@ -278,7 +281,7 @@ def bootstrap_difference_ci(
 def bootstrap_scalar_ci(
     values: NDArray[np.floating],
     *,
-    estimand: Estimand = "mean",
+    estimand: ScalarEstimand = "mean",
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -286,8 +289,8 @@ def bootstrap_scalar_ci(
 ) -> ScalarBootstrapCI:
     """Compute a percentile-bootstrap interval for one scalar sample statistic."""
     data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
-    if estimand not in ("mean", "median"):
-        raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
+    if estimand not in ("mean", "median", "interquartile_mean"):
+        raise ValueError(f"estimand must be 'mean', 'median', or 'interquartile_mean', got {estimand!r}")
     if not 0.0 < confidence < 1.0:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
     if n_resamples < 1:
