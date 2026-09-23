@@ -20,7 +20,7 @@ from research_analysis._reporting_models import (
 from research_analysis._reporting_plots import _plot_hypers
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.non_finite import require_finite
-from research_analysis.performance import FinalValue, PerformanceMeasure, run_scores
+from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 
@@ -71,6 +71,7 @@ def best_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> HyperparameterConfigReport: ...
 
 
@@ -87,6 +88,7 @@ def best_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> dict[tuple[Any, ...], HyperparameterConfigReport]: ...
 
 
@@ -103,6 +105,7 @@ def best_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> HyperparameterDifferenceReport: ...
 
 
@@ -118,6 +121,7 @@ def best_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> HyperparameterConfigReport | dict[tuple[Any, ...], HyperparameterConfigReport] | HyperparameterDifferenceReport:
     """Find the bias-corrected best hyperparameter configuration.
 
@@ -164,13 +168,14 @@ def best_hypers(
             n_resamples=n_resamples,
             min_samples=min_samples,
             random_seed=random_seed,
+            measure=measure,
         )
 
     free_axes = sorted(declared_axes - set(group_keys))
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, FinalValue())
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, measure)
 
     if group_keys:
         groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -190,6 +195,7 @@ def best_hypers(
                 n_resamples=n_resamples,
                 min_samples=min_samples,
                 random_seed=random_seed,
+                measure=measure,
             )
             for group_key, group_records in groups.items()
         }
@@ -205,6 +211,7 @@ def best_hypers(
         n_resamples=n_resamples,
         min_samples=min_samples,
         random_seed=random_seed,
+        measure=measure,
     )
 
 
@@ -241,6 +248,7 @@ def _best_hypers_group(
     n_resamples: int,
     min_samples: int,
     random_seed: int,
+    measure: PerformanceMeasure,
 ) -> HyperparameterConfigReport:
     """Run the maximization-bias-corrected joint hyperparameter search over one set of run records."""
     if not 0 < confidence_level < 1:
@@ -287,6 +295,7 @@ def _best_hypers_group(
         confidence_level=confidence_level,
         normalized_selection_entropy=normalized_entropy,
         unpaired_run_ids=hyper_matrix.run_ids_outside(hyper_matrix.seeds),
+        measure=measure,
     )
 
     if verbose:
@@ -307,6 +316,7 @@ def _best_hypers_difference(
     n_resamples: int,
     min_samples: int,
     random_seed: int,
+    measure: PerformanceMeasure,
 ) -> HyperparameterDifferenceReport:
     """Paired difference between two group_axis values' own bias-corrected champions."""
     if not 0 < confidence_level < 1:
@@ -320,7 +330,7 @@ def _best_hypers_difference(
     if not free_axes:
         raise ValueError("need at least one swept hyperparameter outside group_by to optimize")
 
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | {group_axis}), metric_name, FinalValue())
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | {group_axis}), metric_name, measure)
     records_a = [record for record in records if record["hypers"].get(group_axis) == minuend]
     records_b = [record for record in records if record["hypers"].get(group_axis) == subtrahend]
     if not records_a:
@@ -366,6 +376,7 @@ def _best_hypers_difference(
         estimate_ci=interval,
         confidence_level=confidence_level,
         unpaired_run_ids=tuple(sorted(hyper_a.run_ids_outside(common_seeds) + hyper_b.run_ids_outside(common_seeds))),
+        measure=measure,
     )
 
     if verbose:
@@ -387,6 +398,7 @@ def slice_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> HyperparameterSliceReport: ...
 
 
@@ -403,6 +415,7 @@ def slice_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> dict[tuple[Any, ...], HyperparameterSliceReport]: ...
 
 
@@ -418,6 +431,7 @@ def slice_hypers(
     n_resamples: int = 10_000,
     min_samples: int = 3,
     random_seed: int = 0,
+    measure: PerformanceMeasure = FINAL_VALUE,
 ) -> HyperparameterSliceReport | dict[tuple[Any, ...], HyperparameterSliceReport]:
     """Sensitivity curve for one hyperparameter: best-achievable vs. champion-pinned slice.
 
@@ -444,6 +458,7 @@ def slice_hypers(
         n_resamples=n_resamples,
         min_samples=min_samples,
         random_seed=random_seed,
+        measure=measure,
     )
     profiles = best_hypers(
         dataset,
@@ -455,8 +470,9 @@ def slice_hypers(
         n_resamples=n_resamples,
         min_samples=min_samples,
         random_seed=random_seed,
+        measure=measure,
     )
-    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, FinalValue())
+    records = _load_dataset_hyperparameter_records(dataset, sorted(declared_axes | set(group_keys)), metric_name, measure)
 
     if group_keys:
         assert isinstance(champions, dict)

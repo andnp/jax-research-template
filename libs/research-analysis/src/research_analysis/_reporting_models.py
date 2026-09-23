@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
+from research_analysis.performance import FinalValue, PerformanceMeasure
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class HyperparameterConfigReport:
     normalized_selection_entropy: float = 0.0
     # Runs left out because their seed was not observed under every configuration.
     unpaired_run_ids: tuple[int, ...] = ()
+    measure: PerformanceMeasure = FinalValue()
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class HyperparameterDifferenceReport:
     confidence_level: float = 0.95
     # Runs left out because their seed was not observed under every configuration of both groups.
     unpaired_run_ids: tuple[int, ...] = ()
+    measure: PerformanceMeasure = FinalValue()
 
 
 @dataclass(frozen=True)

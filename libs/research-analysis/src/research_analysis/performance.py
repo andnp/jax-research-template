@@ -38,6 +38,8 @@ class ReturnRate:
 
 type PerformanceMeasure = FinalValue | TailMean | ReturnRate
 
+FINAL_VALUE = FinalValue()
+
 
 def _score(measure: PerformanceMeasure) -> pl.Expr:
     match measure:
