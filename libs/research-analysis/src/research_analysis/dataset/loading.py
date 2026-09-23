@@ -9,7 +9,7 @@ from experiment_definition.db import DatabaseManager
 from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
-from research_analysis.dataset.rows import materialize_rows, resolve_runs
+from research_analysis.dataset.rows import diagnose_incomplete_runs, materialize_rows, resolve_runs
 from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
 from research_analysis.dataset.versions import select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
@@ -42,6 +42,7 @@ def load_experiment_dataset(
 
     completed_versions = [item.version for item in resolved if item.candidate.completed is not None]
     selected_sets, all_provenance = select_version_sets(completed_versions, selected_versions, diagnostics)
+    diagnose_incomplete_runs(resolved, selected_sets, diagnostics)
     rows = materialize_rows(resolved, selected_sets)
 
     metric_frames = load_metric_frames(rows, metrics, diagnostics)

@@ -13,6 +13,8 @@ class DiagnosticCode(StrEnum):
     EXCLUDED_VERSION = "excluded_version"
     AMBIGUOUS_COHORT = "ambiguous_cohort"
     INVALID_VERSION_SELECTION = "invalid_version_selection"
+    RUN_FAILED = "run_failed"
+    RUN_PENDING = "run_pending"
 
 
 @dataclass(frozen=True)
