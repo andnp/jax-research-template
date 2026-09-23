@@ -25,11 +25,6 @@ from research_analysis.statistics import (
     tolerance_interval_order_indices,
 )
 
-_FINAL_VALUES_SCHEMA: dict[str, type[pl.DataType]] = {
-    "condition_name": pl.String,
-    "seed": pl.Int64,
-    "value": pl.Float64,
-}
 _MEAN_CURVES_SCHEMA: dict[str, type[pl.DataType]] = {
     "condition_name": pl.String,
     "step": pl.Int64,
@@ -111,18 +106,6 @@ def _conditions_with_metric(df: pl.DataFrame, metric: str) -> list[str]:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-
-
-def final_values(df: pl.DataFrame, metric: str) -> pl.DataFrame:
-    """Last recorded value per (condition_name, seed) for a given metric.
-
-    Returns a DataFrame with columns: ``condition_name | seed | value``.
-    """
-    subset = df.filter(pl.col("metric") == metric)
-    _require_one_run_per_seed(subset, metric)
-    result = subset.group_by(["condition_name", "seed"]).agg(pl.col("value").last()).sort(["condition_name", "seed"])
-    require_finite(result, f"final {metric!r} values")
-    return result
 
 
 def mean_curves(

@@ -8,7 +8,6 @@ import polars as pl
 import pytest
 from research_analysis.curves import (
     event_response,
-    final_values,
     flatline_flags,
     mean_curves,
     median_run_curve,
@@ -51,13 +50,6 @@ class TestNonFiniteCurves:
 
         assert error.value.offenders["seed"].to_list() == [1]
 
-    def test_final_values_reject_an_infinite_final_value(self) -> None:
-        """A run that ends at infinity is reported rather than returned as a score."""
-        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float("inf") if s == 0 and t == 1 else 1.0)
-
-        with pytest.raises(NonFiniteValuesError, match="final 'r' values"):
-            final_values(df, "r")
-
 
 class TestInterleavedRuns:
     def test_rejects_two_runs_sharing_a_condition_and_seed(self) -> None:
@@ -76,44 +68,6 @@ class TestInterleavedRuns:
 
         with pytest.raises(ValueError, match="more than one run for seed 0"):
             mean_curves(pl.concat([df, df.filter(pl.col("seed") == 0)]), "r", n_resamples=10)
-
-
-    def test_final_values_reject_two_runs_sharing_a_seed(self) -> None:
-        """Reducing to one value per seed must not silently keep only one of two pooled runs."""
-        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float(t)).with_columns(run_id=pl.col("seed") + 1)
-        other_config = df.filter(pl.col("seed") == 1).with_columns(run_id=pl.lit(7, dtype=pl.Int64))
-
-        with pytest.raises(ValueError, match=r"more than one run for seed 1 \(runs \['2', '7'\]\)"):
-            final_values(pl.concat([df, other_config]), "r")
-
-
-class TestFinalValues:
-    def test_returns_last_step_per_seed(self) -> None:
-        df = _make_df(["A"], [0, 1], [0, 1, 2], "r", lambda c, s, t: t + s * 10)
-        result = final_values(df, "r")
-        assert result.shape == (2, 3)
-        assert result.filter(pl.col("seed") == 0)["value"][0] == pytest.approx(2.0)
-        assert result.filter(pl.col("seed") == 1)["value"][0] == pytest.approx(12.0)
-
-    def test_sorted_by_condition_then_seed(self) -> None:
-        df = _make_df(["B", "A"], [1, 0], [0, 1], "r", lambda c, s, t: 0)
-        result = final_values(df, "r")
-        assert result["condition_name"].to_list() == ["A", "A", "B", "B"]
-        assert result["seed"].to_list() == [0, 1, 0, 1]
-
-    def test_filters_to_requested_metric(self) -> None:
-        df = _make_df(["A"], [0], [0, 1], "r", lambda c, s, t: t)
-        df_other = _make_df(["A"], [0], [0, 1], "other", lambda c, s, t: t * 100)
-        combined = pl.concat([df, df_other])
-        result = final_values(combined, "r")
-        assert result["value"][0] == pytest.approx(1.0)
-
-    def test_multiple_conditions(self) -> None:
-        df = _make_df(["A", "B"], [0], [0, 1], "r", lambda c, s, t: 10.0 if c == "A" else 20.0)
-        result = final_values(df, "r")
-        vals = {row["condition_name"]: row["value"] for row in result.iter_rows(named=True)}
-        assert vals["A"] == pytest.approx(10.0)
-        assert vals["B"] == pytest.approx(20.0)
 
 
 class TestMeanCurves:
