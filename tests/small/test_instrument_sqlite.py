@@ -1,5 +1,6 @@
 """Small tests for research_instrument.sqlite_backend — persistence layer."""
 
+import math
 import sqlite3
 import tempfile
 from collections.abc import Callable
@@ -39,6 +40,18 @@ class TestSQLiteBackendBasic:
             assert result[0].value == 1.5
             assert result[0].global_step == 0
             backend.close()
+
+    def test_non_finite_values_round_trip(self) -> None:
+        """NaN and infinities are recorded as outcomes rather than rejected by the schema."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
+            values = [math.nan, math.inf, -math.inf]
+            backend.write_batch([MetricFrame(name="loss", value=v, global_step=i, seed_id=0) for i, v in enumerate(values)])
+            result = [frame.value for frame in backend.query("loss")]
+            backend.close()
+
+            assert math.isnan(result[0])
+            assert result[1:] == [math.inf, -math.inf]
 
     def test_batch_buffering(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

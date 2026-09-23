@@ -6,17 +6,19 @@ process exit and can be queried after training completes.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 import threading
 from pathlib import Path
 
 from research_instrument.collector import MetricFrame
 
+# SQLite stores NaN as NULL, so a nullable value column is what lets diverged runs be recorded.
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     metric_name TEXT NOT NULL,
-    value REAL NOT NULL,
+    value REAL,
     global_step INTEGER NOT NULL,
     seed_id INTEGER NOT NULL,
     experiment_id INTEGER NOT NULL,
@@ -107,9 +109,13 @@ class SQLiteBackend:
         }
 
     def _has_strict_metrics_schema(self, columns: dict[str, tuple[str, bool]]) -> bool:
-        return columns.keys() == _STRICT_COLUMN_NAMES and all(
-            columns[column_name][1]
-            for column_name in ("metric_name", "value", "global_step", "seed_id", "experiment_id", "run_id", "execution_id")
+        return (
+            columns.keys() == _STRICT_COLUMN_NAMES
+            and not columns["value"][1]
+            and all(
+                columns[column_name][1]
+                for column_name in ("metric_name", "global_step", "seed_id", "experiment_id", "run_id", "execution_id")
+            )
         )
 
     def _migrate_metrics_table(self, columns: dict[str, tuple[str, bool]]) -> None:
@@ -143,7 +149,7 @@ class SQLiteBackend:
             "CREATE TABLE metrics__new ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "metric_name TEXT NOT NULL, "
-            "value REAL NOT NULL, "
+            "value REAL, "
             "global_step INTEGER NOT NULL, "
             "seed_id INTEGER NOT NULL, "
             "experiment_id INTEGER NOT NULL, "
@@ -234,7 +240,10 @@ class SQLiteBackend:
                 (name,),
             ).fetchall()
 
-        return [MetricFrame(name=r[0], value=r[1], global_step=r[2], seed_id=r[3]) for r in rows]
+        return [
+            MetricFrame(name=r[0], value=math.nan if r[1] is None else r[1], global_step=r[2], seed_id=r[3])
+            for r in rows
+        ]
 
     def metric_names(self) -> list[str]:
         """Return all distinct metric names stored in the database."""
