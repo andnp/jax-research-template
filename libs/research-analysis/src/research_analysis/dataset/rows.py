@@ -9,7 +9,7 @@ from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
 
 from research_analysis.dataset.candidates import RunCandidate, RunState
-from research_analysis.dataset.dimensions import cohort_matches, resolve_dimensions
+from research_analysis.dataset.dimensions import UnresolvedDimension, cohort_matches, resolve_dimensions
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionProvenance,
@@ -51,7 +51,7 @@ def resolve_runs(
             continue
 
         dimension_values = resolve_dimensions(hyper_config.hyperparameters, dimensions)
-        if dimension_values is None:
+        if isinstance(dimension_values, UnresolvedDimension):
             continue
 
         if cohort is not None and not cohort_matches(dimension_values.values, run.ablation, cohort):

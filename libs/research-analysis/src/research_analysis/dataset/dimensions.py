@@ -24,6 +24,13 @@ class ResolvedDimensions:
 
 
 @dataclass(frozen=True)
+class UnresolvedDimension:
+    """Why a run's hyperparameters cannot be projected onto the requested dimensions."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
 class _ResolvedAxisValue:
     value: SweepValue | None
 
@@ -63,28 +70,46 @@ def cohort_matches(
 
 def _resolve_axis_value(
     axis: SweepAxis, hyperparameters: Mapping[str, ParameterValue]
-) -> _ResolvedAxisValue | None:
+) -> _ResolvedAxisValue | UnresolvedDimension:
     if axis.when is not None:
-        if any(key not in hyperparameters for key in axis.when):
-            return None
+        missing = sorted(key for key in axis.when if key not in hyperparameters)
+        if missing:
+            return UnresolvedDimension(f"sweep axis {axis.name!r} applicability keys {missing} are missing")
 
         if not all(hyperparameters[key] == value for key, value in axis.when.items()):
             return _ResolvedAxisValue(None)
 
     if axis.name not in hyperparameters:
-        return None
+        return UnresolvedDimension(f"declared sweep axis {axis.name!r} is missing")
 
     value = _coerce_axis_value(hyperparameters[axis.name], axis)
     if value is None:
-        return None
+        return UnresolvedDimension(
+            f"declared sweep axis {axis.name!r} expects {axis.value_type} but has {hyperparameters[axis.name]!r}"
+        )
 
     return _ResolvedAxisValue(value)
+
+
+def _label_mismatch(
+    output_name: str, source_name: str, hyperparameters: Mapping[str, ParameterValue]
+) -> UnresolvedDimension:
+    if source_name in hyperparameters:
+        return UnresolvedDimension(
+            f"{output_name} dimension key {source_name!r} must be a non-empty string, got {hyperparameters[source_name]!r}"
+        )
+    string_keys = sorted(key for key, value in hyperparameters.items() if isinstance(value, str))
+    return UnresolvedDimension(
+        f"{output_name} dimension key {source_name!r} is missing; ExperimentDimensions names the hyperparameter "
+        f"holding each run's label (condition defaults to 'condition_name'), so a run labelled by e.g. 'algorithm' "
+        f"needs ExperimentDimensions(condition='algorithm'). String hyperparameters on this run: {string_keys}"
+    )
 
 
 def resolve_dimensions(
     hyperparameters: Mapping[str, ParameterValue],
     dimensions: ExperimentDimensions,
-) -> ResolvedDimensions | None:
+) -> ResolvedDimensions | UnresolvedDimension:
     source_dimensions = {"condition_name": dimensions.condition}
     if dimensions.environment is not None:
         source_dimensions["env_name"] = dimensions.environment
@@ -93,13 +118,13 @@ def resolve_dimensions(
     for output_name, source_name in source_dimensions.items():
         value = _coerce_dimension_label(hyperparameters.get(source_name))
         if value is None:
-            return None
+            return _label_mismatch(output_name, source_name, hyperparameters)
         values[output_name] = value
 
     for axis in dimensions.sweep_axes:
         axis_value = _resolve_axis_value(axis, hyperparameters)
-        if axis_value is None:
-            return None
+        if isinstance(axis_value, UnresolvedDimension):
+            return axis_value
         values[axis.name] = axis_value.value
 
     return ResolvedDimensions(values)

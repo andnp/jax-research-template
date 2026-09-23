@@ -8,7 +8,7 @@ from typing import TypedDict
 
 import pytest
 from experiment_definition.db import DatabaseManager
-from research_analysis.dataset.dimensions import resolve_dimensions
+from research_analysis.dataset.dimensions import UnresolvedDimension, resolve_dimensions
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import (
     CohortSelection,
@@ -177,12 +177,23 @@ def test_empty_dataset_preserves_run_schema_without_storage_columns(tmp_path: Pa
     assert "metrics_db_path" not in empty.runs.columns
 
 
-def test_invalid_dimension_labels_exclude_runs_without_stringifying_values() -> None:
-    """Exclude non-string or blank labels instead of coercing them into dimensions."""
+def test_invalid_dimension_labels_are_unresolved_without_stringifying_values() -> None:
+    """Reject non-string or blank labels instead of coercing them into dimensions."""
     dimensions = ExperimentDimensions()
 
     for value in (True, 1.5, ""):
-        assert resolve_dimensions({"condition_name": value}, dimensions) is None
+        resolved = resolve_dimensions({"condition_name": value}, dimensions)
+        assert isinstance(resolved, UnresolvedDimension)
+        assert "'condition_name' must be a non-empty string" in resolved.reason
+
+
+def test_missing_condition_key_explains_the_condition_naming_default() -> None:
+    """A run labelled under another key gets a hint that the condition dimension defaults to condition_name."""
+    resolved = resolve_dimensions({"algorithm": "ppo", "seed": 0}, ExperimentDimensions())
+
+    assert isinstance(resolved, UnresolvedDimension)
+    assert "ExperimentDimensions(condition='algorithm')" in resolved.reason
+    assert "['algorithm']" in resolved.reason
 
 
 def test_invalid_dimension_configuration_fails_at_construction() -> None:
