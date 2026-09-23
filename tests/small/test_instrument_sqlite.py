@@ -248,21 +248,21 @@ class TestSQLiteBackendBasic:
             assert result[1].global_step == 1
             assert math.isnan(result[1].value)
 
-    def test_wal_journal_mode_is_enabled(self) -> None:
-        """WAL is what lets a writer proceed without a reader blocking it; verified
-        via journal_mode and the on-disk WAL file it produces while open."""
+    def test_journal_mode_is_not_wal(self) -> None:
+        """WAL requires its wal-index in host-local shared memory and does not
+        work over the network filesystems (NFS/Lustre) Slurm array tasks share
+        metrics.sqlite over, so the connection must stay on the default
+        rollback journal rather than switching to WAL."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "wal.db"
+            db_path = Path(tmpdir) / "journal.db"
             backend = make_backend(db_path, batch_size=1)
             backend.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
 
             with sqlite3.connect(db_path) as conn:
                 mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-            wal_file_exists = Path(f"{db_path}-wal").exists()
             backend.close()
 
-            assert str(mode).lower() == "wal"
-            assert wal_file_exists
+            assert str(mode).lower() != "wal"
 
     def test_legacy_table_without_identity_columns_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

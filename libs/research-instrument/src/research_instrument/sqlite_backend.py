@@ -51,18 +51,18 @@ _STRICT_COLUMN_NAMES = {
 
 
 def open_metrics_connection(db_path: Path | str) -> sqlite3.Connection:
-    """Open a metrics.sqlite connection with WAL enabled and the schema ready.
+    """Open a metrics.sqlite connection with a busy timeout and the schema ready.
 
-    metrics.sqlite is written concurrently by multiple Slurm array tasks on a
-    shared filesystem: the default rollback-journal mode serializes writers
-    and raises "database is locked" under contention. WAL lets writers
-    proceed without a reader blocking them and only needs mmap/shared-memory
-    support from the underlying filesystem, which the durable results/ tree
-    provides. busy_timeout makes a writer that does contend wait and retry
-    instead of failing immediately.
+    metrics.sqlite is written concurrently by multiple Slurm array tasks that
+    may run on different nodes, sharing the file over a network filesystem
+    (NFS/Lustre). WAL requires its wal-index to live in shared memory backed
+    by mmap on a single host, and SQLite's own docs say WAL does not work over
+    a network filesystem — it can silently corrupt the database there. So we
+    keep the default rollback journal and rely on busy_timeout to make a
+    writer that hits contention wait and retry instead of failing immediately
+    with "database is locked".
     """
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     _initialize_schema(conn)
     return conn
