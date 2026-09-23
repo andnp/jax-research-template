@@ -76,6 +76,41 @@ def _create_experiment(tmp_path: Path, *, versions: tuple[str, str] = ("algo-v1"
     }
 
 
+def _add_incomplete_run(db_path: Path, fixture: DatasetFixture, seed: int, statuses: tuple[str, ...]) -> int:
+    with DatabaseManager(db_path) as database:
+        experiment = database.get_experiment("dataset-test")
+        assert experiment is not None
+        hyper_id = database.add_hyperparam_config({"condition_name": "baseline", "learning_rate": 0.1, "seed": seed})
+        run_id = database.add_run(experiment.id, fixture["algo_version"], fixture["env_version"], hyper_id, seed)
+        for status in statuses:
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            if status != "PENDING":
+                database.update_execution_status(execution_id, status)
+    return run_id
+
+
+def test_incomplete_runs_are_diagnosed_as_failed_or_pending(tmp_path: Path) -> None:
+    """Runs without a completed execution are reported, separating crashes from unfinished work.
+
+    A failed attempt followed by a queued retry is still pending, not failed.
+    """
+    fixture = _create_experiment(tmp_path)
+    failed = _add_incomplete_run(fixture["db_path"], fixture, 10, ("FAILED",))
+    retried = _add_incomplete_run(fixture["db_path"], fixture, 11, ("FAILED", "PENDING"))
+    unexecuted = _add_incomplete_run(fixture["db_path"], fixture, 12, ())
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    codes = {item.run_id: item.code for item in dataset.diagnostics}
+    assert codes == {
+        failed: DiagnosticCode.RUN_FAILED,
+        retried: DiagnosticCode.RUN_PENDING,
+        unexecuted: DiagnosticCode.RUN_PENDING,
+    }
+    assert dataset.runs.height == 2
+
+
 def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path) -> None:
     """Load canonical dimensions, sweep axes, provenance, and metric identity."""
     fixture = _create_experiment(tmp_path)
