@@ -60,7 +60,8 @@ report = bakeoff_report(dataset, "reward", ["baseline", "candidate"])
 For a parameter declared only under an experiment condition, declare the same
 applicability rule on its axis. Applicable runs must contain a correctly typed
 value; other runs receive a null value. Runs that cannot satisfy the requested
-dimension projection are omitted:
+dimension projection fail strict loading with an `unresolved_dimension`
+diagnostic:
 
 ```python
 SweepAxis("eta", SweepValueType.FLOAT, when={"algorithm": "adversarial"})
@@ -70,8 +71,11 @@ The loader selects one coherent completed component-version set by default.
 Historical selection requires qualified component identity plus a version row ID
 or recorded code hash. It retains ablation and run/execution identity, reads
 metrics only from recorded `metadata_json["metrics_db_path"]`, and fails in
-strict mode for ambiguous cohorts or missing artifacts. `partial=True` returns
-valid rows with `DatasetDiagnostic` records for the omitted data.
+strict mode for ambiguous cohorts, malformed or missing artifacts, and
+unresolved dimensions. Failed, pending, and diverged runs are reported without
+failing, and `ExperimentDataset.accounting` counts every planned run per cell.
+`partial=True` returns valid rows with `DatasetDiagnostic` records for the
+omitted data.
 
 ## 3. Technical Constraints
 - **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.
