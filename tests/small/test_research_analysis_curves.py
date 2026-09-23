@@ -59,6 +59,25 @@ class TestNonFiniteCurves:
             final_values(df, "r")
 
 
+class TestInterleavedRuns:
+    def test_rejects_two_runs_sharing_a_condition_and_seed(self) -> None:
+        """Runs from different environments or configs must not be interleaved into one seed's curve."""
+        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float(t)).with_columns(
+            run_id=pl.col("seed") + 1
+        )
+        other_env = df.filter(pl.col("seed") == 0).with_columns(run_id=pl.lit(9, dtype=pl.Int64))
+
+        with pytest.raises(ValueError, match=r"more than one run for seed 0 \(runs \['1', '9'\]\)"):
+            mean_curves(pl.concat([df, other_env]), "r", n_resamples=10)
+
+    def test_rejects_repeated_steps_without_run_identity(self) -> None:
+        """Without run ids, a repeated (seed, step) pair still reveals pooled runs."""
+        df = _make_df(["A"], [0, 1], [0, 1], "r", lambda c, s, t: float(t))
+
+        with pytest.raises(ValueError, match="more than one run for seed 0"):
+            mean_curves(pl.concat([df, df.filter(pl.col("seed") == 0)]), "r", n_resamples=10)
+
+
 class TestFinalValues:
     def test_returns_last_step_per_seed(self) -> None:
         df = _make_df(["A"], [0, 1], [0, 1, 2], "r", lambda c, s, t: t + s * 10)
