@@ -257,8 +257,9 @@ def _best_hypers_group(
     search_records = records if higher_is_better else _negate_record_values(records)
     winning_config, raw_winner_mean = _raw_best_config(search_records, free_axes)
 
-    matrix, _matrix_keys, matrix_seeds = _build_hyper_matrix(search_records, free_axes)
-    if len(matrix_seeds) < min_samples:
+    hyper_matrix = _build_hyper_matrix(search_records, free_axes)
+    matrix = hyper_matrix.values
+    if len(hyper_matrix.seeds) < min_samples:
         raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter configuration")
     n_runs = matrix.shape[1]
 
@@ -289,6 +290,7 @@ def _best_hypers_group(
         estimate_ci=interval,
         confidence_level=confidence_level,
         normalized_selection_entropy=normalized_entropy,
+        unpaired_run_ids=hyper_matrix.run_ids_outside(hyper_matrix.seeds),
     )
 
     if verbose:
@@ -337,13 +339,13 @@ def _best_hypers_difference(
     minuend_config, _minuend_raw_mean = _raw_best_config(records_a, free_axes)
     subtrahend_config, _subtrahend_raw_mean = _raw_best_config(records_b, free_axes)
 
-    matrix_a, _keys_a, seeds_a = _build_hyper_matrix(records_a, free_axes)
-    matrix_b, _keys_b, seeds_b = _build_hyper_matrix(records_b, free_axes)
-    common_seeds = sorted(set(seeds_a) & set(seeds_b))
+    hyper_a = _build_hyper_matrix(records_a, free_axes)
+    hyper_b = _build_hyper_matrix(records_b, free_axes)
+    common_seeds = sorted(set(hyper_a.seeds) & set(hyper_b.seeds))
     if len(common_seeds) < min_samples:
         raise ValueError(f"need at least {min_samples} seeds shared by both compared groups")
-    matrix_a = matrix_a[:, [seeds_a.index(seed) for seed in common_seeds]]
-    matrix_b = matrix_b[:, [seeds_b.index(seed) for seed in common_seeds]]
+    matrix_a = hyper_a.values[:, [hyper_a.seeds.index(seed) for seed in common_seeds]]
+    matrix_b = hyper_b.values[:, [hyper_b.seeds.index(seed) for seed in common_seeds]]
     n_runs = matrix_a.shape[1]
 
     diff = hierarchical_bootstrap_difference_ci(
@@ -367,6 +369,7 @@ def _best_hypers_difference(
         mean_diff=mean_diff,
         estimate_ci=interval,
         confidence_level=confidence_level,
+        unpaired_run_ids=tuple(sorted(hyper_a.run_ids_outside(common_seeds) + hyper_b.run_ids_outside(common_seeds))),
     )
 
     if verbose:

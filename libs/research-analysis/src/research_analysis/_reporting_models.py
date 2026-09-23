@@ -22,6 +22,8 @@ class HyperparameterConfigReport:
     # 0 when the same config wins under every resample; approaches 1 as the winner
     # becomes as unpredictable as a uniform draw over every candidate config.
     normalized_selection_entropy: float = 0.0
+    # Runs left out because their seed was not observed under every configuration.
+    unpaired_run_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class HyperparameterDifferenceReport:
     mean_diff: float
     estimate_ci: tuple[float, float]
     confidence_level: float = 0.95
+    # Runs left out because their seed was not observed under every configuration of both groups.
+    unpaired_run_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

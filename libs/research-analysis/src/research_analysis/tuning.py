@@ -144,10 +144,24 @@ def _sortable_key(key: tuple[Any, ...]) -> tuple[str, ...]:
     return tuple(str(value) for value in key)
 
 
+@dataclass(frozen=True)
+class HyperMatrix:
+    """Seed-paired (n_hypers, n_runs) matrix plus the seed of every run it was built from."""
+
+    values: NDArray[np.float64]
+    keys: list[tuple[Any, ...]]
+    seeds: list[int]
+    run_seeds: dict[int, int]
+
+    def run_ids_outside(self, seeds: Sequence[int]) -> tuple[int, ...]:
+        kept = set(seeds)
+        return tuple(sorted(run_id for run_id, seed in self.run_seeds.items() if seed not in kept))
+
+
 def _build_hyper_matrix(
     records: list[dict[str, Any]],
     hyperparameter_keys: Sequence[str],
-) -> tuple[NDArray[np.float64], list[tuple[Any, ...]], list[int]]:
+) -> HyperMatrix:
     """Pivot loaded run records into a (n_hypers, n_runs) matrix, paired and ordered by seed.
 
     Runs are intersected down to the seeds shared by every hyperparameter
@@ -156,7 +170,7 @@ def _build_hyper_matrix(
     for pairing two arms' matrices in a difference evaluation.
     """
     groups: dict[tuple[Any, ...], dict[int, float]] = {}
-    run_ids: dict[tuple[tuple[Any, ...], int], object] = {}
+    run_ids: dict[tuple[tuple[Any, ...], int], int] = {}
     for record in records:
         key = tuple(record["hypers"].get(k) for k in hyperparameter_keys)
         seed = record["seed"]
@@ -180,5 +194,6 @@ def _build_hyper_matrix(
     seeds_sorted = sorted(common_seeds)
 
     matrix = np.array([[groups[key][s] for s in seeds_sorted] for key in keys_sorted], dtype=np.float64)
-    return matrix, keys_sorted, seeds_sorted
+    run_seeds = {int(run_id): seed for (_key, seed), run_id in run_ids.items()}
+    return HyperMatrix(matrix, keys_sorted, seeds_sorted, run_seeds)
 
