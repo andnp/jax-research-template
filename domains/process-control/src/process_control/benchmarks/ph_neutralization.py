@@ -22,6 +22,7 @@ from process_control.disturbances.schedule import (
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
+from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as ph_sensor_reset
 from process_control.sensors.lagged import step as ph_sensor_step
@@ -38,37 +39,50 @@ class PhNeutralizationBenchmarkConfig:
     # CSTR
     cstr_volume: float = 500.0  # L
 
-    # Dose pump (base dosing, mol/min)
-    pump_max_dose: float = 300.0
+    # Dose pump (base dosing, mol/min). Sized with headroom over the
+    # steady-state dose implied by the acid load and pH-model parameters
+    # below (~0.15-1.1 mol/min across the acid concentration/flow range).
+    pump_max_dose: float = 3.0
     pump_min_dose: float = 0.0
-    pump_max_ramp_rate: float = 20.0
+    pump_max_ramp_rate: float = 1.0
 
-    # PI controller (operates in pH space → outputs dose in mol/min)
-    pi_kp: float = 0.5
-    pi_ki: float = 0.05
-    pi_ff: float = 175.0  # near steady-state dose at default acid load
+    # PI controller (operates in pH space → outputs dose in mol/min). Gains
+    # are small because the titration curve is steep near neutrality (see
+    # ph_model.py): the process gain from dose to pH is far higher than for
+    # a linear process, so a much larger kp/ki would overshoot and oscillate.
+    pi_kp: float = 0.02
+    pi_ki: float = 0.005
+    pi_ff: float = 0.4544  # steady-state dose at mean acid load and flow
     pi_output_min: float = 0.0
-    pi_output_max: float = 300.0
-    pi_max_integral: float = 20.0
+    pi_output_max: float = 3.0
+    pi_max_integral: float = 1.0
 
     # pH sensor
     ph_noise_std: float = 0.05
     ph_lag_coefficient: float = 0.3
 
-    # pH model
-    ph_sensitivity: float = 16.0  # mol/L half-transition width
+    # pH model: total carbonate buffer capacity (mol/L); see ph_model.py.
+    ph_buffer_capacity: float = 0.005
 
-    # Acid inlet source (repurposes DiurnalSourceState)
-    # flow → inlet flow (L/min), demand → acid concentration (mol/L proxy)
+    # Inlet flow (L/min), via DiurnalSourceState/Params (demand output unused).
     mean_flow: float = 50.0
     diurnal_amplitude: float = 15.0
     min_flow: float = 30.0
     max_flow: float = 80.0
-    demand_offset: float = 0.0
-    flow_demand_coefficient: float = 0.003  # acid_conc ≈ flow * coeff → ~0.15 mol/L at mean
-    demand_noise_std: float = 0.01
     drift_scale: float = 0.1
     steps_per_day: int = 96
+
+    # Acid inlet concentration (mol/L strong acid), via its own diurnal
+    # channel (see chemistry/ph_model.py and benchmarks/chem_p_dosing.py for
+    # the same pattern). 1e-3-1e-2 mol/L spans the free-mineral-acidity scale
+    # used to titrate industrial acidic wastewater
+    # (https://law.resource.org/pub/us/cfr/ibr/002/apha.method.2320.1992.html).
+    acid_mean: float = 0.005
+    acid_amplitude: float = 0.002
+    acid_min: float = 0.001
+    acid_max: float = 0.01
+    acid_drift_scale: float = 0.0002
+
     max_disturbance_events: int = 16
     disturbance_events: tuple[tuple[int, int, float, int], ...] = ()
 
@@ -77,6 +91,7 @@ class PhNeutralizationBenchmarkConfig:
 class PhPlantState:
     step_count: jax.Array
     source_state: DiurnalSourceState
+    acid_drift: jax.Array
     cstr_state: CSTRState
     actuator_state: RampLimitedActuatorState
     ph_sensor_state: LaggedSensorState
@@ -113,17 +128,25 @@ def make_ph_neutralization_benchmark(
         noise_std=config.ph_noise_std,
         lag_coefficient=config.ph_lag_coefficient,
     )
-    ph_model_params = PhModelParams(sensitivity=config.ph_sensitivity)
+    ph_model_params = PhModelParams(buffer_capacity=config.ph_buffer_capacity)
     source_params = DiurnalSourceParams(
         mean_flow=config.mean_flow,
         diurnal_amplitude=config.diurnal_amplitude,
         min_flow=config.min_flow,
         max_flow=config.max_flow,
-        demand_offset=config.demand_offset,
-        flow_demand_coefficient=config.flow_demand_coefficient,
-        demand_noise_std=config.demand_noise_std,
+        demand_offset=0.0,
+        flow_demand_coefficient=0.0,
+        demand_noise_std=0.0,
         drift_scale=config.drift_scale,
         steps_per_day=config.steps_per_day,
+    )
+    acid_channel_params = ChannelParams(
+        mean=config.acid_mean,
+        amplitude=config.acid_amplitude,
+        min_value=config.acid_min,
+        max_value=config.acid_max,
+        drift_scale=config.acid_drift_scale,
+        drift_clip=config.acid_amplitude,
     )
     dt = jnp.array(config.dt)
     target_ph = jnp.array(config.target_ph)
@@ -133,6 +156,7 @@ def make_ph_neutralization_benchmark(
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
 
         src_state = source_reset(k1)
+        acid_drift = jnp.array(0.0)
         cstr_state = cstr_reset(k2)
         dp_state = actuator_reset(k3)
         initial_ph = compute_ph(cstr_state.concentration, ph_model_params)
@@ -153,6 +177,7 @@ def make_ph_neutralization_benchmark(
         plant_state = PhPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src_state,
+            acid_drift=acid_drift,
             cstr_state=cstr_state,
             actuator_state=dp_state,
             ph_sensor_state=ph_state,
@@ -177,10 +202,10 @@ def make_ph_neutralization_benchmark(
         action: jax.Array,
         rng_key: jax.Array,
     ) -> tuple[PhPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
+        k1, k1b, k2, k3, k4 = jax.random.split(rng_key, 5)
 
-        # 1. Source: acid inlet (flow in L/min, demand used as acid concentration)
-        new_source_state, transport, flow, acid_concentration = source_step(
+        # 1. Source: inlet flow (L/min), subject to disturbance events (e.g. rain).
+        new_source_state, transport, _flow, _demand = source_step(
             state.source_state,
             state.step_count,
             source_params,
@@ -188,7 +213,18 @@ def make_ph_neutralization_benchmark(
         )
         transport = apply_active(state.disturbance_schedule, transport, state.step_count)
         flow = transport.hydraulics.flow
-        acid_concentration = transport.composition.demand
+
+        # 1b. Acid inlet concentration (mol/L strong acid): its own diurnal
+        #    channel, decoupled from the influent flow/demand chemistry above
+        #    (mirrors chem_p_dosing.py's influent PO4 channel).
+        t = (state.step_count % config.steps_per_day) / config.steps_per_day
+        acid_signal = jnp.sin(2.0 * jnp.pi * t)
+        new_acid_drift, acid_concentration = channel_step(
+            state.acid_drift,
+            acid_signal,
+            acid_channel_params,
+            k1b,
+        )
 
         # 2. Dose pump realizes the agent's requested base dose (mol/min)
         new_pump_state, realized_dose = actuator_step(
@@ -246,6 +282,7 @@ def make_ph_neutralization_benchmark(
         new_state = PhPlantState(
             step_count=state.step_count + 1,
             source_state=new_source_state,
+            acid_drift=new_acid_drift,
             cstr_state=new_cstr_state,
             actuator_state=new_pump_state,
             ph_sensor_state=new_ph_state,

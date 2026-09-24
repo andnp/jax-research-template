@@ -158,15 +158,22 @@ class TestDisturbanceSchedule:
         assert int(state.disturbance_schedule.count) == 1
         assert int(state.disturbance_schedule.start_steps[0]) == 0
 
-    def test_ph_config_applies_demand_slug_to_acid_load(self) -> None:
-        """Configured demand disturbances reach the pH process input."""
+    def test_ph_config_applies_rain_event_to_inlet_flow(self) -> None:
+        """Configured rain-storm disturbances reach the pH process's inlet flow.
+
+        The acid concentration comes from its own channel (see
+        ph_neutralization.py), decoupled from the shared demand/Transport
+        disturbance path, so only flow-affecting disturbances (rain storms)
+        reach this benchmark.
+        """
         common = dict(
             diurnal_amplitude=0.0,
             mean_flow=50.0,
             min_flow=50.0,
             max_flow=50.0,
-            demand_noise_std=0.0,
             drift_scale=0.0,
+            acid_amplitude=0.0,
+            acid_drift_scale=0.0,
             ph_noise_std=0.0,
             ph_lag_coefficient=0.0,
             pump_max_ramp_rate=1_000.0,
@@ -174,7 +181,7 @@ class TestDisturbanceSchedule:
         nominal_config = PhNeutralizationBenchmarkConfig(**common)
         disturbed_config = PhNeutralizationBenchmarkConfig(
             **common,
-            disturbance_events=((0, 1, 1.0, DISTURBANCE_DEMAND_SLUG),),
+            disturbance_events=((0, 1, 1.0, DISTURBANCE_RAIN_STORM),),
         )
         nominal_reset, nominal_step = make_ph_neutralization_benchmark(nominal_config)
         disturbed_reset, disturbed_step = make_ph_neutralization_benchmark(disturbed_config)
@@ -182,11 +189,10 @@ class TestDisturbanceSchedule:
         nominal_state, _ = nominal_reset(reset_key)
         disturbed_state, _ = disturbed_reset(reset_key)
 
-        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array(175.0), step_key)
-        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array(175.0), step_key)
+        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array(0.5), step_key)
+        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array(0.5), step_key)
 
-        assert disturbed_info["acid_concentration"] > nominal_info["acid_concentration"]
-        assert disturbed_info["measured_ph"] < nominal_info["measured_ph"]
+        assert disturbed_info["flow"] > nominal_info["flow"]
 
     def test_equalization_config_applies_rain_event_to_inlet(self) -> None:
         """Configured rain disturbances reach the equalization inlet flow."""
