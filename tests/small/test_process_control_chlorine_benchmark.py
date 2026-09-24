@@ -145,6 +145,33 @@ class TestContactBasinAmmoniaAttribution:
         assert jnp.allclose(state.segments[0, 2], expected_ammonia, atol=1e-5)
 
 
+class TestContactBasinSubstepGuard:
+    def test_large_flow_volume_does_not_lose_mass(self) -> None:
+        """flow*dt exceeding a segment's volume must fully flush the basin, not clip and strand mass."""
+        params = ContactBasinParams(total_volume=10.0, n_segments=5, tau=1000.0, bulk_decay_rate=0.0)
+        key = jax.random.PRNGKey(0)
+        state = ContactBasinState.create(params.n_segments)
+        # element_volume = 2; flow*dt = 20 spans all 5 segments in one call.
+        inlet = Transport.create(flow=20.0, chlorine_residual=5.0, demand=0.0)
+
+        state, outlet = basin_step(state, inlet, params, jnp.array(1.0), key)
+
+        assert jnp.allclose(state.segments[:, 0], 5.0)
+        assert jnp.allclose(outlet, 5.0)
+
+    def test_outlet_residual_is_post_transport(self) -> None:
+        """The returned outlet must reflect this step's transport, not the pre-transport segment."""
+        params = ContactBasinParams(total_volume=10.0, n_segments=1, tau=1000.0, bulk_decay_rate=0.0)
+        key = jax.random.PRNGKey(0)
+        state = ContactBasinState(segments=jnp.array([[0.0, 0.0, 0.0, 0.0, 0.0]]))
+        inlet = Transport.create(flow=10.0, chlorine_residual=3.0, demand=0.0)
+
+        state, outlet = basin_step(state, inlet, params, jnp.array(1.0), key)
+
+        assert jnp.allclose(outlet, state.segments[-1, 0])
+        assert float(outlet) > 0.0
+
+
 class TestActuatorSaturation:
     def test_dose_clamped_to_max(self) -> None:
         params = RampLimitedActuatorParams(max_output=5.0, min_output=0.0, max_ramp_rate=100.0)

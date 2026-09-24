@@ -59,11 +59,18 @@ def step(
 
     segments = jnp.stack([new_chlorine, new_demand, new_ammonia, turbidity_col, organics_col], axis=1)
 
+    # n_segments approximates the T10/T baffling factor from EPA's LT2ESWTR
+    # Disinfection Profiling and Benchmarking guidance: more tanks-in-series
+    # pushes T10/T closer to 1 (plug flow), fewer segments toward a lower
+    # T10/T (more short-circuiting), https://www.epa.gov/system/files/documents/2022-02/disprof_bench_3rules_final_508.pdf
     element_volume = params.total_volume / params.n_segments
     flow_volume = inputs.hydraulics.flow * dt
-    ratio = jnp.clip(flow_volume / element_volume, 0.0, 1.0)
-
-    outlet_residual = segments[-1, 0]
+    # A single tanks-in-series update can only move fluid one segment per
+    # call; a ratio > 1 (flow_volume > element_volume) would silently discard
+    # mass through the clip below. Substep with lax.fori_loop so every
+    # sub-update sees ratio <= 1, however large dt or flow gets.
+    n_substeps = jnp.maximum(jnp.ceil(flow_volume / element_volume), 1.0).astype(jnp.int32)
+    sub_ratio = jnp.clip(flow_volume / (element_volume * n_substeps.astype(jnp.float32)), 0.0, 1.0)
 
     inlet_values = jnp.array(
         [
@@ -75,8 +82,14 @@ def step(
         ]
     )
 
-    downstream = ratio * segments[:-1] + (1.0 - ratio) * segments[1:]
-    first_segment = ratio * inlet_values + (1.0 - ratio) * segments[0]
-    new_segments = jnp.concatenate([first_segment[None, :], downstream], axis=0)
+    def _advect_once(_: jax.Array, segs: jax.Array) -> jax.Array:
+        downstream = sub_ratio * segs[:-1] + (1.0 - sub_ratio) * segs[1:]
+        first_segment = sub_ratio * inlet_values + (1.0 - sub_ratio) * segs[0]
+        return jnp.concatenate([first_segment[None, :], downstream], axis=0)
+
+    new_segments = jax.lax.fori_loop(0, n_substeps, _advect_once, segments)
+    # The physically meaningful outlet is what leaves after this step's
+    # transport, not the pre-transport last-segment value.
+    outlet_residual = new_segments[-1, 0]
 
     return ContactBasinState(segments=new_segments), outlet_residual
