@@ -4,4 +4,4 @@ This folder collects practical, durable reference notes that are too explanatory
 
 ## Topics
 
-- [Statistical comparisons](statistical-comparisons.md) — when and why to use Welch's t-test versus the Mann–Whitney U-test in RL analysis.
+- [Statistical comparisons](statistical-comparisons.md) — why comparisons are seed-paired differences with multiplicity-adjusted percentile CIs, and how to choose the estimand and missingness policy.
