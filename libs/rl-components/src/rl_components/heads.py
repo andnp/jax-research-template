@@ -67,12 +67,27 @@ class DuelingHead(TypedApply[Array], nn.Module):
         return v + (a - jnp.mean(a, axis=-1, keepdims=True))
 
 
+def shift_head_readout(
+    params: dict[str, Array], *, kernel_name: str, kernel_axis: int, bias_name: str | None = None
+) -> dict[str, Array]:
+    """Rotate a shared multi-head readout's head axis by one position."""
+    def shift_head_axis(tree: Array, axis: int) -> Array:
+        dst = (slice(None),) * axis + (slice(None, -1),)
+        src = (slice(None),) * axis + (slice(1, None),)
+        return tree.at[dst].set(tree[src])
+
+    new_params = {**params, kernel_name: shift_head_axis(params[kernel_name], axis=kernel_axis)}
+    if bias_name is not None:
+        new_params[bias_name] = shift_head_axis(params[bias_name], axis=0)
+    return new_params
+
+
 def _init_multi_head_kernel(
     num_heads: int, head_shape: tuple[int, ...]
 ) -> nn.initializers.Initializer:
     """``lecun_normal`` computed on the flattened ``(width, num_heads * prod(head_shape))``
     fan shape, then reshaped so the stored kernel keeps ``num_heads`` as its own axis --
-    the shape :func:`jax_utils.pytree.shift_head_readout` needs to shift whole heads."""
+    the shape :func:`rl_components.heads.shift_head_readout` needs to shift whole heads."""
     flat = math.prod(head_shape)
 
     def init(key: Array, shape: tuple[int, ...], dtype: jnp.dtype = jnp.float32) -> Array:
@@ -89,7 +104,7 @@ class MultiHeadReadout(TypedApply[Array], nn.Module):
     One einsum over a ``(width, num_heads, *head_shape)`` kernel produces every head's
     ``head_shape``-shaped output: ``head_shape=()`` gives a per-head scalar (an SAC-style
     Q- or H-head), ``head_shape=(action_dim,)`` a per-head action-value vector (a QRC-style
-    Q- or H-head). :func:`jax_utils.pytree.shift_head_readout` rotates its ``kernel``/``bias``
+    Q- or H-head). :func:`rl_components.heads.shift_head_readout` rotates its ``kernel``/``bias``
     params along their ``num_heads`` axis to advance a Bellman-iteration chain by one head.
     """
 

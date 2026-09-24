@@ -3,7 +3,6 @@
 import jax.numpy as jnp
 import optax
 from jax_utils.pytree import (
-    shift_head_readout,
     tree_add,
     tree_inner_product,
     tree_lerp,
@@ -16,6 +15,7 @@ from jax_utils.pytree import (
     tree_sum_of_squares,
     tree_zeros_like,
 )
+from rl_components.heads import shift_head_readout
 
 
 class TestTreeZerosOnesLike:

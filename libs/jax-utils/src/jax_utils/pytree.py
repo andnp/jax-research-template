@@ -10,7 +10,6 @@ from collections.abc import Iterable
 
 import jax
 import jax.numpy as jnp
-from flax.typing import VariableDict
 from jax import Array
 
 
@@ -115,18 +114,3 @@ def shift_head_axis[T](tree: T, axis: int) -> T:
 
     return jax.tree_util.tree_map(shift, tree)
 
-
-def shift_head_readout(
-    params: VariableDict, *, kernel_name: str, kernel_axis: int, bias_name: str | None = None
-) -> VariableDict:
-    """Rotate a shared multi-head readout's head axis, advancing a Bellman-iteration chain one step.
-
-    Shifts the named kernel (and, if given, bias) leaf of a readout's own params dict along
-    its head axis via :func:`shift_head_axis`; every other entry is left untouched. Takes the
-    readout's own flat params (not a ``{"params": ...}``-wrapped variable dict), so it composes
-    at whatever nesting a readout sits at -- e.g. a named child of a trunk-plus-heads module.
-    """
-    new_params = {**params, kernel_name: shift_head_axis(params[kernel_name], axis=kernel_axis)}
-    if bias_name is not None:
-        new_params[bias_name] = shift_head_axis(params[bias_name], axis=0)
-    return new_params

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from jax_utils.pytree import shift_head_readout
-from rl_components.heads import MultiHeadReadout
+from rl_components.heads import MultiHeadReadout, shift_head_readout
 
 SEED = 42
 WIDTH = 8
