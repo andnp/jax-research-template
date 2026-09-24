@@ -218,25 +218,6 @@ def rainbow_zoo_atari_frames_to_env_steps(frames: int, num_action_repeats: int) 
     return frames // num_action_repeats
 
 
-def rainbow_atari_runtime_from_dqn_zoo(
-    config: RainbowConfig,
-    *,
-    num_iterations: int = 200,
-    num_train_frames_per_iteration: int = 1_000_000,
-    seed: int = 42,
-) -> RainbowRuntimeConfig:
-    if num_iterations < 0:
-        raise ValueError("num_iterations must be non-negative.")
-    if num_train_frames_per_iteration < 0:
-        raise ValueError("num_train_frames_per_iteration must be non-negative.")
-
-    total_train_frames = num_iterations * num_train_frames_per_iteration
-    return RainbowRuntimeConfig(
-        TOTAL_TRAIN_ENV_STEPS=rainbow_zoo_atari_frames_to_env_steps(total_train_frames, config.NUM_ACTION_REPEATS),
-        SEED=seed,
-    )
-
-
 def rainbow_zoo_atari_min_replay_capacity(config: RainbowConfig) -> int:
     return int(config.REPLAY_CAPACITY * config.MIN_REPLAY_CAPACITY_FRACTION)
 
@@ -247,22 +228,6 @@ def rainbow_zoo_atari_learn_period_env_steps(config: RainbowConfig) -> int:
 
 def rainbow_zoo_atari_target_update_period_env_steps(config: RainbowConfig) -> int:
     return rainbow_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
-
-
-def rainbow_zoo_atari_should_learn(env_step: int, replay_size: int, config: RainbowConfig) -> bool:
-    if env_step < 0:
-        raise ValueError("env_step must be non-negative.")
-    if replay_size < 0:
-        raise ValueError("replay_size must be non-negative.")
-    if replay_size < rainbow_zoo_atari_min_replay_capacity(config):
-        return False
-    return env_step % rainbow_zoo_atari_learn_period_env_steps(config) == 0
-
-
-def rainbow_zoo_atari_should_update_target(env_step: int, config: RainbowConfig) -> bool:
-    if env_step < 0:
-        raise ValueError("env_step must be non-negative.")
-    return env_step % rainbow_zoo_atari_target_update_period_env_steps(config) == 0
 
 
 def rainbow_importance_sampling_exponent(

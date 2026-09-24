@@ -150,42 +150,6 @@ def dqn_zoo_atari_exploration_decay_env_steps(config: DQNAtariConfig, runtime_co
     return dqn_zoo_atari_frames_to_env_steps(decay_frames, config.NUM_ACTION_REPEATS)
 
 
-def dqn_zoo_atari_exploration_epsilon(
-    env_step: int,
-    config: DQNAtariConfig,
-    runtime_config: DQNAtariRuntimeConfig,
-) -> float:
-    if env_step < 0:
-        raise ValueError("env_step must be non-negative.")
-
-    min_replay_capacity = dqn_zoo_atari_min_replay_capacity(config)
-    if env_step <= min_replay_capacity:
-        return config.EXPLORATION_EPSILON_BEGIN
-
-    decay_env_steps = dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config)
-    if decay_env_steps <= 0:
-        raise ValueError("exploration decay must span at least one env step.")
-
-    elapsed_decay_steps = min(env_step - min_replay_capacity, decay_env_steps)
-    if elapsed_decay_steps >= decay_env_steps:
-        return config.EXPLORATION_EPSILON_END
-
-    progress = elapsed_decay_steps / decay_env_steps
-    return config.EXPLORATION_EPSILON_BEGIN + (
-        config.EXPLORATION_EPSILON_END - config.EXPLORATION_EPSILON_BEGIN
-    ) * progress
-
-
-def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtariConfig) -> bool:
-    if env_step < 0:
-        raise ValueError("env_step must be non-negative.")
-    if replay_size < 0:
-        raise ValueError("replay_size must be non-negative.")
-    if replay_size < dqn_zoo_atari_min_replay_capacity(config):
-        return False
-    return env_step % dqn_zoo_atari_learn_period_env_steps(config) == 0
-
-
 def dqn_atari_td_loss(q_action: jax.Array, targets: jax.Array, grad_error_bound: float) -> jax.Array:
     """Compute DQN's squared TD loss with a bounded TD-error gradient."""
     td_error = q_action - jax.lax.stop_gradient(targets)
