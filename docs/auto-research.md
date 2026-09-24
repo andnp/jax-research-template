@@ -50,7 +50,10 @@ command is what keeps the loop honest.
 
 - **Never change the plan after seeing results and then call the report declared.**
   The tool will not let you: the report becomes exploratory with "plan changed after
-  results were recorded". Exploratory follow-ups are fine, but label them as such in
+  results were recorded". The check compares only what the plan declares. Spelling a
+  default out, or a new optional field in the library, does not count as a change,
+  but a changed library default does not either: it shows in the report's
+  `provenance.toolchain`, so check it when comparing reports. Exploratory follow-ups are fine, but label them as such in
   the diary. Then pre-register a new experiment to confirm them.
 - **Do not metric-shop.** Picking the measure, estimand, or comparison that happens
   to look best is the garden of forking paths. The plan fixes all of them.

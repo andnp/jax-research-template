@@ -78,10 +78,20 @@ The report is labelled `exploratory` when:
   before execution"),
 - the plan in force when some execution started differs from the one being run
   ("plan changed after results were recorded"), or
+- a recorded plan cannot be read with the current plan schema ("plan history has
+  an unusable snapshot"), or
 - an execution's start time is missing or has no UTC offset, so its order
   against the plan history is unknown.
 
 Each reason lists the execution ids it applies to.
+
+Plans are compared by fingerprint, a hash of the fields the plan declares. A
+field left at its default, or written out with its default value, is not hashed,
+so adding an optional field to the library never makes an unchanged plan
+exploratory. Old snapshots are re-read with the current schema before comparing.
+A changed default is therefore not a plan change: the report's
+`provenance.toolchain` records the `research-analysis` version and commit that
+resolved the defaults, and the full resolved plan is in `report.json`.
 
 Exit codes are 0 for a report, 2 for fatal load diagnostics, and 3 for a failed
 analysis, such as a diverged run with no declared worst case or an incomplete
