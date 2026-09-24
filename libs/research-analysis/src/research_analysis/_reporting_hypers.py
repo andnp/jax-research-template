@@ -17,7 +17,6 @@ from research_analysis._reporting_models import (
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
 )
-from research_analysis._reporting_plots import _plot_hypers
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
@@ -478,7 +477,6 @@ def slice_hypers(
                 profile_by_value={key[-1]: report for key, report in profiles.items() if key[:-1] == group_key},
                 experiment_slug=dataset.experiment_name,
                 group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
-                plot_suffix="__" + "_".join(f"{key}-{value}" for key, value in zip(group_keys, group_key, strict=True)),
                 verbose=verbose,
             )
             for group_key, group_records in groups.items()
@@ -492,7 +490,6 @@ def slice_hypers(
         profile_by_value={key[0]: report for key, report in profiles.items()},
         experiment_slug=dataset.experiment_name,
         group_label=None,
-        plot_suffix="",
         verbose=verbose,
     )
 
@@ -505,7 +502,6 @@ def _slice_hypers_group(
     profile_by_value: dict[Any, HyperparameterConfigReport],
     experiment_slug: str,
     group_label: str | None,
-    plot_suffix: str,
     verbose: bool,
 ) -> HyperparameterSliceReport:
     pinned = {key: value for key, value in champion.winning_config.items() if key != vary}
@@ -521,14 +517,11 @@ def _slice_hypers_group(
         float(np.mean(slice_by_value[value])) if value in slice_by_value else None for value in sorted_values
     ]
 
-    plot_path = _plot_hypers(vary, sorted_values, slice_performance, best_performance, experiment_slug, plot_suffix)
-
     report = HyperparameterSliceReport(
         vary=vary,
         values=sorted_values,
         best_performance=best_performance,
         slice_performance=slice_performance,
-        plot_path=plot_path,
     )
 
     if verbose:

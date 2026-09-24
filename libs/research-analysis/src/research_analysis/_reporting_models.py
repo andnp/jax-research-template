@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any
 
 from research_analysis.comparison import BakeoffSpec
@@ -53,7 +52,6 @@ class HyperparameterSliceReport:
     best_performance: list[float]
     # None where the champion-pinned configuration was never run at that value.
     slice_performance: Sequence[float | None]
-    plot_path: Path | None
 
 
 @dataclass(frozen=True)

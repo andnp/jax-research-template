@@ -26,7 +26,7 @@ from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensi
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import ReturnRate, TailMean
-from research_analysis.report_plots import write_bakeoff_plots
+from research_analysis.report_plots import write_bakeoff_plots, write_slice_plot
 from research_analysis.reporting import (
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
@@ -294,6 +294,16 @@ def test_slice_hypers_pins_champion_config_while_varying_one_axis(
     assert report.slice_performance == pytest.approx([3.0, 5.0])
 
 
+
+def test_slice_plot_is_written_only_under_the_given_directory(tmp_path: Path) -> None:
+    """Sensitivity figures land in the caller's output directory, never a cwd-relative tree."""
+    report = HyperparameterSliceReport(vary="eta", values=[1, 2], best_performance=[4.0, 5.0], slice_performance=[3.0, None])
+
+    path = write_slice_plot(report, tmp_path, "group a")
+
+    assert path.parent == tmp_path
+    assert path.exists()
+
 def test_slice_hypers_plots_selection_corrected_best_values(temp_experiment_setup: ExperimentSetup) -> None:
     """The best-achievable curve carries each value's corrected champion, not the raw maximum over noise."""
     setup = temp_experiment_setup
@@ -406,7 +416,7 @@ class TestBoundaryWarning:
     @staticmethod
     def _slice(values: list[float], performance: list[float]) -> HyperparameterSliceReport:
         return HyperparameterSliceReport(
-            vary="learning_rate", values=values, best_performance=performance, slice_performance=performance, plot_path=None
+            vary="learning_rate", values=values, best_performance=performance, slice_performance=performance
         )
 
 

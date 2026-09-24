@@ -501,7 +501,7 @@ def bakeoff_report(
                 sorted_values = sorted(value_map)
                 means = [float(np.mean(value_map[value])) for value in sorted_values]
                 slice_report = HyperparameterSliceReport(
-                    vary=axis, values=sorted_values, best_performance=means, slice_performance=means, plot_path=None
+                    vary=axis, values=sorted_values, best_performance=means, slice_performance=means
                 )
                 warning = boundary_warning(slice_report, condition=cond, cell=cell, higher_is_better=higher_is_better)
                 if warning is not None:

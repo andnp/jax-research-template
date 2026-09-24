@@ -106,13 +106,6 @@ def _present_slice_hypers(
         table.add_row(str(value), f"{best:.2f}", "—" if slice_val is None else f"{slice_val:.2f}")
     console.print(table)
 
-    console.print(
-        Panel(
-            Text(f"Saved sensitivity visual artifact to: {report.plot_path}", style="italic green"),
-            title="Artifact Outputs Panel",
-        )
-    )
-
 
 def _format_cell(cell: CellSummary) -> str:
     if cell.estimate is None:
