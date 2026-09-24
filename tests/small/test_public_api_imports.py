@@ -7,28 +7,18 @@ import sys
 import types as stdlib_types
 
 
-class TestExperimentDefinitionPublicApi:
-    def test_documented_names_resolve_to_canonical_symbols(self) -> None:
+class TestExperimentDefinitionPackageBoundary:
+    def test_documented_names_live_in_defining_modules(self) -> None:
         import experiment_definition
         from experiment_definition.component import Component
-        from experiment_definition.component import Component as CanonicalComponent
         from experiment_definition.experiment import Experiment
-        from experiment_definition.experiment import Experiment as CanonicalExperiment
 
-        assert Experiment is CanonicalExperiment
-        assert Component is CanonicalComponent
-        assert set(experiment_definition.__all__) == {
-            "Component",
-            "ComponentType",
-            "Experiment",
-            "MetricFrequency",
-            "MetricType",
-            "ParameterValue",
-            "Sweep",
-            "metric_whitelist",
-            "values",
-            "when",
-        }
+        assert Component.__module__ == "experiment_definition.component"
+        assert Experiment.__module__ == "experiment_definition.experiment"
+        assert all(
+            name.startswith("__") or isinstance(value, stdlib_types.ModuleType)
+            for name, value in vars(experiment_definition).items()
+        )
 
 
 class TestResearchRunnerPackageBoundary:

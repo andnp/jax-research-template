@@ -31,7 +31,8 @@ Researchers define the metrics they intend to collect (e.g., `reward`, `loss`, `
 ```python
 from pathlib import Path
 
-from experiment_definition import Component, ComponentType, Experiment
+from experiment_definition.component import Component, ComponentType
+from experiment_definition.experiment import Experiment
 
 exp = Experiment("Policy Gradient Ablations")
 
