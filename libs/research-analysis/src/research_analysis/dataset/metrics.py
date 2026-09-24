@@ -81,6 +81,16 @@ def load_scalar_metric_frames(
             (experiment_id, *batch, *metric_parameters),
         )
         for batch in batched(execution_ids, execution_limit, strict=False)
+    ).cast(
+        {
+            "scope": pl.String,
+            "metric_name": pl.String,
+            "experiment_id": pl.Int64,
+            "run_id": pl.Int64,
+            "seed_id": pl.Int64,
+            "execution_id": pl.Int64,
+            "value": pl.Float64,
+        }
     )
     run_rows = frame.filter(pl.col("scope") == "run").join(
         pl.DataFrame(run_execution_pairs, schema={"run_id": pl.Int64, "execution_id": pl.Int64}, orient="row"),

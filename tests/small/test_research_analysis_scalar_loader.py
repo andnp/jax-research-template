@@ -55,6 +55,39 @@ def test_load_scalar_metric_frames_reads_selected_scopes_and_identities(tmp_path
     ]
 
 
+def test_load_scalar_metric_frames_accepts_execution_only_rows(tmp_path: Path) -> None:
+    """
+    Keep nullable run identities typed when an execution has no run-scoped scalar rows.
+    """
+    database_path = tmp_path / "metrics.sqlite"
+    write_execution_scalars(
+        database_path,
+        {"aggregate": 7.5},
+        experiment_id=10,
+        execution_id=100,
+    )
+
+    frames = load_scalar_metric_frames(
+        database_path,
+        experiment_id=10,
+        run_execution_pairs=[(21, 100)],
+        execution_ids=[100],
+        metrics=("aggregate",),
+    )
+
+    assert len(frames) == 1
+    frame = frames[0]
+    assert frame.schema["scope"] == pl.String
+    assert frame.schema["metric_name"] == pl.String
+    assert frame.schema["run_id"] == pl.Int64
+    assert frame.schema["seed_id"] == pl.Int64
+    assert frame.schema["execution_id"] == pl.Int64
+    assert frame.schema["value"] == pl.Float64
+    assert frame.select("scope", "metric_name", "run_id", "seed_id", "execution_id", "value").rows() == [
+        ("execution", "aggregate", None, None, 100, 7.5),
+    ]
+
+
 def test_load_scalar_metric_frames_accepts_curve_only_databases(tmp_path: Path) -> None:
     """
     Read older curve databases that do not have the additive scalar table.
