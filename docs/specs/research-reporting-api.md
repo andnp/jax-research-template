@@ -34,7 +34,7 @@ layers for a spec's declared plan.
 
 `bakeoff_report(dataset, metric_name, conditions, *, select_champion_over=None,
 block_by=None, spec=None, higher_is_better=True, min_seeds=5, measure=FinalValue(),
-pairs=None)` compares two or more conditions:
+pairs=None, shared_across=(), untuned=())` compares two or more conditions:
 
 - It compares block by block, never pooling runs across blocks, and pairs runs by seed.
 - `pairs` is the planned comparison family. When it is omitted, every pair is compared.
@@ -53,6 +53,27 @@ pairs=None)` compares two or more conditions:
   statistical parameters.
 - With `select_champion_over`, the differences come from the hierarchical per-sample
   bootstrap over each arm's grid, and no tests are run.
+- `shared_across` names `block_by` axes declared with a `SweepAxis.when` rule. A
+  condition the axis does not apply to (null on every run) has no block of its own on
+  that axis: its runs join every block of it, so one axis-free referent is compared
+  against each block's arms. It must be declared; without it, null is its own block.
+  The reuse is visible and never double-counted: dataset accounting counts each run
+  once, `runs` lists a reused run once per block it joined, `shared_across` in the
+  report names the reused conditions, and the markdown states how many distinct runs
+  were reused. Reused runs make blocks dependent, so the omnibus test is skipped with
+  `omnibus_skipped_reason`; each paired test stays within one block, and Bonferroni
+  and Holm hold under that dependence. A referent run whose other coordinates match no
+  block raises `InsufficientDataError`; a condition lacking the axis on only some runs
+  raises `ValueError`. In a champion comparison the referent is tuned separately
+  within each block it joins.
+- `untuned` declares single-configuration conditions as fixed referents in a
+  champion comparison. They have no selection stage and no champion entry: their
+  bootstrap is the plain percentile bootstrap of the mean over their seeds, paired by
+  seed with the other arm's hierarchical draws, and each such difference's `method`
+  says so. A condition not declared untuned still needs two configurations, one
+  declared untuned must have exactly one, and at least one condition must be tuned.
+  `tests/large/test_research_analysis_champion_calibration.py` records the measured
+  coverage of these differences.
 
 `best_hypers(dataset, metric_name, group_by=None, *, difference_between=None, ...)`
 returns a bias-corrected champion per group, or the champion difference between two
@@ -81,7 +102,10 @@ per-seed differences (a paired median is median(A − B)); cells take it per con
     estimate, a CI at the Bonferroni-adjusted `comparison_confidence`, `n_paired`, a
     Holm-adjusted p-value, and the method. A skipped pair keeps its `skipped_reason`;
   - `family_size` and `comparison_confidence`;
-  - the omnibus test, or `tests_skipped_reason`;
+  - the omnibus test, or `tests_skipped_reason` (no tests at all) or
+    `omnibus_skipped_reason` (only the omnibus is absent);
+  - `shared_across` (shared axis to the conditions whose runs join its every block)
+    and `untuned` (the fixed referents);
   - `warnings`, as `BakeoffWarning` values: boundary champions (numeric axes only),
     insufficient seeds, non-normality, flatlined curves, zero variance, and
     `small_sample_coverage` on every cell or pair CI resting on fewer than 30 runs.
@@ -126,7 +150,8 @@ An `AnalysisPlan` fixes:
 - the metric and the measure;
 - the dimensions, version selection, and cohort;
 - the analyses (`BakeoffAnalysis`, `BestHypersAnalysis`, `HypersDifferenceAnalysis`,
-  `SliceHypersAnalysis`);
+  `SliceHypersAnalysis`); a `BakeoffAnalysis` carries its `pairs`, `block_by`,
+  `shared_across`, `select_champion_over`, and `untuned` declarations;
 - the statistics, as a `BakeoffSpec`;
 - `higher_is_better`, and optionally a worst-case score for diverged runs.
 
@@ -166,6 +191,10 @@ It is always `exploratory`.
   analysis, then the figures. Every interval
   states its confidence, and nothing is written as `mean ± x`.
 - `render_summary(document)` gives a few console lines.
+- `write_report_document(document, output_dir)`, in `research_analysis.report_files`,
+  writes the figures, `report.json`, and `report.md` into `output_dir` and returns the
+  document naming its figures. `report_directory(results_root, experiment)` gives the
+  default `<results_root>/reports/<experiment>/<UTC time>/`. The CLI uses both.
 - `write_report_plots(document, output_dir)` draws per-block run distributions and
   sensitivity curves into `output_dir`, and returns the document with relative
   paths. `write_bakeoff_plots` and `write_slice_plot` draw single figures.
