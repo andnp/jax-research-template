@@ -10,7 +10,6 @@ dependencies = [
     "polars~=1.22",
     "pydantic~=2.12",
     "scipy~=1.14",
-    "rich",
     "research-plot",
 ]
 

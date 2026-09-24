@@ -1530,7 +1530,6 @@ dependencies = [
     { name = "polars" },
     { name = "pydantic" },
     { name = "research-plot" },
-    { name = "rich" },
     { name = "scipy" },
 ]
 
@@ -1542,7 +1541,6 @@ requires-dist = [
     { name = "polars", specifier = "~=1.22" },
     { name = "pydantic", specifier = "~=2.12" },
     { name = "research-plot", editable = "libs/research-plot" },
-    { name = "rich" },
     { name = "scipy", specifier = "~=1.14" },
 ]
 
@@ -1554,8 +1552,10 @@ dependencies = [
     { name = "copier" },
     { name = "experiment-definition" },
     { name = "pyyaml" },
+    { name = "research-analysis" },
     { name = "research-cluster" },
     { name = "research-runner" },
+    { name = "rich" },
     { name = "typer" },
 ]
 
@@ -1564,8 +1564,10 @@ requires-dist = [
     { name = "copier", specifier = "~=9.4" },
     { name = "experiment-definition", editable = "libs/experiment-definition" },
     { name = "pyyaml", specifier = "~=6.0" },
+    { name = "research-analysis", editable = "libs/research-analysis" },
     { name = "research-cluster", editable = "libs/research-cluster" },
     { name = "research-runner", editable = "libs/research-runner" },
+    { name = "rich" },
     { name = "typer", specifier = "~=0.12" },
 ]
 

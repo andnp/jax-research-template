@@ -9,6 +9,8 @@ dependencies = [
     "experiment-definition",
     "research-runner",
     "research-cluster",
+    "research-analysis",
+    "rich",
 ]
 
 [project.scripts]
