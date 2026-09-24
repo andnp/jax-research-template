@@ -21,6 +21,7 @@ from research_analysis.dataset.types import (
     RunAccounting,
     SweepValue,
 )
+from research_analysis.diagnostics.bakeoff import IncompleteCell
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetDiagnostic
 from research_analysis.plan import AnalysisPlan
 
@@ -86,12 +87,13 @@ type AnalysisResult = BakeoffResult | BestHypersResult | HypersDifferenceResult 
 
 @dataclass(frozen=True)
 class AnalysisFailure:
-    """Why the analyses produced no results; ``offenders`` lists the runs that caused it, when known."""
+    """Why the analyses produced no results, with the runs or cells that caused it when they are known."""
 
     analysis: str
     error_type: str
     message: str
-    offenders: tuple[dict[str, SweepValue | None], ...]
+    non_finite_runs: tuple[dict[str, SweepValue | None], ...] = ()
+    incomplete_cells: tuple[IncompleteCell, ...] = ()
 
 
 @dataclass(frozen=True)
