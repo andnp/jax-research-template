@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -18,12 +20,12 @@ class SlurmConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SlurmConfig":
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        unknown = sorted(set(d) - set(cls.__dataclass_fields__))
+        if unknown:
+            raise ValueError(f"Unknown Slurm config keys: {', '.join(unknown)}")
+        return cls(**d)
 
     @classmethod
     def from_json(cls, path: str) -> "SlurmConfig":
-        import json
-        from pathlib import Path
-
         with Path(path).open() as f:
             return cls.from_dict(json.load(f))

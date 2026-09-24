@@ -41,6 +41,12 @@ def test_slurm_config_from_dict() -> None:
     assert config.mem_per_cpu == "4G"
 
 
+def test_slurm_config_rejects_unknown_keys() -> None:
+    """Configuration typos fail instead of being silently discarded."""
+    with pytest.raises(ValueError, match="memeory"):
+        SlurmConfig.from_dict({"memeory": "4G"})
+
+
 def test_slurm_config_from_json(tmp_path: Path) -> None:
     json_file = tmp_path / "slurm.json"
     json_file.write_text(json.dumps({
