@@ -187,3 +187,5 @@ def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None
         interval = f"[{item.ci[0]:+.3g}, {item.ci[1]:+.3g}]"
         diff_table.add_row(item.block or "(no blocking)", item.minuend, item.subtrahend, f"{item.estimate:+.3g}", interval, str(item.n_paired), p_value, item.method)
     console.print(diff_table)
+    if report.tests_skipped_reason is not None:
+        console.print(Panel(Text(report.tests_skipped_reason), title="Hypothesis tests"))

@@ -616,6 +616,7 @@ def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: Exp
         verbose=False,
     )
 
+    assert report.omnibus is not None
     assert report.omnibus.assumptions["has_missing"] is True
 
 
@@ -1098,3 +1099,67 @@ class TestPairedDifferences:
 
         # Four all-positive paired differences give an exact two-sided sign-flip p of 2/16.
         assert report.difference("a", "b").p_value == pytest.approx(3 * 2 / 16)
+
+
+class TestChampionComparisons:
+    @staticmethod
+    def _tuned_arms(setup: ExperimentSetup, configs_for_b: tuple[str, ...] = ("low", "high")) -> ExperimentDataset:
+        noise = np.random.default_rng(1)
+        for condition, configs in (("a", ("low", "high")), ("b", configs_for_b)):
+            for learning_rate in configs:
+                for seed in range(6):
+                    value = {"a": 5.0, "b": 3.0}[condition] + (1.0 if learning_rate == "high" else 0.0) + noise.normal()
+                    _add_observation(setup, {"condition_name": condition, "learning_rate": learning_rate}, seed, value)
+        return _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+    def test_champion_difference_carries_selection_uncertainty(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The headline is the hierarchical per-sample difference over both grids, not raw champions."""
+        dataset = self._tuned_arms(temp_experiment_setup)
+        spec = BakeoffSpec(n_resamples=300)
+
+        report = bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=spec, verbose=False)
+        expected = best_hypers(
+            dataset,
+            "metric",
+            group_by=[dataset.dimensions.condition],
+            difference_between=("a", "b"),
+            verbose=False,
+            n_resamples=300,
+            random_seed=0,
+        )
+
+        difference = report.difference("a", "b")
+        assert difference.method == "hierarchical per-sample bootstrap, selection included"
+        assert difference.estimate == pytest.approx(expected.mean_diff)
+        assert difference.ci == pytest.approx(expected.estimate_ci)
+        assert difference.n_paired == 6
+
+    def test_champion_mode_runs_no_tests_on_the_selecting_seeds(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """No p-value or omnibus test is computed on champions picked from the same seeds; the report says why."""
+        dataset = self._tuned_arms(temp_experiment_setup)
+
+        report = bakeoff_report(
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+        )
+
+        assert report.omnibus is None
+        assert report.difference("a", "b").p_value is None
+        assert report.tests_skipped_reason is not None and "selected" in report.tests_skipped_reason
+
+    def test_an_arm_with_nothing_to_tune_fails_loudly(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A single configuration cannot be a selected champion, so the comparison refuses rather than falls back."""
+        dataset = self._tuned_arms(temp_experiment_setup, configs_for_b=("low",))
+
+        with pytest.raises(ValueError, match="condition 'b' .* 1 configuration"):
+            bakeoff_report(
+                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+            )
+
+    def test_champion_mode_rejects_a_median_estimand(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The hierarchical bootstrap estimates a mean; a median spec would be silently ignored."""
+        dataset = self._tuned_arms(temp_experiment_setup)
+
+        with pytest.raises(ValueError, match="estimand must be 'mean'"):
+            bakeoff_report(
+                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(estimand="median"), verbose=False
+            )

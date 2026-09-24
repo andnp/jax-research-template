@@ -117,7 +117,9 @@ class BakeoffReport:
     """A repeatable bakeoff analysis: champion selection, comparison, and caveats in one call.
 
     ``champions`` is ``None`` when ``select_champion_over`` was not given (the metric is
-    already one value per condition per seed per block, nothing to select over).
+    already one value per condition per seed per block, nothing to select over). With champions,
+    ``cells`` describe each selected configuration's own runs, which carry selection bias; the
+    ``differences`` come from the hierarchical bootstrap over each arm's whole grid instead.
     """
 
     conditions: list[str]
@@ -129,7 +131,9 @@ class BakeoffReport:
     champions: dict[str, dict[str, HyperparameterConfigReport]] | None
     blocks: list[str]
     """Block labels in report order; "" when the report has no blocking axes."""
-    omnibus: StatisticalTestDetails
+    omnibus: StatisticalTestDetails | None
+    tests_skipped_reason: str | None
+    """Why the omnibus test and p-values are absent, e.g. for tuned-champion comparisons."""
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
     distribution_plot_paths: dict[str, Path]

@@ -80,6 +80,81 @@ def _load_bakeoff_data(
     return data_by_group, run_ids
 
 
+_PAIRED_METHOD = "paired percentile bootstrap"
+_CHAMPION_METHOD = "hierarchical per-sample bootstrap, selection included"
+_CHAMPION_TESTS_SKIPPED = (
+    "no permutation tests on tuned champions: the seeds that selected each champion would be reused to test it"
+)
+
+
+def _seeds_by_config(
+    records: list[dict[str, Any]],
+    conditions: list[str],
+    condition_axis: str,
+    tuned_axes: list[str],
+    block_label: str,
+) -> dict[str, list[set[int]]]:
+    """Seeds observed under each tuned configuration of each condition; fails if a condition has nothing to tune."""
+    grouped: dict[str, dict[tuple[Any, ...], set[int]]] = {condition: {} for condition in conditions}
+    for record in records:
+        condition = record["hypers"][condition_axis]
+        if condition in grouped:
+            config = tuple(record["hypers"][axis] for axis in tuned_axes)
+            grouped[condition].setdefault(config, set()).add(record["seed"])
+    for condition, configs in grouped.items():
+        if len(configs) < 2:
+            raise ValueError(
+                f"condition {condition!r} in block {block_label!r} has {len(configs)} configuration(s) of "
+                f"{tuned_axes}; a tuned-champion comparison needs at least two to select over"
+            )
+    return {condition: list(configs.values()) for condition, configs in grouped.items()}
+
+
+def _champion_difference(
+    block_dataset: ExperimentDataset,
+    metric_name: str,
+    seeds_by_config: dict[str, list[set[int]]],
+    minuend: str,
+    subtrahend: str,
+    block_key: BlockKey,
+    spec: BakeoffSpec,
+    confidence: float,
+    random_seed: int,
+    higher_is_better: bool,
+    measure: PerformanceMeasure,
+) -> PairedDifference:
+    shared = set.intersection(*seeds_by_config[minuend], *seeds_by_config[subtrahend])
+    skipped = PairedDifference(
+        minuend=minuend,
+        subtrahend=subtrahend,
+        block=_block_label(block_key),
+        estimate=None,
+        ci=None,
+        confidence=confidence,
+        n_paired=len(shared),
+        method=_CHAMPION_METHOD,
+        p_value=None,
+        skipped_reason=f"only {len(shared)} seeds shared by every configuration, fewer than min_samples={spec.min_samples}",
+    )
+    if len(shared) < spec.min_samples:
+        return skipped
+
+    difference = best_hypers(
+        block_dataset,
+        metric_name,
+        group_by=[block_dataset.dimensions.condition],
+        difference_between=(minuend, subtrahend),
+        higher_is_better=higher_is_better,
+        verbose=False,
+        confidence_level=confidence,
+        n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        random_seed=random_seed,
+        measure=measure,
+    )
+    return replace(skipped, estimate=difference.mean_diff, ci=difference.estimate_ci, skipped_reason=None)
+
+
 def _paired_differences(
     scores: dict[tuple[str, BlockKey], dict[int, float]],
     conditions: list[str],
@@ -123,7 +198,7 @@ def _paired_difference(
         ci=None,
         confidence=confidence,
         n_paired=len(seeds),
-        method="paired percentile bootstrap",
+        method=_PAIRED_METHOD,
         p_value=None,
         skipped_reason=f"only {len(seeds)} paired runs, fewer than min_samples={spec.min_samples}",
     )
@@ -342,8 +417,14 @@ def bakeoff_report(
         else [()]
     )
 
+    if select_champion_over is not None and spec.estimand != "mean":
+        raise ValueError("tuned-champion comparisons estimate a mean; spec.estimand must be 'mean'")
+    family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
+    comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
+
     warnings = BakeoffWarningAccumulator()
     champions: dict[str, dict[str, HyperparameterConfigReport]] = {}
+    champion_differences: list[PairedDifference] = []
     comparison_runs: list[pl.DataFrame] = []
     comparison_metrics: list[pl.DataFrame] = []
 
@@ -355,6 +436,30 @@ def bakeoff_report(
             comparison_runs.append(block_dataset.runs)
             comparison_metrics.append(block_dataset.metrics)
             continue
+
+        tuned_records = _load_dataset_hyperparameter_records(
+            block_dataset, sorted({dataset.dimensions.condition, *select_champion_over}), metric_name, measure
+        )
+        seeds_by_config = _seeds_by_config(
+            tuned_records, conditions, dataset.dimensions.condition, sorted(select_champion_over), _block_label(block_key)
+        )
+        for index, minuend in enumerate(conditions):
+            for subtrahend in conditions[index + 1 :]:
+                champion_differences.append(
+                    _champion_difference(
+                        block_dataset,
+                        metric_name,
+                        seeds_by_config,
+                        minuend,
+                        subtrahend,
+                        block_key,
+                        spec,
+                        comparison_confidence,
+                        spec.random_seed + len(champion_differences),
+                        higher_is_better,
+                        measure,
+                    )
+                )
 
         raw_champions = best_hypers(
             block_dataset,
@@ -402,11 +507,12 @@ def bakeoff_report(
 
     combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
     data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
-    family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
-    comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
-    test_rng = np.random.default_rng(spec.random_seed)
-    omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
-    differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, test_rng)
+    omnibus: StatisticalTestDetails | None = None
+    differences = tuple(champion_differences)
+    if select_champion_over is None:
+        test_rng = np.random.default_rng(spec.random_seed)
+        omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
+        differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, test_rng)
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
@@ -459,6 +565,7 @@ def bakeoff_report(
         champions=champions or None,
         blocks=[_block_label(block_key) for block_key in block_keys],
         omnibus=omnibus,
+        tests_skipped_reason=None if select_champion_over is None else _CHAMPION_TESTS_SKIPPED,
         differences=differences,
         distribution_plot_paths=_plot_run_distributions(
             {
