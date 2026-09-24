@@ -12,7 +12,7 @@ import numpy as np
 
 from research_analysis.dataset.types import CellAccounting
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
-from research_analysis.performance import FinalValue, ReturnRate, TailMean
+from research_analysis.performance import FinalValue, ReturnRate, StoredValue, TailMean
 from research_analysis.plan import (
     BakeoffAnalysis,
     BestHypersAnalysis,
@@ -34,6 +34,7 @@ KIND_TAGS: dict[type, str] = {
     FinalValue: "final_value",
     TailMean: "tail_mean",
     ReturnRate: "return_rate",
+    StoredValue: "stored_value",
     BakeoffAnalysis: "bakeoff",
     BestHypersAnalysis: "best_hypers",
     HypersDifferenceAnalysis: "hypers_difference",
@@ -79,4 +80,3 @@ def to_jsonable(value: object) -> JsonValue:
 def report_to_json(document: ReportDocument) -> str:
     """Strict JSON: a NaN or infinity anywhere in the report raises instead of writing invalid JSON."""
     return json.dumps(to_jsonable(document), indent=2, allow_nan=False) + "\n"
-

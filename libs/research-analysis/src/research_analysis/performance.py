@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.non_finite import require_finite
 
@@ -89,3 +90,9 @@ def run_scores(frame: pl.DataFrame, metric: str, measure: PerformanceMeasure) ->
         scores = curves.select([*keys, "value"]).sort(keys)
     require_finite(scores, f"{metric!r} run scores")
     return scores
+
+
+def dataset_run_scores(dataset: ExperimentDataset, metric: str, measure: PerformanceMeasure) -> pl.DataFrame:
+    """Score a dataset's curve or stored run values according to the declared measure."""
+    frame = dataset.scalar_metrics if isinstance(measure, StoredValue) else dataset.metrics
+    return run_scores(frame, metric, measure)

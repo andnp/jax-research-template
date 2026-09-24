@@ -44,7 +44,7 @@ from research_analysis.diagnostics.bakeoff import (
 from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
-from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
+from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, dataset_run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.statistics import (
@@ -66,7 +66,7 @@ def _load_bakeoff_data(
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     run_ids: dict[tuple[str, BlockKey, int], int] = {}
     for block_key, block_dataset in block_datasets:
-        scores = run_scores(block_dataset.metrics, metric_name, measure).select(["run_id", "value"])
+        scores = dataset_run_scores(block_dataset, metric_name, measure).select(["run_id", "value"])
         joined = scores.join(block_dataset.runs.select(["run_id", "seed", "condition_name"]), on="run_id", how="inner")
         for row in joined.iter_rows(named=True):
             condition, seed = str(row["condition_name"]), int(row["seed"])

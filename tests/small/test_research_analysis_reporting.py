@@ -26,7 +26,7 @@ from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensi
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode, IncompleteBlocksError, IncompleteCell
 from research_analysis.diagnostics.types import InsufficientDataError
 from research_analysis.non_finite import NonFiniteValuesError
-from research_analysis.performance import ReturnRate, TailMean
+from research_analysis.performance import ReturnRate, StoredValue, TailMean
 from research_analysis.report_plots import write_bakeoff_plots, write_slice_plot
 from research_analysis.reporting import (
     HyperparameterConfigReport,
@@ -122,6 +122,24 @@ def _load(
     dimensions: ExperimentDimensions | None = None,
 ) -> ExperimentDataset:
     return load_experiment_dataset(setup["db_path"], "test-exp", dimensions=dimensions)
+
+
+def _with_scalar_values(dataset: ExperimentDataset, values_by_run: dict[int, float]) -> ExperimentDataset:
+    dimension_columns = ["condition_name"]
+    if dataset.dimensions.environment is not None:
+        dimension_columns.append("env_name")
+    dimension_columns.extend(("seed", "run_id", "execution_id", "ablation"))
+    dimension_columns.extend(axis.name for axis in dataset.dimensions.sweep_axes)
+    values = pl.DataFrame(
+        {"run_id": list(values_by_run), "value": list(values_by_run.values())},
+        schema={"run_id": pl.Int64, "value": pl.Float64},
+    )
+    scalars = (
+        dataset.runs.select(dimension_columns)
+        .join(values, on="run_id", how="inner")
+        .with_columns(pl.lit("metric").alias("metric"))
+    )
+    return replace(dataset, scalar_metrics=scalars)
 
 
 @pytest.fixture
@@ -990,6 +1008,56 @@ class TestDeclaredMeasure:
 
         assert report.measure == TailMean(0.5)
         assert report.cells["a"][""].estimate == pytest.approx(5.0)
+
+    def test_best_hypers_reads_stored_run_values(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The stored-value measure selects a champion from run scalars.
+
+        Curve values deliberately favor the other configuration.
+        """
+        setup = temp_experiment_setup
+        for learning_rate, value in (("low", 20.0), ("high", 0.0)):
+            for seed in range(3):
+                _add_observation(
+                    setup,
+                    {"condition_name": "baseline", "learning_rate": learning_rate},
+                    seed,
+                    value + seed,
+                )
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+        values_by_run = {
+            run_id: (seed if learning_rate == "low" else 20.0 + seed)
+            for learning_rate, seed, run_id in dataset.runs.select("learning_rate", "seed", "run_id").iter_rows()
+        }
+
+        report = best_hypers(
+            _with_scalar_values(dataset, values_by_run), "metric", n_resamples=64, measure=StoredValue()
+        )
+
+        assert report.winning_config == {"learning_rate": "high"}
+        assert report.raw_mean == pytest.approx(21.0)
+        assert report.measure == StoredValue()
+
+    def test_bakeoff_reads_stored_run_values(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The stored-value measure scores conditions from scalar rows.
+
+        Curve values deliberately reverse the observed condition ordering.
+        """
+        setup = temp_experiment_setup
+        for condition, value in (("a", 0.0), ("b", 10.0)):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": condition}, seed, value + seed)
+        dataset = _load(setup)
+        values_by_run = {
+            run_id: (20.0 + seed if condition == "a" else float(seed))
+            for condition, seed, run_id in dataset.runs.select("condition_name", "seed", "run_id").iter_rows()
+        }
+
+        report = bakeoff_report(
+            _with_scalar_values(dataset, values_by_run), "metric", ["a", "b"], measure=StoredValue()
+        )
+
+        assert report.cells["a"][""].estimate == pytest.approx(21.0)
+        assert report.measure == StoredValue()
 
 
 class TestBakeoffCells:

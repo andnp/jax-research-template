@@ -26,7 +26,7 @@ from research_analysis.dataset.types import (
 )
 from research_analysis.declared_plan import PlanInterpretationError, plan_fingerprint, recorded_plan_fingerprint
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
-from research_analysis.performance import FinalValue, ReturnRate, TailMean
+from research_analysis.performance import FinalValue, ReturnRate, StoredValue, TailMean
 from research_analysis.plan import (
     AnalysisPlan,
     BakeoffAnalysis,
@@ -236,6 +236,7 @@ class TestPlanFingerprint:
             replace(_BARE_PLAN, measure=ReturnRate()),
             replace(_BARE_PLAN, measure=TailMean(0.1)),
             replace(_BARE_PLAN, measure=TailMean(0.2)),
+            replace(_BARE_PLAN, measure=StoredValue()),
             replace(_BARE_PLAN, analyses=(BakeoffAnalysis("h", ("a", "b"), measure=FinalValue()),)),
         ]
 
@@ -255,6 +256,15 @@ class TestRecordedPlanFingerprint:
     def test_a_recorded_plan_matches_the_plan_it_records(self) -> None:
         """A snapshot stores the full resolved plan; reading it back yields the declared-only fingerprint."""
         plan = replace(_BARE_PLAN, stats=BakeoffSpec(alpha=0.01), measure=TailMean(0.1))
+
+        assert recorded_plan_fingerprint(to_jsonable(plan)) == plan_fingerprint(plan)
+
+    def test_stored_value_measure_round_trips_in_a_recorded_plan(self) -> None:
+        """A scalar plan keeps its explicit measure through snapshot serialization.
+
+        Its recorded fingerprint must match the declared plan.
+        """
+        plan = replace(_BARE_PLAN, measure=StoredValue())
 
         assert recorded_plan_fingerprint(to_jsonable(plan)) == plan_fingerprint(plan)
 
@@ -458,6 +468,7 @@ class TestReportMarkdown:
                 HypersDifferenceAnalysis("gap", "algorithm", "ppo", "dqn"),
                 SliceHypersAnalysis("sensitivity", "lr"),
                 BakeoffAnalysis("whole_run", ("base", "new"), measure=ReturnRate()),
+                BakeoffAnalysis("stored_run", ("base", "new"), measure=StoredValue()),
             ),
             ExperimentDimensions(sweep_axes=(SweepAxis("lr", SweepValueType.FLOAT),)),
             measure=TailMean(0.1),
@@ -482,6 +493,8 @@ class TestReportMarkdown:
             "`sensitivity`: sensitivity to lr per whole grid",
             "`whole_run`: bakeoff of base, new; pairs: every pair; blocked by: nothing; shared across: nothing; "
             "champion over: none; untuned: none; min seeds 5; per run: return rate (mean over every logged point)",
+            "`stored_run`: bakeoff of base, new; pairs: every pair; blocked by: nothing; shared across: nothing; "
+            "champion over: none; untuned: none; min seeds 5; per run: stored per-run scalar",
         ):
             assert expected in plan_text, expected
 
@@ -533,4 +546,3 @@ class TestReportFiles:
 
         assert directory.parent == tmp_path / "reports" / "exp_003_lr"
         assert re.fullmatch(r"\d{8}T\d{6}Z", directory.name)
-

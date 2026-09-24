@@ -15,7 +15,7 @@ from research_analysis._reporting_models import (
 from research_analysis._reporting_warnings import small_sample_coverage_warning
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
-from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
+from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, dataset_run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 
@@ -38,7 +38,7 @@ def _load_dataset_hyperparameter_records(
     if missing_keys:
         raise ValueError(f"No declared sweep axes found for {missing_keys!r}")
 
-    scores = run_scores(dataset.metrics, metric_name, measure).select(["run_id", "value"])
+    scores = dataset_run_scores(dataset, metric_name, measure).select(["run_id", "value"])
     joined = scores.join(
         dataset.runs.select(["run_id", "seed", *run_columns.values()]), on=["run_id"], how="inner"
     )
@@ -521,5 +521,3 @@ def _slice_hypers_group(
     )
 
     return report
-
-
