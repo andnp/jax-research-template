@@ -175,6 +175,18 @@ class TestExecutionStartTimes:
             f"so its order against the plan history is unknown (executions {ids})",
         )
 
+    def test_an_invalid_snapshot_is_exploratory_without_crashing(self, tmp_path: Path) -> None:
+        """A malformed recorded_at from a hand-edited history file never crashes comparing it to execution starts."""
+        experiment = _complete(tmp_path)
+        invalid = PlanSnapshot(
+            plan_fingerprint(PLAN), None, "{}", invalid_reason="recorded_at '2026-01-01T00:00:00' has no UTC offset"
+        )
+
+        document = run_plan(experiment.db_path, "demo", PLAN, (invalid,))
+
+        assert document.plan_status is PlanStatus.EXPLORATORY
+        assert document.exploratory_reasons[0] == "plan history has an unusable snapshot: recorded_at '2026-01-01T00:00:00' has no UTC offset"
+
 
 class TestFailedReports:
     def test_a_fatal_load_reports_diagnostics_and_no_results(self, tmp_path: Path) -> None:
@@ -261,3 +273,20 @@ class TestPlanHistory:
     def test_no_history_reads_as_empty(self, tmp_path: Path) -> None:
         """A results root that never recorded a plan has an empty history, not an error."""
         assert read_plan_snapshots(tmp_path) == ()
+
+    @pytest.mark.parametrize(
+        ("raw", "reason"),
+        [
+            ("2026-01-01T00:00:00", "recorded_at '2026-01-01T00:00:00' is not an ISO time with a UTC offset"),
+            ("not-a-time", "recorded_at 'not-a-time' is not an ISO time"),
+        ],
+        ids=["naive", "malformed"],
+    )
+    def test_a_bad_recorded_at_is_read_as_invalid_not_guessed(self, tmp_path: Path, raw: str, reason: str) -> None:
+        """A hand-edited history entry never raises: it comes back flagged instead of silently misordered."""
+        entry = {"fingerprint": plan_fingerprint(PLAN), "recorded_at": raw, "plan": {}}
+        (tmp_path / PLAN_HISTORY_FILE).write_text(json.dumps(entry) + "\n")
+
+        history = read_plan_snapshots(tmp_path)
+
+        assert history == (PlanSnapshot(plan_fingerprint(PLAN), None, "{}", invalid_reason=reason),)
