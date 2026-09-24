@@ -12,6 +12,7 @@ from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy import stats
 
 from research_analysis._kernels import bootstrap_resample_means
 from research_analysis.aggregates import interquartile_mean
@@ -104,6 +105,20 @@ def _percentile_interval(
     """Return the percentile-bootstrap bounds of ``replicates`` along the resample axis."""
     alpha = (1.0 - confidence) / 2.0
     return np.quantile(replicates, alpha, axis=0), np.quantile(replicates, 1.0 - alpha, axis=0)
+
+
+def expanded_percentile_confidence(confidence: float, n: int) -> float:
+    """Confidence whose percentile interval is Hesterberg's expanded percentile interval at ``confidence``.
+
+    Hesterberg (2015, "What Teachers Should Know About the Bootstrap", The American Statistician
+    69(4), section 5.3) widens the tails to alpha'/2 = Phi(-sqrt(n / (n - 1)) * t_{alpha/2, n-1}), so
+    that for normal data the interval matches a t interval: it undoes the percentile interval's
+    sqrt((n - 1) / n) narrowness and z-for-t substitution while staying transformation invariant.
+    """
+    if n < 2:
+        raise ValueError(f"the expanded percentile interval needs at least 2 observations, got {n}")
+    upper_t = stats.t.ppf(0.5 + confidence / 2.0, df=n - 1)
+    return 1.0 - 2.0 * float(stats.norm.cdf(-math.sqrt(n / (n - 1)) * upper_t))
 
 
 def _sample_statistic(samples: NDArray[np.float64], estimand: ScalarEstimand) -> NDArray[np.float64]:
