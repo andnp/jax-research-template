@@ -22,8 +22,10 @@ Every function returns the saved path.
 - **Explicit destinations.** Every function writes to the `save_path` it is given and
   creates its parent directory. Nothing is written relative to the working directory
   by default. Callers put figures under the project's durable `results/` tree.
-- **Validate, don't hide.** Empty or non-finite inputs raise instead of drawing a
-  misleading figure. A diverged run must be scored (or rejected) upstream.
+- **Validate, don't hide.** `plot_distributions` and `plot_trajectory_panels` raise on
+  empty or non-finite inputs instead of drawing a misleading figure.
+  `plot_sensitivity` draws what it is given, so callers pass finite values. A diverged
+  run must be scored, or rejected, upstream.
 - **Show runs, not just summaries.** Distribution figures draw every run. Bands must
   say what they are (a CI or a tolerance interval), and are never labelled `± x`.
 - **Minimal style** (science guide section 6): no top or right spines, no legend
