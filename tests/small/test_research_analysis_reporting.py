@@ -1314,3 +1314,23 @@ class TestSmallSampleCoverageOnChampions:
 
         codes = [w.code for w in report.warnings]
         assert codes == ([BakeoffWarningCode.SMALL_SAMPLE_COVERAGE] if warned else [])
+
+    @pytest.mark.parametrize(("n_seeds", "warned"), [(29, True), (30, False)])
+    def test_a_champion_difference_interval_on_fewer_than_thirty_shared_runs_carries_a_coverage_warning(
+        self, temp_experiment_setup: ExperimentSetup, n_seeds: int, warned: bool
+    ) -> None:
+        """The paired champion difference rests on the shared seeds, so their count decides the caveat."""
+        setup = temp_experiment_setup
+        for algorithm, base in (("a", 1.0), ("b", 0.0)):
+            for learning_rate, offset in (("low", 0.0), ("high", 1.0)):
+                for seed in range(n_seeds):
+                    _add_arm_observation(setup, algorithm, learning_rate, seed, base + offset + seed % 4)
+        dataset = _load(
+            setup,
+            ExperimentDimensions(condition="algorithm", sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)),
+        )
+
+        report = best_hypers(dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), n_resamples=32)
+
+        codes = [w.code for w in report.warnings]
+        assert codes == ([BakeoffWarningCode.SMALL_SAMPLE_COVERAGE] if warned else [])

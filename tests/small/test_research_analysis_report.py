@@ -27,6 +27,7 @@ from research_analysis.report import (
     AnalysisResult,
     BakeoffResult,
     BestHypersResult,
+    HypersDifferenceResult,
     PlanStatus,
     ReportStatus,
     exploratory_report,
@@ -34,7 +35,7 @@ from research_analysis.report import (
 from research_analysis.report_json import plan_fingerprint, report_to_json
 from research_analysis.report_markdown import render_markdown, render_summary
 from research_analysis.report_plots import write_report_plots
-from research_analysis.reporting import HyperparameterConfigReport, bakeoff_report
+from research_analysis.reporting import HyperparameterConfigReport, HyperparameterDifferenceReport, bakeoff_report
 
 
 def _dataset(scores: dict[str, list[float]], diagnostics: tuple[DatasetDiagnostic, ...] = ()) -> ExperimentDataset:
@@ -249,6 +250,25 @@ class TestReportMarkdown:
         payload = json.loads(report_to_json(exploratory_report(_dataset(_SCORES), Path("db"), results)))
 
         assert "`small_sample_coverage` (all) : the champion CI rests on 5 runs" in text
+        assert [w["code"] for w in payload["analyses"][0]["report"]["warnings"]] == ["small_sample_coverage"]
+
+    def test_a_champion_difference_warning_is_rendered_and_serialized(self) -> None:
+        """The champion-difference caveat reaches both the markdown reader and the JSON consumer."""
+        warning = small_sample_coverage_warning(5, "champion difference")
+        assert warning is not None
+        difference = HyperparameterDifferenceReport(
+            minuend_config={"lr": 0.1},
+            subtrahend_config={"lr": 0.2},
+            mean_diff=1.0,
+            estimate_ci=(0.5, 1.5),
+            warnings=(warning,),
+        )
+        results: list[AnalysisResult] = [HypersDifferenceResult("gap", difference)]
+
+        text = _markdown(_dataset(_SCORES), results)
+        payload = json.loads(report_to_json(exploratory_report(_dataset(_SCORES), Path("db"), results)))
+
+        assert "`small_sample_coverage` (all) : the champion difference CI rests on 5 runs" in text
         assert [w["code"] for w in payload["analyses"][0]["report"]["warnings"]] == ["small_sample_coverage"]
 
 

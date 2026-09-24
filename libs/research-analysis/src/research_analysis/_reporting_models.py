@@ -42,6 +42,7 @@ class HyperparameterDifferenceReport:
     # Runs left out because their seed was not observed under every configuration of both groups.
     unpaired_run_ids: tuple[int, ...] = ()
     measure: PerformanceMeasure = FinalValue()
+    warnings: tuple[BakeoffWarning, ...] = ()
 
 
 @dataclass(frozen=True)

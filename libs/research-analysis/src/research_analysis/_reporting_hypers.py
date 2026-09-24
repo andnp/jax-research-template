@@ -337,6 +337,7 @@ def _best_hypers_difference(
         mean_diff = -mean_diff
         interval = (-interval[1], -interval[0])
 
+    coverage = small_sample_coverage_warning(n_runs, "champion difference")
     report = HyperparameterDifferenceReport(
         minuend_config=minuend_config,
         subtrahend_config=subtrahend_config,
@@ -345,6 +346,7 @@ def _best_hypers_difference(
         confidence_level=confidence_level,
         unpaired_run_ids=tuple(sorted(hyper_a.run_ids_outside(common_seeds) + hyper_b.run_ids_outside(common_seeds))),
         measure=measure,
+        warnings=() if coverage is None else (coverage,),
     )
 
     return report

@@ -261,6 +261,7 @@ def _analysis_section(result: AnalysisResult) -> list[str]:
                 f"- Estimate {_number(report.mean_diff)}, {_percent(report.confidence_level)} CI "
                 f"{_interval(report.estimate_ci)} (hierarchical bootstrap, selection included)",
                 f"- Runs outside the shared seeds, left out: {len(report.unpaired_run_ids)}",
+                *_warning_lines(report.warnings),
             ]
         case SliceHypersResult(name=name, group=group, report=report):
             rows = [
