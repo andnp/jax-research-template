@@ -147,7 +147,11 @@ ReportDocument
 
 An `AnalysisPlan` fixes:
 
-- the metric and the measure;
+- the metric and the measure. Any analysis may declare its own `measure`, which replaces the plan's
+  for that analysis alone, so a secondary measure is fixed before results exist rather than chosen
+  after. The analysis's report records the measure it used, and the markdown plan section names
+  every override. An analysis without an override omits the field from the plan's JSON, so its
+  fingerprint is unchanged;
 - the dimensions, version selection, and cohort;
 - the analyses (`BakeoffAnalysis`, `BestHypersAnalysis`, `HypersDifferenceAnalysis`,
   `SliceHypersAnalysis`); a `BakeoffAnalysis` carries its `pairs`, `block_by`,
