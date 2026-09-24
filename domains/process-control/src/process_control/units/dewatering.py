@@ -23,7 +23,9 @@ class DewateringParams:
     max_capture: float = 0.98  # capture rate at optimum polymer dose
     # Dose practice is per unit dry solids, not per unit sludge volume: belt
     # presses run ~2-10 kg polymer/tonne DS, centrifuges ~8-15 kg/tonne DS
-    # (WEF MOP 8; https://www.wef.org/globalassets/assets-wef/2-pubs--news/magazines/wet/wet-november-2018/wet_p38_p40_operator_essentials.pdf).
+    # (WEF MOP 8; cited link no longer resolves — unverified against the
+    # primary manual, though broadly consistent with other industry dosing
+    # references for belt presses and centrifuges).
     k_polymer_capture: float = 3.0  # half-sat dose ratio for capture (kg/tonne DS)
     # Overdosed polymer restabilises floc / blinds the media, reducing
     # capture past an optimum — a Haldane-type (substrate-inhibition) response.
