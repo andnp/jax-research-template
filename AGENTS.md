@@ -36,8 +36,7 @@ All shared components must have tests in `tests/` categorized by duration:
 - **Docstrings:** Keep them concise and do not restate parameter or return types in `Args:`/`Returns:` sections; add a short paragraph or math reference only when the signature does not carry the context.
 
 ## 5. Workflow
-- **Repo Layout:** The bare control root is `/home/andy/Projects/research/jax-research-template`. The default editable worktree is `/home/andy/Projects/research/jax-research-template/main`. Do not edit files in the bare root.
-- **Issue Worktrees:** Create issue-specific worktrees from the bare root and keep one issue/PR per worktree when practical.
+- **Repo Layout:** Core is the `core/` submodule of the research monorepo. Commit core changes on `main` in `core/`, and update the monorepo's `core` pointer separately (see the `research-monorepo-git` skill).
 - **PR Hygiene:** Keep PRs focused and use Conventional Commits.
 - **Review Follow-Up:** Address review comments in the same branch/worktree, rerun affected checks, and resolve review threads only after the fix lands. When possible, actively mark addressed threads as resolved via GitHub (the `gh` CLI can do this through `gh api graphql` even if there is no dedicated high-level subcommand).
 - **CI Failures:** If CI fails, reproduce the failing `lint`, `typecheck`, `test-small`, or `test-medium` job locally, fix the root cause, and rerun the affected checks. Treat `tests/regression/` and `tests/performance/` as targeted suites when relevant, not default PR gates.
