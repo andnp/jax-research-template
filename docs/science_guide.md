@@ -25,22 +25,37 @@ This ensures that an agent taking 10,000 steps to fail once is weighted equally 
 
 ## 2. Handling Hyperparameter Maximization Bias
 
-Reporting the "best" performance of an algorithm after a hyperparameter sweep is prone to **Maximization Bias**. We are likely overestimating performance because we selected the hyperparameter configuration that had the "luckiest" random seeds.
+Reporting the best performance after a sweep suffers from **maximization bias**: the
+chosen configuration is partly the one whose seeds were luckiest. Comparing tuned
+champions by their raw argmax means, on the seeds that selected them, overstates both
+the performance and the certainty.
 
-### The Solution: Cross-Fitted Tuning
-Instead of evaluating a selected setting on the same seeds used to select it, we
-report held-out performance after cross-fitted tuning.
+### The method: hierarchical per-sample bootstrap
+`research_analysis.tuning` (behind `best_hypers` and `bakeoff_report(...,
+select_champion_over=...)`) resamples runs and re-runs the champion selection inside
+every resample, so the interval includes the uncertainty in which configuration wins.
 
-1.  **Collect Data:** Run $N$ seeds for every hyperparameter configuration $H$.
-2.  **Cross-Fit:** For each seed, select the winner using all other seeds and
-    evaluate that selected configuration on the held-out seed. Every tuning fold
-    must contain every candidate value and exactly one held-out result.
-3.  **Reporting:** Report the mean of held-out outcomes and a BCa interval with
-    explicit confidence, resample, and minimum-sample settings.
+1.  **Collect data:** run the same seeds under every configuration in the grid.
+    Configurations are paired by seed, and runs whose seed is missing from some
+    configuration are listed as `unpaired_run_ids` and left out.
+2.  **Resample and reselect:** each bootstrap sample resamples seeds, picks that
+    sample's champion, and records its score.
+3.  **Report:** the corrected mean and its percentile interval, the raw champion mean,
+    their gap (the maximization bias), and the normalized selection entropy (0 when
+    one configuration always wins).
 
-This procedure captures the uncertainty in hyperparameter selection and provides a realistic estimate of the algorithm's performance in a "new" environment where tuning would be required.
+This is **not** cross-fitting. No seed is held out, and the estimate is not a
+prediction for fresh seeds. It describes the performance of a champion chosen by this
+procedure on this seed budget, with its selection uncertainty included.
 
----
+### Why not the handbook's bootstrapped two-stage method
+`projects/hyper-champion-ci` (experiment 001, diary entries of 2026-09-05) simulated
+one-stage, bootstrapped two-stage, LOOCV, and two hierarchical variants against known
+ground truth, across several run distributions. The two-stage method's coverage
+collapsed as the number of configurations grew. LOOCV under-covered everywhere. The
+hierarchical per-sample variant was the best-calibrated method, measured as closeness
+of coverage to nominal, with narrower intervals than the per-replicate variant. Core
+therefore keeps it as the one tuned-champion method.
 
 ## 3. Across-Environment Evaluation: The Small Control Benchmark (SHB)
 
@@ -70,32 +85,60 @@ For each value of the target hyperparameter $\alpha$, show the performance of th
 
 ## 5. Statistical Primitives
 
-### Non-Parametric BCa Bootstrapping
-We do not assume performance is Gaussian. Scalar Confidence Intervals (CIs) use
-BCa bootstrapping with explicit confidence and resample counts:
-1.  Resample indices with replacement.
-2.  Compute the statistic (mean, median, etc.).
-3.  Repeat 10,000 times.
-4.  CI is the bias-corrected and accelerated interval from the bootstrap distribution.
+### Unit of resampling
+The independent unit is the **run (seed)**. Every interval and test resamples or
+permutes whole runs, never episodes or steps within a run.
 
-### Repeated-Block Tests in the Reporting API
-The reporting API uses paired permutation post-hoc tests and a block-stratified
-permutation omnibus equivalent to Skillings–Mack. It permutes observed cells
-within each environment-seed block, retaining incomplete blocks rather than
-silently listwise-deleting rows. Missingness is reported explicitly; insufficient
-data must fail rather than produce a placeholder statistic or p-value.
+### Percentile bootstrap
+Scalar and paired-difference confidence intervals use the **percentile bootstrap**,
+with explicit confidence, resample count, minimum samples, and RNG seed. It does not
+assume Gaussian performance. There is no BCa path. A cell with fewer runs than
+`BakeoffSpec.min_samples` reports its estimate and n with no interval, and says why.
 
-### Supplementary Robust Aggregates
-IQM may be shown as one supplementary center summary. It must appear alongside
-dispersion, lower-tail, and constraint or safety metrics, and must never replace
-the underlying task-level distributions.
+The percentile bootstrap **under-covers at small n**. Its intervals are narrower than
+their stated confidence with 10 runs, and a Bonferroni family reaches its nominal joint
+coverage only with many runs. The Monte-Carlo suite in
+`tests/large/test_research_analysis_calibration.py` measures this. Reports attach a
+`small_sample_coverage` warning to every interval that rests on fewer than 30 runs.
+The remedy is more runs (handbook §2.6), not a cleverer interval.
 
-### Non-Parametric Tolerance Intervals
-To show performance coverage, use Tolerance Intervals.
-- *Statement:* "With 95% confidence, this interval covers 90% of the population performance."
-- *Implementation:* Use the binomial distribution PPF to find the rank-order indices in sorted data that satisfy the coverage requirement.
+### Headline comparison: paired differences, adjusted for multiplicity
+A comparison is a seed-paired difference with its percentile CI: an effect size, not a
+verdict. Across a report's family of planned comparisons (every block × pair, or only
+the declared `pairs`), the CIs are Bonferroni-adjusted so that they hold jointly at the
+stated confidence, and each one states its own level. Hypothesis tests are secondary.
+They are paired permutation tests with Holm-adjusted p-values, where skipped pairs
+still count in the family.
 
----
+### Repeated-block omnibus test
+The omnibus test is a block-stratified permutation test equivalent to Skillings–Mack.
+It permutes observed cells within each environment-seed block and keeps incomplete
+blocks rather than listwise-deleting them. Under the default `missingness="error"`, an
+incomplete block fails the report, naming the missing seeds and whether they failed or
+are pending. `complete_case` and `blockwise` are declared choices, never fallbacks.
+
+### Variability is reported separately from confidence
+Never write `mean ± x`. A CI describes uncertainty about the estimate. Run-to-run
+variability is reported separately:
+
+- **SD** across runs.
+- **Distribution-free tolerance intervals.** "With 95% confidence, this interval
+  covers 90% of runs." The rank indices come from the binomial distribution. A cell
+  with too few runs for the requested (confidence, coverage) states how many it needs.
+- **The median representative run**: the run whose score is closest to the cell
+  median, to inspect as a curve.
+
+### Diverged runs
+A run whose metric went NaN or infinite is an outcome (handbook §7, "Discarding or
+replacing runs"). It is counted as diverged in the accounting and makes every
+statistic raise until a worst-case score is declared. It is never dropped or re-seeded.
+
+### Opt-in aggregates across environments
+IQM, performance profiles, probability of improvement, and optimality gap exist for
+summarizing a collection of environments. None of them is a default. IQM in particular
+trims away catastrophic runs, which are exactly the failures a comparison must show,
+and it only makes sense across environments, never within one cell. Any aggregate must
+appear beside the per-environment distributions it summarizes.
 
 ## 6. Plotting Philosophy
 
