@@ -1,13 +1,38 @@
 from __future__ import annotations
 
+from typing import Any, SupportsFloat, override
+
 import ale_py  # noqa: F401  # registers ALE namespace with gymnasium
 import gymnasium
 import jax
+from gymnasium.core import WrapperActType, WrapperObsType
 from gymnasium.wrappers import AtariPreprocessing
 from rl_components.structs import chex_struct
 
 from rl_envs.frame_stack import FrameStackWrapper
 from rl_envs.python_env_bridge import PythonEnvBridge
+
+
+class _AtariPreprocessing(AtariPreprocessing):
+    @override
+    def step(
+        self, action: WrapperActType
+    ) -> tuple[WrapperObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        first_frame = self.ale.getEpisodeFrameNumber()
+        observation, reward, terminated, truncated, info = super().step(action)
+        frames_advanced = self.ale.getEpisodeFrameNumber() - first_frame
+
+        if terminated or truncated:
+            # AtariPreprocessing exits before capturing buffers on its terminal sub-step.
+            if self.grayscale_obs:
+                self.ale.getScreenGrayscale(self.obs_buffer[0])
+            else:
+                self.ale.getScreenRGB(self.obs_buffer[0])
+            if frames_advanced != self.frame_skip:
+                self.obs_buffer[1].fill(0)
+            observation = self._get_obs()
+
+        return observation, reward, terminated, truncated, info
 
 
 @chex_struct(frozen=True)
@@ -21,7 +46,7 @@ class AleAtariConfig:
     scale_obs: bool = False
 
 
-def _make_ale_env(config: AleAtariConfig) -> gymnasium.Env:
+def _make_ale_env(config: AleAtariConfig) -> _AtariPreprocessing:
     env = gymnasium.make(
         f"ALE/{config.game}-v5",
         frameskip=1,  # frame skip is handled by AtariPreprocessing
@@ -29,7 +54,7 @@ def _make_ale_env(config: AleAtariConfig) -> gymnasium.Env:
         full_action_space=False,
         render_mode=None,
     )
-    env = AtariPreprocessing(
+    env = _AtariPreprocessing(
         env,
         noop_max=30,
         frame_skip=config.frame_skip,
