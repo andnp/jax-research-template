@@ -17,7 +17,7 @@ class AleAtariConfig:
     frame_skip: int = 4
     grayscale: bool = True
     screen_size: int = 84
-    terminal_on_life_loss: bool = True
+    terminal_on_life_loss: bool = False
     scale_obs: bool = False
 
 
