@@ -29,12 +29,22 @@ class TakacsSettlerParams:
     area: float = 1500.0  # settler surface area (m²)
     depth: float = 4.0  # settler depth (m)
     n_layers: int = 10  # number of horizontal layers
-    feed_layer: int = 5  # 0-indexed layer where feed enters (6th from bottom)
+    # 0-indexed layer where feed enters. BSM1 places the feed at the "6th
+    # layer counting from bottom to top" (1-indexed m=6), i.e. index 5 here:
+    # 5 layers below (thickening zone) + feed + 4 layers above (clarification
+    # zone). Alex et al. (2008), "Benchmark Simulation Model no. 1 (BSM1)",
+    # Sec. 2.3.3, p.8. https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
+    feed_layer: int = 5
     v_0_max: float = 10.417  # practical max settling velocity (m/h; 250 m/d)
     v_0: float = 19.75  # Vesilind max settling velocity (m/h; 474 m/d)
     r_h: float = 0.000576  # hindered settling parameter (m³/g)
     r_p: float = 0.00286  # flocculant settling parameter (m³/g)
     f_ns: float = 0.00228  # non-settleable fraction of feed TSS
+    # Threshold above which a layer is treated as "already thickened" when
+    # deciding whether the clarification zone flux limiter applies (BSM1
+    # Table 4 / Sec. 2.3.3, p.10: "the threshold concentration X_t is equal
+    # to 3,000 g.m⁻³"). Same source as feed_layer above.
+    x_t: float = 3000.0
 
 
 @jax_dataclass
@@ -91,18 +101,15 @@ def step(
     params: TakacsSettlerParams,
     dt: jax.Array,
 ) -> TakacsSettlerState:
-    """Advance the settler by one timestep.
+    """Advance the settler by one timestep of forward Euler.
 
-    Args:
-        state: current settler state
-        feed_tss: TSS concentration of feed (g/m³)
-        q_feed: total feed flow rate (m³/h)
-        q_underflow: total underflow rate (m³/h), Q_u = Q_rs + Q_w
-        params: settler parameters
-        dt: timestep (h)
-
-    Returns:
-        Updated settler state.
+    Explicit Euler is stable here only while dt stays below roughly
+    h_layer / v_0_max (the CFL limit for the fastest advective/settling
+    signal crossing one layer); at the BSM1 defaults (h_layer=0.4 m,
+    v_0_max=10.417 m/h) that bound is ~0.038 h, so dt=0.02 h carries
+    limited margin. This is a numerical-stability argument, not a cited
+    BSM1 requirement — the BSM1 report leaves solver/step-size choice to
+    the implementer.
     """
     n = params.n_layers
     j_f = params.feed_layer
@@ -113,17 +120,30 @@ def step(
     x_min = params.f_ns * feed_tss
     q_effluent = q_feed - q_underflow
 
-    # Settling velocity and flux for each layer
+    # Settling velocity and unlimited flux for each layer
     v_s = _settling_velocity(X, x_min, params)
     J_s = v_s * X  # settling flux (g / m² / h), downward
 
-    # --- Settling contribution ---
-    # Flux arriving from layer above: J_s[j+1] for j < n-1, 0 for top layer
-    J_s_from_above = jnp.concatenate([J_s[1:], jnp.array([0.0])])
-    # Flux leaving downward: J_s[j] for j > 0, 0 for bottom (no layer below)
-    J_s_leaving = X.at[0].set(0.0)  # just used to zero index 0
-    J_s_leaving = J_s.at[0].set(0.0)
-    settling = (J_s_from_above - J_s_leaving) * params.area / vol_layer
+    # --- Settling contribution, with the Takács flux limiter ---
+    # At each of the n-1 inter-layer boundaries (boundary j sits between
+    # layer j and layer j-1 below it), the downward flux cannot exceed what
+    # the receiving layer below can itself pass on: min(J_s[j], J_s[j-1]).
+    # Below and at the feed layer this cap always applies; above the feed
+    # layer (clarification zone) it only applies once the layer below the
+    # boundary has thickened past x_t — otherwise the local unlimited flux
+    # is used, since a genuinely clear layer isn't limited by a denser one
+    # further down. Alex et al. (2008) BSM1 report, Sec. 2.3.3, pp. 9-10.
+    boundary_j = jnp.arange(1, n, dtype=jnp.float32)
+    J_s_upper = J_s[1:]
+    J_s_lower = J_s[:-1]
+    X_lower = X[:-1]
+    limited = jnp.minimum(J_s_upper, J_s_lower)
+    is_thickening = boundary_j <= j_f
+    flux_boundary = jnp.where(is_thickening, limited, jnp.where(X_lower > params.x_t, limited, J_s_upper))
+
+    J_s_from_above = jnp.concatenate([flux_boundary, jnp.array([0.0])])
+    J_s_leaving = jnp.concatenate([jnp.array([0.0]), flux_boundary])
+    settling = (J_s_from_above - J_s_leaving) / h_layer
 
     # --- Convection contribution ---
     indices = jnp.arange(n, dtype=jnp.float32)

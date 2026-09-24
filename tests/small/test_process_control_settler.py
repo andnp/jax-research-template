@@ -146,6 +146,67 @@ class TestTakacsSettler:
         new_state = do_step(state)
         assert new_state.layer_tss.shape == (10,)
 
+    def test_mass_conservation_across_one_step(self) -> None:
+        """Change in total stored solids equals feed in minus effluent and underflow out."""
+        params = TakacsSettlerParams()
+        state = settler_reset(3500.0, params, jax.random.PRNGKey(6))
+        dt = jnp.array(0.02)
+        q_feed = jnp.array(1200.0)
+        q_underflow = jnp.array(400.0)
+        feed_tss = jnp.array(3500.0)
+
+        h_layer = params.depth / params.n_layers
+        vol_layer = params.area * h_layer
+        mass_before = float(jnp.sum(state.layer_tss) * vol_layer)
+        eff_before = float(state.layer_tss[-1])
+        und_before = float(state.layer_tss[0])
+
+        new_state = settler_step(state, feed_tss, q_feed, q_underflow, params, dt)
+        mass_after = float(jnp.sum(new_state.layer_tss) * vol_layer)
+
+        q_effluent = float(q_feed) - float(q_underflow)
+        expected_change = float(dt) * (
+            float(feed_tss) * float(q_feed) - q_effluent * eff_before - float(q_underflow) * und_before
+        )
+
+        # float32 layer masses are ~2e7 g here, so allow a proportionate tolerance.
+        assert jnp.allclose(jnp.array(mass_after - mass_before), jnp.array(expected_change), rtol=1e-4, atol=5.0)
+
+    def test_flux_limiter_caps_transfer_into_thickened_layer(self) -> None:
+        """A boundary above the feed layer, once the receiving layer thickens past
+        x_t, caps the downward flux to that layer's own settling capacity instead
+        of the unlimited flux the layer above would otherwise send down."""
+        params = TakacsSettlerParams()
+        n = params.n_layers
+        j_f = params.feed_layer
+
+        layer_tss = jnp.zeros(n)
+        layer_tss = layer_tss.at[j_f].set(10000.0)  # heavily thickened, X > x_t
+        layer_tss = layer_tss.at[j_f + 1].set(3500.0)  # dilute, high unlimited flux
+        state = TakacsSettlerState(layer_tss=layer_tss)
+
+        x_min = params.f_ns * 3500.0
+
+        def unlimited_flux(x: float) -> float:
+            dx = max(0.0, x - x_min)
+            v_s = params.v_0 * (jnp.exp(-params.r_h * dx) - jnp.exp(-params.r_p * dx))
+            v_s = float(jnp.minimum(params.v_0_max, jnp.maximum(0.0, v_s)))
+            return v_s * x
+
+        j_s_thick = unlimited_flux(10000.0)
+        j_s_dilute = unlimited_flux(3500.0)
+        assert j_s_thick < j_s_dilute  # scenario must actually exercise the cap
+
+        dt = jnp.array(0.001)  # small step, isolate settling from convection
+        new_state = settler_step(state, jnp.array(3500.0), jnp.array(0.0), jnp.array(0.0), params, dt)
+
+        h_layer = params.depth / n
+        actual_loss = float(state.layer_tss[j_f + 1] - new_state.layer_tss[j_f + 1]) / float(dt) * h_layer
+
+        # Capped to the thickened layer's own flux, not the dilute layer's.
+        assert abs(actual_loss - j_s_thick) < 1e-3 * j_s_thick
+        assert actual_loss < 0.5 * j_s_dilute
+
 
 class TestSludgeBlanketBenchmark:
     def test_does_not_expose_unsupported_transport_disturbances(self) -> None:
