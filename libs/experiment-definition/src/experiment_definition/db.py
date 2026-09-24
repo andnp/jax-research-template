@@ -59,6 +59,7 @@ def sync_to_db(
     try:
         con.execute("PRAGMA journal_mode=WAL;")
         con.execute("PRAGMA foreign_keys=ON;")
+        con.execute("BEGIN IMMEDIATE")
         with con:
             for ddl in ALL_DDL:
                 con.execute(ddl)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,25 @@ class TestComponentProvenance:
 
 
 class TestSyncedRunIdentity:
+    def test_concurrent_syncs_share_the_write_lock(self, tmp_path: Path) -> None:
+        """Concurrent definition syncs serialize before reading or writing rows."""
+        db_path = tmp_path / "experiments.sqlite"
+        exp = Experiment("Concurrent")
+        exp.add_parameter("seed", [0])
+
+        def sync_once(_: int):
+            return exp.sync(db_path)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(sync_once, range(2)))
+
+        assert results[0] == results[1]
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("Concurrent")
+            assert experiment_row is not None
+            assert len(database.list_runs(experiment_row.id)) == 1
+
     def test_baseline_sync_deduplicates_nullable_identity(self, tmp_path: Path) -> None:
         """Baseline runs with NULL component and ablation values remain unique."""
         db_path = tmp_path / "experiments.sqlite"
