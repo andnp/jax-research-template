@@ -325,6 +325,7 @@ def _summarize_cell(
         estimate=None,
         ci=None,
         confidence=spec.confidence_level,
+        ci_skipped_reason=None,
         sd=None,
         tolerance=tolerance,
         tolerance_min_runs=min_runs,
@@ -338,18 +339,20 @@ def _summarize_cell(
         estimate=float(np.median(array) if spec.estimand == "median" else np.mean(array)),
         median_run_id=run_ids[select_median_run_index(array)],
     )
-    if array.size < 2:
-        return summary
+    if array.size >= 2:
+        summary = replace(summary, sd=float(np.std(array, ddof=1)))
+    if array.size < spec.min_samples:
+        return replace(summary, ci_skipped_reason=f"only {array.size} runs, fewer than min_samples={spec.min_samples}")
 
     ci = bootstrap_scalar_ci(
         array,
         estimand=spec.estimand,
         confidence=spec.confidence_level,
         n_resamples=spec.n_resamples,
-        min_samples=2,
+        min_samples=spec.min_samples,
         rng=rng,
     )
-    return replace(summary, ci=(ci.ci_low, ci.ci_high), sd=float(np.std(array, ddof=1)))
+    return replace(summary, ci=(ci.ci_low, ci.ci_high))
 
 
 def _block_predicate(block_key: BlockKey) -> pl.Expr:

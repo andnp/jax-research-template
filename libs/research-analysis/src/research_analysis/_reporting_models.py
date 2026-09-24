@@ -62,6 +62,8 @@ class CellSummary:
     estimate: float | None
     ci: tuple[float, float] | None
     confidence: float
+    # Why ``ci`` is None: too few runs for spec.min_samples.
+    ci_skipped_reason: str | None
     sd: float | None
     # Distribution-free (spec.tolerance_confidence, spec.tolerance_coverage) interval over runs;
     # None below tolerance_min_runs.

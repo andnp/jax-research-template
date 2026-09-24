@@ -1012,6 +1012,23 @@ class TestBakeoffCells:
         cell = report.cells["c"][""]
         assert (cell.n, cell.ci, cell.sd) == (1, None, None)
 
+    def test_a_cell_below_min_samples_states_why_it_has_no_interval(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Two runs give an estimate and spread, but no CI: a bootstrap of two values is not an interval."""
+        setup = temp_experiment_setup
+        for condition, seeds in (("a", range(3)), ("b", range(3)), ("c", range(2))):
+            for seed in seeds:
+                _add_observation(setup, {"condition_name": condition, "env_name": "e"}, seed, float(seed))
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+        )
+
+        cell = report.cells["c"][""]
+        assert (cell.n, cell.estimate, cell.ci) == (2, 0.5, None)
+        assert cell.sd is not None
+        assert cell.ci_skipped_reason is not None and "min_samples=3" in cell.ci_skipped_reason
+        assert report.cells["a"][""].ci_skipped_reason is None
+
     def test_cells_report_a_tolerance_interval_only_with_enough_runs(
         self, temp_experiment_setup: ExperimentSetup
     ) -> None:
