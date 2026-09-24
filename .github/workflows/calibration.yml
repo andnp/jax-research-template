@@ -1,0 +1,32 @@
+name: Calibration
+
+# The Monte-Carlo calibration suite is slow, so it runs only when the statistics it checks can change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/research-analysis/**"
+      - "libs/research-plot/**"
+      - "tests/large/**"
+      - ".github/workflows/calibration.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "libs/research-analysis/**"
+      - "libs/research-plot/**"
+      - "tests/large/**"
+      - ".github/workflows/calibration.yml"
+
+jobs:
+  test-large:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      - run: uv sync --frozen
+      - run: uv run pytest tests/large -q
