@@ -85,6 +85,16 @@ class AnalysisPlan:
             raise ValueError(f"analysis names must be unique, got {names!r}")
         if self.non_finite_worst_case is not None and not math.isfinite(self.non_finite_worst_case):
             raise ValueError(f"non_finite_worst_case must be finite, got {self.non_finite_worst_case!r}")
+        hierarchical = [
+            analysis.name
+            for analysis in self.analyses
+            if not isinstance(analysis, BakeoffAnalysis) or analysis.select_champion_over is not None
+        ]
+        if self.stats.interval != "percentile" and hierarchical:
+            raise ValueError(
+                f"analyses {hierarchical!r} use the hierarchical percentile bootstrap; "
+                f"stats.interval {self.stats.interval!r} applies only to untuned bakeoffs"
+            )
 
 
 PLANS_ATTRIBUTE = "__research_analysis_plans__"
