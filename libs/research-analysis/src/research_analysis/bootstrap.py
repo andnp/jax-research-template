@@ -16,7 +16,7 @@ from scipy import stats
 
 from research_analysis._kernels import bootstrap_resample_means
 from research_analysis.aggregates import interquartile_mean
-from research_analysis.comparison import Estimand
+from research_analysis.comparison import Estimand, IntervalMethod
 from research_analysis.non_finite import require_finite_array
 
 type BootstrapStatistic = NDArray[np.float64] | np.float64
@@ -51,6 +51,7 @@ class DifferenceBootstrapCI:
     n_resamples: int
     pairing: Literal["paired", "independent"]
     estimand: Estimand
+    interval: IntervalMethod
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class ScalarBootstrapCI:
     confidence: float
     n_resamples: int
     estimand: ScalarEstimand
+    interval: IntervalMethod
 
 
 def resolve_block_size(n_points: int, block_size: int | None = None) -> int:
@@ -119,6 +121,12 @@ def expanded_percentile_confidence(confidence: float, n: int) -> float:
         raise ValueError(f"the expanded percentile interval needs at least 2 observations, got {n}")
     upper_t = stats.t.ppf(0.5 + confidence / 2.0, df=n - 1)
     return 1.0 - 2.0 * float(stats.norm.cdf(-math.sqrt(n / (n - 1)) * upper_t))
+
+
+def _interval_confidence(confidence: float, interval: IntervalMethod, n: int) -> float:
+    if interval not in ("percentile", "expanded_percentile"):
+        raise ValueError(f"interval must be 'percentile' or 'expanded_percentile', got {interval!r}")
+    return confidence if interval == "percentile" else expanded_percentile_confidence(confidence, n)
 
 
 def _sample_statistic(samples: NDArray[np.float64], estimand: ScalarEstimand) -> NDArray[np.float64]:
@@ -197,12 +205,14 @@ def bootstrap_difference_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
+    interval: IntervalMethod = "percentile",
     rng: np.random.Generator,
 ) -> DifferenceBootstrapCI:
-    """Compute a percentile-bootstrap interval for a difference, resampling runs jointly when paired.
+    """Compute a percentile or expanded-percentile bootstrap interval for a difference, pairing runs by seed if paired.
 
     Paired, the statistic is the estimand of the per-seed differences, so a paired median is
-    median(a - b); independent, it is the difference of each arm's estimand.
+    median(a - b); independent, it is the difference of each arm's estimand. An expanded
+    percentile interval expands for the smaller arm, as Hesterberg's ``resample`` package does.
     """
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
@@ -234,7 +244,7 @@ def bootstrap_difference_ci(
         indices_b = rng.integers(0, len(b), size=(n_resamples, len(b)))
         replicates = _sample_statistic(a[indices_a], estimand) - _sample_statistic(b[indices_b], estimand)
         estimate = _sample_statistic(a[np.newaxis], estimand)[0] - _sample_statistic(b[np.newaxis], estimand)[0]
-    ci_low, ci_high = _percentile_interval(replicates, confidence)
+    ci_low, ci_high = _percentile_interval(replicates, _interval_confidence(confidence, interval, min(len(a), len(b))))
     return DifferenceBootstrapCI(
         estimate=float(estimate),
         ci_low=float(ci_low),
@@ -243,6 +253,7 @@ def bootstrap_difference_ci(
         n_resamples=n_resamples,
         pairing=pairing,
         estimand=estimand,
+        interval=interval,
     )
 
 
@@ -253,9 +264,10 @@ def bootstrap_scalar_ci(
     confidence: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
+    interval: IntervalMethod = "percentile",
     rng: np.random.Generator,
 ) -> ScalarBootstrapCI:
-    """Compute a percentile-bootstrap interval for one scalar sample statistic."""
+    """Compute a percentile or expanded-percentile bootstrap interval for one scalar sample statistic."""
     data = np.ascontiguousarray(np.asarray(values, dtype=np.float64).ravel())
     if estimand not in ("mean", "median", "interquartile_mean"):
         raise ValueError(f"estimand must be 'mean', 'median', or 'interquartile_mean', got {estimand!r}")
@@ -269,7 +281,9 @@ def bootstrap_scalar_ci(
         raise ValueError("bootstrap samples must contain only finite values")
 
     indices = rng.integers(0, len(data), size=(n_resamples, len(data)))
-    ci_low, ci_high = _percentile_interval(_sample_statistic(data[indices], estimand), confidence)
+    ci_low, ci_high = _percentile_interval(
+        _sample_statistic(data[indices], estimand), _interval_confidence(confidence, interval, len(data))
+    )
     return ScalarBootstrapCI(
         estimate=float(_sample_statistic(data[np.newaxis], estimand)[0]),
         ci_low=float(ci_low),
@@ -277,4 +291,5 @@ def bootstrap_scalar_ci(
         confidence=confidence,
         n_resamples=n_resamples,
         estimand=estimand,
+        interval=interval,
     )

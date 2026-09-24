@@ -8,6 +8,7 @@ from typing import Literal
 type Estimand = Literal["mean", "median"]
 type Pairing = Literal["auto", "paired", "independent"]
 type Missingness = Literal["error", "complete_case", "blockwise"]
+type IntervalMethod = Literal["percentile", "expanded_percentile"]
 
 
 @dataclass(frozen=True)
