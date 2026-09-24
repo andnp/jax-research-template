@@ -7,9 +7,10 @@ Crites & Tchobanoglous / Metcalf & Eddy correlation:
     R(t) = t / (a + b*t)
 
 with a=0.0075 h, b=0.014 h giving ~59% TSS removal at a 2.5 h HRT, in
-the observed 50-70% range for primary clarifiers (values as widely
-reproduced from Metcalf & Eddy's design tables, e.g.
-https://d3pcsg2wjq9izr.cloudfront.net/files/28606/download/33719/SanJose.pdf).
+the observed 50-70% range for primary clarifiers (same a/b values and
+worked example reproduced from Metcalf & Eddy's design tables in
+Ghangrekar, "Primary Sedimentation Tank" (IIT Kharagpur course notes),
+http://ghangrekar.com/wp-content/uploads/2016/02/11-Sedimentation-Final.pdf).
 
 Sludge accumulates at the bottom and must be wasted to prevent
 inventory build-up. The underflow TSS concentration depends on
