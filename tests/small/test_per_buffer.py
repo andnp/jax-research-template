@@ -89,7 +89,7 @@ class TestPerSample:
         proto = _proto()
         state = init_per_buffer(proto, capacity=4)
         for i in range(4):
-            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)))
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=0.6)
         batch, weights, indices = per_sample(state, jax.random.key(0), batch_size=2, beta=1.0, prototype=proto)
         assert batch.obs.shape == (2, 2)
         assert batch.reward.shape == (2,)
@@ -100,7 +100,7 @@ class TestPerSample:
         proto = _proto()
         state = init_per_buffer(proto, capacity=4)
         for i in range(4):
-            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)))
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=0.6)
         _, weights, _ = per_sample(state, jax.random.key(42), batch_size=4, beta=1.0, prototype=proto)
         assert jnp.allclose(jnp.max(weights), 1.0)
 
@@ -146,7 +146,7 @@ class TestPerUpdatePriorities:
         proto = _proto()
         state = init_per_buffer(proto, capacity=4)
         for i in range(4):
-            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)))
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=0.6)
 
         old_root = float(state.tree[1])
         indices = jnp.array([0, 1], dtype=jnp.uint32)
@@ -159,7 +159,7 @@ class TestPerUpdatePriorities:
         proto = _proto()
         state = init_per_buffer(proto, capacity=4)
         for i in range(2):
-            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)))
+            state = per_add(state, Transition(obs=jnp.full(2, float(i)), reward=jnp.float32(i)), alpha=0.6)
 
         indices = jnp.array([0], dtype=jnp.uint32)
         td_errors = jnp.array([100.0])

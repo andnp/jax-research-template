@@ -42,7 +42,7 @@ def init_per_buffer(prototype: object, capacity: int) -> PERBufferState:
     )
 
 
-def per_add(state: PERBufferState, transition: object, alpha: float = 0.6) -> PERBufferState:
+def per_add(state: PERBufferState, transition: object, alpha: float) -> PERBufferState:
     leaves, _ = jax.tree.flatten(transition)
     logical_capacity = state.logical_capacity.astype(jnp.uint32)
     idx = state.pointer % logical_capacity
@@ -97,7 +97,7 @@ def per_update_priorities(
     state: PERBufferState,
     indices: jax.Array,
     td_errors: jax.Array,
-    alpha: float = 0.6,
+    alpha: float,
     epsilon: float = 1e-6,
 ) -> PERBufferState:
     priorities = (jnp.abs(td_errors) + epsilon) ** alpha
