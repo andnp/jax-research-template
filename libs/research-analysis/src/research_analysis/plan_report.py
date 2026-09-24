@@ -50,7 +50,7 @@ def _execution_problem(fingerprint: str, snapshots: Sequence[PlanSnapshot], exec
     started = _utc_instant(execution.start_time)
     if started is None:
         return f"start time {execution.start_time!r} is not an ISO time with a UTC offset, so its order against the plan history is unknown"
-    in_force = [snapshot for snapshot in snapshots if snapshot.recorded_at <= started]
+    in_force = [snapshot for snapshot in snapshots if snapshot.recorded_at is not None and snapshot.recorded_at <= started]
     if not in_force:
         return "no plan snapshot before execution: record the plan by launching runs with `research experiment run` or `submit`"
     if in_force[-1].fingerprint != fingerprint:
@@ -62,12 +62,18 @@ def _snapshot_reasons(
     fingerprint: str, snapshots: Sequence[PlanSnapshot], executions: tuple[ExecutionProvenance, ...]
 ) -> tuple[str, ...]:
     """Why the plan cannot be shown to predate every included execution, naming the offending executions."""
+    invalid = tuple(
+        f"plan history has an unusable snapshot: {snapshot.invalid_reason}"
+        for snapshot in snapshots
+        if snapshot.invalid_reason is not None
+    )
+    valid = [snapshot for snapshot in snapshots if snapshot.invalid_reason is None]
     offenders: dict[str, list[int]] = {}
     for execution in executions:
-        problem = _execution_problem(fingerprint, snapshots, execution)
+        problem = _execution_problem(fingerprint, valid, execution)
         if problem is not None:
             offenders.setdefault(problem, []).append(execution.execution_id)
-    return tuple(f"{problem} (executions {', '.join(map(str, ids))})" for problem, ids in offenders.items())
+    return invalid + tuple(f"{problem} (executions {', '.join(map(str, ids))})" for problem, ids in offenders.items())
 
 
 def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Analysis) -> list[AnalysisResult]:
