@@ -1,5 +1,3 @@
-from typing import Protocol
-
 import jax
 import jax.numpy as jnp
 
@@ -70,13 +68,3 @@ class Transport:
             composition=Composition.create(chlorine_residual, demand, ammonia, turbidity, organics),
             bulk_properties=BulkProperties.create(temperature),
         )
-
-
-class SupportsFlow(Protocol):
-    @property
-    def flow(self) -> jax.Array: ...
-
-
-class SupportsResidual(Protocol):
-    @property
-    def chlorine_residual(self) -> jax.Array: ...
