@@ -1036,6 +1036,23 @@ class TestBakeoffCells:
         assert report.cells["a"][""].median_run_id == median_run
 
 
+    def test_report_lists_every_run_behind_each_cell(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Each cell's scores are recoverable from the report alone, keyed by run and seed."""
+        setup = temp_experiment_setup
+        for seed in range(3):
+            _add_observation(setup, {"algorithm": "ppo", "env_source": "cartpole"}, seed, float(seed))
+            _add_observation(setup, {"algorithm": "sac", "env_source": "cartpole"}, seed, 10.0)
+        dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+        report = bakeoff_report(
+            dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20), verbose=False
+        )
+
+        ppo = sorted((run.seed, run.value) for run in report.runs if run.condition == "ppo")
+        assert ppo == [(0, 0.0), (1, 1.0), (2, 2.0)]
+        assert {run.block for run in report.runs} == {"cartpole"}
+        assert {run.run_id for run in report.runs} == set(dataset.runs["run_id"].to_list())
+
 def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: ExperimentSetup) -> None:
     """Sweep-axis columns live on runs, not metric rows, so blocking by one must still reach every check."""
     setup = temp_experiment_setup
