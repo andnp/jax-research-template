@@ -85,3 +85,45 @@ def assemble_frames(
         else pl.DataFrame(schema={**_identity_schema_fields(dimensions), "step": pl.Int64, "metric": pl.String, "value": pl.Float64})
     )
     return run_frame, metric_frame
+
+
+def assemble_scalar_frames(
+    rows: list[MaterializedRun], scalar_frames: list[pl.DataFrame], dimensions: ExperimentDimensions
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    scalar_schema = {
+        **_identity_schema_fields(dimensions),
+        **_axis_schema_fields(dimensions),
+        "metric": pl.String,
+        "value": pl.Float64,
+    }
+    execution_schema = {"execution_id": pl.Int64, "metric": pl.String, "value": pl.Float64}
+    if not scalar_frames:
+        return pl.DataFrame(schema=scalar_schema), pl.DataFrame(schema=execution_schema)
+
+    metadata = pl.DataFrame(
+        [
+            {
+                **row.dimension_values,
+                "seed": row.seed,
+                "run_id": row.run_id,
+                "execution_id": row.execution_id,
+                "ablation": row.ablation,
+            }
+            for row in rows
+        ],
+        schema={**_identity_schema_fields(dimensions), **_axis_schema_fields(dimensions)},
+    )
+    scalar_rows = pl.concat(scalar_frames).with_columns(pl.col("value").cast(pl.Float64).fill_null(float("nan")))
+    run_scalars = (
+        scalar_rows.filter(pl.col("scope") == "run")
+        .drop(["experiment_id", "seed_id"])
+        .join(metadata, on=["run_id", "execution_id"], how="inner")
+    )
+    execution_metrics = (
+        scalar_rows.filter(pl.col("scope") == "execution")
+        .select("execution_id", pl.col("metric_name").alias("metric"), "value")
+    )
+    return (
+        run_scalars.rename({"metric_name": "metric"}).select(list(scalar_schema)),
+        execution_metrics.select(list(execution_schema)),
+    )

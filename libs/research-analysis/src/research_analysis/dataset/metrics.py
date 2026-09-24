@@ -92,13 +92,17 @@ def load_scalar_metric_frames(
 
 
 def load_metric_frames(
-    rows: list[MaterializedRun], metrics: tuple[str, ...] | None, diagnostics: DiagnosticAccumulator
-) -> list[pl.DataFrame]:
+    rows: list[MaterializedRun],
+    experiment_id: int,
+    metrics: tuple[str, ...] | None,
+    diagnostics: DiagnosticAccumulator,
+) -> tuple[list[pl.DataFrame], list[pl.DataFrame]]:
     metric_groups: defaultdict[Path, list[MaterializedRun]] = defaultdict(list)
     for row in rows:
         metric_groups[row.metrics_db_path].append(row)
 
     metric_frames: list[pl.DataFrame] = []
+    scalar_frames: list[pl.DataFrame] = []
     for metric_path, metric_rows in metric_groups.items():
         pairs = [(row.run_id, row.execution_id) for row in metric_rows]
         if not metric_path.exists():
@@ -110,48 +114,72 @@ def load_metric_frames(
                 load_sqlite_query(metric_path, query, parameters)
                 for query, parameters in _metric_query_batches(pairs, metrics)
             ]
+            loaded_scalars = load_scalar_metric_frames(
+                metric_path,
+                experiment_id=experiment_id,
+                run_execution_pairs=pairs,
+                execution_ids=[row.execution_id for row in metric_rows],
+                metrics=metrics,
+            )
         except sqlite3.DatabaseError as error:
             for run_id, execution_id in pairs:
                 diagnostics.add(DiagnosticCode.MALFORMED_ARTIFACT, f"metrics database {metric_path} is unreadable: {error}", run_id, execution_id)
             continue
         frames = [frame for frame in frames if not frame.is_empty()]
-        if not frames:
-            for run_id, execution_id in pairs:
-                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, "metrics database has no requested rows", run_id, execution_id)
-            continue
-        # The metric store records NaN as NULL; restore it so divergence is never skipped as missing.
-        frame = pl.concat(frames).with_columns(pl.col("value").cast(pl.Float64).fill_null(float("nan")))
-        present = set(frame.select(["run_id", "execution_id"]).unique().iter_rows())
-        for run_id, execution_id in pairs:
-            if (run_id, execution_id) not in present:
-                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, f"no requested metric rows in {metric_path}", run_id, execution_id)
-        metadata = pl.DataFrame(
-            [
-                {
-                    **row.dimension_values,
-                    "seed": row.seed,
-                    "run_id": row.run_id,
-                    "execution_id": row.execution_id,
-                    "ablation": row.ablation,
-                }
-                for row in metric_rows
-            ]
-        )
-        metric_frames.append(
-            frame.join(metadata, on=["run_id", "execution_id"], how="inner")
-            .rename({"global_step": "step", "metric_name": "metric"})
-            .select(
+        curve_present: set[tuple[int, int]] = set()
+        if frames:
+            # The metric store records NaN as NULL; restore it so divergence is never skipped as missing.
+            frame = pl.concat(frames).with_columns(pl.col("value").cast(pl.Float64).fill_null(float("nan")))
+            curve_present = set(frame.select(["run_id", "execution_id"]).unique().iter_rows())
+            metadata = pl.DataFrame(
                 [
-                    "condition_name",
-                    *(["env_name"] if "env_name" in metadata.columns else []),
-                    "seed",
-                    "run_id",
-                    "execution_id",
-                    "ablation",
-                    "step",
-                    "metric",
-                    "value",
+                    {
+                        **row.dimension_values,
+                        "seed": row.seed,
+                        "run_id": row.run_id,
+                        "execution_id": row.execution_id,
+                        "ablation": row.ablation,
+                    }
+                    for row in metric_rows
                 ]
             )
-        )
-    return metric_frames
+            metric_frames.append(
+                frame.join(metadata, on=["run_id", "execution_id"], how="inner")
+                .rename({"global_step": "step", "metric_name": "metric"})
+                .select(
+                    [
+                        "condition_name",
+                        *(["env_name"] if "env_name" in metadata.columns else []),
+                        "seed",
+                        "run_id",
+                        "execution_id",
+                        "ablation",
+                        "step",
+                        "metric",
+                        "value",
+                    ]
+                )
+            )
+
+        run_scalar_present: set[tuple[int, int]] = set()
+        execution_metric_ids: set[int] = set()
+        if loaded_scalars:
+            scalar_frame = pl.concat(loaded_scalars)
+            run_scalar_present = set(
+                scalar_frame.filter(pl.col("scope") == "run")
+                .select(["run_id", "execution_id"])
+                .unique()
+                .iter_rows()
+            )
+            execution_metric_ids = set(
+                scalar_frame.filter(pl.col("scope") == "execution").get_column("execution_id").to_list()
+            )
+            scalar_frames.extend(loaded_scalars)
+
+        present_runs = curve_present | run_scalar_present
+        any_present = bool(present_runs or execution_metric_ids)
+        for run_id, execution_id in pairs:
+            if (run_id, execution_id) not in present_runs and execution_id not in execution_metric_ids:
+                message = f"no requested metric rows in {metric_path}" if any_present else "metrics database has no requested rows"
+                diagnostics.add(DiagnosticCode.MISSING_METRIC_ARTIFACT, message, run_id, execution_id)
+    return metric_frames, scalar_frames

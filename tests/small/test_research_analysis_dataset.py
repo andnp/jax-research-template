@@ -21,11 +21,14 @@ from research_analysis.dataset.types import (
     VersionSelection,
 )
 from research_analysis.diagnostics.types import DatasetLoadError, DiagnosticCode
+from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 
 
 class DatasetFixture(TypedDict):
     db_path: Path
     metrics_path: Path
+    experiment_id: int
+    runs: list[tuple[int, int, int]]
     algo_version: int
     env_version: int
 
@@ -41,7 +44,12 @@ def _write_metrics(path: Path, rows: list[tuple[int, int, str, int, float]]) -> 
         )
 
 
-def _create_experiment(tmp_path: Path, *, versions: tuple[str, str] = ("algo-v1", "env-v1")) -> DatasetFixture:
+def _create_experiment(
+    tmp_path: Path,
+    *,
+    versions: tuple[str, str] = ("algo-v1", "env-v1"),
+    shared_execution: bool = False,
+) -> DatasetFixture:
     db_path = tmp_path / "experiments.sqlite"
     metrics_path = tmp_path / "metrics.sqlite"
     with DatabaseManager(db_path) as database:
@@ -52,19 +60,26 @@ def _create_experiment(tmp_path: Path, *, versions: tuple[str, str] = ("algo-v1"
         env_component = database.add_component("cartpole", "ENV")
         env_version = database.add_component_version(env_component, versions[1])
         rows: list[tuple[int, int, int]] = []
+        shared_execution_id: int | None = None
         for seed, condition in enumerate(("baseline", "candidate")):
             hyper_id = database.add_hyperparam_config(
                 {"condition_name": condition, "learning_rate": 0.1 + seed, "seed": seed}
             )
             run_id = database.add_run(experiment_id, algo_version, env_version, hyper_id, seed)
-            execution_id = database.add_execution()
+            if shared_execution and shared_execution_id is not None:
+                execution_id = shared_execution_id
+            else:
+                execution_id = database.add_execution()
+                if shared_execution:
+                    shared_execution_id = execution_id
             database.link_execution_run(execution_id, run_id)
-            database.record_execution_artifacts(
-                execution_id,
-                str(tmp_path / "execution"),
-                metadata={"metrics_db_path": str(metrics_path)},
-            )
-            database.update_execution_status(execution_id, "COMPLETED")
+            if not shared_execution or seed == 0:
+                database.record_execution_artifacts(
+                    execution_id,
+                    str(tmp_path / "execution"),
+                    metadata={"metrics_db_path": str(metrics_path)},
+                )
+                database.update_execution_status(execution_id, "COMPLETED")
             rows.append((run_id, execution_id, seed))
     _write_metrics(
         metrics_path,
@@ -73,6 +88,8 @@ def _create_experiment(tmp_path: Path, *, versions: tuple[str, str] = ("algo-v1"
     return {
         "db_path": db_path,
         "metrics_path": metrics_path,
+        "experiment_id": experiment_id,
+        "runs": rows,
         "algo_version": algo_version,
         "env_version": env_version,
     }
@@ -265,6 +282,54 @@ def test_load_experiment_dataset_preserves_typed_runs_and_metrics(tmp_path: Path
     assert run_artifacts.root_path == tmp_path / "execution"
     assert "metrics_db_path" not in run_artifacts.metadata
     assert "metrics_db_path" not in dataset.runs.columns
+
+
+def test_load_experiment_dataset_assembles_scalar_metrics_without_curves(tmp_path: Path) -> None:
+    """
+    Load run and execution scalars as typed metrics without requiring curve rows.
+    """
+    fixture = _create_experiment(tmp_path, shared_execution=True)
+    scalar_metrics_path = tmp_path / "scalar-metrics.sqlite"
+
+    run_id, execution_id, seed = fixture["runs"][0]
+    write_seed_batch_scalars(
+        scalar_metrics_path,
+        {"final_reward": (float(seed + 10),)},
+        experiment_id=fixture["experiment_id"],
+        execution_id=execution_id,
+        run_ids=(run_id,),
+        seed_ids=(seed,),
+    )
+    write_execution_scalars(
+        scalar_metrics_path,
+        {"batch_throughput": 3.5},
+        experiment_id=fixture["experiment_id"],
+        execution_id=execution_id,
+    )
+    with DatabaseManager(fixture["db_path"]) as database:
+        database.record_execution_artifacts(
+            execution_id,
+            str(tmp_path / "execution"),
+            metadata={"metrics_db_path": str(scalar_metrics_path)},
+        )
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test")
+
+    assert dataset.metrics.is_empty()
+    assert dataset.scalar_metrics.select(
+        "metric", "condition_name", "seed", "run_id", "execution_id", "value"
+    ).rows() == [
+        ("final_reward", "baseline", 0, run_id, execution_id, 10.0),
+    ]
+    assert "scope" not in dataset.scalar_metrics.columns
+    assert dataset.execution_metrics.columns == ["execution_id", "metric", "value"]
+    assert {run_execution_id for _, run_execution_id, _ in fixture["runs"]} == {execution_id}
+    assert dataset.runs.select("condition_name", "execution_id").sort("condition_name").rows() == [
+        ("baseline", execution_id),
+        ("candidate", execution_id),
+    ]
+    assert dataset.execution_metrics.rows() == [(execution_id, "batch_throughput", 3.5)]
+    assert not any(item.code is DiagnosticCode.MISSING_METRIC_ARTIFACT for item in dataset.diagnostics)
 
 
 def test_stored_null_metric_values_load_as_nan(tmp_path: Path) -> None:

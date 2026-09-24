@@ -9,7 +9,7 @@ from experiment_definition.db import DatabaseManager
 from research_analysis.dataset.accounting import account_runs
 from research_analysis.dataset.candidates import fetch_run_candidates
 from research_analysis.dataset.cohorts import diagnose_orphaned_cells, diagnose_undeclared_variation
-from research_analysis.dataset.frames import assemble_frames
+from research_analysis.dataset.frames import assemble_frames, assemble_scalar_frames
 from research_analysis.dataset.metrics import load_metric_frames
 from research_analysis.dataset.non_finite import diagnose_non_finite, non_finite_summary, with_non_finite_metrics
 from research_analysis.dataset.rows import (
@@ -55,8 +55,9 @@ def load_experiment_dataset(
     diagnose_unusable_runs(resolved, selected_sets, selected_versions, diagnostics)
     rows = materialize_rows(resolved, selected_sets)
 
-    metric_frames = load_metric_frames(rows, metrics, diagnostics)
+    metric_frames, scalar_frames = load_metric_frames(rows, experiment.id, metrics, diagnostics)
     run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)
+    scalar_metric_frame, execution_metric_frame = assemble_scalar_frames(rows, scalar_frames, selected_dimensions)
     divergence = non_finite_summary(metric_frame)
     diagnose_non_finite(divergence, diagnostics)
     run_frame = with_non_finite_metrics(run_frame, divergence)
@@ -72,6 +73,8 @@ def load_experiment_dataset(
         runs=run_frame,
         metrics=metric_frame,
         provenance=tuple(all_provenance.values()),
+        scalar_metrics=scalar_metric_frame,
+        execution_metrics=execution_metric_frame,
         artifacts=artifacts,
         diagnostics=diagnostics.as_tuple(),
         accounting=accounting,

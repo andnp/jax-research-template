@@ -200,6 +200,17 @@ class CohortSelection:
 
 CellKey = tuple[tuple[str, SweepValue | None], ...]
 
+_SCALAR_METRIC_SCHEMA = {
+    "condition_name": pl.String,
+    "seed": pl.Int64,
+    "run_id": pl.Int64,
+    "execution_id": pl.Int64,
+    "ablation": pl.String,
+    "metric": pl.String,
+    "value": pl.Float64,
+}
+_EXECUTION_METRIC_SCHEMA = {"execution_id": pl.Int64, "metric": pl.String, "value": pl.Float64}
+
 
 class ExclusionReason(StrEnum):
     """Why a planned run is absent from the dataset's runs table."""
@@ -234,7 +245,7 @@ class RunAccounting:
 
 @dataclass(frozen=True)
 class ExperimentDataset:
-    """Typed runs, metrics, dimensions, provenance, and loader diagnostics."""
+    """Typed runs, curve and scalar metrics, dimensions, provenance, and diagnostics."""
 
     experiment_name: str
     dimensions: ExperimentDimensions
@@ -245,6 +256,8 @@ class ExperimentDataset:
     diagnostics: tuple[DatasetDiagnostic, ...] = ()
     accounting: RunAccounting = field(default_factory=RunAccounting)
     executions: tuple[ExecutionProvenance, ...] = ()
+    scalar_metrics: pl.DataFrame = field(default_factory=lambda: pl.DataFrame(schema=_SCALAR_METRIC_SCHEMA))
+    execution_metrics: pl.DataFrame = field(default_factory=lambda: pl.DataFrame(schema=_EXECUTION_METRIC_SCHEMA))
 
     def __post_init__(self) -> None:
         required_runs = {
@@ -263,9 +276,17 @@ class ExperimentDataset:
             "metric",
             "value",
         }
+        required_scalar_metrics = set(_SCALAR_METRIC_SCHEMA)
+        required_execution_metrics = set(_EXECUTION_METRIC_SCHEMA)
         missing_runs = required_runs.difference(self.runs.columns)
         missing_metrics = required_metrics.difference(self.metrics.columns)
+        missing_scalar_metrics = required_scalar_metrics.difference(self.scalar_metrics.columns)
+        missing_execution_metrics = required_execution_metrics.difference(self.execution_metrics.columns)
         if missing_runs:
             raise TypeError(f"runs table is missing columns: {sorted(missing_runs)}")
         if missing_metrics:
             raise TypeError(f"metrics table is missing columns: {sorted(missing_metrics)}")
+        if missing_scalar_metrics:
+            raise TypeError(f"scalar_metrics table is missing columns: {sorted(missing_scalar_metrics)}")
+        if missing_execution_metrics:
+            raise TypeError(f"execution_metrics table is missing columns: {sorted(missing_execution_metrics)}")
