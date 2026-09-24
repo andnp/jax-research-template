@@ -1,3 +1,9 @@
+"""Machado et al. 2018 Atari preprocessing exposed through the environment protocol.
+
+The default sticky-action probability, action set and no-op behavior follow the evaluation
+protocol in Machado et al. (2018).
+"""
+
 from __future__ import annotations
 
 from typing import Any, SupportsFloat, override
@@ -37,6 +43,8 @@ class _AtariPreprocessing(AtariPreprocessing):
 
 @chex_struct(frozen=True)
 class AleAtariConfig:
+    """Atari environment configuration, defaulting to Machado et al. (2018)."""
+
     game: str
     frame_stack: int = 4
     frame_skip: int = 4
@@ -44,19 +52,22 @@ class AleAtariConfig:
     screen_size: int = 84
     terminal_on_life_loss: bool = False
     scale_obs: bool = False
+    sticky_action_prob: float = 0.25
+    full_action_space: bool = True
+    noop_max: int = 0
 
 
 def _make_ale_env(config: AleAtariConfig) -> _AtariPreprocessing:
     env = gymnasium.make(
         f"ALE/{config.game}-v5",
         frameskip=1,  # frame skip is handled by AtariPreprocessing
-        repeat_action_probability=0.0,
-        full_action_space=False,
+        repeat_action_probability=config.sticky_action_prob,
+        full_action_space=config.full_action_space,
         render_mode=None,
     )
     env = _AtariPreprocessing(
         env,
-        noop_max=30,
+        noop_max=config.noop_max,
         frame_skip=config.frame_skip,
         screen_size=config.screen_size,
         terminal_on_life_loss=config.terminal_on_life_loss,

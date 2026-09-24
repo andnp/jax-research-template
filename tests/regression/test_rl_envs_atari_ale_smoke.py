@@ -59,9 +59,11 @@ def test_episode_ending_step_returns_the_current_ale_screen() -> None:
             frame_skip=4,
             screen_size=SCREEN_SIZE,
             terminal_on_life_loss=True,
+            sticky_action_prob=0.0,
+            full_action_space=False,
+            noop_max=0,
         )
         env = _make_ale_env(config)
-        env.noop_max = 0
         oracle = AtariEnv(
             "breakout",
             frameskip=1,
@@ -112,7 +114,7 @@ def test_episode_ending_step_returns_the_current_ale_screen() -> None:
 
 def test_losing_a_life_does_not_end_the_atari_episode() -> None:
     """Life loss continues the ALE episode until Breakout reaches game over."""
-    env = _make_ale_env(AleAtariConfig(game="Breakout"))
+    env = _make_ale_env(AleAtariConfig(game="Breakout", sticky_action_prob=0.0))
     env.reset(seed=0)
     previous_lives = env.ale.lives()
     observed_life_loss = False
