@@ -13,6 +13,13 @@ def perfect_clarifier(
     q_rs: jax.Array,
     q_w: jax.Array,
 ) -> tuple[ASM1State, ASM1State]:
+    """Instantaneous solids/soluble split at R5 concentration — no settler dynamics.
+
+    Unlike BSM1's 10-layer Takács settler, this has no residence-time delay:
+    soluble species pass through unchanged and solids are split by an
+    algebraic concentration factor with no dynamic sludge blanket. Benchmarks
+    that need settler dynamics use units/takacs_settler.py instead.
+    """
     concentration_factor = q_aerobic / jnp.maximum(q_rs + q_w, 1.0)
     effluent = ASM1State(
         s_i=r5.s_i, s_s=r5.s_s, x_i=jnp.array(0.0), x_s=jnp.array(0.0),
@@ -42,6 +49,16 @@ def reactor_train(
     params: tuple[ASM1Params, ASM1Params, ASM1Params, ASM1Params, ASM1Params],
     dt: jax.Array,
 ) -> tuple[ASM1State, ASM1State, ASM1State, ASM1State, ASM1State]:
+    """Step all 5 BSM1 reactors in series for one dt.
+
+    Uses operator splitting: each reactor's outlet feeds the next as a fixed
+    inlet for the whole step, rather than solving the coupled 5-reactor ODE
+    system simultaneously. This is first-order accurate in dt (consistent
+    with the RK4 step used within each reactor) and matches how the BSM1
+    reference implementations are structured, but introduces an O(dt) lag
+    relative to a fully coupled integrator; keeping dt small (as the
+    benchmarks here do) keeps this error negligible.
+    """
     q_total = q_in + q_rs + q_a
     inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
     inlet_r1, _ = mix_streams(inlet_rs, q_after_1, reactors[4], q_a)
