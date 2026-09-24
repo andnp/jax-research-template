@@ -1150,6 +1150,43 @@ class TestPairedDifferences:
         assert report.difference("a", "b").p_value == pytest.approx(3 * 2 / 16)
 
 
+    def test_planned_pairs_alone_form_the_comparison_family(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Comparing two arms against a baseline plans two differences and adjusts for two, not three."""
+        setup = temp_experiment_setup
+        for condition, offset in (("base", 0.0), ("a", 1.0), ("b", 2.0)):
+            for seed in range(5):
+                _add_observation(setup, {"condition_name": condition}, seed, offset + seed * 0.1 + (seed % 2))
+
+        report = bakeoff_report(
+            _load(setup),
+            "metric",
+            ["base", "a", "b"],
+            spec=BakeoffSpec(n_resamples=200),
+            pairs=[("a", "base"), ("b", "base")],
+            verbose=False,
+        )
+
+        assert [(item.minuend, item.subtrahend) for item in report.differences] == [("a", "base"), ("b", "base")]
+        assert report.family_size == 2
+        assert report.comparison_confidence == pytest.approx(1 - 0.05 / 2)
+
+    @pytest.mark.parametrize(
+        "pairs",
+        [[("a", "missing")], [("a", "a")], [("a", "b"), ("b", "a")], []],
+        ids=["unknown-condition", "self-comparison", "repeated-pair", "empty"],
+    )
+    def test_rejects_malformed_planned_pairs(
+        self, temp_experiment_setup: ExperimentSetup, pairs: list[tuple[str, str]]
+    ) -> None:
+        """A planned pair must compare two distinct declared conditions, and each pair only once."""
+        setup = temp_experiment_setup
+        for condition in ("a", "b"):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": condition}, seed, float(seed))
+
+        with pytest.raises(ValueError, match="pairs"):
+            bakeoff_report(_load(setup), "metric", ["a", "b"], pairs=pairs, verbose=False)
+
 class TestChampionComparisons:
     @staticmethod
     def _tuned_arms(setup: ExperimentSetup, configs_for_b: tuple[str, ...] = ("low", "high")) -> ExperimentDataset:
