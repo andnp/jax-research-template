@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
-import re
 import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -16,9 +14,9 @@ from research_analysis.plan import registered_plans
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import read_plan_snapshots, record_plan_snapshot
 from research_analysis.report import ReportStatus
+from research_analysis.report_files import report_directory, write_report_document
 from research_analysis.report_json import report_to_json
-from research_analysis.report_markdown import render_markdown, render_summary
-from research_analysis.report_plots import write_report_plots
+from research_analysis.report_markdown import render_summary
 from research_runner import ExperimentSpec, registered_specs
 from rich.console import Console
 from rich.markdown import Markdown
@@ -659,12 +657,8 @@ def report(
     slug = experiment_spec.experiment.name
     document = run_plan(experiment_spec.db_path, slug, plans[name](), read_plan_snapshots(experiment_spec.results_root))
 
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    directory = output_dir or experiment_spec.results_root / "reports" / re.sub(r"[^A-Za-z0-9._-]+", "_", slug) / stamp
-    directory.mkdir(parents=True, exist_ok=True)
-    document = write_report_plots(document, directory)
-    (directory / "report.json").write_text(report_to_json(document))
-    (directory / "report.md").write_text(render_markdown(document))
+    directory = output_dir or report_directory(experiment_spec.results_root, slug)
+    document = write_report_document(document, directory)
 
     if as_json:
         typer.echo(report_to_json(document), nl=False)
