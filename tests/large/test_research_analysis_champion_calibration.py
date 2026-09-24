@@ -150,3 +150,67 @@ def test_champion_cis_stay_calibrated_when_seeds_correlate_configurations(h: int
     expected_low, expected_high = (0.87, nominal_floor) if h == 3 else (nominal_floor, 1.0)
     for coverage in (single_hits / REPLICATES, difference_hits / REPLICATES):
         assert expected_low <= coverage <= expected_high, (single_hits / REPLICATES, difference_hits / REPLICATES)
+
+
+def fixed_referent_difference_coverage(sample: GridSampler, h: int, n: int, rng: np.random.Generator):
+    means, referent_mean = np.linspace(0.0, 1.0, h), 0.5
+    hits = 0
+    for _ in range(REPLICATES):
+        ci = hierarchical_bootstrap_difference_ci(
+            sample(rng, means, n), sample(rng, np.array([referent_mean]), n), n, n, n_resamples=N_RESAMPLES, rng=rng
+        )
+        hits += ci.ci_low <= 1.0 - referent_mean <= ci.ci_high
+    return hits / REPLICATES
+
+
+NOMINAL_BAND = 3.0 * math.sqrt(0.95 * 0.05 / REPLICATES)
+
+
+@pytest.mark.parametrize(
+    ("sample", "h", "n"), CHAMPION_CELLS, ids=[f"{sample.__name__}-H{h}-N{n}" for sample, h, n in CHAMPION_CELLS]
+)
+def test_champion_minus_untuned_referent_ci_covers_near_nominal(sample: GridSampler, h: int, n: int) -> None:
+    """A tuned champion minus a single-configuration referent is covered near nominal, with a small shortfall at H=3.
+
+    The referent has no selection stage, so its side is the plain percentile bootstrap over its runs.
+    First measured here (seed 0, 1000 replicates), referent mean 0.5 against the grid's best 1.0:
+
+    =================  =====  =====  ======  ======
+    family             H3N10  H3N30  H10N10  H10N30
+    =================  =====  =====  ======  ======
+    bimodal            0.936  0.949  0.939   0.963
+    long_tailed        0.941  0.938  0.965   0.966
+    dominant_nuisance  0.928  0.912  0.986   0.968
+    =================  =====  =====  ======  ======
+
+    At H=3 the rare-outlier family under-covers by a few points; that range records current behaviour,
+    so a change of method shows up as a deliberate update here.
+    """
+    coverage = fixed_referent_difference_coverage(sample, h, n, np.random.default_rng(0))
+
+    expected_low = 0.90 if h == 3 else 0.95 - NOMINAL_BAND
+    expected_high = 0.95 + NOMINAL_BAND if h == 3 else 1.0
+    assert expected_low <= coverage <= expected_high, coverage
+
+
+@pytest.mark.parametrize(("h", "n"), [(3, 10), (3, 30), (10, 10), (10, 30)], ids=lambda value: str(value))
+def test_champion_minus_untuned_referent_stays_calibrated_when_seeds_correlate_the_arms(h: int, n: int) -> None:
+    """Pairing by seed with a referent that shares the seed effect still covers, a few points short at H=3.
+
+    First measured here (seed 0, 1000 replicates, half the run variance shared by seed): 0.915 at H3N10,
+    0.931 at H3N30, 0.960 at H10N10, 0.950 at H10N30.
+    """
+    rng = np.random.default_rng(0)
+    means, referent_mean = np.linspace(0.0, 1.0, h), 0.5
+
+    hits = 0
+    for _ in range(REPLICATES):
+        seed_effect = math.sqrt(0.5) * rng.standard_normal(n)
+        tuned = means[:, np.newaxis] + seed_effect + math.sqrt(0.5) * rng.standard_normal((h, n))
+        referent = referent_mean + seed_effect[np.newaxis, :] + math.sqrt(0.5) * rng.standard_normal((1, n))
+        ci = hierarchical_bootstrap_difference_ci(tuned, referent, n, n, n_resamples=N_RESAMPLES, rng=rng)
+        hits += ci.ci_low <= 1.0 - referent_mean <= ci.ci_high
+
+    coverage = hits / REPLICATES
+    expected_low, expected_high = (0.87, 0.95 + NOMINAL_BAND) if h == 3 else (0.95 - NOMINAL_BAND, 1.0)
+    assert expected_low <= coverage <= expected_high, coverage
