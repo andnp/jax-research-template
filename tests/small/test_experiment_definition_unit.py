@@ -7,10 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from experiment_definition import Component, ComponentType, Experiment, MetricFrequency, MetricType
 from experiment_definition.ablation import AblationSpec
+from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager
-from experiment_definition.metric import MetricSpec
+from experiment_definition.experiment import Experiment
+from experiment_definition.metric import MetricFrequency, MetricSpec, MetricType
 from experiment_definition.parameter import ParameterSpec
 
 # ── Component ─────────────────────────────────────────────────────────────────
@@ -165,7 +166,7 @@ class TestExperimentBuilder:
 class TestConditionalSweepAPI:
     def test_resolves_only_valid_conditional_configurations(self) -> None:
         """Expand conditional axes without emitting invalid combinations."""
-        from experiment_definition import Sweep, values, when
+        from experiment_definition.sweep import Sweep, values, when
 
         sweep = Sweep(
             axes={

@@ -7,8 +7,8 @@ from typing import Protocol, cast
 
 import gymnax
 import jax
-from experiment_definition import ParameterValue
-from research_runner import get_parameter
+from experiment_definition.parameter import ParameterValue
+from research_runner.types import get_parameter
 from rl_components.env_protocol import EnvProtocol
 
 from rl_envs.gymnax_bridge import (

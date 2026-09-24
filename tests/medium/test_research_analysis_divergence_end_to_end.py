@@ -7,7 +7,8 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from experiment_definition import Component, ComponentType, Experiment
+from experiment_definition.component import Component, ComponentType
+from experiment_definition.experiment import Experiment
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset
@@ -15,7 +16,8 @@ from research_analysis.diagnostics.types import DiagnosticCode
 from research_analysis.non_finite import NonFiniteValuesError, substitute_non_finite
 from research_analysis.reporting import bakeoff_report
 from research_cli.main import app
-from research_runner import ExecutionContext, ExecutionResult, run_experiment
+from research_runner.runner import run_experiment
+from research_runner.types import ExecutionContext, ExecutionResult
 from typer.testing import CliRunner
 
 SEEDS = 6
@@ -99,11 +101,13 @@ def swept_spec_file(tmp_path: Path, worst_case: float | None) -> Path:
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from experiment_definition import Component, ComponentType, Experiment
+            from experiment_definition.component import Component, ComponentType
+            from experiment_definition.experiment import Experiment
             from research_analysis.comparison import BakeoffSpec
             from research_analysis.dataset.types import ExperimentDimensions
             from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, analysis_plan
-            from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec, spec
+            from research_runner.registry import spec
+            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
 
             def train(ctx: ExecutionContext) -> ExecutionResult:
                 curves = []

@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, TypeVar, cast, runtime_checkable
 
-from experiment_definition import Experiment, ParameterValue
+from experiment_definition.experiment import Experiment
+from experiment_definition.parameter import ParameterValue
 
 
 @dataclass(frozen=True, slots=True)

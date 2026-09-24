@@ -2,7 +2,8 @@
 
 Usage::
 
-    from experiment_definition import Experiment, Component
+    from experiment_definition.experiment import Experiment
+    from experiment_definition.component import Component
 
     exp = Experiment("Policy Gradient Ablations")
 

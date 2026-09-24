@@ -41,9 +41,9 @@ from types import UnionType
 from typing import Literal, Protocol, TypeAliasType, get_args, get_origin, get_type_hints, runtime_checkable
 
 import jax
-from experiment_definition import ParameterValue
+from experiment_definition.parameter import ParameterValue
 from flax.training.train_state import TrainState
-from research_runner import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
+from research_runner.types import BatchTrainer, BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.batch import run_batch
 from rl_components.env_protocol import EnvProtocol
 from rl_components.loop import run

@@ -3,7 +3,7 @@ from collections.abc import Mapping
 import jax
 import jax.numpy as jnp
 import pytest
-from experiment_definition import ParameterValue
+from experiment_definition.parameter import ParameterValue
 from rl_agents.batch_trainer import EnvFactory
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol

@@ -203,8 +203,10 @@ def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult, spec
-            from experiment_definition import Experiment, Component, ComponentType
+            from research_runner.registry import spec
+            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from experiment_definition.component import Component, ComponentType
+            from experiment_definition.experiment import Experiment
 
             @spec
             def my_spec() -> ExperimentSpec:
@@ -285,7 +287,7 @@ def test_experiment_plan_fails_when_no_specs_registered(tmp_path: Path) -> None:
     spec_file.write_text(
         textwrap.dedent("""\
             from __future__ import annotations
-            from research_runner import ExperimentSpec
+            from research_runner.types import ExperimentSpec
 
             def my_spec() -> ExperimentSpec:
                 raise NotImplementedError
@@ -535,8 +537,10 @@ def _write_metric_logging_spec_file(tmp_path: Path, results_root: Path) -> Path:
         textwrap.dedent(f"""\
             from __future__ import annotations
             from pathlib import Path
-            from research_runner import ExperimentSpec, ExecutionContext, ExecutionResult, spec
-            from experiment_definition import Experiment, Component, ComponentType
+            from research_runner.registry import spec
+            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from experiment_definition.component import Component, ComponentType
+            from experiment_definition.experiment import Experiment
 
             @spec
             def my_spec() -> ExperimentSpec:

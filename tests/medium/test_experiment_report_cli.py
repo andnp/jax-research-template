@@ -31,11 +31,13 @@ def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = T
             from __future__ import annotations
             import math
             from pathlib import Path
-            from experiment_definition import Component, ComponentType, Experiment
+            from experiment_definition.component import Component, ComponentType
+            from experiment_definition.experiment import Experiment
             from research_analysis.comparison import BakeoffSpec
             from research_analysis.dataset.types import ExperimentDimensions
             from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, analysis_plan
-            from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec, spec
+            from research_runner.registry import spec
+            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
 
             DIVERGE = {diverge}
 

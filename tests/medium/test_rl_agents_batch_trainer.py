@@ -8,8 +8,8 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import pytest
-from experiment_definition import ParameterValue
-from research_runner import BoundBatch, ExecutionContext, RunPoint
+from experiment_definition.parameter import ParameterValue
+from research_runner.types import BoundBatch, ExecutionContext, RunPoint
 from rl_agents.batch_registry import ALGORITHM_TRAINERS, make_algorithm_batch_trainer
 from rl_agents.batch_trainer import (
     AlgorithmSpec,

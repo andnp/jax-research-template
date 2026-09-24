@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from experiment_definition import Experiment, ParameterValue
 from experiment_definition.db import DatabaseManager, PlannedExecution
+from experiment_definition.experiment import Experiment
+from experiment_definition.parameter import ParameterValue
 from experiment_definition.records import RunRow
 from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve

@@ -1,6 +1,7 @@
 """Small tests for experiment-definition bridge — metric whitelist extraction."""
 
-from experiment_definition import Experiment, metric_whitelist
+from experiment_definition.bridge import metric_whitelist
+from experiment_definition.experiment import Experiment
 
 
 class TestMetricWhitelist:

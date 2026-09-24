@@ -17,7 +17,8 @@ from research_analysis.report import ReportStatus
 from research_analysis.report_files import report_directory, write_report_document
 from research_analysis.report_json import report_to_json
 from research_analysis.report_markdown import render_summary
-from research_runner import ExperimentSpec, registered_specs
+from research_runner.registry import registered_specs
+from research_runner.types import ExperimentSpec
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -326,7 +327,7 @@ def run(
     # ever imported, so this is declared only so typer accepts/documents the flag.
     gpu: bool = typer.Option(False, "--gpu", help="Use the GPU backend for JAX instead of CPU."),
 ):
-    from research_runner import run_experiment
+    from research_runner.runner import run_experiment
 
     only_clauses = _parse_key_value_options(only, "--only") if only else None
 
@@ -500,7 +501,7 @@ def execute_batch_cmd(
     spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
 ):
-    from research_runner import execute_batch
+    from research_runner.runner import execute_batch
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)

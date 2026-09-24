@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
+from research_runner.types import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
 from rl_components.types import PPOConfig
 
 from rl_agents.batch_trainer import (

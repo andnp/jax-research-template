@@ -9,8 +9,9 @@ import sys
 class TestExperimentDefinitionPublicApi:
     def test_documented_names_resolve_to_canonical_symbols(self) -> None:
         import experiment_definition
-        from experiment_definition import Component, Experiment
+        from experiment_definition.component import Component
         from experiment_definition.component import Component as CanonicalComponent
+        from experiment_definition.experiment import Experiment
         from experiment_definition.experiment import Experiment as CanonicalExperiment
 
         assert Experiment is CanonicalExperiment
@@ -32,8 +33,9 @@ class TestExperimentDefinitionPublicApi:
 class TestResearchRunnerPublicApi:
     def test_documented_names_resolve_to_canonical_symbols(self) -> None:
         import research_runner
-        from research_runner import ExecutionContext, ExperimentSpec, run_experiment
+        from research_runner.runner import run_experiment
         from research_runner.runner import run_experiment as canonical_run_experiment
+        from research_runner.types import ExecutionContext, ExperimentSpec
         from research_runner.types import ExecutionContext as CanonicalExecutionContext
         from research_runner.types import ExperimentSpec as CanonicalExperimentSpec
 

@@ -13,7 +13,9 @@ from pathlib import Path
 import gymnax
 import jax
 import matplotlib.pyplot as plt
-from experiment_definition import Component, ComponentType, Experiment, metric_whitelist
+from experiment_definition.bridge import metric_whitelist
+from experiment_definition.component import Component, ComponentType
+from experiment_definition.experiment import Experiment
 from research_instrument.collector import configure
 from research_instrument.sqlite_backend import SQLiteBackend
 from research_store.store import Store

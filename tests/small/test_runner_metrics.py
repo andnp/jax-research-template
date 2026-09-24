@@ -2,9 +2,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from experiment_definition import Experiment
 from experiment_definition.db import DatabaseManager
-from research_runner import ExecutionContext, ExecutionResult, execute_batch
+from experiment_definition.experiment import Experiment
+from research_runner.runner import execute_batch
+from research_runner.types import ExecutionContext, ExecutionResult
 
 
 def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:

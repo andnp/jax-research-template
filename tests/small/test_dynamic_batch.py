@@ -6,9 +6,9 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import pytest
-from experiment_definition import Experiment
 from experiment_definition.db import DatabaseManager
-from research_runner import BoundBatch, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
+from experiment_definition.experiment import Experiment
+from research_runner.types import BoundBatch, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
 from rl_components.batch import run_batch
 
 
