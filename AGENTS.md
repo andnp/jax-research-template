@@ -40,6 +40,6 @@ All shared components must have tests in `tests/` categorized by duration:
 - **PR Hygiene:** Keep PRs focused and use Conventional Commits.
 - **Review Follow-Up:** Address review comments in the same branch/worktree, rerun affected checks, and resolve review threads only after the fix lands. When possible, actively mark addressed threads as resolved via GitHub (the `gh` CLI can do this through `gh api graphql` even if there is no dedicated high-level subcommand).
 - **CI Failures:** If CI fails, reproduce the failing `lint`, `typecheck`, `test-small`, or `test-medium` job locally, fix the root cause, and rerun the affected checks. Treat `tests/regression/` and `tests/performance/` as targeted suites when relevant, not default PR gates.
-- **Harvesting:** Proactively identify generalizable code in `projects/` and propose harvesting it into `libs/`.
+- **Harvesting:** Proactively identify generalizable code in `projects/` and propose harvesting it into `libs/` or `domains/`, following the tier test in `docs/adrs/011-libs-domains-split.md` (`tests/small/test_import_tiers.py` enforces that `libs` never imports `domains`).
 - **Ejecting:** If a core library needs a breaking change for a specific experiment, eject it to the project first.
 - **Testing:** Never consider a task "done" until tests for all three tiers (where applicable) pass.
