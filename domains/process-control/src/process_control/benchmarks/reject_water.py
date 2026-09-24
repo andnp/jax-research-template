@@ -13,7 +13,7 @@ Action (2D): [Q_reject / Q_max, unused]
 
 Observation (6D):
   main_plant_nh4 / 35
-  reject_nh4 / 500
+  reject_nh4 / 1500
   time_of_day (0-1)
   main_flow / mean_flow
   reject_flow / q_reject_max
@@ -57,8 +57,12 @@ class RejectWaterConfig:
     max_flow: float = 1050.0
     drift_scale: float = 0.05
 
-    # Reject water characteristics
-    reject_nh4: float = 400.0  # mg-N/L (typical dewatering centrate)
+    # Reject water characteristics. Digester centrate ammonia is typically
+    # 500-1500 mg-N/L (Fux & Siegrist 2004, Water Sci. Technol. 50(10):19-26;
+    # https://pubmed.ncbi.nlm.nih.gov/15656291/); 400 was below that range.
+    # Nitrifying it also consumes alkalinity (7.14 g CaCO3/g N oxidised,
+    # ASM1 stoichiometry) — not tracked by this reduced-order model.
+    reject_nh4: float = 800.0  # mg-N/L
     reject_production: float = 8.0  # m³/h continuous production from dewatering
     reject_tank_max: float = 200.0  # m³ buffer tank
     q_reject_max: float = 30.0  # m³/h max return rate
@@ -131,7 +135,7 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         obs = jnp.array(
             [
                 config.nh4_baseline / 35.0,
-                config.reject_nh4 / 500.0,
+                config.reject_nh4 / 1500.0,
                 0.0,  # time of day
                 1.0,  # flow ratio
                 0.0,  # reject flow
@@ -195,7 +199,7 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         obs = jnp.array(
             [
                 sensed_main_nh4 / 35.0,
-                sensed_reject_nh4 / 500.0,
+                sensed_reject_nh4 / 1500.0,
                 time_of_day,
                 q_main / mean_flow,
                 q_reject / q_reject_max,
