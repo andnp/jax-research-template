@@ -625,6 +625,26 @@ def test_missing_applicability_key_fails_loading(tmp_path: Path) -> None:
 
 
 class TestAxisApplicability:
+    DIMENSIONS = ExperimentDimensions(
+        condition="algorithm",
+        sweep_axes=(SweepAxis("num_heads", SweepValueType.INTEGER, when={"algorithm": ("gi_qrc", "gi_qrc_anchored")}),),
+    )
+
+    @pytest.mark.parametrize("arm", ["gi_qrc", "gi_qrc_anchored"])
+    def test_applies_to_every_listed_arm(self, arm: str) -> None:
+        """One declaration types the axis on each arm it lists, so one dataset holds them all."""
+        resolved = resolve_dimensions({"algorithm": arm, "num_heads": 5, "seed": 0}, self.DIMENSIONS)
+
+        assert not isinstance(resolved, UnresolvedDimension)
+        assert resolved.values["num_heads"] == 5
+
+    def test_is_null_on_an_unlisted_arm(self) -> None:
+        """An arm outside the listed values has no value on the axis, even without the hyperparameter."""
+        resolved = resolve_dimensions({"algorithm": "qrc", "seed": 0}, self.DIMENSIONS)
+
+        assert not isinstance(resolved, UnresolvedDimension)
+        assert resolved.values["num_heads"] is None
+
     @pytest.mark.parametrize("values", [(), ("gi_qrc", "gi_qrc")], ids=["empty", "repeated"])
     def test_rejects_an_empty_or_repeated_value_list(self, values: tuple[str, ...]) -> None:
         """An empty list would silently never apply the axis; a repeat is a typo in the declaration."""
