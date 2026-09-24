@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from experiment_definition.db import DatabaseManager
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import ExperimentDimensions
@@ -72,11 +73,11 @@ class _Experiment:
         return run_id
 
 
-def _complete(root: Path, seeds: int = 5) -> _Experiment:
+def _complete(root: Path, seeds: int = 5, started: str = STARTED) -> _Experiment:
     experiment = _Experiment(root)
     for seed in range(seeds):
-        experiment.add_run("base", seed, float(seed))
-        experiment.add_run("new", seed, float(seed) + 1.0 + 0.1 * seed)
+        experiment.add_run("base", seed, float(seed), started=started)
+        experiment.add_run("new", seed, float(seed) + 1.0 + 0.1 * seed, started=started)
     return experiment
 
 
@@ -143,6 +144,35 @@ class TestPlanStatus:
         assert document.exploratory_reasons == (
             f"plan changed after results were recorded: the plan in force at these executions was "
             f"{plan_fingerprint(edited)} (executions {', '.join(map(str, sorted(late)))})",
+        )
+
+
+class TestExecutionStartTimes:
+    @pytest.mark.parametrize(
+        "started",
+        ["2026-01-02T01:00:00Z", "2026-01-01T20:00:00-05:00"],
+        ids=["zulu", "non-utc-offset"],
+    )
+    def test_an_offset_qualified_start_is_ordered_in_utc(self, tmp_path: Path, started: str) -> None:
+        """Both spellings name 01:00 UTC, after a 00:30 UTC snapshot, whatever the local clock read."""
+        experiment = _complete(tmp_path, started=started)
+        snapshot = PlanSnapshot(plan_fingerprint(PLAN), datetime(2026, 1, 2, 0, 30, tzinfo=UTC), "{}")
+
+        document = run_plan(experiment.db_path, "demo", PLAN, (snapshot,))
+
+        assert (document.plan_status, document.exploratory_reasons) == (PlanStatus.DECLARED, ())
+
+    def test_a_naive_start_is_unknown_rather_than_guessed(self, tmp_path: Path) -> None:
+        """A legacy start without an offset cannot be ordered against the plan history, so the report says so."""
+        experiment = _complete(tmp_path, started="2026-01-02T00:00:00")
+
+        document = run_plan(experiment.db_path, "demo", PLAN, _declared_before())
+
+        ids = ", ".join(str(item.execution_id) for item in document.provenance.executions)
+        assert document.plan_status is PlanStatus.EXPLORATORY
+        assert document.exploratory_reasons == (
+            "start time '2026-01-02T00:00:00' is not an ISO time with a UTC offset, "
+            f"so its order against the plan history is unknown (executions {ids})",
         )
 
 

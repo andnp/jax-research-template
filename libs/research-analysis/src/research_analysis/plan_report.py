@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from research_analysis._reporting_bakeoff import bakeoff_report
@@ -35,10 +35,21 @@ from research_analysis.report import (
 from research_analysis.report_json import plan_fingerprint
 
 
+def _utc_instant(text: str) -> datetime | None:
+    """The instant ``text`` names, or None when it is not an offset-qualified ISO timestamp; a naive time is never guessed."""
+    try:
+        instant = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return None if instant.tzinfo is None else instant.astimezone(UTC)
+
+
 def _execution_problem(fingerprint: str, snapshots: Sequence[PlanSnapshot], execution: ExecutionProvenance) -> str | None:
     if execution.start_time is None:
         return "start time not recorded, so the plan cannot be shown to predate the results"
-    started = datetime.fromisoformat(execution.start_time)
+    started = _utc_instant(execution.start_time)
+    if started is None:
+        return f"start time {execution.start_time!r} is not an ISO time with a UTC offset, so its order against the plan history is unknown"
     in_force = [snapshot for snapshot in snapshots if snapshot.recorded_at <= started]
     if not in_force:
         return "no plan snapshot before execution: record the plan by launching runs with `research experiment run` or `submit`"
