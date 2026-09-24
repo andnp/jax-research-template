@@ -25,7 +25,7 @@ from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as analyzer_reset
 from process_control.sensors.lagged import step as analyzer_step
-from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _estimate_ph
+from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _speciate_inorganic_carbon
 from process_control.units.anaerobic_digester import reset as digester_reset
 from process_control.units.anaerobic_digester import step as digester_step
 
@@ -121,7 +121,7 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
     def reset(rng_key: jax.Array):
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
         dig = digester_reset(config.feed_cod_mean, config.digester, k1)
-        ph0 = _estimate_ph(dig.s_co2, dig.alkalinity)
+        _, ph0 = _speciate_inorganic_carbon(dig.s_ic, dig.alkalinity, jnp.array(35.0))
         state = AnaerobicDigesterBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             digester_state=dig,

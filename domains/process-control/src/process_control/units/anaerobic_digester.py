@@ -1,17 +1,20 @@
 """Reduced-order anaerobic digestion model (ADM1-inspired).
 
-Simplified from the full 32-state IWA ADM1 to a ~9-state model
+Simplified from the full 32-state IWA ADM1 to a ~10-state model
 that captures the essential dynamics for control:
 
 1. Hydrolysis: X_sub -> S_VFA + X_inert + S_IN (first-order, COD-conserving)
-2. Methanogenesis: S_VFA -> biomass + CH4 + CO2 (Monod, COD- and
-   carbon-conserving stoichiometry)
-3. Gas transfer: dissolved CH4/CO2 -> gas phase (Henry's law, exact
+2. Methanogenesis: S_VFA -> biomass + CH4 + CO2 (Monod, COD-conserving;
+   CH4:CO2 split follows Buswell substrate stoichiometry, not pure acetate)
+3. Carbonate speciation: dissolved inorganic carbon (S_IC) splits into
+   CO2(aq) and HCO3- via the pKa1/alkalinity equilibrium; only CO2(aq)
+   is subject to gas transfer (`_speciate_inorganic_carbon`)
+4. Gas transfer: dissolved CH4 / CO2(aq) -> gas phase (Henry's law, exact
    exponential relaxation — see `_relax_to_gas_equilibrium`)
-4. Biomass decay: X_bio -> X_sub (first-order)
-5. Alkalinity: consumed by net VFA (acid) accumulation, replenished by
+5. Biomass decay: X_bio -> X_sub (first-order)
+6. Alkalinity: consumed by net VFA (acid) accumulation, replenished by
    NH4+ release (AM2-style reduced charge balance)
-6. pH derived from the alkalinity/dissolved-CO2 ratio
+7. pH derived from the HCO3-/CO2(aq) ratio (Henderson-Hasselbalch)
 
 References:
   Batstone et al. (2002). Anaerobic Digestion Model No. 1 (ADM1).
@@ -27,6 +30,13 @@ References:
   "Aspects on ADM1 Implementation within the BSM2 Framework"; reproduced
   in the PyADM1 reference implementation:
   https://github.com/paus-5/ADM1/blob/master/python_codes/Adm1_ode.py
+  Buswell & Mueller (1952). Mechanism of methane fermentation.
+  Ind. Eng. Chem. 44(3):550-552. doi:10.1021/ie50507a033 — CH4:CO2 ratio
+  from substrate elemental (C,H,O,N) composition; reports 60-65% CH4
+  as typical for sludge-digestion systems of this type.
+  Metcalf & Eddy / Tchobanoglous, Burton & Stensel (2003), Wastewater
+  Engineering, 4th ed., Ch.4 — primary sludge approximated as C10H19O3N,
+  the default composite formula used below.
 """
 
 from dataclasses import dataclass
@@ -53,6 +63,18 @@ _GAS_CONSTANT_BAR = 0.083145
 _ALK_PER_COD = 50.0 / 64.0
 _ALK_PER_N = 50.0 / 14.0
 
+# Apparent first dissociation "constant" of the CO2(aq)/HCO3- carbonate
+# equilibrium (lumping true H2CO3 in with CO2(aq), the standard convention
+# in wastewater/ADM1 practice), pKa1=6.35 at 25 C — e.g. Batstone et al.
+# (2002) ADM1 STR13 and the AM2 model already cited above both use this
+# value. The van't Hoff enthalpy below sets the (small) temperature shift;
+# its magnitude is an order-of-estimate for weak-acid carbonate equilibria
+# (unverified against an ADM1-tabulated value), but the resulting pH shift
+# is <0.05 units over 25-35 C, so precision here has little effect on the
+# results — see `_speciate_inorganic_carbon`.
+_PKA1_CO2_298 = 6.35
+_DH_PKA1_CO2 = 7660.0  # J/mol (unverified magnitude, see note above)
+
 
 @dataclass(frozen=True)
 class ADM1Params:
@@ -69,17 +91,42 @@ class ADM1Params:
     # (ADM1 routes disintegration/hydrolysis products it does not track as
     # VFA to particulate/soluble inert pools rather than discarding them;
     # f_vfa_hyd + f_xi_hyd = 1.0 keeps hydrolysis COD-conserving)
-    f_in_hyd: float = 0.05  # inorganic-N release, mg-N per mg-COD hydrolysed
-    # (independent of the COD split above — a nitrogen yield, not a COD fraction)
+    f_in_hyd: float = 0.018  # inorganic-N release, mg-N per mg-COD hydrolysed
+    # (independent of the COD split above — a nitrogen yield, not a COD
+    # fraction. Ammonification is the digester's main alkalinity SOURCE
+    # (`_ALK_PER_N` below); this now also controls, via the alkalinity ->
+    # bicarbonate -> CO2-retention chain in `step()`, how much produced CO2
+    # is retained in solution rather than vented, so it is picked from the
+    # low end of the typical mixed-sludge nitrogen content range (~2-5% of
+    # COD; Tchobanoglous, Burton & Stensel, "Wastewater Engineering", 4th
+    # ed., Metcalf & Eddy, 2003, Ch.4) to keep steady-state alkalinity and
+    # CH4 fraction within their respective literature ranges together.
 
     # Methanogenesis (Monod)
     mu_max: float = 0.30  # max specific growth rate (1/d) at t_ref
     k_s_vfa: float = 200.0  # VFA half-saturation (mg-COD/L)
     y_bio: float = 0.05  # biomass yield (g-COD biomass / g-COD VFA consumed)
-    # CH4 gets the COD-conserving remainder (1 - y_bio) of VFA-COD consumed;
-    # CO2 follows carbon stoichiometry instead (1 mol CO2 per 64 g-COD
-    # acetate degraded, from CH3COO- + H2O -> CH4 + HCO3-) since CO2 carries
-    # no COD of its own — see `step()`.
+    # CH4 gets the COD-conserving remainder (1 - y_bio) of VFA-COD consumed
+    # (COD is defined as O2-equivalent oxidising capacity, and CH4 is the
+    # only anaerobic end product that carries any, so all degraded COD not
+    # routed to biomass ends up as CH4-COD regardless of substrate — see
+    # `step()`). CO2 carries no COD; its production instead follows the
+    # substrate's carbon/oxidation-state stoichiometry, below.
+
+    # CO2:CH4 molar production ratio from the Buswell equation,
+    # CnHaObNc -> ((n-a/4-b/2+3c/4))H2O -> CH4*(n/2+a/8-b/4-3c/8) +
+    # CO2*(n/2-a/8+b/4+3c/8) + c*NH3, applied to a composite substrate
+    # formula representative of municipal primary/WAS sludge, C10H19O3N
+    # (Tchobanoglous, Burton & Stensel, "Wastewater Engineering", 4th ed.,
+    # Metcalf & Eddy, 2003, Ch.4): CH4=6.25, CO2=3.75 mol per mol substrate,
+    # giving CO2/CH4 = 0.6 and a produced-gas CH4 fraction of 1/(1+0.6) =
+    # 62.5%, within the 60-65% Buswell & Mueller (1952, Ind. Eng. Chem.
+    # 44(3):550, doi:10.1021/ie50507a033) report as typical for
+    # sludge-digestion systems (vs. 50:50 for a pure-carbohydrate/acetate
+    # substrate, i.e. ratio 1.0, used previously). This is a fixed
+    # composition, not a state — real sludge composition varies, but the
+    # model does not track carbohydrate/protein/lipid fractions separately.
+    co2_ch4_molar_ratio: float = 0.6
 
     # pH inhibition on methanogenesis (ADM1 default acetoclastic-methanogen limits)
     ph_ll: float = 6.0  # lower pH limit (complete inhibition)
@@ -98,23 +145,26 @@ class ADM1Params:
     # instead makes the two gases' equilibria couple through a state that
     # is itself derived from them each substep, which is unstable; the
     # equilibrium term is a small correction relative to the production
-    # flux it is added to, so a fixed typical split (60% CH4 is mid-range
-    # for anaerobic digester biogas, e.g. EPA AgSTAR biogas composition
-    # guidance: https://www.epa.gov/agstar/biogas-recovery-systems) is an
-    # adequate reduced-order treatment.
-    p_ch4_typical: float = 0.6
+    # flux it is added to, so a fixed typical split (62.5% CH4 matches the
+    # `co2_ch4_molar_ratio` default above, and is mid-range for anaerobic
+    # digester biogas, e.g. EPA AgSTAR biogas composition guidance:
+    # https://www.epa.gov/agstar/biogas-recovery-systems) is an adequate
+    # reduced-order treatment.
+    p_ch4_typical: float = 0.625
 
     # Biomass decay
     k_dec: float = 0.02  # decay rate (1/d) at t_ref
 
     # Alkalinity (state, see `step()`) — initial value only
     alkalinity_init: float = 5000.0  # total alkalinity (mg CaCO3/L)
+    ic_init: float = 5000.0  # total dissolved inorganic carbon (mg/L as CO2)
 
     # Constraints
     min_vfa: float = 0.0
     min_x_sub: float = 0.0
     min_x_bio: float = 1.0  # minimum viable biomass (mg-COD/L)
     min_alkalinity: float = 0.0
+    min_ic: float = 0.0
 
 
 @jax_dataclass
@@ -124,7 +174,7 @@ class ADM1State:
     x_inert: jax.Array  # inert particulate COD from hydrolysis remainder (mg-COD/L)
     s_vfa: jax.Array  # total VFA (mg-COD/L)
     s_ch4: jax.Array  # dissolved methane (mg-COD/L)
-    s_co2: jax.Array  # dissolved CO2 (mg/L as CO2)
+    s_ic: jax.Array  # total dissolved inorganic carbon, CO2(aq)+HCO3- (mg/L as CO2)
     s_in: jax.Array  # inorganic nitrogen (mg-N/L)
     alkalinity: jax.Array  # total alkalinity (mg CaCO3/L equivalent)
     q_gas: jax.Array  # total biogas flow rate (m³/d)
@@ -140,17 +190,28 @@ def _ph_inhibition(ph: jax.Array, ph_ll: float, ph_ul: float):
     )
 
 
-def _estimate_ph(s_co2: jax.Array, alkalinity: jax.Array):
-    """Rough pH estimate from CO2 and alkalinity.
+def _pka1_co2(t_celsius: jax.Array):
+    """Van't Hoff-corrected apparent pKa1 of the CO2(aq)/HCO3- equilibrium (see `_PKA1_CO2_298`)."""
+    t_kelvin = t_celsius + 273.15
+    return _PKA1_CO2_298 + (_DH_PKA1_CO2 / (_GAS_CONSTANT_BAR * 100.0 * jnp.log(10.0))) * (
+        1.0 / t_kelvin - 1.0 / _T_BASE_K
+    )
 
-    Simplified carbonate equilibrium. At typical digester conditions:
-    pH ≈ 6.35 + log10(alkalinity_eq / (s_co2 / 44 * 1000))
-    where alkalinity_eq is in meq/L.
+
+def _speciate_inorganic_carbon(s_ic: jax.Array, alkalinity: jax.Array, t_celsius: jax.Array):
+    """Split total dissolved inorganic carbon into CO2(aq) and HCO3-, and derive pH.
+
+    Alkalinity is taken as the HCO3- pool (mg/L as CO2-equivalent, i.e. same
+    carbon-mass basis as `s_ic`) — the AM2-style simplification already used
+    for `alkalinity` itself, since VFA- and NH4+ dominate the rest of the
+    charge balance and are tracked separately. CO2(aq) is the remainder of
+    `s_ic`; pH follows from Henderson-Hasselbalch on their ratio.
     """
-    alk_meq = alkalinity / 50.0  # mg CaCO₃/L → meq/L
-    co2_molar = s_co2 / 44.0  # mg/L → mmol/L
-    ratio = alk_meq / (co2_molar + 1e-6)
-    return jnp.clip(6.35 + jnp.log10(ratio + 1e-6), 5.0, 9.0)
+    hco3_as_co2 = (alkalinity / 50.0) * 44.0  # mg CaCO3/L -> meq/L -> mg/L as CO2
+    co2aq = jnp.maximum(s_ic - hco3_as_co2, 1e-3)
+    ratio = hco3_as_co2 / co2aq
+    ph = jnp.clip(_pka1_co2(t_celsius) + jnp.log10(ratio + 1e-6), 5.0, 9.0)
+    return co2aq, ph
 
 
 def _temp_correction(rate: float, theta: float, t: jax.Array, t_ref: float):
@@ -207,7 +268,7 @@ def reset(
         x_inert=jnp.array(0.0),
         s_vfa=jnp.array(200.0),  # moderate VFA
         s_ch4=jnp.array(50.0),  # near saturation
-        s_co2=jnp.array(500.0),  # typical
+        s_ic=jnp.array(params.ic_init),
         s_in=jnp.array(800.0),  # ammonia from protein
         alkalinity=jnp.array(params.alkalinity_init),
         q_gas=jnp.array(1000.0),  # typical biogas
@@ -248,10 +309,10 @@ def step(
     ch4_frac = state.gas_ch4_frac
     ch4_transferred_total = jnp.zeros_like(dt)
     co2_transferred_total = jnp.zeros_like(dt)
-    ph = _estimate_ph(state.s_co2, state.alkalinity)
+    _, ph = _speciate_inorganic_carbon(state.s_ic, state.alkalinity, temperature)
 
     for _ in range(_N_SUBSTEPS):
-        ph = _estimate_ph(s.s_co2, s.alkalinity)
+        _, ph = _speciate_inorganic_carbon(s.s_ic, s.alkalinity, temperature)
         i_ph = _ph_inhibition(ph, params.ph_ll, params.ph_ul)
 
         # 1. Hydrolysis: X_sub -> S_VFA + X_inert + S_IN
@@ -270,9 +331,10 @@ def step(
         # COD balance: y_bio of consumed COD becomes biomass, the
         # COD-conserving remainder becomes CH4 (CO2 carries no COD).
         d_s_ch4_met = r_vfa_consumed * (1.0 - params.y_bio)
-        # Carbon stoichiometry (independent of the COD split above):
-        # CH3COO- + H2O -> CH4 + HCO3-, i.e. 1 mol CO2 per 64 g-COD acetate.
-        d_s_co2_met = r_vfa_consumed * (44.0 / 64.0)
+        # Buswell substrate stoichiometry (independent of the COD split
+        # above — see ADM1Params.co2_ch4_molar_ratio): CO2 production
+        # scales with CH4 production at the substrate's CO2:CH4 molar ratio.
+        d_s_ic_met = d_s_ch4_met * params.co2_ch4_molar_ratio * (44.0 / 64.0)
 
         # 3. Biomass decay: X_bio -> X_sub
         r_dec = k_dec * s.x_biomass
@@ -284,7 +346,7 @@ def step(
         d_x_inert_dil = -dilution * s.x_inert
         d_s_vfa_dil = -dilution * s.s_vfa
         d_s_ch4_dil = -dilution * s.s_ch4
-        d_s_co2_dil = -dilution * s.s_co2
+        d_s_ic_dil = -dilution * s.s_ic
         d_s_in_dil = -dilution * s.s_in
         d_x_bio_dil = -dilution * s.x_biomass
         d_alk_dil = -dilution * s.alkalinity
@@ -309,19 +371,27 @@ def step(
         )
 
         # 6. Gas transfer: dissolved -> gas phase, at Henry's-law equilibrium.
-        # p_ch4/p_co2 use the fixed nominal split (see ADM1Params.p_ch4_typical),
-        # not the still-settling `ch4_frac` below — see that field's docstring.
+        # Only CO2(aq) (not HCO3-, which stays in solution as part of
+        # alkalinity) is subject to Henry's law, so the S_IC equilibrium
+        # target is offset by the bicarbonate pool implied by `new_alk` —
+        # this is the mechanism by which CO2 produced by fermentation is
+        # retained in solution (as HCO3-, or exported with the effluent)
+        # rather than vented, raising the gas-phase CH4 fraction above the
+        # raw Buswell production ratio. p_ch4/p_co2 use the fixed nominal
+        # split (see ADM1Params.p_ch4_typical), not the still-settling
+        # `ch4_frac` below — see that field's docstring.
+        hco3_as_co2 = (new_alk / 50.0) * 44.0  # mg CaCO3/L -> meq/L -> mg/L as CO2
         s_ch4_eq = kh_ch4 * params.p_ch4_typical * 64000.0  # mol/L -> mg-COD/L (64 g-COD/mol CH4)
-        s_co2_eq = kh_co2 * (1.0 - params.p_ch4_typical) * 44000.0  # mol/L -> mg/L (44 g/mol CO2)
+        s_ic_eq = hco3_as_co2 + kh_co2 * (1.0 - params.p_ch4_typical) * 44000.0  # mg/L as CO2
 
         new_s_ch4, transferred_ch4 = _relax_to_gas_equilibrium(
             s.s_ch4, d_s_ch4_met + d_s_ch4_dil, params.kla_ch4, s_ch4_eq, sub_dt
         )
-        new_s_co2, transferred_co2 = _relax_to_gas_equilibrium(
-            s.s_co2, d_s_co2_met + d_s_co2_dil, params.kla_co2, s_co2_eq, sub_dt
+        new_s_ic, transferred_co2 = _relax_to_gas_equilibrium(
+            s.s_ic, d_s_ic_met + d_s_ic_dil, params.kla_co2, s_ic_eq, sub_dt
         )
         new_s_ch4 = jnp.maximum(0.0, new_s_ch4)
-        new_s_co2 = jnp.maximum(0.0, new_s_co2)
+        new_s_ic = jnp.maximum(params.min_ic, new_s_ic)
         transferred_ch4 = jnp.maximum(0.0, transferred_ch4)
         transferred_co2 = jnp.maximum(0.0, transferred_co2)
 
@@ -339,7 +409,7 @@ def step(
             x_inert=new_x_inert,
             s_vfa=new_s_vfa,
             s_ch4=new_s_ch4,
-            s_co2=new_s_co2,
+            s_ic=new_s_ic,
             s_in=new_s_in,
             alkalinity=new_alk,
             q_gas=s.q_gas,
@@ -358,7 +428,7 @@ def step(
         x_inert=s.x_inert,
         s_vfa=s.s_vfa,
         s_ch4=s.s_ch4,
-        s_co2=s.s_co2,
+        s_ic=s.s_ic,
         s_in=s.s_in,
         alkalinity=s.alkalinity,
         q_gas=q_biogas,
