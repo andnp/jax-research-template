@@ -402,6 +402,9 @@ def bakeoff_report(
             higher_is_better=higher_is_better,
             verbose=False,
             confidence_level=spec.confidence_level,
+            n_resamples=spec.n_resamples,
+            min_samples=spec.min_samples,
+            random_seed=spec.random_seed,
             measure=measure,
         )
         block_champions = {key[0]: report for key, report in raw_champions.items() if key[0] in conditions}
