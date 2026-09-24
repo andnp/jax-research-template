@@ -996,6 +996,20 @@ class TestBakeoffCells:
         assert cell.confidence == pytest.approx(0.95)
         assert cell.ci is not None and 1.0 <= cell.ci[0] <= cell.ci[1] <= 8.0
 
+    def test_a_single_run_cell_has_no_interval_or_spread(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """One run cannot support a CI or SD, so both are absent rather than zero."""
+        setup = temp_experiment_setup
+        for condition, seeds in (("a", range(3)), ("b", range(3)), ("c", range(1))):
+            for seed in seeds:
+                _add_observation(setup, {"condition_name": condition, "env_name": "e"}, seed, float(seed))
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+        )
+
+        cell = report.cells["c"][""]
+        assert (cell.n, cell.ci, cell.sd) == (1, None, None)
+
     def test_cells_report_a_tolerance_interval_only_with_enough_runs(
         self, temp_experiment_setup: ExperimentSetup
     ) -> None:

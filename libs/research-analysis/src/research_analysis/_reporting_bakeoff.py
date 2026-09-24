@@ -28,7 +28,6 @@ from research_analysis._reporting_warnings import (
 )
 from research_analysis.aggregates import (
     ReferenceRange,
-    interquartile_mean,
     normalize_scores,
 )
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
@@ -88,9 +87,6 @@ def _load_bakeoff_data(
 @dataclass(frozen=True)
 class _BakeoffStatistics:
     normalized_scores: dict[str, dict[str, float]]
-    dispersion: dict[str, float]
-    lower_tail: dict[str, float]
-    supplementary_iqm: dict[str, float]
     omnibus_details: StatisticalTestDetails
     posthoc_matrix: dict[str, dict[str, float | None]]
     difference_estimate: dict[str, dict[str, float | None]]
@@ -242,9 +238,6 @@ def _compute_bakeoff_statistics(
         difference_ci[condition_a][condition_b] = (ci_low, ci_high)
         difference_ci[condition_b][condition_a] = (-ci_high, -ci_low)
 
-    dispersions: dict[str, float] = {}
-    lower_tails: dict[str, float] = {}
-    iqms: dict[str, float] = {}
     score_curves = {}
     for condition in conditions:
         all_vals = []
@@ -254,15 +247,9 @@ def _compute_bakeoff_statistics(
             sorted_vals = sorted(all_vals)
             proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
             score_curves[condition] = (sorted_vals, proportions)
-            dispersions[condition] = float(np.std(all_vals, ddof=1)) if len(all_vals) > 1 else 0.0
-            lower_tails[condition] = float(np.quantile(all_vals, 0.1))
-            iqms[condition] = interquartile_mean(np.array(all_vals))
 
     return _BakeoffStatistics(
         normalized_scores=normalized_means,
-        dispersion=dispersions,
-        lower_tail=lower_tails,
-        supplementary_iqm=iqms,
         omnibus_details=StatisticalTestDetails(
             test_name="Block-stratified permutation omnibus test",
             statistic=block_result.statistic,
@@ -513,9 +500,6 @@ def bakeoff_report(
             algorithms=conditions,
             environments=[_block_label(block_key) for block_key in block_keys],
             normalized_scores=comparison_statistics.normalized_scores,
-            dispersion=comparison_statistics.dispersion,
-            lower_tail=comparison_statistics.lower_tail,
-            supplementary_iqm=comparison_statistics.supplementary_iqm,
             omnibus_details=comparison_statistics.omnibus_details,
             posthoc_matrix=comparison_statistics.posthoc_matrix,
             difference_estimate=comparison_statistics.difference_estimate,
