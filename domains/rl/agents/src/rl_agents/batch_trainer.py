@@ -177,15 +177,11 @@ def extract_actor_params(state: object) -> dict[str, object]:
     if not isinstance(state, _FinalState):
         raise TypeError(f"expected a final state with an actor state, got {type(state).__name__}")
     agent_state = state.agent_state
-    if isinstance(agent_state, _ActorStateAgent):
-        actor_state = agent_state.actor_state
-    elif isinstance(agent_state, _AlgorithmStateActorStateAgent) and isinstance(
+    if not isinstance(agent_state, _AlgorithmStateActorStateAgent) or not isinstance(
         agent_state.algorithm_state, _ActorStateAgent
     ):
-        actor_state = agent_state.algorithm_state.actor_state
-    else:
         raise TypeError(f"expected a final state with an actor state, got {type(state).__name__}")
-    return {"final_policy_params": actor_state.params}
+    return {"final_policy_params": agent_state.algorithm_state.actor_state.params}
 
 
 def _algorithm_metadata(agent_cls: type, config_cls: type, hypers_cls: type) -> _AlgorithmMetadata:

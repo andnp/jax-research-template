@@ -36,6 +36,7 @@ it in.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import partial
 from typing import NamedTuple, cast
 
@@ -50,11 +51,12 @@ from jax_utils.pytree import tree_norm
 from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_components.continuous_actions import continuous_action_dim
 from rl_components.distributions import TanhNormalDiag
 from rl_components.env_protocol import EnvSpec
 from rl_components.losses import qrc_terms
 from rl_components.optim import with_hyperparams
+from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -542,33 +544,11 @@ def _networks(action_dim: int, hidden_size: int) -> tuple[GACActor, GACCritic]:
 
 
 @chex_struct(frozen=True)
-class GACAgentState:
-    """Everything :class:`GACAgent` carries between loop iterations.
-
-    There is no target-network field: GAC bootstraps from the online critic, whose
-    ``h``-head supplies the QRC correction instead. ``GACConfig.TAU`` describes a Polyak
-    coefficient this agent never reads.
-
-    Attributes:
-        actor_state: Percentile-actor parameters, optimizer state and the static
-            ``apply_fn``.
-        critic_state: QRC critic parameters, optimizer state and its ``apply_fn``.
-        buffer_state: Replay contents, and the only record of the buffer's geometry.
-        last_obs: Observation the pending transition started from. Zero-primed at
-            ``init``; never read before the first insertion, which is guarded on
-            ``step_index > 0``.
-        last_action: Action that opened the pending transition, zero-primed likewise. Its
-            shape is also where ``step`` recovers the action dimension.
-        key: PRNG key for sampling minibatches, proposals, actions and exploration.
-        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
-    """
+class GACAlgorithmState:
+    """GAC learner state carried by the shared replay-agent wrapper."""
 
     actor_state: TrainState
     critic_state: TrainState
-    buffer_state: ReplayBufferState
-    last_obs: jax.Array
-    last_action: jax.Array
-    key: chex.PRNGKey
     hypers: GACHypers
 
 
@@ -592,7 +572,7 @@ class GACAgent:
         """
         self.config = config
 
-    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> GACAgentState:
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> ReplayAgentState[GACAlgorithmState, ReplayBufferState]:
         """Build networks, optimizers, replay buffer and the zero-primed pending slots.
 
         Args:
@@ -624,40 +604,41 @@ class GACAgent:
             obs_dtype=observation_dtype,
         )
 
-        return GACAgentState(
-            actor_state=TrainState.create(
-                apply_fn=actor.apply,
-                params=actor.init(actor_key, zero_obs),
-                tx=optax.chain(
-                    optax.clip_by_global_norm(1.0),
-                    optax.inject_hyperparams(optax.adamw)(
-                        learning_rate=jnp.asarray(self.config.ACTOR_LEARNING_RATE, jnp.float32), weight_decay=0.1
+        return init_replay_agent_state(
+            GACAlgorithmState(
+                actor_state=TrainState.create(
+                    apply_fn=actor.apply,
+                    params=actor.init(actor_key, zero_obs),
+                    tx=optax.chain(
+                        optax.clip_by_global_norm(1.0),
+                        optax.inject_hyperparams(optax.adamw)(
+                            learning_rate=jnp.asarray(self.config.ACTOR_LEARNING_RATE, jnp.float32), weight_decay=0.1
+                        ),
                     ),
                 ),
-            ),
-            critic_state=TrainState.create(
-                apply_fn=critic.apply,
-                params=critic.init(critic_key, zero_obs, zero_action),
-                tx=optax.chain(
-                    optax.clip_by_global_norm(1.0),
-                    optax.inject_hyperparams(optax.adamw)(
-                        learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32), weight_decay=0.1
+                critic_state=TrainState.create(
+                    apply_fn=critic.apply,
+                    params=critic.init(critic_key, zero_obs, zero_action),
+                    tx=optax.chain(
+                        optax.clip_by_global_norm(1.0),
+                        optax.inject_hyperparams(optax.adamw)(
+                            learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32), weight_decay=0.1
+                        ),
                     ),
                 ),
+                hypers=gac_hypers(self.config),
             ),
-            buffer_state=buffer.init(),
-            last_obs=zero_obs,
-            last_action=zero_action,
-            key=carry_key,
-            hypers=gac_hypers(self.config),
+            buffer.init(),
+            carry_key,
+            spec,
         )
 
     def step(
         self,
-        state: GACAgentState,
+        state: ReplayAgentState[GACAlgorithmState, ReplayBufferState],
         timestep: Timestep[jax.Array],
         step_index: jax.Array,
-    ) -> AgentStep[GACAgentState, jax.Array]:
+    ) -> AgentStep[ReplayAgentState[GACAlgorithmState, ReplayBufferState], jax.Array]:
         """Close the pending transition, learn from replay, then act.
 
         The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
@@ -677,91 +658,87 @@ class GACAgent:
             returned to ``lax.scan`` is identical on every iteration. The gradient norms
             are worth reporting here because both optimizers clip at a global norm of 1.
         """
-        config = self.config
         action_dim = state.last_action.shape[0]
-        actor, _ = _networks(action_dim, config.HIDDEN_SIZE)
-        buffer = ReplayBuffer.from_state(state.buffer_state)
+        actor, _ = _networks(action_dim, self.config.HIDDEN_SIZE)
+        buffer = ReplayBuffer.from_state(state.replay_state)
         carry_key, learn_key, action_key = jax.random.split(state.key, 3)
 
-        buffer_state = jax.lax.cond(
-            step_index > 0,
-            lambda: buffer.add(
-                state.buffer_state,
-                state.last_obs[None, ...],
-                state.last_action[None, ...],
-                timestep.reward[None, ...],
-                timestep.bootstrap_observation[None, ...],
-                timestep.discount[None, ...],
-            ),
-            lambda: state.buffer_state,
-        )
+        def close_transition(
+            replay_state: ReplayBufferState,
+            last_obs: jax.Array,
+            last_action: jax.Array,
+            current_timestep: Timestep[jax.Array],
+        ) -> ReplayBufferState:
+            return buffer.add(
+                replay_state,
+                last_obs[None, ...],
+                last_action[None, ...],
+                current_timestep.reward[None, ...],
+                current_timestep.bootstrap_observation[None, ...],
+                current_timestep.discount[None, ...],
+            )
 
-        hypers = state.hypers
-        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
-        actor_state, critic_state, metrics = jax.lax.cond(
-            can_train,
-            lambda: self._learn(state, buffer_state, buffer, learn_key),
-            lambda: (
-                state.actor_state,
-                state.critic_state,
-                {
-                    "critic_loss": jnp.zeros((), jnp.float32),
-                    "actor_loss": jnp.zeros((), jnp.float32),
-                    "critic_grad_norm": jnp.zeros((), jnp.float32),
-                    "actor_grad_norm": jnp.zeros((), jnp.float32),
-                },
-            ),
-        )
+        def learn(
+            learner_state: GACAlgorithmState,
+            replay_state: ReplayBufferState,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[GACAlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
+            return self._learn(learner_state, replay_state, buffer, keys[0], action_dim)
 
-        action = jax.lax.cond(
-            step_index < hypers.LEARNING_STARTS,
-            lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
-            lambda: actor_sample(
+        def select_action(
+            learner_state: GACAlgorithmState,
+            observation: jax.Array,
+            _step_index: jax.Array,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[jax.Array, dict[str, jax.Array]]:
+            action = actor_sample(
                 actor,
-                actor_state.params,
-                timestep.observation,
-                action_key,
-                hypers.INFERENCE_SIGMA_MIN,
+                learner_state.actor_state.params,
+                observation,
+                keys[0],
+                learner_state.hypers.INFERENCE_SIGMA_MIN,
                 n=1,
-            )[0][0].astype(state.last_action.dtype),
-        )
+            )[0][0].astype(state.last_action.dtype)
+            return action, {}
 
-        return AgentStep(
-            state=GACAgentState(
-                actor_state=actor_state,
-                critic_state=critic_state,
-                buffer_state=buffer_state,
-                last_obs=timestep.observation,
-                last_action=action,
-                key=carry_key,
-                hypers=hypers,
-            ),
-            action=action,
-            metrics=metrics,
+        hypers = state.algorithm_state.hypers
+        return replay_agent_step(
+            state,
+            timestep,
+            step_index,
+            carry_key=carry_key,
+            learn_keys=(learn_key,),
+            action_keys=(action_key,),
+            learning_starts=hypers.LEARNING_STARTS,
+            train_frequency=hypers.TRAIN_FREQUENCY,
+            warmup_steps=hypers.LEARNING_STARTS,
+            close_transition=close_transition,
+            learn=learn,
+            select_action=select_action,
         )
 
     def _learn(
         self,
-        state: GACAgentState,
-        buffer_state: ReplayBufferState,
+        learner_state: GACAlgorithmState,
+        replay_state: ReplayBufferState,
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
-    ) -> tuple[TrainState, TrainState, dict[str, jax.Array]]:
+        action_dim: int,
+    ) -> tuple[GACAlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
         """Take one critic and one actor gradient step on a replay minibatch.
 
         The actor's targets are re-proposed against the critic that has just moved, which
         is what makes this a policy-improvement step rather than a fit to a stale ranking.
         """
         config = self.config
-        hypers = state.hypers
-        action_dim = state.last_action.shape[0]
+        hypers = learner_state.hypers
         actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
         sample_key, next_key, proposal_key = jax.random.split(key, 3)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, sample_key, config.BATCH_SIZE)
 
         next_actions = _select_best_next_action(
-            state.critic_state.params,
-            state.actor_state.params,
+            learner_state.critic_state.params,
+            learner_state.actor_state.params,
             next_obs,
             jax.random.split(next_key, config.BATCH_SIZE),
             config.NUM_RAND_ACTIONS,
@@ -771,7 +748,7 @@ class GACAgent:
             actor=actor,
         )
 
-        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
+        critic_state = with_hyperparams(learner_state.critic_state, learning_rate=hypers.LEARNING_RATE)
 
         def _critic_loss_fn(params: VariableDict) -> jax.Array:
             loss, _ = gac_critic_loss(
@@ -792,7 +769,7 @@ class GACAgent:
 
         top_actions_batch = _propose_and_rank_topk(
             critic_state.params,
-            state.actor_state.params,
+            learner_state.actor_state.params,
             obs,
             jax.random.split(proposal_key, config.BATCH_SIZE),
             config.NUM_SAMPLES,
@@ -804,7 +781,7 @@ class GACAgent:
             actor=actor,
         )
 
-        actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.ACTOR_LEARNING_RATE)
+        actor_state = with_hyperparams(learner_state.actor_state, learning_rate=hypers.ACTOR_LEARNING_RATE)
 
         def actor_loss_fn(params: VariableDict) -> jax.Array:
             return gac_actor_loss(
@@ -819,13 +796,9 @@ class GACAgent:
         actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
-        return (
-            actor_state,
-            critic_state,
-            {
-                "critic_loss": critic_loss.astype(jnp.float32),
-                "actor_loss": actor_loss.astype(jnp.float32),
-                "critic_grad_norm": tree_norm(critic_grads).astype(jnp.float32),
-                "actor_grad_norm": tree_norm(actor_grads).astype(jnp.float32),
-            },
-        )
+        return replace(learner_state, actor_state=actor_state, critic_state=critic_state), replay_state, {
+            "critic_loss": critic_loss.astype(jnp.float32),
+            "actor_loss": actor_loss.astype(jnp.float32),
+            "critic_grad_norm": tree_norm(critic_grads).astype(jnp.float32),
+            "actor_grad_norm": tree_norm(actor_grads).astype(jnp.float32),
+        }
