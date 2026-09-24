@@ -6,7 +6,7 @@ quality against sludge inventory management.
 Action (1D): normalised waste sludge rate [Q_w / Q_w_max]
 Observation (5D):
   effluent TSS / 100
-  underflow TSS / 10000
+  underflow TSS / 60000
   sludge inventory / max_inventory
   flow / mean_flow
   dQ/dt
@@ -153,7 +153,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         obs = jnp.array(
             [
                 config.tss_mean * (1.0 - eta_mean) / 100.0,
-                config.clarifier.min_underflow_tss / 10000.0,
+                config.clarifier.min_underflow_tss / config.clarifier.max_underflow_tss,
                 0.3,
                 1.0,
                 0.0,
@@ -199,7 +199,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         obs = jnp.array(
             [
                 sensed_eff / 100.0,
-                sensed_und / 10000.0,
+                sensed_und / config.clarifier.max_underflow_tss,
                 new_clar.sludge_mass / inv_max,
                 flow / q_mean,
                 dq,

@@ -30,8 +30,12 @@ class PrimaryClarifierParams:
     depth: float = 3.0  # settler depth (m)
     a_settle: float = 0.0075  # Crites & Tchobanoglous TSS removal constant (h)
     b_settle: float = 0.014  # Crites & Tchobanoglous TSS removal constant (h)
-    max_sludge_mass: float = 5e6  # kg — capacity limit (triggers overflow)
-    min_underflow_tss: float = 5000.0  # g/m³ minimum underflow concentration
+    max_sludge_mass: float = 5e6  # g — capacity limit (triggers overflow)
+    # Primary sludge is typically 2-6% total solids (Metcalf & Eddy,
+    # Wastewater Engineering: Treatment and Resource Recovery); 5000 g/m³
+    # (0.5%) was below that whole range.
+    min_underflow_tss: float = 20000.0  # g/m³ minimum underflow concentration (2% TS)
+    max_underflow_tss: float = 60000.0  # g/m³ maximum underflow concentration (6% TS)
 
 
 @jax_dataclass
@@ -75,9 +79,10 @@ def step(
     # manufacture mass; overflow beyond capacity stays in the mass balance
     # by being routed into the effluent instead of deleted.
     mass_in = tss_removed * q_feed * dt  # g deposited
-    underflow_tss = jnp.maximum(
+    underflow_tss = jnp.clip(
         state.sludge_mass / (params.area * params.depth) * 2.0,
         params.min_underflow_tss,
+        params.max_underflow_tss,
     )
     available_mass = state.sludge_mass + mass_in
     mass_out = jnp.minimum(underflow_tss * q_waste * dt, available_mass)
