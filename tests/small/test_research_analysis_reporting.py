@@ -301,7 +301,7 @@ def test_slice_hypers_plots_selection_corrected_best_values(temp_experiment_setu
         for eta in (1, 2):
             for seed in range(5):
                 metadata: dict[str, ParameterValue] = {"condition_name": "baseline", "learning_rate": learning_rate, "eta": eta}
-                _add_observation(setup, metadata, seed, float(noise.normal()))
+                _add_observation(setup, metadata, seed, noise.normal())
     dataset = _load(
         setup,
         ExperimentDimensions(
