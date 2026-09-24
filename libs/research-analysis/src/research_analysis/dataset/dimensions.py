@@ -76,7 +76,7 @@ def _resolve_axis_value(
         if missing:
             return UnresolvedDimension(f"sweep axis {axis.name!r} applicability keys {missing} are missing")
 
-        if not all(hyperparameters[key] == value for key, value in axis.when.items()):
+        if not all(hyperparameters[key] in values for key, values in axis.when.items()):
             return _ResolvedAxisValue(None)
 
     if axis.name not in hyperparameters:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import TypedDict
@@ -514,7 +515,7 @@ def test_missing_applicable_sweep_axis_fails_loading(tmp_path: Path) -> None:
             "required-axis-test",
             dimensions=ExperimentDimensions(
                 sweep_axes=(
-                    SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": "baseline"}),
+                    SweepAxis("learning_rate", SweepValueType.FLOAT, when={"condition_name": ("baseline",)}),
                 ),
             ),
         )
@@ -550,7 +551,7 @@ def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path
         dimensions=ExperimentDimensions(
             sweep_axes=(
                 SweepAxis("lr", SweepValueType.FLOAT),
-                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
+                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial",)}),
             ),
         ),
     )
@@ -565,7 +566,7 @@ def test_inapplicable_sweep_axis_is_nullable_instead_of_excluding(tmp_path: Path
         dimensions=ExperimentDimensions(
             sweep_axes=(
                 SweepAxis("lr", SweepValueType.FLOAT),
-                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
+                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial",)}),
             ),
         ),
         cohort=CohortSelection(condition_name="shared"),
@@ -599,7 +600,7 @@ def test_inapplicable_sweep_axis_with_value_is_ignored(tmp_path: Path) -> None:
         "invalid-conditional-axis-test",
         dimensions=ExperimentDimensions(
             sweep_axes=(
-                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": "adversarial"}),
+                SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial",)}),
             ),
         ),
     )
@@ -618,9 +619,24 @@ def test_missing_applicability_key_fails_loading(tmp_path: Path) -> None:
             fixture["db_path"],
             "dataset-test",
             dimensions=ExperimentDimensions(
-                sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": "value"}),),
+                sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT, when={"unknown": ("value",)}),),
             ),
         )
+
+
+class TestAxisApplicability:
+    @pytest.mark.parametrize("values", [(), ("gi_qrc", "gi_qrc")], ids=["empty", "repeated"])
+    def test_rejects_an_empty_or_repeated_value_list(self, values: tuple[str, ...]) -> None:
+        """An empty list would silently never apply the axis; a repeat is a typo in the declaration."""
+        with pytest.raises(ValueError, match="non-empty tuple of distinct values"):
+            SweepAxis("num_heads", SweepValueType.INTEGER, when={"algorithm": values})
+
+    def test_rejects_a_bare_value_from_an_untyped_caller(self) -> None:
+        """A bare string would otherwise match every arm whose name contains it."""
+        untyped_when = json.loads('{"algorithm": "gi_qrc"}')
+
+        with pytest.raises(ValueError, match="non-empty tuple of distinct values"):
+            SweepAxis("num_heads", SweepValueType.INTEGER, when=untyped_when)
 
 
 def test_latest_completed_rejects_cells_orphaned_by_a_partial_rerun(tmp_path: Path) -> None:

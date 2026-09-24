@@ -27,12 +27,21 @@ class SweepValueType(StrEnum):
 class SweepAxis:
     """A typed hyperparameter axis declared by an experiment.
 
-    ``when`` identifies the source hyperparameter values for which the axis applies.
+    ``when`` maps source hyperparameters to the values under which the axis applies: it applies
+    to a run whose value for every key is one of that key's listed values, and is null elsewhere.
     """
 
     name: str
     value_type: SweepValueType
-    when: Mapping[str, SweepValue] | None = None
+    when: Mapping[str, tuple[SweepValue, ...]] | None = None
+
+    def __post_init__(self) -> None:
+        for key, values in (self.when or {}).items():
+            if not isinstance(values, tuple) or not values or len(set(values)) < len(values):
+                raise ValueError(
+                    f"sweep axis {self.name!r}: when[{key!r}] must be a non-empty tuple of distinct values, "
+                    f"e.g. ('adversarial',), got {values!r}"
+                )
 
 
 @dataclass(frozen=True)
