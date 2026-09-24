@@ -16,6 +16,11 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
+from research_analysis.statistics import (
+    pointwise_tolerance_interval,
+    tolerance_interval_confidence,
+    tolerance_interval_order_indices,
+)
 from scipy import stats
 
 CONFIDENCE = 0.95
@@ -204,3 +209,32 @@ def test_difference_ci_under_covers_catastrophic_runs_at_thirty() -> None:
     coverage = difference_ci_coverage(CATASTROPHIC, 30, replicates, np.random.default_rng(0))
 
     assert coverage < gaussian_percentile_coverage(30) - mc_band(CONFIDENCE, replicates), coverage
+
+
+# ── Distribution-free tolerance intervals (handbook 2.4, Appendix C) ─────────
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, HEAVY_SKEW, BIMODAL, CATASTROPHIC], ids=lambda d: d.name)
+@pytest.mark.parametrize(
+    ("n", "confidence", "proportion"),
+    [(46, 0.95, 0.90), (60, 0.95, 0.90), (100, 0.95, 0.90), (200, 0.95, 0.90), (22, 0.90, 0.80)],
+)
+def test_tolerance_interval_contains_proportion_with_stated_confidence(
+    distribution: RunDistribution, n: int, confidence: float, proportion: float
+) -> None:
+    """A tolerance interval holds at least the proportion of the population with its exact achieved confidence.
+
+    For a continuous distribution the order-statistic interval's confidence is exact and at least nominal,
+    whatever the shape, so the measured rate must match it rather than merely exceed it.
+    """
+    replicates = 20_000
+    runs = distribution.sample(np.random.default_rng(0), (n, replicates))
+
+    interval = pointwise_tolerance_interval(runs, confidence=confidence, coverage=proportion)
+    content = distribution.cdf(np.asarray(interval.ci_high)) - distribution.cdf(np.asarray(interval.ci_low))
+    achieved = float(np.mean(content >= proportion))
+
+    lower, upper = tolerance_interval_order_indices(n, confidence=confidence, coverage=proportion)
+    exact = tolerance_interval_confidence(n, coverage=proportion, rank_span=upper - lower)
+    assert exact >= confidence
+    assert abs(achieved - exact) <= mc_band(exact, replicates), (achieved, exact)
