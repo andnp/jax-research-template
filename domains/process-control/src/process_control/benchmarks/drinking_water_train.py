@@ -142,9 +142,34 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
     dose_max = jnp.array(config.coag_dose_max)
     cl2_max = jnp.array(config.cl2_dose_max)
     flux_max = jnp.array(config.flux_max)
+    raw_tss_per_turbidity = jnp.array(2.5)
+    operating_flux = flux_max * 0.7
     max_tmp = jnp.array(config.membrane.max_tmp)
     mean_flow = jnp.array(config.mean_flow)
     area = jnp.array(config.membrane.area)
+
+    def _observe(
+        raw_turbidity: jax.Array,
+        post_coag_tss: jax.Array,
+        sensed_tmp: jax.Array,
+        q_permeate: jax.Array,
+        sensed_cl2: jax.Array,
+        hours_since_bw: jax.Array,
+        coag_dose: jax.Array,
+        q_in: jax.Array,
+    ):
+        return jnp.array(
+            [
+                raw_turbidity / 50.0,
+                post_coag_tss / 100.0,
+                sensed_tmp / max_tmp,
+                q_permeate / (flux_max * area),
+                sensed_cl2 / 5.0,
+                hours_since_bw,
+                coag_dose / dose_max,
+                q_in / mean_flow,
+            ]
+        )
 
     def reset(rng_key: jax.Array):
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
@@ -157,11 +182,22 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             turbidity_drift=jnp.array(0.0),
             membrane_state=mem,
             cl2_residual=initial_cl2_residual,
-            tmp_sensor=analyzer_reset(k3, compute_tmp(flux_max * 0.7, mem, config.membrane)),
+            tmp_sensor=analyzer_reset(k3, compute_tmp(operating_flux, mem, config.membrane)),
             cl2_sensor=analyzer_reset(k4, initial_cl2_residual),
             last_q_in=jnp.array(config.mean_flow),
         )
-        obs = jnp.zeros(8)
+        raw_turbidity = jnp.array(source_params.base_turbidity)
+        post_coag_tss, _ = coagulate(raw_turbidity * raw_tss_per_turbidity, raw_turbidity, jnp.array(0.0), config.coag)
+        obs = _observe(
+            raw_turbidity,
+            post_coag_tss,
+            state.tmp_sensor.held_value,
+            operating_flux * area,
+            state.cl2_sensor.held_value,
+            mem.hours_since_bw,
+            jnp.array(0.0),
+            mean_flow,
+        )
         return state, obs
 
     def step(state: DrinkingWaterTrainState, action: jax.Array, rng_key: jax.Array):
@@ -188,11 +224,11 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         # 3. Coagulation stage
         coag_dose = jnp.clip(action[0], 0.0, 1.0) * dose_max
         # Approximate TSS from turbidity (rough NTU → mg/L)
-        raw_tss = raw_turbidity * 2.5
+        raw_tss = raw_turbidity * raw_tss_per_turbidity
         post_coag_tss, coag_eta = coagulate(raw_tss, raw_turbidity, coag_dose, config.coag)
 
         # 4. Membrane filtration
-        flux = flux_max * 0.7  # fixed operating flux (could be action)
+        flux = operating_flux  # fixed operating flux (could be action)
         do_backwash = action[1]
         # Air scour at constant 50% (could be action)
         air_scour = jnp.array(0.5)
@@ -223,18 +259,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         new_cl2_sensor, sensed_cl2 = analyzer_step(state.cl2_sensor, new_cl2_residual, cl2_analyzer, k4)
 
         # 7. Observation
-        obs = jnp.array(
-            [
-                raw_turbidity / 50.0,
-                post_coag_tss / 100.0,
-                sensed_tmp / max_tmp,
-                q_permeate / (flux_max * area),
-                sensed_cl2 / 5.0,
-                new_mem.hours_since_bw,
-                coag_dose / dose_max,
-                q_in / mean_flow,
-            ]
-        )
+        obs = _observe(raw_turbidity, post_coag_tss, sensed_tmp, q_permeate, sensed_cl2, new_mem.hours_since_bw, coag_dose, q_in)
 
         # 8. Reward
         cl2_low = jnp.maximum(config.cl2_target - sensed_cl2, 0.0)
