@@ -45,10 +45,12 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
+from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.exploration import linear_epsilon_schedule
+from rl_components.losses import qrc_terms
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -216,15 +218,7 @@ def qrc_loss(
     responsible for divergence under off-policy bootstrapping (e.g. DQN).
     """
     v_next = expected_action_value(q_next, epsilon)
-    target = jax.lax.stop_gradient(reward + gamma * v_next)
-
-    delta = target - q[action]
-    delta_hat = h[action]
-
-    v_loss = 0.5 * delta**2 + gamma * jax.lax.stop_gradient(delta_hat) * v_next
-    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - delta_hat) ** 2
-
-    return v_loss, h_loss, delta
+    return qrc_terms(q[action], h[action], reward, gamma, v_next)
 
 
 def qrc_loss_batch(
@@ -269,8 +263,7 @@ def qrc_loss_batch(
 
     loss = jnp.mean(v_loss) + jnp.mean(h_loss)
     if h_regularization == "l2":
-        h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
-        loss = loss + beta * h_reg
+        loss = loss + beta * l2_regularizer(params, "h_head")
     return loss
 
 
@@ -498,4 +491,3 @@ class QRCAgent:
 
         loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
-
