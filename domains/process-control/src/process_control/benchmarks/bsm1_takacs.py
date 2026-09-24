@@ -246,6 +246,40 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
     eff_tss_limit = jnp.array(config.eff_tss_limit)
     blanket_alarm = jnp.array(config.blanket_alarm)
 
+    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
+        return (kla_34 * (c.v3 + c.v4) + kla_5 * c.v5) / power_max
+
+    def _observe(
+        nh4e: jax.Array,
+        no3e: jax.Array,
+        do3: jax.Array,
+        do5: jax.Array,
+        no3r2: jax.Array,
+        q_in: jax.Array,
+        nh4i: jax.Array,
+        aeration_power: jax.Array,
+        dq: jax.Array,
+        bl: jax.Array,
+        etss: jax.Array,
+        utss: jax.Array,
+    ):
+        return jnp.array(
+            [
+                nh4e / 35.0,
+                no3e / 20.0,
+                do3 / 8.0,
+                do5 / 8.0,
+                no3r2 / 20.0,
+                q_in / mean_flow,
+                nh4i / 35.0,
+                aeration_power,
+                dq,
+                bl / settler_depth,
+                etss / 100.0,
+                utss / 10000.0,
+            ]
+        )
+
     def reset(rng_key: jax.Array):
         k1, k2, k3, k4, k5, k6 = jax.random.split(rng_key, 6)
 
@@ -290,7 +324,20 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
             waste_pump=waste,
             sensors=sensors,
         )
-        obs = jnp.zeros(12)
+        obs = _observe(
+            sensors.nh4_eff.held_value,
+            sensors.no3_eff.held_value,
+            kla34_loop.sensor_value,
+            kla5_loop.sensor_value,
+            sensors.no3_r2.held_value,
+            mean_flow,
+            sensors.nh4_inf.held_value,
+            _aeration_power(kla34_loop.pump_output, kla5_loop.pump_output),
+            jnp.array(0.0),
+            sensors.blanket.held_value,
+            sensors.eff_tss.held_value,
+            sensors.und_tss.held_value,
+        )
         return state, obs
 
     def step(state: BSM1TakacsPlantState, action: jax.Array, rng_key: jax.Array):
@@ -373,25 +420,10 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         new_etss, etss_reading = ra_step(state.sensors.eff_tss, eff_tss_val, tss_analyzer, k_etss)
         new_utss, utss_reading = ra_step(state.sensors.und_tss, new_und_tss, tss_analyzer, k_utss)
 
-        aeration_power = (kla_34 * (c.v3 + c.v4) + kla_5 * c.v5) / power_max
+        aeration_power = _aeration_power(kla_34, kla_5)
         dq = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
-        obs = jnp.array(
-            [
-                nh4e / 35.0,
-                no3e / 20.0,
-                do3_reading / 8.0,
-                do5_reading / 8.0,
-                no3r2 / 20.0,
-                q_in / mean_flow,
-                nh4i / 35.0,
-                aeration_power,
-                dq,
-                bl_reading / settler_depth,
-                etss_reading / 100.0,
-                utss_reading / 10000.0,
-            ]
-        )
+        obs = _observe(nh4e, no3e, do3_reading, do5_reading, no3r2, q_in, nh4i, aeration_power, dq, bl_reading, etss_reading, utss_reading)
 
         # Reward: BSM1 N penalty + TSS penalty + blanket alarm
         tss_violation = jnp.maximum(etss_reading - eff_tss_limit, 0.0)
