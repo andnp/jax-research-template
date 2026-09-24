@@ -230,6 +230,60 @@ def test_difference_ci_under_covers_catastrophic_runs_at_thirty() -> None:
     assert coverage < gaussian_percentile_coverage(30) - mc_band(CONFIDENCE, replicates), coverage
 
 
+# ── Expanded percentile interval (Hesterberg 2015, section 5.3) ────────────
+#
+# Measured coverage over 4000 replicates, percentile -> expanded percentile:
+#
+#   CI of          distribution   n=10            n=30
+#   mean           normal         0.904 -> 0.944  0.933 -> 0.950
+#   mean           mild_skew      0.885 -> 0.934  0.938 -> 0.950
+#   mean           bimodal        0.905 -> 0.956  0.935 -> 0.950
+#   mean           heavy_skew     0.839 -> 0.882  0.898 -> 0.913
+#   mean           catastrophic   0.395 -> 0.397  0.781 -> 0.784
+#   paired diff    normal         0.895 -> 0.938  0.931 -> 0.944
+#   paired diff    mild_skew      0.888 -> 0.936  0.934 -> 0.946
+#   paired diff    bimodal        0.888 -> 0.931  0.935 -> 0.947
+#   paired diff    heavy_skew     0.882 -> 0.930  0.926 -> 0.939
+#   paired diff    catastrophic   0.879 -> 0.933  0.891 -> 0.913
+
+
+@pytest.mark.parametrize("coverage_of", [mean_ci_coverage, difference_ci_coverage], ids=["mean", "difference"])
+@pytest.mark.parametrize("distribution", [NORMAL, MILD_SKEW, BIMODAL], ids=lambda d: d.name)
+def test_expanded_percentile_ci_is_closer_to_nominal_at_ten_runs(
+    coverage_of: Callable[..., float], distribution: RunDistribution
+) -> None:
+    """At n=10 the expanded interval recovers most of the percentile interval's shortfall.
+
+    On normal data it matches a t interval, so it is nominal up to the Monte-Carlo band; skew costs
+    it up to 2 points more. Both intervals see the same samples and resamples.
+    """
+    replicates = 4000
+    expanded = coverage_of(distribution, 10, replicates, np.random.default_rng(0), "expanded_percentile")
+    percentile = coverage_of(distribution, 10, replicates, np.random.default_rng(0), "percentile")
+
+    band = mc_band(CONFIDENCE, replicates)
+    assert CONFIDENCE - 0.02 - band <= expanded <= CONFIDENCE + band, expanded
+    assert abs(expanded - CONFIDENCE) < abs(percentile - CONFIDENCE), (expanded, percentile)
+
+
+@pytest.mark.parametrize("n", [10, 30])
+def test_expanded_percentile_ci_still_misses_rare_catastrophes(n: int) -> None:
+    """Widening cannot cover the mean from a sample holding no catastrophe, so coverage stays capped at 1 - 0.95**n."""
+    replicates = 4000
+    coverage = mean_ci_coverage(CATASTROPHIC, n, replicates, np.random.default_rng(0), "expanded_percentile")
+
+    cap = 1.0 - (1.0 - CATASTROPHE_RATE) ** n
+    assert coverage <= cap + mc_band(cap, replicates), coverage
+
+
+def test_expanded_percentile_difference_ci_under_covers_catastrophic_runs_at_thirty() -> None:
+    """Rare catastrophes still cost the expanded paired difference CI coverage at n=30; more runs is the remedy."""
+    replicates = 4000
+    coverage = difference_ci_coverage(CATASTROPHIC, 30, replicates, np.random.default_rng(0), "expanded_percentile")
+
+    assert coverage < CONFIDENCE - mc_band(CONFIDENCE, replicates), coverage
+
+
 # ── Distribution-free tolerance intervals (handbook 2.4, Appendix C) ─────────
 
 
