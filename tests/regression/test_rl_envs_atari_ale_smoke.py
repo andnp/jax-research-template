@@ -108,3 +108,28 @@ def test_episode_ending_step_returns_the_current_ale_screen() -> None:
 
     assert early_offsets, "Breakout did not lose a life on an early frame-skip sub-step"
     assert late_offsets, "Breakout did not lose a life on the final or second-to-last sub-step"
+
+
+def test_losing_a_life_does_not_end_the_atari_episode() -> None:
+    """Life loss continues the ALE episode until Breakout reaches game over."""
+    env = _make_ale_env(AleAtariConfig(game="Breakout"))
+    env.reset(seed=0)
+    previous_lives = env.ale.lives()
+    observed_life_loss = False
+    reached_game_over = False
+    action_key = np.random.default_rng(1)
+
+    for _ in range(10_000):
+        _, _, terminated, truncated, _ = env.step(int(action_key.integers(4)))
+        lives = env.ale.lives()
+        if lives < previous_lives:
+            observed_life_loss |= not terminated and not truncated
+        if terminated or truncated:
+            assert terminated
+            assert lives == 0
+            reached_game_over = True
+            break
+        previous_lives = lives
+
+    assert observed_life_loss, "Breakout did not lose a life during the run"
+    assert reached_game_over, "Breakout did not reach game over during the run"
