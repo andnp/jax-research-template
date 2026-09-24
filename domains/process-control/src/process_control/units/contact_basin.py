@@ -13,6 +13,7 @@ class ContactBasinParams:
     total_volume: float
     n_segments: int
     tau: float
+    bulk_decay_rate: float = 0.1
 
 
 @jax_dataclass
@@ -42,11 +43,10 @@ def step(
     turbidity_col = segments[:, 3]
     organics_col = segments[:, 4]
 
-    consumption_params = DemandConsumptionParams(tau=params.tau)
-    new_chlorine, new_demand = compute_consumption(chlorine, demand_col, consumption_params, dt)
+    consumption_params = DemandConsumptionParams(tau=params.tau, bulk_decay_rate=params.bulk_decay_rate)
+    new_chlorine, new_demand, demand_consumed = compute_consumption(chlorine, demand_col, consumption_params, dt)
 
-    consumed = chlorine - new_chlorine
-    ammonia_consumed = jnp.minimum(consumed / 7.6, ammonia_col)
+    ammonia_consumed = jnp.minimum(demand_consumed / 7.6, ammonia_col)
     new_ammonia = jnp.maximum(ammonia_col - ammonia_consumed, 0.0)
 
     segments = jnp.stack([new_chlorine, new_demand, new_ammonia, turbidity_col, organics_col], axis=1)
