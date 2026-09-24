@@ -24,7 +24,7 @@ from research_analysis.dataset.types import (
     SweepValueType,
 )
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
-from research_analysis.performance import TailMean
+from research_analysis.performance import ReturnRate, TailMean
 from research_analysis.plan import (
     AnalysisPlan,
     BakeoffAnalysis,
@@ -358,6 +358,7 @@ class TestReportMarkdown:
                 BestHypersAnalysis("tuned", ("algorithm",)),
                 HypersDifferenceAnalysis("gap", "algorithm", "ppo", "dqn"),
                 SliceHypersAnalysis("sensitivity", "lr"),
+                BakeoffAnalysis("whole_run", ("base", "new"), measure=ReturnRate()),
             ),
             ExperimentDimensions(sweep_axes=(SweepAxis("lr", SweepValueType.FLOAT),)),
             measure=TailMean(0.1),
@@ -380,6 +381,8 @@ class TestReportMarkdown:
             "`tuned`: champion per algorithm",
             "`gap`: champion difference algorithm=ppo minus algorithm=dqn",
             "`sensitivity`: sensitivity to lr per whole grid",
+            "`whole_run`: bakeoff of base, new; pairs: every pair; blocked by: nothing; shared across: nothing; "
+            "champion over: none; untuned: none; min seeds 5; per run: return rate (mean over every logged point)",
         ):
             assert expected in plan_text, expected
 

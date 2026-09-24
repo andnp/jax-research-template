@@ -75,6 +75,12 @@ def _status_section(document: ReportDocument) -> list[str]:
 
 
 def _describe_analysis(analysis: Analysis) -> str:
+    if analysis.measure is None:
+        return _describe_analysis_kind(analysis)
+    return f"{_describe_analysis_kind(analysis)}; per run: {_describe_measure(analysis.measure)}"
+
+
+def _describe_analysis_kind(analysis: Analysis) -> str:
     match analysis:
         case BakeoffAnalysis(name=name, conditions=conditions, pairs=pairs, block_by=block_by):
             planned = "every pair" if pairs is None else ", ".join(f"{a} − {b}" for a, b in pairs)
