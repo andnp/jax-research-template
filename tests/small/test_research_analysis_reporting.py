@@ -884,6 +884,23 @@ class TestUnpairedRunReporting:
 
         assert list(report.unpaired_run_ids) == seed_three_runs
 
+    def test_raw_champion_is_measured_on_the_same_paired_seeds_as_the_correction(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """An unpaired lucky run must not inflate the raw mean, or maximization bias compares two samples."""
+        setup = temp_experiment_setup
+        for learning_rate, value in (("low", 1.0), ("high", 2.0)):
+            for seed in range(3):
+                _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, value)
+        _add_observation(setup, {"condition_name": "baseline", "learning_rate": "low"}, 7, 100.0)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        report = best_hypers(dataset, "metric", verbose=False, n_resamples=64)
+
+        assert report.winning_config == {"learning_rate": "high"}
+        assert report.raw_mean == pytest.approx(2.0)
+        assert report.maximization_bias == pytest.approx(0.0)
+
 
 class TestDeclaredMeasure:
     @staticmethod

@@ -215,20 +215,13 @@ def best_hypers(
     )
 
 
-def _raw_best_config(records: list[dict[str, Any]], free_axes: list[str]) -> tuple[dict[str, Any], float]:
-    """Return the raw-mean-maximizing combination of ``free_axes`` and its own raw mean."""
-    runs_by_config: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    for record in records:
-        key = tuple(record["hypers"][axis] for axis in free_axes)
-        runs_by_config.setdefault(key, []).append(record)
-
-    raw_means = {key: float(np.mean([r["value"] for r in recs])) for key, recs in runs_by_config.items()}
-
-    def raw_mean_of(k: tuple[Any, ...]) -> float:
-        return raw_means[k]
-
-    winning_key = max(raw_means, key=raw_mean_of)
-    return dict(zip(free_axes, winning_key, strict=True)), raw_means[winning_key]
+def _raw_champion(
+    matrix: np.ndarray, keys: list[tuple[Any, ...]], free_axes: list[str]
+) -> tuple[dict[str, Any], float]:
+    """Return the configuration with the highest mean over the matrix's paired seeds, and that mean."""
+    means = matrix.mean(axis=1)
+    winner = int(np.argmax(means))
+    return dict(zip(free_axes, keys[winner], strict=True)), float(means[winner])
 
 
 def _negate_record_values(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -259,12 +252,11 @@ def _best_hypers_group(
         raise ValueError("min_samples must be at least 3")
 
     search_records = records if higher_is_better else _negate_record_values(records)
-    winning_config, raw_winner_mean = _raw_best_config(search_records, free_axes)
-
     hyper_matrix = _build_hyper_matrix(search_records, free_axes)
     matrix = hyper_matrix.values
     if len(hyper_matrix.seeds) < min_samples:
         raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter configuration")
+    winning_config, raw_winner_mean = _raw_champion(matrix, hyper_matrix.keys, free_axes)
     n_runs = matrix.shape[1]
 
     bootstrap = hierarchical_bootstrap_ci(
@@ -342,9 +334,6 @@ def _best_hypers_difference(
         records_a = _negate_record_values(records_a)
         records_b = _negate_record_values(records_b)
 
-    minuend_config, _minuend_raw_mean = _raw_best_config(records_a, free_axes)
-    subtrahend_config, _subtrahend_raw_mean = _raw_best_config(records_b, free_axes)
-
     hyper_a = _build_hyper_matrix(records_a, free_axes)
     hyper_b = _build_hyper_matrix(records_b, free_axes)
     common_seeds = sorted(set(hyper_a.seeds) & set(hyper_b.seeds))
@@ -352,6 +341,8 @@ def _best_hypers_difference(
         raise ValueError(f"need at least {min_samples} seeds shared by both compared groups")
     matrix_a = hyper_a.values[:, [hyper_a.seeds.index(seed) for seed in common_seeds]]
     matrix_b = hyper_b.values[:, [hyper_b.seeds.index(seed) for seed in common_seeds]]
+    minuend_config, _minuend_raw_mean = _raw_champion(matrix_a, hyper_a.keys, free_axes)
+    subtrahend_config, _subtrahend_raw_mean = _raw_champion(matrix_b, hyper_b.keys, free_axes)
     n_runs = matrix_a.shape[1]
 
     diff = hierarchical_bootstrap_difference_ci(
