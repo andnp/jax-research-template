@@ -58,89 +58,93 @@ class BSM1InitialStatesConfig:
         x_nd=10.59,
         s_alk=7.0,
     ))
+    # r1-r5 are the BSM1 open-loop steady state (Qa=55338 m3/d, KLa(5)=84 d-1
+    # fixed, 100-day stabilization), Alex et al. (2008) Table 6 — the values
+    # these previously held didn't match that reference table (e.g. X_I was
+    # 1100 vs 1149, and several rows mixed values across reactors).
     r1: ASM1InitialStateConfig = field(
         default_factory=lambda: ASM1InitialStateConfig(
             s_i=30.0,
             s_s=2.81,
-            x_i=1100.0,
+            x_i=1149.0,
             x_s=82.1,
             x_bh=2552.0,
             x_ba=148.0,
             x_p=449.0,
-            s_o=0.0,
-            s_no=8.7,
+            s_o=0.00430,
+            s_no=5.37,
             s_nh=7.92,
             s_nd=1.22,
-            x_nd=5.29,
-            s_alk=5.08,
+            x_nd=5.28,
+            s_alk=4.93,
         )
     )
     r2: ASM1InitialStateConfig = field(
         default_factory=lambda: ASM1InitialStateConfig(
             s_i=30.0,
             s_s=1.46,
-            x_i=1100.0,
-            x_s=52.1,
+            x_i=1149.0,
+            x_s=76.4,
             x_bh=2553.0,
-            x_ba=148.6,
+            x_ba=148.0,
             x_p=450.0,
-            s_o=0.0,
-            s_no=6.8,
-            s_nh=7.26,
-            s_nd=0.883,
-            x_nd=3.53,
-            s_alk=5.43,
+            s_o=0.0000631,
+            s_no=3.66,
+            s_nh=8.34,
+            s_nd=0.882,
+            x_nd=5.03,
+            s_alk=5.08,
         )
     )
     r3: ASM1InitialStateConfig = field(
         default_factory=lambda: ASM1InitialStateConfig(
             s_i=30.0,
             s_s=1.15,
-            x_i=1100.0,
-            x_s=41.2,
+            x_i=1149.0,
+            x_s=64.9,
             x_bh=2557.0,
-            x_ba=148.9,
-            x_p=451.0,
+            x_ba=149.0,
+            x_p=450.0,
             s_o=1.72,
-            s_no=9.88,
-            s_nh=4.25,
-            s_nd=0.734,
-            x_nd=2.97,
-            s_alk=4.82,
+            s_no=6.54,
+            s_nh=5.55,
+            s_nd=0.829,
+            x_nd=4.39,
+            s_alk=4.67,
         )
     )
     r4: ASM1InitialStateConfig = field(
         default_factory=lambda: ASM1InitialStateConfig(
             s_i=30.0,
             s_s=0.995,
-            x_i=1100.0,
-            x_s=37.1,
+            x_i=1149.0,
+            x_s=55.7,
             x_bh=2559.0,
-            x_ba=149.0,
-            x_p=452.0,
+            x_ba=150.0,
+            x_p=451.0,
             s_o=2.43,
-            s_no=10.3,
-            s_nh=2.57,
-            s_nd=0.655,
-            x_nd=2.80,
-            s_alk=4.65,
+            s_no=9.30,
+            s_nh=2.97,
+            s_nd=0.767,
+            x_nd=3.88,
+            s_alk=4.29,
         )
     )
     r5: ASM1InitialStateConfig = field(
         default_factory=lambda: ASM1InitialStateConfig(
             s_i=30.0,
             s_s=0.889,
-            x_i=1100.0,
-            x_s=35.4,
+            x_i=1149.0,
+            x_s=49.3,
             x_bh=2559.0,
-            x_ba=149.1,
+            x_ba=150.0,
             x_p=452.0,
-            s_o=2.97,
+            s_o=0.491,
             s_no=10.4,
             s_nh=1.73,
-            s_nd=0.612,
-            x_nd=2.77,
-            s_alk=4.58,
+            s_nd=0.688,
+            x_nd=3.53,
+            s_alk=4.13,
         )
     )
 

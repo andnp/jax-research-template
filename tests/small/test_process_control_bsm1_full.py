@@ -216,6 +216,19 @@ class TestBSM1Benchmark:
         assert obs.shape == (9,)
         assert state.step_count == 0
 
+    def test_initial_states_match_alex_2008_table_6(self) -> None:
+        """Reactor initial states must match the BSM1 open-loop steady-state reference."""
+        config = BSM1BenchmarkConfig()
+        reset_fn, _step_fn = make_bsm1_benchmark(config)
+
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+
+        assert jnp.allclose(state.reactor1.x_i, jnp.array(1149.0), atol=1e-6)
+        assert jnp.allclose(state.reactor1.s_no, jnp.array(5.37), atol=1e-6)
+        assert jnp.allclose(state.reactor2.x_s, jnp.array(76.4), atol=1e-6)
+        assert jnp.allclose(state.reactor5.s_o, jnp.array(0.491), atol=1e-6)
+        assert jnp.allclose(state.reactor5.s_no, jnp.array(10.4), atol=1e-6)
+
     def test_step_returns_correct_shapes(self) -> None:
         config = BSM1BenchmarkConfig()
         reset_fn, step_fn = make_bsm1_benchmark(config)
