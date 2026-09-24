@@ -11,9 +11,13 @@ class DemandConsumptionParams:
     # the fast demand pool is satisfied. Field-fit bulk decay coefficients
     # cluster around 0.02-0.2 h^-1 in distribution-system studies (Powell et
     # al., "Factors which control bulk chlorine decay rates", Water Research
-    # 34(1), 2000, https://doi.org/10.1016/S0043-1354(99)00140-6); reduced-
-    # order default, not calibrated to a specific source water.
-    bulk_decay_rate: float = 0.1
+    # 34(1), 2000, https://doi.org/10.1016/S0043-1354(99)00140-6). Default
+    # picks the low end of that range: the basin benchmarks' fast-phase tau
+    # and demand levels were tuned pre-existing this two-phase model, and a
+    # basin-scale (multi-hour) residence time compounds even a modest bulk
+    # rate; a higher, still-literature-supported value is available via this
+    # field for callers that want to explore that sensitivity.
+    bulk_decay_rate: float = 0.02
 
 
 def compute_consumption(

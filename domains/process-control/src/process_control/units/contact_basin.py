@@ -13,7 +13,7 @@ class ContactBasinParams:
     total_volume: float
     n_segments: int
     tau: float
-    bulk_decay_rate: float = 0.1
+    bulk_decay_rate: float = 0.02
 
 
 @jax_dataclass
