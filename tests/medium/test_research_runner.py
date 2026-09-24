@@ -255,6 +255,27 @@ class TestExecuteBatch:
             assert execution is not None
             assert execution.status == "FAILED"
 
+    def test_static_config_mismatch_sets_failed_status(
+        self, db_path: Path, executions_root: Path,
+    ) -> None:
+        """A preflight static-config error fails the claimed execution."""
+        planned = self._plan_one_batch(db_path, executions_root)
+        planned = planned._replace(static_config={"missing": "value"})
+
+        with pytest.raises(ValueError, match="static parameter"):
+            execute_batch(
+                db_path,
+                planned,
+                _trivial_train_fn,
+                capture_git=False,
+            )
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            execution = database.get_execution(planned.execution_id)
+            assert execution is not None
+            assert execution.status == "FAILED"
+
 
 
 

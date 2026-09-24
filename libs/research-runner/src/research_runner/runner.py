@@ -92,23 +92,33 @@ def execute_batch(
     capture_git: bool = True,
     metric_subsample_factor: int = 1,
 ):
-    with DatabaseManager(db_path) as database:
-        database.initialize()
-        execution_root = Path(planned.root_path)
-        manifest_path = Path(planned.manifest_path)
-        runs = database.list_execution_runs(planned.execution_id)
-        experiment_row = _resolve_experiment(database, runs)
-        static_config = planned.static_config
-        points = _resolve_points(database, runs, static_config)
-        resolved_metrics_db = metrics_db_path or db_path.parent / "metrics.sqlite"
+    try:
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            execution_root = Path(planned.root_path)
+            manifest_path = Path(planned.manifest_path)
+            runs = database.list_execution_runs(planned.execution_id)
+            experiment_row = _resolve_experiment(database, runs)
+            static_config = planned.static_config
+            points = _resolve_points(database, runs, static_config)
+            resolved_metrics_db = metrics_db_path or db_path.parent / "metrics.sqlite"
 
-        if capture_git:
-            git_commit, git_diff = capture_git_metadata()
-            database.record_execution_git_metadata(planned.execution_id, git_commit, git_diff)
+            if capture_git:
+                git_commit, git_diff = capture_git_metadata()
+                database.record_execution_git_metadata(
+                    planned.execution_id, git_commit, git_diff,
+                )
 
-        database.update_execution_status(
-            planned.execution_id, "RUNNING", start_time=_utc_now(),
-        )
+            database.update_execution_status(
+                planned.execution_id, "RUNNING", start_time=_utc_now(),
+            )
+    except Exception:
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            database.update_execution_status(
+                planned.execution_id, "FAILED", end_time=_utc_now(),
+            )
+        raise
 
     context = ExecutionContext(
         execution_id=planned.execution_id,
