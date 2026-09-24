@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
+from experiment_definition import Experiment
+from experiment_definition.db import DatabaseManager
 from research_cluster.config import SlurmConfig
 from research_cluster.script import build_job_script, build_sbatch_flags, write_job_script
 from research_cluster.submit import submit_experiment
@@ -134,3 +138,43 @@ def test_submit_experiment_dry_run(tmp_path: Path) -> None:
     assert result is None
     assert script_path.exists()
     assert "#!/bin/bash" in script_path.read_text()
+
+
+def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed scheduler submission marks every submitted execution failed."""
+    db_path = tmp_path / "experiments.sqlite"
+    experiment = Experiment("ClusterSweep", description="cluster test")
+    experiment.add_parameter("seed", [0, 1])
+    experiment.sync(db_path)
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        experiment_row = database.get_experiment("ClusterSweep")
+        assert experiment_row is not None
+        planned = database.plan_experiment_execution_batches(
+            experiment_row.id, tmp_path / "executions",
+        )
+    execution_ids = [batch.execution_id for batch in planned]
+
+    fake_sbatch = tmp_path / "sbatch"
+    fake_sbatch.write_text("#!/bin/sh\nexit 1\n")
+    fake_sbatch.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        submit_experiment(
+            SlurmConfig(),
+            execution_ids=execution_ids,
+            db_path=db_path,
+            spec_file=tmp_path / "spec.py",
+            spec_name="spec",
+            script_path=tmp_path / "slurm.sh",
+        )
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        for execution_id in execution_ids:
+            execution = database.get_execution(execution_id)
+            assert execution is not None
+            assert execution.status == "FAILED"

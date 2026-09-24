@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from experiment_definition.db import DatabaseManager
+
 from .config import SlurmConfig
 from .script import build_job_script, write_job_script
 
@@ -33,10 +35,19 @@ def submit_experiment(
     if dry_run:
         return None
 
-    result = subprocess.run(
-        ["sbatch", str(out_path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["sbatch", str(out_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            for execution_id in execution_ids:
+                database.update_execution_status(
+                    execution_id, "FAILED",
+                )
+        raise
     return result.stdout.strip()
