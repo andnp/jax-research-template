@@ -149,8 +149,6 @@ class BakeoffReport:
     """Why the omnibus test and p-values are absent, e.g. for tuned-champion comparisons."""
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
-    distribution_plot_paths: dict[str, Path]
-    """Block label -> figure of every condition's per-run scores in that block."""
     family_size: int
     # Bonferroni per-comparison confidence keeping every difference CI jointly at spec.confidence_level.
     comparison_confidence: float

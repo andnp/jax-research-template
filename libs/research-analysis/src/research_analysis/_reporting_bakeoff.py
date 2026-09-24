@@ -20,7 +20,6 @@ from research_analysis._reporting_models import (
     RunScore,
     StatisticalTestDetails,
 )
-from research_analysis._reporting_plots import _plot_run_distributions
 from research_analysis._reporting_warnings import (
     boundary_warning,
     insufficient_seeds_warning,
@@ -583,18 +582,6 @@ def bakeoff_report(
         omnibus=omnibus,
         tests_skipped_reason=None if select_champion_over is None else _CHAMPION_TESTS_SKIPPED,
         differences=differences,
-        distribution_plot_paths=_plot_run_distributions(
-            {
-                _block_label(block_key): {
-                    condition: list(seed_map.values())
-                    for condition in conditions
-                    if (seed_map := data_by_group.get((condition, block_key)))
-                }
-                for block_key in block_keys
-            },
-            metric_name,
-            dataset.experiment_name,
-        ),
         family_size=family_size,
         comparison_confidence=comparison_confidence,
         warnings=tuple(warnings),

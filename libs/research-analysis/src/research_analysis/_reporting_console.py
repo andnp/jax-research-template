@@ -144,8 +144,6 @@ def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None
     for condition in report.conditions:
         table.add_row(condition, *[_format_cell(report.cells[condition][label]) for label in blocks])
     console.print(table)
-    figures = "\n".join(f"{label or '(no blocking)'}: {path}" for label, path in report.distribution_plot_paths.items())
-    console.print(Panel(Text(figures, style="italic green"), title="Per-run distribution figures"))
 
     if report.champions is not None:
         champ_table = Table(title="Champion configurations", show_header=True, header_style="bold magenta")

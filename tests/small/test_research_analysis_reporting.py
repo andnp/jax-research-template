@@ -26,6 +26,7 @@ from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensi
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import ReturnRate, TailMean
+from research_analysis.report_plots import write_bakeoff_plots
 from research_analysis.reporting import (
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
@@ -1071,8 +1072,10 @@ def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: Experime
 
 
 class TestRunDistributionFigures:
-    def test_bakeoff_draws_one_run_distribution_figure_per_block(self, temp_experiment_setup: ExperimentSetup) -> None:
-        """Each block gets a figure of per-run scores, so the distribution behind a cell is inspectable."""
+    def test_bakeoff_draws_one_run_distribution_figure_per_block(
+        self, temp_experiment_setup: ExperimentSetup, tmp_path: Path
+    ) -> None:
+        """Each block gets a figure of per-run scores under the given directory, so the distribution is inspectable."""
         setup = temp_experiment_setup
         for environment in ("cartpole", "mountaincar"):
             for seed in range(3):
@@ -1082,8 +1085,10 @@ class TestRunDistributionFigures:
 
         report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20), verbose=False)
 
-        assert sorted(report.distribution_plot_paths) == ["cartpole", "mountaincar"]
-        assert all(path.exists() for path in report.distribution_plot_paths.values())
+        paths = write_bakeoff_plots(report, tmp_path, "headline")
+
+        assert sorted(paths) == ["cartpole", "mountaincar"]
+        assert all(path.parent == tmp_path and path.exists() for path in paths.values())
 
 
 class TestPairedDifferences:
