@@ -36,11 +36,12 @@ dependencies = [
     "research-runner",
     "research-store",
     "rl-agents",
+    "rl-components",
     "rl-envs[playground]",
     "rl-networks",
-    "rl-envs",
     "ml-components",
     "process-control",
+    "research-cluster",
 ]
 
 [project.scripts]
