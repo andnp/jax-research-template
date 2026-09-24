@@ -1,106 +1,79 @@
 # PRD: `libs/research-analysis`
 
 ## 1. Overview
-`research-analysis` is a rigorous statistical library designed for Reinforcement Learning research. It prioritizes scientific validity and statistical evidence over simple performance aggregation. The library is built upon the principles of **Empirical Design in Reinforcement Learning** (Patterson et al., 2023).
+
+`research-analysis` turns recorded RL experiments into statistics an agent can act on
+and a person can audit. Its methodology follows Patterson, Neumann, White & White,
+"Empirical Design in Reinforcement Learning" (JMLR 2024). The decisions are recorded in
+[ADR 012](../../../docs/adrs/012-percentile-champion-aggregate-decisions.md) and
+explained in the [science guide](../../../docs/science_guide.md).
 
 ### Goals
-- **Statistical Rigor:** Provide tools to identify and quantify sources of variation in RL experiments.
-- **Robust Comparisons:** Facilitate proper hypothesis testing and policy comparison with sound statistical assumptions.
-- **Reproducible Evidence:** Ensure that results reported in papers are backed by strong statistical evidence.
-- **Supplementary IQM:** IQM may be reported as a supplementary aggregate, never
-  as the sole result. Reports must also include dispersion, lower-tail, and
-  relevant constraint or safety metrics.
 
-## 2. Core Features
+- **Nothing is dropped silently.** Every planned run is accounted for per cell, as
+  completed, failed, pending, diverged, or excluded with a reason.
+- **Honest uncertainty.** Resampling is over runs. Intervals are percentile-bootstrap
+  intervals with stated confidence and are multiplicity-adjusted across a comparison
+  family. Variability is reported apart from confidence.
+- **Selection-aware tuning.** Tuned champions carry selection uncertainty through the
+  hierarchical per-sample bootstrap.
+- **Self-describing results.** Reports serialize to a versioned JSON document with
+  provenance, accounting, diagnostics, the declared plan and its status, and results.
+- **Declared before observed.** A report is labelled declared only when a plan recorded
+  before the runs was run verbatim.
 
-### 2.1 Variation & Stability Analysis
-- Tools to characterize performance variation across seeds, environments, and hyperparameter settings.
-- First-class support for reporting full distributions rather than single-point estimates.
+## 2. Modules
 
-### 2.2 Policy Comparison & Hypothesis Testing
-- Implementation of explicit mean or median estimands with declared paired or
-  independent designs. No normality pretest selects the method.
-- Paired or independent permutation tests for pairwise comparisons, plus a
-  block-stratified permutation omnibus equivalent for incomplete repeated blocks.
-  It retains observed cells within each block instead of listwise deletion.
-- BCa confidence intervals with explicit confidence, resample, and minimum-sample
-  settings. Insufficient or invalid data must fail clearly.
+Packages keep empty `__init__.py` files, so import from the submodules.
 
-### 2.3 Experimental Design Primitives
-- Support for sophisticated experimental designs in the `define` phase (e.g., Factorial designs, Latin Hypercube Sampling).
-- Tools to detect and mitigate **Experimenter Bias** and overfitting to specific seeds/environments.
+| Module | Responsibility |
+|---|---|
+| `dataset.loading`, `dataset.types` | `load_experiment_dataset` and its types: runs, metrics, provenance, execution provenance, diagnostics, `RunAccounting` |
+| `diagnostics.types`, `diagnostics.bakeoff` | loader diagnostics (fatal and non-fatal), bakeoff warnings, `IncompleteBlocksError` |
+| `performance` | declared per-run measures (`FinalValue`, `TailMean`, `ReturnRate`) and `run_scores`, which raises on non-finite scores |
+| `non_finite` | `NonFiniteValuesError`, `require_finite`, `substitute_non_finite` |
+| `comparison` | `BakeoffSpec`: estimand, alpha, resamples, `min_samples`, missingness, seed, tolerance settings |
+| `reporting` | compute-only `bakeoff_report`, `best_hypers`, `slice_hypers` and their result records |
+| `plan`, `plan_snapshots`, `plan_report` | `AnalysisPlan` and `@analysis_plan`, the append-only plan history, `run_plan` |
+| `report`, `report_json`, `report_markdown`, `report_plots` | the `ReportDocument` (schema v1), strict JSON and plan fingerprints, markdown and console summary, figures into an explicit directory |
+| `bootstrap`, `permutation`, `repeated_blocks`, `multiplicity` | percentile bootstrap CIs, paired or independent permutation tests, the block-stratified omnibus test, Holm and Bonferroni |
+| `tuning` | the hierarchical per-sample bootstrap for tuned champions |
+| `statistics`, `curves`, `learning_curve`, `trajectory` | tolerance intervals, representative runs, curve summaries, step-weighted returns, trajectory validation |
+| `aggregates` | opt-in cross-environment aggregates (IQM, performance profiles, probability of improvement, optimality gap, fixed-reference normalization), never in a default path |
+| `loader` | `load_sqlite_query`, an escape hatch for SQL outside the dataset contract |
 
-### 2.4 Baseline Construction
-- Utilities for creating and managing statistically sound baselines for comparative studies.
+## 3. Usage
 
-### 2.5 Canonical Experiment Dataset
-`research_analysis.dataset.load_experiment_dataset` is the only boundary between
-the experiment database, recorded metric artifacts, and statistical reporting.
-It returns an `ExperimentDataset` containing typed `runs` and long-form `metrics`
-Polars frames, component provenance, selected dimensions, and structured
-diagnostics. Reporting functions consume that object; they do not open SQLite
-databases or resolve execution paths themselves.
-
-Callers declare source dimensions and sweep axes explicitly:
+The declared path is `research experiment report <spec_file.py>`. See the
+[reporting API](../../../docs/specs/research-reporting-api.md) and
+[Reading Results](../../../docs/reading-results.md). In code:
 
 ```python
-dataset = load_experiment_dataset(
-    experiments_db,
-    "study-slug",
-    dimensions=ExperimentDimensions(
-        condition="algorithm",
-        environment="environment",
-        sweep_axes=(SweepAxis("learning_rate", SweepValueType.FLOAT),),
-    ),
-    version_selection=VersionSelection.latest_completed(),
-)
+from pathlib import Path
+
+from research_analysis.dataset.loading import load_experiment_dataset
+from research_analysis.dataset.types import ExperimentDimensions
+from research_analysis.report import BakeoffResult, exploratory_report
+from research_analysis.report_json import report_to_json
+from research_analysis.reporting import bakeoff_report
+
+db = Path("projects/my-project/results/study/experiments.sqlite")
+dataset = load_experiment_dataset(db, "study-slug", dimensions=ExperimentDimensions(condition="algorithm"))
 report = bakeoff_report(dataset, "reward", ["baseline", "candidate"])
+difference = report.difference("candidate", "baseline")
+document = exploratory_report(dataset, db, [BakeoffResult("look", report)])
+Path("projects/my-project/results/study/reports/look.json").write_text(report_to_json(document))
 ```
 
-For a parameter declared only under an experiment condition, declare the same
-applicability rule on its axis. Applicable runs must contain a correctly typed
-value; other runs receive a null value. Runs that cannot satisfy the requested
-dimension projection fail strict loading with an `unresolved_dimension`
-diagnostic:
+## 4. Technical Constraints
 
-```python
-SweepAxis("eta", SweepValueType.FLOAT, when={"algorithm": "adversarial"})
-```
-
-The loader selects one coherent completed component-version set by default.
-Historical selection requires qualified component identity plus a version row ID
-or recorded code hash. It retains ablation and run/execution identity, reads
-metrics only from recorded `metadata_json["metrics_db_path"]`, and fails in
-strict mode for ambiguous cohorts, malformed or missing artifacts, and
-unresolved dimensions. Failed, pending, and diverged runs are reported without
-failing, and `ExperimentDataset.accounting` counts every planned run per cell.
-`partial=True` returns valid rows with `DatasetDiagnostic` records for the
-omitted data.
-
-## 3. Technical Constraints
-- **Core Stack:** Implementation must use **Numpy** and **Numba** (nopython mode) for high-performance statistical kernels. JAX is NOT required for analysis and should be avoided to minimize dependencies for laptop-based analysis.
-- **Data Engine:** **Polars** is the exclusive first-class citizen for data management. All data ingestion from SQLite must go through Polars DataFrames. No Pandas support will be implemented.
-- **Database:** Must interface directly with the relational SQLite schema defined in ADR 008.
-- **Normalization Policy:** Benchmark normalization must use caller-supplied
-  fixed reference anchors or ranges, never a comparison-set-derived pool.
-- **Multiplicity Policy:** Pairwise post-hoc p-values use true Holm step-down
-  adjustment, not a fixed per-comparison correction.
-
-
-## 4. Proposed Usage
-
-```python
-from research_analysis import analyzer
-
-# Load results from the master DB
-results = analyzer.load_experiment("exp_v1_cartpole")
-
-# Statistical Comparison between two algorithms
-# This uses robust tests as advocated in Patterson et al.
-comparison = results.compare("ppo_v1", "dqn_v2", metric="total_reward")
-print(comparison.p_value)
-print(comparison.confidence_intervals)
-
-# Plot full distributions to see stability (not just means)
-results.plot_distribution("ppo_v1", "total_reward")
-```
+- **Stack:** NumPy and Numba for kernels and Polars for data (ADR 009). No JAX, no Pandas.
+- **Database:** reads the relational SQLite schema of ADR 008 through
+  `experiment_definition`, and metric databases only from recorded artifact metadata.
+- **No side effects in compute:** reporting functions never print and never write.
+  Rendering and plotting take an explicit output directory.
+- **Multiplicity:** difference CIs are Bonferroni-adjusted across the planned family,
+  and p-values use Holm's step-down adjustment. Skipped comparisons still count in
+  the family.
+- **Determinism:** reports and plans take an explicit random seed (`BakeoffSpec.random_seed`),
+  so a rerun of the same plan on the same runs reproduces its numbers.
