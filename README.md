@@ -8,7 +8,8 @@ A high-performance, E2E JIT-able framework for Reinforcement Learning research.
 - **Compound Interest:** Shared libraries grow as research successes are "harvested."
 
 ## Repository Structure
-- `libs/`: Shared, versioned Python packages (RL agents, components, storage).
+- `libs/`: Domain-agnostic shared packages (JAX utilities, RL components, experiment definition, runner, storage, analysis). They may import only other `libs` packages.
+- `domains/`: Code tied to one paper or environment family and reused across projects (RL agents, networks, environments, process control). See [ADR 011](docs/adrs/011-libs-domains-split.md).
 - `cli/`: The `research` command-line tool for managing the monorepo.
 - `templates/`: `copier` templates for spinning up new research projects.
 - `examples/`: Reference implementations and baseline results.
