@@ -48,6 +48,8 @@ def _coerce_axis_value(value: ParameterValue, axis: SweepAxis) -> SweepValue | N
 
 
 def _coerce_dimension_label(value: ParameterValue) -> str | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
     if not isinstance(value, str) or not value.strip():
         return None
     return value
@@ -96,7 +98,7 @@ def _label_mismatch(
 ) -> UnresolvedDimension:
     if source_name in hyperparameters:
         return UnresolvedDimension(
-            f"{output_name} dimension key {source_name!r} must be a non-empty string, got {hyperparameters[source_name]!r}"
+            f"{output_name} dimension key {source_name!r} must be a non-empty string or an integer, got {hyperparameters[source_name]!r}"
         )
     string_keys = sorted(key for key, value in hyperparameters.items() if isinstance(value, str))
     return UnresolvedDimension(

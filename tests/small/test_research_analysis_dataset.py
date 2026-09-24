@@ -356,6 +356,16 @@ def test_invalid_dimension_labels_are_unresolved_without_stringifying_values() -
         assert "'condition_name' must be a non-empty string" in resolved.reason
 
 
+def test_integer_dimension_labels_resolve_to_their_decimal_string() -> None:
+    """Integer labels such as a swept history length name their cell exactly, so they need no string alias."""
+    dimensions = ExperimentDimensions(condition="history_frames")
+
+    for value, label in ((1, "1"), (8, "8"), (0, "0"), (-2, "-2")):
+        resolved = resolve_dimensions({"history_frames": value}, dimensions)
+        assert not isinstance(resolved, UnresolvedDimension)
+        assert resolved.values["condition_name"] == label
+
+
 def test_missing_condition_key_explains_the_condition_naming_default() -> None:
     """A run labelled under another key gets a hint that the condition dimension defaults to condition_name."""
     resolved = resolve_dimensions({"algorithm": "ppo", "seed": 0}, ExperimentDimensions())
