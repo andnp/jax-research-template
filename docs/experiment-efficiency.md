@@ -152,6 +152,13 @@ parameter values without `is_static`; the runner derives one structural configur
 execution and binds dynamic values to the trainer's batch axis. Custom trainers must
 publish the same schema rather than silently ignoring dynamic values.
 
-**Name axes `algorithm`, `env_name`, `learning_rate`, `seed`.** The reporting helpers in
-`research_analysis.reporting` key off those names, so you get `best_hypers`,
-`slice_hypers`, and `bakeoff_report` for free instead of writing statistics by hand.
+**Name the arm axis `condition_name`, or declare the name you used.** Reports read arms
+from `ExperimentDimensions.condition`, which defaults to a hyperparameter called
+`condition_name`. The common trap: a spec that labels its arms `algorithm` fails to load
+with an unresolved condition dimension, unless the analysis plan declares
+`ExperimentDimensions(condition="algorithm")`. In the same way, point `environment=` at
+the key that names the environment (it becomes the `env_name` column), and declare every
+swept hyperparameter as a typed `SweepAxis` so `best_hypers`, `slice_hypers`, and
+`select_champion_over` can use it. The seed axis is always `seed`. Put these dimensions in
+the spec's `@analysis_plan`, and `research experiment report` gives you the statistics
+without any hand-written analysis.
