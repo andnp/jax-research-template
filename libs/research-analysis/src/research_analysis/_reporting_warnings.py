@@ -127,32 +127,14 @@ def variance_warning(
     *,
     condition: str | None = None,
     cell: tuple[tuple[str, object], ...] = (),
-    reference_range: float | None = None,
-    extreme_relative_std: float = 1.0,
 ) -> BakeoffWarning | None:
-    """Flag a cell with zero cross-seed variance, or variance extreme relative to the
-    metric's own cross-condition range (``reference_range``, typically max minus min
-    across every condition and cell in the same report).
-    """
+    """Flag a cell whose runs all produced the identical value."""
     array = np.asarray(values, dtype=np.float64)
-    if array.size < 2:
+    if array.size < 2 or float(np.std(array, ddof=1)) != 0.0:
         return None
-    std = float(np.std(array, ddof=1))
-    if std == 0.0:
-        return BakeoffWarning(
-            code=BakeoffWarningCode.ZERO_VARIANCE,
-            message="every seed produced an identical value; check for a fixed seed or a saturated metric.",
-            condition=condition,
-            cell=cell,
-        )
-    if reference_range is not None and reference_range > 0 and std > extreme_relative_std * reference_range:
-        return BakeoffWarning(
-            code=BakeoffWarningCode.EXTREME_VARIANCE,
-            message=(
-                f"cross-seed std ({std:.4g}) exceeds {extreme_relative_std:.0%} of the metric's own "
-                f"cross-condition range ({reference_range:.4g})."
-            ),
-            condition=condition,
-            cell=cell,
-        )
-    return None
+    return BakeoffWarning(
+        code=BakeoffWarningCode.ZERO_VARIANCE,
+        message="every seed produced an identical value; check for a fixed seed or a saturated metric.",
+        condition=condition,
+        cell=cell,
+    )

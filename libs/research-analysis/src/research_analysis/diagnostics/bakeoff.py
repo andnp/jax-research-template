@@ -15,7 +15,6 @@ class BakeoffWarningCode(StrEnum):
     NON_NORMAL_DISTRIBUTION = "non_normal_distribution"
     FLATLINED_LEARNING_CURVE = "flatlined_learning_curve"
     ZERO_VARIANCE = "zero_variance"
-    EXTREME_VARIANCE = "extreme_variance"
 
 
 @dataclass(frozen=True)

@@ -466,17 +466,8 @@ class TestVarianceWarning:
         """One run has no spread to measure, so it is not evidence of a fixed seed or saturated metric."""
         assert variance_warning([1.0], condition="sac") is None
 
-    def test_flags_extreme_variance_relative_to_the_metric_range(self) -> None:
-        warning = variance_warning([-500.0, 500.0, -500.0, 500.0], reference_range=100.0)
-        assert warning is not None
-        assert warning.code == BakeoffWarningCode.EXTREME_VARIANCE
-
     def test_no_warning_for_ordinary_variance(self) -> None:
-        warning = variance_warning([98.0, 100.0, 102.0], reference_range=1000.0)
-        assert warning is None
-
-    def test_no_extreme_check_without_a_reference_range(self) -> None:
-        warning = variance_warning([-500.0, 500.0, -500.0, 500.0])
+        warning = variance_warning([98.0, 100.0, 102.0])
         assert warning is None
 
 

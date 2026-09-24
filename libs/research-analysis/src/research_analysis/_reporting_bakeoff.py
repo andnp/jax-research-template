@@ -494,8 +494,6 @@ def bakeoff_report(
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
-    all_values = [value for seed_map in data_by_group.values() for value in seed_map.values()]
-    cross_condition_range = float(max(all_values) - min(all_values)) if all_values else 0.0
 
     for block_key in block_keys:
         label = _block_label(block_key)
@@ -507,7 +505,7 @@ def bakeoff_report(
 
             if not values:
                 continue
-            variance_issue = variance_warning(values, condition=condition, cell=block_key, reference_range=cross_condition_range)
+            variance_issue = variance_warning(values, condition=condition, cell=block_key)
             if variance_issue is not None:
                 warnings.add(variance_issue.code, variance_issue.message, variance_issue.condition, variance_issue.cell)
             if variance_issue is None or variance_issue.code != BakeoffWarningCode.ZERO_VARIANCE:
