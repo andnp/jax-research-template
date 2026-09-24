@@ -35,22 +35,28 @@ from research_analysis.report import (
 from research_analysis.report_json import plan_fingerprint
 
 
+def _execution_problem(fingerprint: str, snapshots: Sequence[PlanSnapshot], execution: ExecutionProvenance) -> str | None:
+    if execution.start_time is None:
+        return "start time not recorded, so the plan cannot be shown to predate the results"
+    started = datetime.fromisoformat(execution.start_time)
+    in_force = [snapshot for snapshot in snapshots if snapshot.recorded_at <= started]
+    if not in_force:
+        return "no plan snapshot before execution: record the plan by launching runs with `research experiment run` or `submit`"
+    if in_force[-1].fingerprint != fingerprint:
+        return f"plan changed after results were recorded: the plan in force at these executions was {in_force[-1].fingerprint}"
+    return None
+
+
 def _snapshot_reasons(
     fingerprint: str, snapshots: Sequence[PlanSnapshot], executions: tuple[ExecutionProvenance, ...]
 ) -> tuple[str, ...]:
-    """Why the plan cannot be shown to predate the results; empty when the plan in force at the first execution is this one."""
-    starts = [datetime.fromisoformat(item.start_time) for item in executions if item.start_time is not None]
-    if not starts:
-        if not executions:
-            return ()
-        return ("execution start times were not recorded, so the plan cannot be shown to predate the results",)
-
-    in_force = [snapshot for snapshot in snapshots if snapshot.recorded_at <= min(starts)]
-    if not in_force:
-        return ("no plan snapshot before execution: record the plan by launching runs with `research experiment run` or `submit`",)
-    if in_force[-1].fingerprint != fingerprint:
-        return (f"plan changed after results were recorded: the plan in force at the first execution was {in_force[-1].fingerprint}",)
-    return ()
+    """Why the plan cannot be shown to predate every included execution, naming the offending executions."""
+    offenders: dict[str, list[int]] = {}
+    for execution in executions:
+        problem = _execution_problem(fingerprint, snapshots, execution)
+        if problem is not None:
+            offenders.setdefault(problem, []).append(execution.execution_id)
+    return tuple(f"{problem} (executions {', '.join(map(str, ids))})" for problem, ids in offenders.items())
 
 
 def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Analysis) -> list[AnalysisResult]:
@@ -149,7 +155,7 @@ def run_plan(
 ) -> ReportDocument:
     """Run the declared plan exactly as written: the only way a report is labelled declared.
 
-    It is still labelled exploratory when ``snapshots`` cannot show this plan was in force when the first
+    It is still labelled exploratory when ``snapshots`` cannot show this plan was in force when every
     included execution started. Loading problems and failed analyses yield a document without results.
     """
     dataset = load_experiment_dataset(

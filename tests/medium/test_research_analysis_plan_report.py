@@ -46,7 +46,16 @@ class _Experiment:
                 "CREATE TABLE metrics (run_id INTEGER, execution_id INTEGER, metric_name TEXT, global_step INTEGER, value REAL)"
             )
 
-    def add_run(self, condition: str, seed: int, value: float | None, *, status: str = "COMPLETED", artifacts: bool = True) -> int:
+    def add_run(
+        self,
+        condition: str,
+        seed: int,
+        value: float | None,
+        *,
+        status: str = "COMPLETED",
+        artifacts: bool = True,
+        started: str = STARTED,
+    ) -> int:
         with DatabaseManager(self.db_path) as database:
             hyper_id = database.add_hyperparam_config({"condition_name": condition, "seed": seed})
             run_id = database.add_run(self.experiment_id, self.algo, self.env, hyper_id, seed)
@@ -56,7 +65,7 @@ class _Experiment:
                 database.record_execution_artifacts(
                     execution_id, str(self.root / str(execution_id)), metadata={"metrics_db_path": str(self.metrics_path)}
                 )
-            database.update_execution_status(execution_id, status, start_time=STARTED)
+            database.update_execution_status(execution_id, status, start_time=started)
         if status == "COMPLETED" and artifacts:
             with sqlite3.connect(self.metrics_path) as connection:
                 connection.execute("INSERT INTO metrics VALUES (?, ?, 'return', 0, ?)", (run_id, execution_id, value))
@@ -118,6 +127,23 @@ class TestPlanStatus:
         assert document.plan_status is PlanStatus.EXPLORATORY
         assert document.exploratory_reasons[0].startswith("plan changed after results were recorded")
         assert document.status is ReportStatus.OK
+
+    def test_a_plan_reverted_after_an_edited_epoch_is_exploratory(self, tmp_path: Path) -> None:
+        """Every execution is checked: runs launched under an edited plan stay exploratory after a revert."""
+        experiment = _complete(tmp_path)
+        edited = replace(PLAN, stats=BakeoffSpec(n_resamples=100, alpha=0.1))
+        experiment.add_run("base", 5, 5.0, started="2026-01-04T00:00:00+00:00")
+        experiment.add_run("new", 5, 6.5, started="2026-01-04T00:00:00+00:00")
+        history = (PlanSnapshot(plan_fingerprint(PLAN), BEFORE, "{}"), PlanSnapshot(plan_fingerprint(edited), AFTER, "{}"))
+
+        document = run_plan(experiment.db_path, "demo", PLAN, history)
+
+        late = [item.execution_id for item in document.provenance.executions if item.start_time != STARTED]
+        assert document.plan_status is PlanStatus.EXPLORATORY
+        assert document.exploratory_reasons == (
+            f"plan changed after results were recorded: the plan in force at these executions was "
+            f"{plan_fingerprint(edited)} (executions {', '.join(map(str, sorted(late)))})",
+        )
 
 
 class TestFailedReports:
@@ -192,4 +218,3 @@ class TestPlanHistory:
     def test_no_history_reads_as_empty(self, tmp_path: Path) -> None:
         """A results root that never recorded a plan has an empty history, not an error."""
         assert read_plan_snapshots(tmp_path) == ()
-
