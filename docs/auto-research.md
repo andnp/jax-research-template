@@ -70,8 +70,9 @@ command is what keeps the loop honest.
   runs covered about 0.88 for normal data. A Bonferroni family of 6 paired CIs
   covered about 0.82–0.85 jointly at 10 runs and 0.91–0.93 at 30, against a nominal
   0.95. `tests/large/test_research_analysis_calibration.py` holds the current bounds.
-  Below 30 runs per cell or pair, every interval carries a `small_sample_coverage`
-  warning. Treat a borderline interval as a reason to run more seeds (handbook
+  Every confidence interval resting on fewer than 30 runs carries a
+  `small_sample_coverage` warning in its report's `warnings`: bakeoff cells and
+  pairs, tuned champions, and champion differences. Treat a borderline interval as a reason to run more seeds (handbook
   §2.6), not as a finding.
 - **IQM, performance profiles, probability of improvement, and optimality gap** are
   opt-in aggregates for collections of environments, never defaults. IQM trims away

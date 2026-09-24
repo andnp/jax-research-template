@@ -105,7 +105,8 @@ The percentile bootstrap **under-covers at small n**. Its intervals are narrower
 their stated confidence with 10 runs, and a Bonferroni family reaches its nominal joint
 coverage only with many runs. The Monte-Carlo suite in
 `tests/large/test_research_analysis_calibration.py` measures this. Reports attach a
-`small_sample_coverage` warning to every interval that rests on fewer than 30 runs.
+`small_sample_coverage` warning to every confidence interval that rests on fewer than
+30 runs: bakeoff cells and pairs, tuned champions, and champion differences.
 The remedy is more runs (handbook §2.6), not a cleverer interval.
 
 ### Headline comparison: paired differences, adjusted for multiplicity

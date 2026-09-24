@@ -74,12 +74,14 @@ interval's confidence and coverage.
   - the omnibus test, or `tests_skipped_reason`;
   - `warnings`, as `BakeoffWarning` values: boundary champions (numeric axes only),
     insufficient seeds, non-normality, flatlined curves, zero variance, and
-    `small_sample_coverage` on every interval resting on fewer than 30 runs.
+    `small_sample_coverage` on every cell or pair CI resting on fewer than 30 runs.
 - **`HyperparameterConfigReport`** holds the winning configuration, raw and corrected
   means, the maximization bias, the CI and its confidence, the normalized selection
-  entropy, `unpaired_run_ids`, and the measure.
-- **`HyperparameterDifferenceReport`** and **`HyperparameterSliceReport`** follow the
-  same conventions.
+  entropy, `unpaired_run_ids`, the measure, and `warnings`: `small_sample_coverage`
+  when the CI rests on fewer than 30 shared seeds.
+- **`HyperparameterDifferenceReport`** follows the same conventions, including
+  `warnings`. **`HyperparameterSliceReport`** reports point estimates only, with no
+  interval and so no coverage warning.
 
 ## 4. Report document, schema version 1
 
