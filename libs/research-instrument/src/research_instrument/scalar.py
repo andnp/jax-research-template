@@ -43,7 +43,7 @@ def write_execution_scalars(
     execution_id: int,
 ) -> None:
     """Write scalar values shared by every run in an execution."""
-    rows = [
+    rows: list[_ScalarMetricRow] = [
         (metric_name, float(value), "execution", experiment_id, None, None, execution_id)
         for metric_name, value in metrics.items()
     ]

@@ -7,21 +7,6 @@ from experiment_definition.db import DatabaseManager
 from research_runner import ExecutionContext, ExecutionResult, execute_batch
 
 
-def test_execution_result_separates_run_and_execution_scalars() -> None:
-    """
-    Verify per-run scalar values stay distinct from execution-wide values.
-    """
-    result = ExecutionResult(
-        metric_scalars={"score": (1.0, 2.0)},
-        execution_metrics={"batch_score": 1.5},
-    )
-
-    assert result.metric_scalars == {"score": (1.0, 2.0)}
-    assert result.execution_metrics == {"batch_score": 1.5}
-    assert ExecutionResult().metric_scalars == {}
-    assert ExecutionResult().execution_metrics == {}
-
-
 def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
     """
     Verify the runner persists trainer metric curves with run and seed identity.
@@ -62,6 +47,46 @@ def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
         ).fetchall()
 
     assert rows == [(1, 0, 0, 1.0), (1, 0, 2, 3.0), (2, 1, 0, 4.0), (2, 1, 2, 6.0)]
+
+
+def test_execute_batch_persists_result_scalars(tmp_path: Path) -> None:
+    """
+    Verify the runner persists scalar values at run and execution scope.
+    """
+    database_path = tmp_path / "experiments.sqlite"
+    metrics_path = tmp_path / "metrics.sqlite"
+    experiment = Experiment("scalar-test")
+    experiment.add_parameter("seed", [0, 1])
+    experiment.sync(database_path)
+
+    with DatabaseManager(database_path) as database:
+        database.initialize()
+        experiment_row = database.get_experiment(experiment.name)
+        assert experiment_row is not None
+        experiment_id = experiment_row.id
+        planned = database.plan_next_execution_batch(experiment_id, tmp_path / "executions")
+        assert planned is not None
+
+    def train(context: ExecutionContext) -> ExecutionResult:
+        assert len(context.points) == 2
+        return ExecutionResult(
+            run_scalars={"score": (1.25, 2.5)},
+            execution_scalars={"batch_score": 1.875},
+        )
+
+    execute_batch(database_path, planned, train, metrics_db_path=metrics_path, capture_git=False)
+
+    with sqlite3.connect(metrics_path) as connection:
+        rows = connection.execute(
+            "SELECT scope, metric_name, experiment_id, run_id, seed_id, execution_id, value "
+            "FROM scalar_metrics ORDER BY scope, metric_name, run_id"
+        ).fetchall()
+
+    assert rows == [
+        ("execution", "batch_score", experiment_id, None, None, planned.execution_id, 1.875),
+        ("run", "score", experiment_id, 1, 0, planned.execution_id, 1.25),
+        ("run", "score", experiment_id, 2, 1, planned.execution_id, 2.5),
+    ]
 
 
 def test_execute_batch_completes_diverged_curves(tmp_path: Path) -> None:

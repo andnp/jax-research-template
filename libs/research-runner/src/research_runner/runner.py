@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, uuid5
 from experiment_definition import Experiment, ParameterValue
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.records import RunRow
+from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve
 from research_store.store import Store
 
@@ -135,7 +136,7 @@ def execute_batch(
     try:
         execution_root.mkdir(parents=True, exist_ok=True)
         result = train_fn(context)
-        _write_metric_curves(context, result, metric_subsample_factor)
+        _write_metrics(context, result, metric_subsample_factor)
         artifact_uris = _write_artifacts(context, result)
         metadata = dict(result.metadata)
         if artifact_uris:
@@ -207,7 +208,7 @@ def _write_artifacts(context: ExecutionContext, result: ExecutionResult) -> dict
     return uris
 
 
-def _write_metric_curves(
+def _write_metrics(
     context: ExecutionContext,
     result: ExecutionResult,
     subsample_factor: int,
@@ -231,6 +232,22 @@ def _write_metric_curves(
             seed_ids=tuple(seed_ids),
             subsample_factor=subsample_factor,
         )
+
+    write_seed_batch_scalars(
+        context.metrics_db_path,
+        result.run_scalars,
+        experiment_id=context.experiment_id,
+        execution_id=context.execution_id,
+        run_ids=run_ids,
+        seed_ids=tuple(seed_ids),
+    )
+
+    write_execution_scalars(
+        context.metrics_db_path,
+        result.execution_scalars,
+        experiment_id=context.experiment_id,
+        execution_id=context.execution_id,
+    )
 
 
 def _utc_now():
