@@ -38,6 +38,12 @@ The canonical dimension column names are `condition_name` and `env_name`.
 dimension. Ablation is retained separately from condition and is part of run
 identity even when two runs have identical hyperparameter values.
 
+A sweep axis that exists on only some arms declares where it applies:
+`SweepAxis("num_heads", SweepValueType.INTEGER, when={"algorithm": ("gi_qrc", "gi_qrc_anchored")})`
+applies to a run whose value for every `when` key is one of the listed values,
+and is null on every other run. One `ExperimentDimensions` therefore covers every
+arm, so an experiment loads as one dataset.
+
 ## 3. Provenance
 
 Every selected run carries component-version provenance when the database can
