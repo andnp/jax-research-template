@@ -164,7 +164,11 @@ def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None
         console.print(Panel(Text("No warnings."), style="green"))
 
     confidences = sorted({item.confidence for item in report.differences})
-    diff_table = Table(title="Paired differences by block", show_header=True, header_style="bold magenta")
+    title = (
+        f"Paired differences by block ({report.family_size} comparisons, Bonferroni-adjusted to "
+        f"{report.spec.confidence_level:.0%} jointly)"
+    )
+    diff_table = Table(title=title, show_header=True, header_style="bold magenta")
     diff_table.add_column("Block")
     diff_table.add_column("A")
     diff_table.add_column("B")

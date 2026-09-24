@@ -37,7 +37,7 @@ from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, BakeoffWarningCode
 from research_analysis.duplicates import duplicate_seed_error
-from research_analysis.multiplicity import holm_step_down
+from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.non_finite import require_finite
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.permutation import run_permutation_test
@@ -98,6 +98,7 @@ def _paired_differences(
     conditions: list[str],
     block_keys: list[BlockKey],
     spec: BakeoffSpec,
+    confidence: float,
     rng: np.random.Generator,
 ) -> tuple[PairedDifference, ...]:
     """Compare every pair of conditions within each block, never pooling runs across blocks."""
@@ -105,7 +106,7 @@ def _paired_differences(
     for block_key in block_keys:
         for index, minuend in enumerate(conditions):
             for subtrahend in conditions[index + 1 :]:
-                planned.append(_paired_difference(scores, minuend, subtrahend, block_key, spec, rng))
+                planned.append(_paired_difference(scores, minuend, subtrahend, block_key, spec, confidence, rng))
 
     adjusted = iter(holm_step_down([item.p_value for item in planned if item.p_value is not None]))
     return tuple(item if item.p_value is None else replace(item, p_value=next(adjusted)) for item in planned)
@@ -117,6 +118,7 @@ def _paired_difference(
     subtrahend: str,
     block_key: BlockKey,
     spec: BakeoffSpec,
+    confidence: float,
     rng: np.random.Generator,
 ) -> PairedDifference:
     runs_a = scores.get((minuend, block_key), {})
@@ -128,7 +130,7 @@ def _paired_difference(
         block=_block_label(block_key),
         estimate=None,
         ci=None,
-        confidence=spec.confidence_level,
+        confidence=confidence,
         n_paired=len(seeds),
         method="paired percentile bootstrap",
         p_value=None,
@@ -154,7 +156,7 @@ def _paired_difference(
         values_b,
         estimand=spec.estimand,
         pairing="paired",
-        confidence=spec.confidence_level,
+        confidence=confidence,
         n_resamples=spec.n_resamples,
         min_samples=spec.min_samples,
         rng=rng,
@@ -174,6 +176,7 @@ def _compute_bakeoff_statistics(
     block_keys: list[BlockKey],
     references: dict[str, ReferenceRange] | None,
     spec: BakeoffSpec,
+    comparison_confidence: float,
 ) -> _BakeoffStatistics:
     if references is None and len(block_keys) > 1:
         raise ValueError(
@@ -247,7 +250,7 @@ def _compute_bakeoff_statistics(
         rng=rng,
     )
 
-    differences = _paired_differences(normalized, conditions, block_keys, spec, rng)
+    differences = _paired_differences(normalized, conditions, block_keys, spec, comparison_confidence, rng)
 
     score_curves = {}
     for condition in conditions:
@@ -454,7 +457,11 @@ def bakeoff_report(
 
     combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
     data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
-    comparison_statistics = _compute_bakeoff_statistics(data_by_group, conditions, block_keys, references, spec)
+    family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
+    comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
+    comparison_statistics = _compute_bakeoff_statistics(
+        data_by_group, conditions, block_keys, references, spec, comparison_confidence
+    )
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
@@ -513,6 +520,8 @@ def bakeoff_report(
             aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
         ),
         differences=comparison_statistics.differences,
+        family_size=family_size,
+        comparison_confidence=comparison_confidence,
         warnings=warnings.as_tuple(),
     )
 

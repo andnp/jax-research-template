@@ -1078,3 +1078,19 @@ class TestPairedDifferences:
         assert (skipped.estimate, skipped.ci, skipped.p_value, skipped.n_paired) == (None, None, None, 2)
         assert skipped.skipped_reason is not None and "min_samples=3" in skipped.skipped_reason
         assert [(item.minuend, item.subtrahend) for item in report.differences] == [("a", "b"), ("a", "c"), ("b", "c")]
+
+    def test_difference_intervals_are_adjusted_for_the_whole_family(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """Three pairs share a joint 95% level, so each interval is a Bonferroni 1 - 0.05/3 interval."""
+        setup = temp_experiment_setup
+        for condition, offset in (("a", 0.0), ("b", 1.0), ("c", 2.0)):
+            for seed in range(5):
+                _add_observation(setup, {"condition_name": condition}, seed, offset + seed * 0.1 + (seed % 2))
+
+        report = bakeoff_report(_load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=200), verbose=False)
+
+        assert report.family_size == 3
+        assert report.comparison_confidence == pytest.approx(1 - 0.05 / 3)
+        assert [item.confidence for item in report.differences] == [pytest.approx(1 - 0.05 / 3)] * 3
+        assert report.cells["a"][""].confidence == pytest.approx(0.95)

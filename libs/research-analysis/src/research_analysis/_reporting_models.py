@@ -139,6 +139,9 @@ class BakeoffReport:
     comparison: BenchmarkBakeoffReport
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
+    family_size: int
+    # Bonferroni per-comparison confidence keeping every difference CI jointly at spec.confidence_level.
+    comparison_confidence: float
     warnings: tuple[BakeoffWarning, ...]
 
     def difference(self, minuend: str, subtrahend: str, block: str = "") -> PairedDifference:
