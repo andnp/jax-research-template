@@ -31,7 +31,7 @@ def run_experiment(
     metric_subsample_factor: int = 1,
     only: Mapping[str, str] | None = None,
 ):
-    """``only`` restricts which pending runs execute, per ``experiment_definition.db._run_matches``."""
+    """``only`` restricts which pending runs execute, per the planning service matcher."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     static_parameter_names = _resolve_static_parameter_names(
         experiment,

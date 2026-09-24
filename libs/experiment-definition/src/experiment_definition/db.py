@@ -21,7 +21,6 @@ from . import _planning_service as _planning
 from . import _query_repository as _query
 from . import schema
 from ._database_utils import _hash_dict  # noqa: F401
-from ._planning_service import _run_matches, _static_config_json  # noqa: F401
 from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
 from .records import (
@@ -425,7 +424,7 @@ class DatabaseManager:
     ) -> list[RunBatch]:
         """Group unsatisfied runs by static vmap zone for batch planning.
 
-        ``only`` narrows the runs considered, per :func:`_run_matches`. A batch keeps only
+        ``only`` narrows the runs considered, per the planning service matcher. A batch keeps only
         its selected runs rather than being skipped when the selection is partial: a batch
         is a vmap zone, so narrowing one changes how wide it trains but not the identity of
         the runs in it, and skipping would make a single-seed selector silently do nothing.
@@ -456,15 +455,6 @@ class DatabaseManager:
         with self.conn:
             return _execution.add_execution(self.conn, hostname, git_commit, git_diff_blob, jax_config)
 
-    def _insert_execution(
-        self,
-        hostname: str | None,
-        git_commit: str | None,
-        git_diff_blob: str | None,
-        jax_config: Mapping[str, ParameterValue] | None,
-    ) -> int:
-        return _execution._insert_execution(self.conn, hostname, git_commit, git_diff_blob, jax_config)
-
     def record_execution_git_metadata(
         self,
         execution_id: int,
@@ -490,15 +480,6 @@ class DatabaseManager:
         """Create or update canonical artifact linkage for an execution."""
         with self.conn:
             _execution.record_execution_artifacts(self.conn, execution_id, root_path, manifest_path, metadata)
-
-    def _record_execution_artifacts(
-        self,
-        execution_id: int,
-        root_path: str,
-        manifest_path: str | None,
-        metadata: dict[str, object] | None,
-    ) -> None:
-        _execution._record_execution_artifacts(self.conn, execution_id, root_path, manifest_path, metadata)
 
     def get_execution_artifacts(self, execution_id: int) -> ExecutionArtifactRow | None:
         """Fetch canonical artifact linkage for an execution."""
@@ -574,23 +555,6 @@ class DatabaseManager:
                 git_diff_blob,
                 jax_config,
             )
-
-    def _plan_execution(
-        self,
-        run_ids: list[int],
-        hostname: str | None,
-        git_commit: str | None,
-        git_diff_blob: str | None,
-        jax_config: Mapping[str, ParameterValue] | None,
-    ) -> int:
-        return _planning._plan_execution(
-            self.conn,
-            run_ids,
-            hostname,
-            git_commit,
-            git_diff_blob,
-            jax_config,
-        )
 
     def plan_unsatisfied_execution(
         self,
@@ -700,7 +664,7 @@ class DatabaseManager:
     ) -> PlannedExecution | None:
         """Plan and return the next unsatisfied execution batch, or None when none remain.
 
-        ``only`` restricts which runs are eligible, per :func:`_run_matches`.
+        ``only`` restricts which runs are eligible, per the planning service matcher.
         """
         base_path = Path(artifacts_root)
         self.conn.execute("BEGIN IMMEDIATE")
@@ -780,8 +744,6 @@ class DatabaseManager:
         """
         return _query.find_executions_by_hyperparams(self.conn, experiment_id, where)
 
-    def _hyperparams_match(self, hyper_id: int, where: Mapping[str, str]) -> bool:
-        return _query._hyperparams_match(self.conn, hyper_id, where)
 
     def list_executions(
         self,
