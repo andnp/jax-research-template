@@ -155,8 +155,12 @@ class H2SScrubberConfig:
     sump_initial_oxidant: float = 200.0
     sump_initial_alkalinity: float = 20.0
     sump_oxidation_rate: float = 0.5
-    sump_alkalinity_consumption: float = 1.0
-    sump_caustic_yield: float = 0.5
+    # See ScrubberSumpParams.alkalinity_consumption / .caustic_yield for the
+    # sourced derivations of these two values (H2S+OH- stoichiometry; 50%
+    # NaOH normality) — kept in sync here rather than left at the unit's
+    # since-corrected old defaults (0.1 meq/mg and 0.5 respectively).
+    sump_alkalinity_consumption: float = 0.0293
+    sump_caustic_yield: float = 0.019
     sump_ph_amplitude: float = 3.0
     sump_orp_ph_slope: float = 59.2
 
@@ -257,6 +261,9 @@ def make_h2s_scrubber_benchmark(
         alkalinity_consumption=config.sump_alkalinity_consumption,
         caustic_yield=config.sump_caustic_yield,
         orp_ph_slope=config.sump_orp_ph_slope,
+        # Must match dynamic.ph_amplitude below so the sump's internal
+        # pH-gated stripping agrees with the pH reported everywhere else.
+        ph_amplitude=config.sump_ph_amplitude,
     )
 
     contactor_params = ContactorParams(
