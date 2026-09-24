@@ -83,7 +83,11 @@ class RejectWaterConfig:
     # Reward
     reward_w_nh4: float = 1.0  # penalty for main plant NH₄ spike
     reward_w_overflow: float = 5.0  # penalty for reject tank overflow
-    reward_w_timing: float = 0.1  # small reward for emptying during low load
+    # Penalises only overflow *risk* (level above this fraction of capacity),
+    # not level itself — the tank exists to buffer return timing, so
+    # penalising level directly pushed immediate draining instead of holding.
+    reward_w_timing: float = 0.1  # penalty for tank level approaching capacity
+    tank_risk_threshold: float = 0.8  # fraction of capacity where risk penalty starts
     nh4_limit: float = 10.0  # mg-N/L alarm
 
 
@@ -204,7 +208,7 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         reward = -(
             config.reward_w_nh4 * (nh4_violation / nh4_limit) ** 2
             + config.reward_w_overflow * (overflow / tank_max)
-            + config.reward_w_timing * (new_tank / tank_max)  # incentivise emptying
+            + config.reward_w_timing * jnp.maximum(new_tank / tank_max - config.tank_risk_threshold, 0.0) ** 2
         )
 
         new_state = RejectWaterBenchState(
