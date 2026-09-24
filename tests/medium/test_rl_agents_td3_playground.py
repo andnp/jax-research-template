@@ -110,10 +110,10 @@ class TestTD3OnPlaygroundEnvs:
         env = _make_env(env_name)
         agent = _short_agent(env_name)
         key = jax.random.key(0)
-        params_before = agent.init(key, env.spec()).critic_state.params
+        params_before = agent.init(key, env.spec()).algorithm_state.critic_state.params
 
         final_state, _ = run(agent, env, key, steps=STEPS, gamma=GAMMA)
-        params_after = final_state.agent_state.critic_state.params
+        params_after = final_state.agent_state.algorithm_state.critic_state.params
 
         flat_before = jax.tree_util.tree_leaves(params_before)
         flat_after = jax.tree_util.tree_leaves(params_after)

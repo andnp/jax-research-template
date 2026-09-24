@@ -14,6 +14,7 @@ between actor updates.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import partial
 
 import chex
@@ -27,9 +28,10 @@ from jax_nn.typed_module import TypedApply
 from jax_utils.pytree import tree_lerp
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_components.continuous_actions import continuous_action_dim
 from rl_components.env_protocol import EnvSpec
 from rl_components.optim import with_hyperparams
+from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.networks import Critic
@@ -206,33 +208,13 @@ def _networks(action_dim: int) -> tuple[Actor, Critic]:
 
 
 @chex_struct(frozen=True)
-class TD3AgentState:
-    """Everything :class:`TD3Agent` carries between loop iterations.
-
-    Attributes:
-        actor_state: Deterministic policy parameters, optimizer state and the static
-            ``apply_fn``.
-        critic_state: Critic ensemble parameters, leading axis over members.
-        actor_target_params: Target policy, which proposes the bootstrap action.
-        critic_target_params: Target critics, which value it.
-        buffer_state: Replay contents, and the only record of the buffer's geometry.
-        last_obs: Observation the pending transition started from. Zero-primed at
-            ``init``; never read before the first insertion, which is guarded on
-            ``step_index > 0``.
-        last_action: Action that opened the pending transition, zero-primed likewise. Its
-            shape is also where ``step`` recovers the action dimension.
-        key: PRNG key for sampling minibatches, smoothing targets and exploring.
-        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
-    """
+class TD3AlgorithmState:
+    """TD3 learner state carried by the shared replay-agent wrapper."""
 
     actor_state: TrainState
     critic_state: TrainState
     actor_target_params: VariableDict
     critic_target_params: VariableDict
-    buffer_state: ReplayBufferState
-    last_obs: jax.Array
-    last_action: jax.Array
-    key: chex.PRNGKey
     hypers: TD3Hypers
 
 
@@ -256,7 +238,7 @@ class TD3Agent:
         """
         self.config = config
 
-    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> TD3AgentState:
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> ReplayAgentState[TD3AlgorithmState, ReplayBufferState]:
         """Build networks, optimizers, replay buffer and the zero-primed pending slots.
 
         Args:
@@ -293,28 +275,33 @@ class TD3Agent:
         )
 
         lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
-        return TD3AgentState(
-            actor_state=TrainState.create(
-                apply_fn=actor.apply, params=actor_params, tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr)
+        return init_replay_agent_state(
+            TD3AlgorithmState(
+                actor_state=TrainState.create(
+                    apply_fn=actor.apply,
+                    params=actor_params,
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
+                ),
+                critic_state=TrainState.create(
+                    apply_fn=critic.apply,
+                    params=critic_params,
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
+                ),
+                actor_target_params=actor_params,
+                critic_target_params=critic_params,
+                hypers=td3_hypers(self.config),
             ),
-            critic_state=TrainState.create(
-                apply_fn=critic.apply, params=critic_params, tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr)
-            ),
-            actor_target_params=actor_params,
-            critic_target_params=critic_params,
-            buffer_state=buffer.init(),
-            last_obs=zero_obs,
-            last_action=zero_action,
-            key=carry_key,
-            hypers=td3_hypers(self.config),
+            buffer.init(),
+            carry_key,
+            spec,
         )
 
     def step(
         self,
-        state: TD3AgentState,
+        state: ReplayAgentState[TD3AlgorithmState, ReplayBufferState],
         timestep: Timestep[jax.Array],
         step_index: jax.Array,
-    ) -> AgentStep[TD3AgentState, jax.Array]:
+    ) -> AgentStep[ReplayAgentState[TD3AlgorithmState, ReplayBufferState], jax.Array]:
         """Close the pending transition, learn from replay, then act.
 
         The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
@@ -334,91 +321,81 @@ class TD3Agent:
             ``actor_loss`` also on the iterations the policy delay skips -- so the pytree
             returned to ``lax.scan`` is identical on every iteration.
         """
+        algorithm_state = state.algorithm_state
         action_dim = state.last_action.shape[0]
         actor, _ = _networks(action_dim)
-        buffer = ReplayBuffer.from_state(state.buffer_state)
+        buffer = ReplayBuffer.from_state(state.replay_state)
         carry_key, learn_key, action_key, noise_key = jax.random.split(state.key, 4)
 
-        buffer_state = jax.lax.cond(
-            step_index > 0,
-            lambda: buffer.add(
-                state.buffer_state,
-                state.last_obs[None, ...],
-                state.last_action[None, ...],
-                timestep.reward[None, ...],
-                timestep.bootstrap_observation[None, ...],
-                timestep.discount[None, ...],
-            ),
-            lambda: state.buffer_state,
-        )
+        def close_transition(
+            replay_state: ReplayBufferState,
+            last_obs: jax.Array,
+            last_action: jax.Array,
+            current_timestep: Timestep[jax.Array],
+        ) -> ReplayBufferState:
+            return buffer.add(
+                replay_state,
+                last_obs[None, ...],
+                last_action[None, ...],
+                current_timestep.reward[None, ...],
+                current_timestep.bootstrap_observation[None, ...],
+                current_timestep.discount[None, ...],
+            )
 
-        hypers = state.hypers
-        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
-        (
-            actor_state,
-            critic_state,
-            actor_target_params,
-            critic_target_params,
-            critic_loss,
-            actor_loss,
-        ) = jax.lax.cond(
-            can_train,
-            lambda: self._learn(state, buffer_state, buffer, learn_key, step_index),
-            lambda: (
-                state.actor_state,
-                state.critic_state,
-                state.actor_target_params,
-                state.critic_target_params,
-                jnp.zeros((), jnp.float32),
-                jnp.zeros((), jnp.float32),
-            ),
-        )
+        def learn(
+            learner_state: TD3AlgorithmState,
+            replay_state: ReplayBufferState,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[TD3AlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
+            return self._learn(learner_state, replay_state, buffer, keys[0], step_index, action_dim)
 
-        def _explore() -> jax.Array:
-            return uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype)
+        def select_action(
+            learner_state: TD3AlgorithmState,
+            observation: jax.Array,
+            _step_index: jax.Array,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[jax.Array, dict[str, jax.Array]]:
+            action = actor.apply(learner_state.actor_state.params, observation)
+            noise = jax.random.normal(keys[1], action.shape) * learner_state.hypers.EXPLORATION_NOISE
+            action = jnp.clip(action + noise, -1.0, 1.0).astype(state.last_action.dtype)
+            return action, {}
 
-        def _act() -> jax.Array:
-            action = actor.apply(actor_state.params, timestep.observation)
-            noise = jax.random.normal(noise_key, action.shape) * hypers.EXPLORATION_NOISE
-            return jnp.clip(action + noise, -1.0, 1.0).astype(state.last_action.dtype)
-
-        action = jax.lax.cond(step_index < hypers.LEARNING_STARTS, _explore, _act)
-
-        return AgentStep(
-            state=TD3AgentState(
-                actor_state=actor_state,
-                critic_state=critic_state,
-                actor_target_params=actor_target_params,
-                critic_target_params=critic_target_params,
-                buffer_state=buffer_state,
-                last_obs=timestep.observation,
-                last_action=action,
-                key=carry_key,
-                hypers=hypers,
-            ),
-            action=action,
-            metrics={"critic_loss": critic_loss, "actor_loss": actor_loss},
+        hypers = algorithm_state.hypers
+        return replay_agent_step(
+            state,
+            timestep,
+            step_index,
+            carry_key=carry_key,
+            learn_keys=(learn_key,),
+            action_keys=(action_key, noise_key),
+            learning_starts=hypers.LEARNING_STARTS,
+            train_frequency=hypers.TRAIN_FREQUENCY,
+            warmup_steps=hypers.LEARNING_STARTS,
+            close_transition=close_transition,
+            learn=learn,
+            select_action=select_action,
         )
 
     def _learn(
         self,
-        state: TD3AgentState,
+        learner_state: TD3AlgorithmState,
         buffer_state: ReplayBufferState,
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
         step_index: jax.Array,
-    ) -> tuple[TrainState, TrainState, VariableDict, VariableDict, jax.Array, jax.Array]:
+        action_dim: int,
+    ) -> tuple[TD3AlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
         """Take a critic gradient step, and an actor step plus both Polyak updates on the delay."""
-        hypers = state.hypers
-        actor, critic = _networks(state.last_action.shape[0])
+        hypers = learner_state.hypers
+        actor, critic = _networks(action_dim)
         sample_key, critic_key = jax.random.split(key)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
 
-        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
+        critic_state = with_hyperparams(learner_state.critic_state, learning_rate=hypers.LEARNING_RATE)
         critic_loss, critic_grads = jax.value_and_grad(partial(td3_critic_loss, actor=actor, critic=critic))(
             critic_state.params,
-            state.actor_target_params,
-            state.critic_target_params,
+            learner_state.actor_target_params,
+            learner_state.critic_target_params,
             obs,
             actions,
             rewards,
@@ -431,23 +408,23 @@ class TD3Agent:
         critic_state = critic_state.apply_gradients(grads=critic_grads)
 
         def _update_actor() -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
-            actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.LEARNING_RATE)
+            actor_state = with_hyperparams(learner_state.actor_state, learning_rate=hypers.LEARNING_RATE)
             actor_loss, actor_grads = jax.value_and_grad(partial(td3_actor_loss, actor=actor, critic=critic))(
                 actor_state.params, critic_state.params, obs
             )
             actor_state = actor_state.apply_gradients(grads=actor_grads)
             return (
                 actor_state,
-                _soft_update(hypers.TAU, state.actor_target_params, actor_state.params),
-                _soft_update(hypers.TAU, state.critic_target_params, critic_state.params),
+                _soft_update(hypers.TAU, learner_state.actor_target_params, actor_state.params),
+                _soft_update(hypers.TAU, learner_state.critic_target_params, critic_state.params),
                 actor_loss.astype(jnp.float32),
             )
 
         def _skip_actor() -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
             return (
-                state.actor_state,
-                state.actor_target_params,
-                state.critic_target_params,
+                learner_state.actor_state,
+                learner_state.actor_target_params,
+                learner_state.critic_target_params,
                 jnp.zeros((), jnp.float32),
             )
 
@@ -455,11 +432,14 @@ class TD3Agent:
             step_index % hypers.POLICY_DELAY == 0, _update_actor, _skip_actor
         )
 
-        return (
-            actor_state,
-            critic_state,
-            actor_target_params,
-            critic_target_params,
-            critic_loss.astype(jnp.float32),
-            actor_loss,
+        updated_state = replace(
+            learner_state,
+            actor_state=actor_state,
+            critic_state=critic_state,
+            actor_target_params=actor_target_params,
+            critic_target_params=critic_target_params,
         )
+        return updated_state, buffer_state, {
+            "critic_loss": critic_loss.astype(jnp.float32),
+            "actor_loss": actor_loss,
+        }
