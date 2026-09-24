@@ -43,7 +43,7 @@ class TestCritic:
         obs = jnp.zeros((4,))
         action = jnp.zeros((2,))
         params = critic.init(jax.random.key(0), obs, action)
-        q = cast(jax.Array, critic.apply(params, obs, action))
+        q = critic.apply(params, obs, action)
         assert q.shape == ()
 
     def test_batch_output_shape(self) -> None:
@@ -51,7 +51,7 @@ class TestCritic:
         obs = jnp.zeros((10, 4))
         action = jnp.zeros((10, 2))
         params = critic.init(jax.random.key(0), jnp.zeros((4,)), jnp.zeros((2,)))
-        q = cast(jax.Array, critic.apply(params, obs, action))
+        q = critic.apply(params, obs, action)
         assert q.shape == (10,)
 
 
