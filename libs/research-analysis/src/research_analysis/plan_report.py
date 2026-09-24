@@ -91,6 +91,8 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 min_seeds=analysis.min_seeds,
                 measure=plan.measure,
                 pairs=analysis.pairs,
+                shared_across=analysis.shared_across,
+                untuned=analysis.untuned,
             )
             return [BakeoffResult(analysis.name, report)]
         case BestHypersAnalysis(group_by=()):

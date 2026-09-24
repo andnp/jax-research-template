@@ -338,7 +338,8 @@ class TestReportMarkdown:
             "condition `condition_name`, environment `none`, swept: lr (float)",
             "95% percentile bootstrap, 500 resamples, seed 7, min samples 3; missingness: blockwise",
             "Diverged runs: score -100",
-            "`headline`: bakeoff of base, new; pairs: new − base; blocked by: nothing; champion over: none",
+            "`headline`: bakeoff of base, new; pairs: new − base; blocked by: nothing; shared across: nothing; "
+            "champion over: none; untuned: none",
             "`tuned`: champion per algorithm",
             "`gap`: champion difference algorithm=ppo minus algorithm=dqn",
             "`sensitivity`: sensitivity to lr per whole grid",

@@ -14,7 +14,11 @@ from research_analysis.performance import FINAL_VALUE, PerformanceMeasure
 
 @dataclass(frozen=True)
 class BakeoffAnalysis:
-    """Compare ``conditions`` with ``bakeoff_report``; ``pairs`` of None plans every pair."""
+    """Compare ``conditions`` with ``bakeoff_report``; ``pairs`` of None plans every pair.
+
+    ``shared_across`` reuses the runs of conditions a blocking axis does not apply to in every block
+    of that axis; ``untuned`` declares single-configuration referents in a tuned-champion comparison.
+    """
 
     name: str
     conditions: tuple[str, ...]
@@ -22,6 +26,8 @@ class BakeoffAnalysis:
     block_by: tuple[str, ...] = ()
     select_champion_over: tuple[str, ...] | None = None
     min_seeds: int = 5
+    shared_across: tuple[str, ...] = ()
+    untuned: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

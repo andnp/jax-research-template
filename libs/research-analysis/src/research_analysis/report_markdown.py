@@ -81,7 +81,9 @@ def _describe_analysis(analysis: Analysis) -> str:
             champions = "none" if analysis.select_champion_over is None else ", ".join(analysis.select_champion_over)
             return (
                 f"`{name}`: bakeoff of {', '.join(conditions)}; pairs: {planned}; blocked by: "
-                f"{', '.join(block_by) or 'nothing'}; champion over: {champions}; min seeds {analysis.min_seeds}"
+                f"{', '.join(block_by) or 'nothing'}; shared across: {', '.join(analysis.shared_across) or 'nothing'}; "
+                f"champion over: {champions}; untuned: {', '.join(analysis.untuned) or 'none'}; "
+                f"min seeds {analysis.min_seeds}"
             )
         case BestHypersAnalysis(name=name, group_by=group_by):
             return f"`{name}`: champion per {', '.join(group_by) or 'whole grid'}"
