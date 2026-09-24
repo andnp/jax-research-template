@@ -123,6 +123,7 @@ def mean_curves(
     Raises:
         ValueError: If any condition has fewer than 2 seeds (required for bootstrap).
     """
+    rng = np.random.default_rng(random_seed)
     frames: list[pl.DataFrame] = []
     for condition in _conditions_with_metric(df, metric):
         steps, array = _condition_curve_array(df, metric, condition)
@@ -130,7 +131,7 @@ def mean_curves(
             array,
             confidence=confidence,
             n_resamples=n_resamples,
-            rng=np.random.default_rng(random_seed),
+            rng=rng,
         )
         frames.append(
             pl.DataFrame(

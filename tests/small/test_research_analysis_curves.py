@@ -115,6 +115,22 @@ class TestMeanCurves:
         assert a_mean == pytest.approx(100.0)
         assert b_mean == pytest.approx(200.0)
 
+    def test_is_reproducible_for_a_fixed_seed(self) -> None:
+        """Same random_seed must reproduce identical CI bands across full calls."""
+        df = _make_df(["A", "B"], [0, 1, 2, 3], [0, 1], "r", lambda c, s, t: t + s * 5)
+        first = mean_curves(df, "r", n_resamples=200, random_seed=7)
+        second = mean_curves(df, "r", n_resamples=200, random_seed=7)
+        assert first.equals(second)
+
+    def test_conditions_draw_distinct_bootstrap_streams(self) -> None:
+        """Two conditions with identical values must not get identical CI bands from
+        reusing the same RNG state, which would mask each condition's own resampling."""
+        df = _make_df(["A", "B"], [0, 1, 2, 3], [0, 1], "r", lambda c, s, t: t + s * 5)
+        result = mean_curves(df, "r", n_resamples=200, random_seed=7)
+        a_bands = result.filter(pl.col("condition_name") == "A").sort("step")[["ci_low", "ci_high"]]
+        b_bands = result.filter(pl.col("condition_name") == "B").sort("step")[["ci_low", "ci_high"]]
+        assert not a_bands.equals(b_bands)
+
     def test_empty_df_returns_empty_frame(self) -> None:
         df = pl.DataFrame(schema={"condition_name": pl.String, "seed": pl.Int64, "step": pl.Int64, "metric": pl.String, "value": pl.Float64})
         result = mean_curves(df, "r")
