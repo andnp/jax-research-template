@@ -13,6 +13,7 @@ from research_analysis.dataset.dimensions import UnresolvedDimension, cohort_mat
 from research_analysis.dataset.types import (
     CohortSelection,
     ComponentVersionProvenance,
+    ExecutionProvenance,
     ExperimentDimensions,
     MaterializedRun,
     SweepValue,
@@ -91,6 +92,26 @@ def materialize_rows(resolved: list[ResolvedRun], selected_sets: frozenset[Versi
             )
         )
     return rows
+
+
+def execution_provenance(resolved: list[ResolvedRun], rows: list[MaterializedRun]) -> tuple[ExecutionProvenance, ...]:
+    included = {row.execution_id for row in rows}
+    executions = {
+        completed.execution.id: completed.execution
+        for item in resolved
+        if (completed := item.candidate.completed) is not None and completed.execution.id in included
+    }
+    return tuple(
+        ExecutionProvenance(
+            execution_id=execution.id,
+            git_commit=execution.git_commit,
+            dirty=bool(execution.git_diff_blob),
+            hostname=execution.hostname,
+            start_time=execution.start_time,
+            end_time=execution.end_time,
+        )
+        for _id, execution in sorted(executions.items())
+    )
 
 
 def diagnose_unusable_runs(

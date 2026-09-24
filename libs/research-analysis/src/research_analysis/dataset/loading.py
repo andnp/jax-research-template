@@ -12,7 +12,12 @@ from research_analysis.dataset.cohorts import diagnose_orphaned_cells, diagnose_
 from research_analysis.dataset.frames import assemble_frames
 from research_analysis.dataset.metrics import load_metric_frames
 from research_analysis.dataset.non_finite import diagnose_non_finite, non_finite_summary, with_non_finite_metrics
-from research_analysis.dataset.rows import diagnose_unusable_runs, materialize_rows, resolve_runs
+from research_analysis.dataset.rows import (
+    diagnose_unusable_runs,
+    execution_provenance,
+    materialize_rows,
+    resolve_runs,
+)
 from research_analysis.dataset.types import CohortSelection, ExperimentDataset, ExperimentDimensions, VersionSelection
 from research_analysis.dataset.versions import select_version_sets
 from research_analysis.diagnostics.accumulator import DiagnosticAccumulator
@@ -70,4 +75,5 @@ def load_experiment_dataset(
         artifacts=artifacts,
         diagnostics=diagnostics.as_tuple(),
         accounting=accounting,
+        executions=execution_provenance(resolved, rows),
     )

@@ -63,6 +63,19 @@ class ComponentVersionProvenance:
 
 
 @dataclass(frozen=True)
+class ExecutionProvenance:
+    """Which code and host produced one included execution."""
+
+    execution_id: int
+    git_commit: str | None
+    # Uncommitted changes were recorded, so git_commit alone does not reproduce this execution.
+    dirty: bool
+    hostname: str | None
+    start_time: str | None
+    end_time: str | None
+
+
+@dataclass(frozen=True)
 class VersionIdSelector:
     """Select a component version by its database row ID."""
 
@@ -222,6 +235,7 @@ class ExperimentDataset:
     artifacts: Mapping[tuple[int, int], RunArtifacts] = field(default_factory=dict)
     diagnostics: tuple[DatasetDiagnostic, ...] = ()
     accounting: RunAccounting = field(default_factory=RunAccounting)
+    executions: tuple[ExecutionProvenance, ...] = ()
 
     def __post_init__(self) -> None:
         required_runs = {
