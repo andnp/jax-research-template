@@ -189,6 +189,12 @@ def _failure_section(failure: AnalysisFailure) -> list[str]:
             for cell in failure.incomplete_cells
         ]
         lines += ["", *_table(["Condition", "Block", "Missing seeds", "Failed", "Pending", "Excluded"], rows)]
+    if failure.insufficient_data:
+        rows = [
+            [", ".join(f"{key}={value}" for key, value in cell.coordinates.items()) or "—", cell.required, cell.observed]
+            for cell in failure.insufficient_data
+        ]
+        lines += ["", *_table(["Cell", "Required", "Observed"], rows)]
     return lines
 
 
