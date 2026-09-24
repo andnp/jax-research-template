@@ -52,6 +52,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
+from rl_components.losses import qrc_terms
 from rl_components.networks import TanhNormalDiag
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
@@ -288,16 +289,7 @@ def _qrc_loss(
     q, h = _critic_apply(critic, critic_params, obs, action)
     q_prime, _ = _critic_apply(critic, critic_params, next_obs, next_action)
 
-    target = reward + gamma * q_prime
-
-    sg = jax.lax.stop_gradient
-    delta_l = sg(target) - q  # stopped target
-    delta_r = target - sg(q)  # stopped q
-
-    # QRC loss: 1/2 * delta_l^2 + sg(h) * delta_r  (h decoupled via stop_grad)
-    q_loss = 0.5 * delta_l**2 + sg(h) * delta_r
-    h_loss = 0.5 * (sg(delta_l) - h) ** 2
-
+    q_loss, h_loss, delta_l = qrc_terms(q, h, reward, gamma, q_prime)
     loss = q_loss + h_loss
 
     metrics = QRCMetrics(
