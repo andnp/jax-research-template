@@ -31,6 +31,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -497,13 +498,7 @@ class SACAgent:
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
 
-        def _with_lr(train_state: TrainState) -> TrainState:
-            opt_state = train_state.opt_state
-            return train_state.replace(
-                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LEARNING_RATE})
-            )
-
-        critic_state = _with_lr(state.critic_state)
+        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
         critic_loss, critic_grads = jax.value_and_grad(partial(sac_critic_loss, actor=actor, critic=critic))(
             critic_state.params,
             state.actor_state.params,
@@ -518,13 +513,13 @@ class SACAgent:
         )
         critic_state = critic_state.apply_gradients(grads=critic_grads)
 
-        actor_state = _with_lr(state.actor_state)
+        actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.LEARNING_RATE)
         actor_loss, actor_grads = jax.value_and_grad(partial(sac_actor_loss, actor=actor, critic=critic))(
             actor_state.params, critic_state.params, obs, alpha, actor_key
         )
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
-        alpha_state = _with_lr(state.alpha_state)
+        alpha_state = with_hyperparams(state.alpha_state, learning_rate=hypers.LEARNING_RATE)
         alpha_loss, alpha_grads = jax.value_and_grad(partial(sac_alpha_loss, actor=actor))(
             alpha_state.params, actor_state.params, obs, state.target_entropy, alpha_key
         )

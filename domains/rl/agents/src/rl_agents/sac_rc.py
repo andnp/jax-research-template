@@ -56,6 +56,7 @@ from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
 from rl_components.losses import qrc_terms
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -198,18 +199,6 @@ def sac_rc_loss_batch(
         return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * l2_regularizer(params, "h_head")
 
     return jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
-
-
-def _with_learning_rate(train_state: TrainState, learning_rate: jax.Array) -> TrainState:
-    """Push a traced learning rate into optimizer state.
-
-    The transformation itself (``TrainState.tx``) is a static field and cannot hold a
-    traced value, so the rate rides ``opt_state.hyperparams`` instead, refreshed each step.
-    """
-    opt_state = train_state.opt_state
-    return train_state.replace(
-        opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
-    )
 
 
 def _networks(action_dim: int) -> tuple[Actor, SACRCCritic]:
@@ -496,9 +485,9 @@ class SACRCAgent:
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
 
-        critic_state = _with_learning_rate(state.critic_state, hypers.LEARNING_RATE)
-        actor_state = _with_learning_rate(state.actor_state, hypers.LEARNING_RATE)
-        alpha_state = _with_learning_rate(state.alpha_state, hypers.LEARNING_RATE)
+        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
+        actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.LEARNING_RATE)
+        alpha_state = with_hyperparams(state.alpha_state, learning_rate=hypers.LEARNING_RATE)
 
         def critic_loss_fn(params: VariableDict) -> jax.Array:
             return sac_rc_loss_batch(
