@@ -1,15 +1,15 @@
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, BSM1PlantState, make_bsm1_benchmark
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, make_bsm1_benchmark
 from process_control.benchmarks.bsm1_combined import (
     BSM1CombinedConfig,
-    BSM1CombinedPlantState,
     make_bsm1_combined_benchmark,
 )
 from process_control.benchmarks.bsm1_recycle import (
     BSM1RecycleConfig,
-    BSM1RecyclePlantState,
     make_bsm1_recycle_benchmark,
 )
 from process_control.units.asm1 import (
@@ -155,47 +155,29 @@ class TestASM1Unit:
 
 
 class TestBSM1Benchmark:
-    @pytest.mark.parametrize("variant", ["bsm1", "bsm1_recycle", "bsm1_combined"])
+    @pytest.mark.parametrize(
+        "factory, config, action",
+        [
+            (make_bsm1_benchmark, BSM1BenchmarkConfig(), jnp.array([5.0, 5.0])),
+            (make_bsm1_recycle_benchmark, BSM1RecycleConfig(), jnp.array([3.0, 1.0])),
+            (make_bsm1_combined_benchmark, BSM1CombinedConfig(), jnp.array([5.0, 5.0, 3.0, 1.0])),
+        ],
+    )
     def test_mid_range_aeration_keeps_effluent_ammonium_bounded(
-        self, variant: str
+        self, factory: Callable, config: object, action: jax.Array
     ) -> None:
         """A jitted long run keeps effluent ammonium finite and below 50 mg N/L."""
-        if variant == "bsm1":
-            reset_bsm1, step_bsm1 = make_bsm1_benchmark(BSM1BenchmarkConfig())
-            action = jnp.array([5.0, 5.0])
-            state, _ = reset_bsm1(jax.random.PRNGKey(4))
+        reset, step = factory(config)
+        state, _ = reset(jax.random.PRNGKey(4))
 
-            def scan_bsm1(state: BSM1PlantState, key: jax.Array):
-                state, _, _, _, info = step_bsm1(state, action, key)
-                return state, info["s_nh_effluent"]
-            def run_scan(s: BSM1PlantState):
-                return jax.lax.scan(scan_bsm1, s, jax.random.split(jax.random.PRNGKey(5), 8000))
+        def scan(state: object, key: jax.Array):
+            state, _, _, _, info = step(state, action, key)
+            return state, info["s_nh_effluent"]
 
-            _, effluent_nh = jax.jit(run_scan)(state)
-        elif variant == "bsm1_recycle":
-            reset_recycle, step_recycle = make_bsm1_recycle_benchmark(BSM1RecycleConfig())
-            action = jnp.array([3.0, 1.0])
-            state, _ = reset_recycle(jax.random.PRNGKey(4))
+        def run_scan(state: object):
+            return jax.lax.scan(scan, state, jax.random.split(jax.random.PRNGKey(5), 8000))
 
-            def scan_recycle(state: BSM1RecyclePlantState, key: jax.Array):
-                state, _, _, _, info = step_recycle(state, action, key)
-                return state, info["s_nh_effluent"]
-            def run_scan(s: BSM1RecyclePlantState):
-                return jax.lax.scan(scan_recycle, s, jax.random.split(jax.random.PRNGKey(5), 8000))
-
-            _, effluent_nh = jax.jit(run_scan)(state)
-        else:
-            reset_combined, step_combined = make_bsm1_combined_benchmark(BSM1CombinedConfig())
-            action = jnp.array([5.0, 5.0, 3.0, 1.0])
-            state, _ = reset_combined(jax.random.PRNGKey(4))
-
-            def scan_combined(state: BSM1CombinedPlantState, key: jax.Array):
-                state, _, _, _, info = step_combined(state, action, key)
-                return state, info["s_nh_effluent"]
-            def run_scan(s: BSM1CombinedPlantState):
-                return jax.lax.scan(scan_combined, s, jax.random.split(jax.random.PRNGKey(5), 8000))
-
-            _, effluent_nh = jax.jit(run_scan)(state)
+        _, effluent_nh = jax.jit(run_scan)(state)
         effluent_nh = effluent_nh[-1]
         assert bool(jnp.isfinite(effluent_nh))
         assert float(effluent_nh) < 50.0
