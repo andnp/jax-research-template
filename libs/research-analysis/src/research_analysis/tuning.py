@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from research_analysis.bootstrap import _percentile_interval
+from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.non_finite import require_finite_array
 
@@ -237,15 +238,17 @@ def _build_hyper_matrix(
         groups.setdefault(key, {})[seed] = record["value"]
 
     if len(groups) < 2:
-        raise ValueError(
-            f"need at least 2 distinct combinations of {list(hyperparameter_keys)!r} to tune, got {len(groups)}"
+        raise InsufficientDataError(
+            f"need at least 2 distinct combinations of {list(hyperparameter_keys)!r} to tune, got {len(groups)}",
+            cells=(InsufficientDataCell({}, "at least 2 distinct combinations", str(len(groups))),),
         )
 
     keys_sorted = sorted(groups, key=_sortable_key)
     common_seeds = set.intersection(*(set(g) for g in groups.values()))
     if not common_seeds:
-        raise ValueError(
-            f"no seed has a completed run under every combination of {list(hyperparameter_keys)!r}"
+        raise InsufficientDataError(
+            f"no seed has a completed run under every combination of {list(hyperparameter_keys)!r}",
+            cells=(InsufficientDataCell({}, "at least one seed shared by every combination", "0"),),
         )
     seeds_sorted = sorted(common_seeds)
 
