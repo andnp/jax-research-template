@@ -33,8 +33,9 @@ class MembraneParams:
 
     # Cake fouling: deposited cake mass per unit area grows as J*C*dt (the
     # classical cake-filtration form underlying the Darcy's-law resistance
-    # model TMP = J*mu*(R_m + R_cake), e.g. Luongo et al. 2021 eq. 2.1,
-    # https://arxiv.org/abs/2104.03996), and each mass increment adds
+    # model TMP = J*mu*(R_m + R_cake); Hermia, "Constant Pressure Blocking
+    # Filtration Laws — Application to Power-law Non-Newtonian Fluids,"
+    # Trans IChemE 60(3):183-187, 1982), and each mass increment adds
     # resistance alpha_cake * mass. Reported specific cake resistances for
     # particulate/NOM cakes span ~1e13-1e16 m/kg; alpha_cake below sits near
     # the low (more permeable) end for reduced-order tuning of this benchmark.
@@ -96,7 +97,7 @@ def _water_viscosity(temp_c: jax.Array | float) -> jax.Array:
 
     Standard exponential (Vogel-type) fit; matches tabulated values to
     within ~0.5% over 0-100°C (e.g. 1.002 mPa·s at 20°C, 0.890 mPa·s at
-    25°C) — https://www.engineeringtoolbox.com/water-dynamic-kinematic-viscosity-d_596.html
+    25°C) — NIST WebBook, https://webbook.nist.gov/cgi/cbook.cgi?ID=C7732185&Mask=FFFF&Units=SI
     """
     temp_k = temp_c + 273.15
     return 2.414e-5 * 10.0 ** (247.8 / (temp_k - 140.0))
