@@ -45,8 +45,9 @@ def _present_best_hypers(
                 (
                     "Selecting the hyperparameter configuration with the highest raw average results "
                     "in Maximization Bias. This bias represents how much we have overestimated the algorithm's "
-                    "true performance by selecting the 'lucky' configuration. The Corrected Mean represents "
-                    "a realistic expectation of performance on a fresh set of random seeds."
+                    "true performance by selecting the 'lucky' configuration. The Corrected Mean resamples "
+                    "these same seeds, re-running the selection each time, so it reflects which configuration "
+                    "would be chosen as well as how it performs; it is not an estimate from held-out seeds."
                 ),
             ),
             title="Maximization Bias Correction Log",
