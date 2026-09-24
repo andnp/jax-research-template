@@ -31,7 +31,7 @@ from research_analysis.report import (
     exploratory_report,
 )
 from research_analysis.report_json import plan_fingerprint, report_to_json
-from research_analysis.report_markdown import render_markdown
+from research_analysis.report_markdown import render_markdown, render_summary
 from research_analysis.report_plots import write_report_plots
 from research_analysis.reporting import HyperparameterConfigReport, bakeoff_report
 
@@ -230,6 +230,20 @@ class TestReportMarkdown:
         assert "maximization bias 0.8" in text
         assert "left out: 2" in text
 
+
+    def test_summary_gives_status_run_outcomes_and_each_headline_difference(self) -> None:
+        """The console summary is short but still states run outcomes and each difference with its confidence."""
+        dataset = _dataset(_SCORES)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
+        document = exploratory_report(dataset, Path("db"), [BakeoffResult("headline", report)])
+
+        summary = render_summary(document)
+
+        difference = report.difference("base", "new")
+        assert "- Status: **ok**" in summary
+        assert "8 completed, 2 failed" in summary
+        assert f"base − new: {difference.estimate:.4g}" in summary
+        assert "at 95% (n=4)" in summary
 
 class TestReportPlots:
     def test_figures_are_written_under_the_report_directory_and_listed_relative_to_it(self, tmp_path: Path) -> None:

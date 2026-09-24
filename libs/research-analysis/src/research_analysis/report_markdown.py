@@ -286,3 +286,54 @@ def render_markdown(document: ReportDocument) -> str:
     if document.plots:
         sections.append(_figures_section(document))
     return "\n\n".join("\n".join(section) for section in sections) + "\n"
+
+
+def _headline_lines(result: AnalysisResult) -> list[str]:
+    match result:
+        case BakeoffResult(name=name, report=report):
+            lines = [f"- `{name}`: {len(report.warnings)} warning(s)"]
+            for item in report.differences:
+                block = f" [{item.block}]" if item.block else ""
+                if item.estimate is None:
+                    lines.append(f"  - {item.minuend} − {item.subtrahend}{block}: skipped, {item.skipped_reason}")
+                    continue
+                lines.append(
+                    f"  - {item.minuend} − {item.subtrahend}{block}: {_number(item.estimate)} "
+                    f"{_interval(item.ci)} at {_percent(item.confidence)} (n={item.n_paired})"
+                )
+            return lines
+        case BestHypersResult(name=name, group=group, report=report):
+            return [
+                f"- `{name}` ({_group_label(group)}): {_config(report.winning_config)}, corrected mean "
+                f"{_number(report.corrected_mean)} {_interval(report.estimate_ci)} at {_percent(report.confidence_level)}"
+            ]
+        case HypersDifferenceResult(name=name, report=report):
+            return [
+                f"- `{name}`: {_number(report.mean_diff)} {_interval(report.estimate_ci)} at {_percent(report.confidence_level)}"
+            ]
+        case SliceHypersResult(name=name, group=group, report=report):
+            return [f"- `{name}` ({_group_label(group)}): sensitivity to {report.vary} over {len(report.values)} values"]
+
+
+def render_summary(document: ReportDocument) -> str:
+    """A few lines for a console: status, what the runs amount to, what went wrong, and the headline numbers."""
+    cells = document.accounting.cells
+    totals = {
+        "planned": sum(cell.planned for cell in cells),
+        "completed": sum(cell.completed for cell in cells),
+        "failed": sum(cell.failed for cell in cells),
+        "pending": sum(cell.pending for cell in cells),
+        "diverged": sum(sum(cell.diverged.values()) for cell in cells),
+        "excluded": sum(sum(cell.excluded.values()) for cell in cells) + sum(document.accounting.unassigned.values()),
+    }
+    lines = _status_section(document)[2:]
+    lines.append("- Runs: " + ", ".join(f"{count} {state}" for state, count in totals.items()))
+    for label, diagnostics in (("Fatal", document.fatal_diagnostics), ("Non-fatal", document.non_fatal_diagnostics)):
+        if diagnostics:
+            counts = Counter(str(item.code) for item in diagnostics)
+            lines.append(f"- {label} diagnostics: " + ", ".join(f"{code} ({count})" for code, count in counts.items()))
+    if document.failure is not None:
+        lines.append(f"- Analysis `{document.failure.analysis}` failed: {document.failure.error_type}")
+    for result in document.analyses:
+        lines.extend(_headline_lines(result))
+    return "\n".join(lines) + "\n"
