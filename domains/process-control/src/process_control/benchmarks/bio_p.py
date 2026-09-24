@@ -56,8 +56,17 @@ class BioPConfig:
     v_anoxic: float = 1000.0  # m³
     v_aerobic: float = 2000.0  # m³
 
-    # Aeration in aerobic zone
-    kla_aerobic: float = 6.0  # h⁻¹ (fixed, not action-controlled for simplicity)
+    # Aeration in aerobic zone. BSM1's fixed-aeration compartments (3-4) use
+    # KLa = 10 h⁻¹ (Alex et al. 2008, BSM1 report, sec. 2.3.1, p.7); the
+    # previous 6.0 h⁻¹ default under-supplied O₂ relative to the combined
+    # BOD+nitrification O₂ demand once PAOs/nitrifiers were retained (SRT
+    # ~12 d), holding aerobic DO near zero and starving nitrification via
+    # the K_OA monod term even though SRT alone was more than adequate.
+    # 9.0 h⁻¹ (just under the BSM1 value) keeps this single combined-CSTR
+    # aerobic zone's O₂ balance in the stable regime for this benchmark's
+    # fixed dt=0.02 h RK4 step at typical actions; 10.0 h⁻¹ triggers a
+    # transient DO/NH4 blow-up at some seeds under mid-range recycle.
+    kla_aerobic: float = 9.0  # h⁻¹ (fixed, not action-controlled for simplicity)
     s_o_sat: float = 8.0  # mg O₂/L
 
     # Flow
