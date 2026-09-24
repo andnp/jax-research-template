@@ -25,8 +25,9 @@ from process_control.scenarios.diurnal_source import (
 from process_control.scenarios.diurnal_source import (
     step as source_step,
 )
-from process_control.sensors.do_sensor import DOSensorParams, DOSensorState
-from process_control.sensors.do_sensor import step as do_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as do_reset
+from process_control.sensors.lagged import step as do_step
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State
@@ -97,7 +98,7 @@ class BSM1RecycleConfig:
 class BSM1RecycleObsSensors:
     """Standalone observation sensors for the recycle benchmark."""
 
-    do_r5: DOSensorState
+    do_r5: LaggedSensorState
     nh4_eff: ResidualAnalyzerState
     no3_eff: ResidualAnalyzerState
     last_q_in: jax.Array
@@ -174,7 +175,7 @@ def make_bsm1_recycle_benchmark(
     q_a_ratio_max = jnp.array(config.q_a_ratio_max)
 
     # Standalone observation sensor params
-    do_params = DOSensorParams(
+    do_params = LaggedSensorParams(
         noise_std=bsm1.do_noise_std,
         lag_coefficient=bsm1.do_lag,
         drift_rate=bsm1.do_drift_rate,
@@ -215,7 +216,7 @@ def make_bsm1_recycle_benchmark(
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1RecycleObsSensors(
-            do_r5=DOSensorState.create(bsm1.initial_states.r5.s_o),
+            do_r5=do_reset(bsm1.initial_states.r5.s_o, k2),
             nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
             no3_eff=ResidualAnalyzerState.create(r5.s_no),
             last_q_in=jnp.array(bsm1.mean_flow),
