@@ -218,6 +218,21 @@ def test_paired_difference_resamples_runs_jointly() -> None:
     assert result.pairing == "paired"
 
 
+def test_paired_median_difference_is_the_median_of_per_seed_differences() -> None:
+    """A paired median estimate and interval use median(a - b), not median(a) - median(b)."""
+    a = np.array([1.0, 2.0, 30.0])
+    b = np.array([0.0, 5.0, 6.0])
+    result = bootstrap_difference_ci(
+        a, b, estimand="median", pairing="paired", n_resamples=64, rng=np.random.default_rng(7)
+    )
+    indices = np.random.default_rng(7).integers(0, a.size, size=(64, a.size))
+    replicates = np.median((a - b)[indices], axis=1)
+
+    assert result.estimate == pytest.approx(1.0)
+    assert result.ci_low == pytest.approx(np.quantile(replicates, 0.025))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 0.975))
+
+
 def test_independent_difference_resamples_each_arm_separately() -> None:
     """An independent interval draws each arm's resample on its own, so arms may differ in size."""
     a = np.array([1.0, 2.0, 4.0, 7.0])

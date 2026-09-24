@@ -184,7 +184,11 @@ def bootstrap_difference_ci(
     min_samples: int = 3,
     rng: np.random.Generator,
 ) -> DifferenceBootstrapCI:
-    """Compute a percentile-bootstrap interval for a difference, resampling runs jointly when paired."""
+    """Compute a percentile-bootstrap interval for a difference, resampling runs jointly when paired.
+
+    Paired, the statistic is the estimand of the per-seed differences, so a paired median is
+    median(a - b); independent, it is the difference of each arm's estimand.
+    """
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
@@ -207,10 +211,15 @@ def bootstrap_difference_ci(
         raise ValueError("bootstrap samples must contain only finite values")
 
     indices_a = rng.integers(0, len(a), size=(n_resamples, len(a)))
-    indices_b = indices_a if pairing == "paired" else rng.integers(0, len(b), size=(n_resamples, len(b)))
-    replicates = _sample_statistic(a[indices_a], estimand) - _sample_statistic(b[indices_b], estimand)
+    if pairing == "paired":
+        differences = a - b
+        replicates = _sample_statistic(differences[indices_a], estimand)
+        estimate = _sample_statistic(differences[np.newaxis], estimand)[0]
+    else:
+        indices_b = rng.integers(0, len(b), size=(n_resamples, len(b)))
+        replicates = _sample_statistic(a[indices_a], estimand) - _sample_statistic(b[indices_b], estimand)
+        estimate = _sample_statistic(a[np.newaxis], estimand)[0] - _sample_statistic(b[np.newaxis], estimand)[0]
     ci_low, ci_high = _percentile_interval(replicates, confidence)
-    estimate = _sample_statistic(a[np.newaxis], estimand)[0] - _sample_statistic(b[np.newaxis], estimand)[0]
     return DifferenceBootstrapCI(
         estimate=float(estimate),
         ci_low=float(ci_low),

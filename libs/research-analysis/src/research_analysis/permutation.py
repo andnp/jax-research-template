@@ -39,7 +39,11 @@ def run_permutation_test(
     min_samples: int = 3,
     rng: np.random.Generator,
 ) -> PermutationResult:
-    """Compare two finite samples using a declared permutation design."""
+    """Compare two finite samples using a declared permutation design.
+
+    Paired, the statistic is the estimand of the per-seed differences and each pair's labels
+    are swapped, a sign-flip test; independent, it is the difference of each group's estimand.
+    """
     a = np.ascontiguousarray(np.asarray(values_a, dtype=np.float64).ravel())
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
@@ -63,14 +67,17 @@ def run_permutation_test(
 
     statistic = np.mean if estimand == "mean" else np.median
 
-    def difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
+    def paired_difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
+        return float(statistic(left - right))
+
+    def independent_difference(left: NDArray[np.float64], right: NDArray[np.float64]) -> float:
         return float(statistic(left) - statistic(right))
 
-    permutation_type = "samples" if pairing == "paired" else "independent"
+    paired = pairing == "paired"
     result = stats.permutation_test(
         (a, b),
-        difference,
-        permutation_type=permutation_type,
+        paired_difference if paired else independent_difference,
+        permutation_type="samples" if paired else "independent",
         alternative="two-sided",
         n_resamples=n_resamples,
         rng=rng,
