@@ -1519,6 +1519,85 @@ class TestChampionComparisons:
             )
 
 
+class TestUntunedReferent:
+    @staticmethod
+    def _tuned_against_fixed(setup: ExperimentSetup, referent_configs: tuple[str, ...] = ("low",)) -> ExperimentDataset:
+        noise = np.random.default_rng(5)
+        for seed in range(8):
+            for learning_rate, value in (("low", 4.0), ("high", 6.0)):
+                _add_observation(setup, {"condition_name": "tuned", "learning_rate": learning_rate}, seed, value + noise.normal(0, 0.1))
+            for learning_rate in referent_configs:
+                _add_observation(setup, {"condition_name": "fixed", "learning_rate": learning_rate}, seed, 1.0 + noise.normal(0, 0.1))
+        return _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+    @pytest.mark.parametrize(("higher_is_better", "expected"), [(True, 5.0), (False, 3.0)])
+    def test_a_tuned_champion_is_compared_with_a_declared_fixed_referent(
+        self, temp_experiment_setup: ExperimentSetup, higher_is_better: bool, expected: float
+    ) -> None:
+        """The tuned arm's champion is selected; the referent's single configuration is used as it is."""
+        dataset = self._tuned_against_fixed(temp_experiment_setup)
+
+        report = bakeoff_report(
+            dataset,
+            "metric",
+            ["tuned", "fixed"],
+            select_champion_over=["learning_rate"],
+            untuned=["fixed"],
+            higher_is_better=higher_is_better,
+            spec=BakeoffSpec(n_resamples=200),
+        )
+
+        difference = report.difference("tuned", "fixed")
+        assert difference.estimate is not None and difference.ci is not None
+        assert difference.estimate == pytest.approx(expected, abs=0.1)
+        assert difference.ci[0] < difference.estimate < difference.ci[1]
+        assert difference.n_paired == 8
+
+    def test_the_referent_is_recorded_as_untuned_with_no_selection_stage(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The report states which arm was fixed, and its difference names the plain bootstrap it received."""
+        dataset = self._tuned_against_fixed(temp_experiment_setup)
+
+        report = bakeoff_report(
+            dataset, "metric", ["tuned", "fixed"], select_champion_over=["learning_rate"], untuned=["fixed"], spec=BakeoffSpec(n_resamples=50)
+        )
+
+        assert report.untuned == ("fixed",)
+        assert report.champions is not None and set(report.champions[""]) == {"tuned"}
+        assert report.cells["fixed"][""].n == 8
+        method = report.difference("tuned", "fixed").method
+        assert "selection included for tuned" in method
+        assert "untuned referent fixed, no selection" in method
+
+    def test_a_declared_referent_with_several_configurations_is_refused(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Declaring a tuned grid untuned would silently pick one configuration, so it fails instead."""
+        dataset = self._tuned_against_fixed(temp_experiment_setup, referent_configs=("low", "high"))
+
+        with pytest.raises(ValueError, match="'fixed' is declared untuned but has 2 configurations"):
+            bakeoff_report(dataset, "metric", ["tuned", "fixed"], select_champion_over=["learning_rate"], untuned=["fixed"])
+
+    @pytest.mark.parametrize(
+        ("select_champion_over", "untuned", "message"),
+        [
+            (None, ["fixed"], "give select_champion_over"),
+            (["learning_rate"], ["other"], "untuned names conditions outside"),
+            (["learning_rate"], ["tuned", "fixed"], "needs at least one tuned condition"),
+        ],
+        ids=["without-champions", "unknown-condition", "nothing-tuned"],
+    )
+    def test_rejects_an_untuned_declaration_that_cannot_apply(
+        self,
+        temp_experiment_setup: ExperimentSetup,
+        select_champion_over: list[str] | None,
+        untuned: list[str],
+        message: str,
+    ) -> None:
+        """An untuned referent only has meaning beside at least one tuned arm in a champion comparison."""
+        dataset = self._tuned_against_fixed(temp_experiment_setup)
+
+        with pytest.raises(ValueError, match=message):
+            bakeoff_report(dataset, "metric", ["tuned", "fixed"], select_champion_over=select_champion_over, untuned=untuned)
+
+
 class TestSmallSampleCoverageOnChampions:
     @pytest.mark.parametrize(("n_seeds", "warned"), [(29, True), (30, False)])
     def test_a_champion_interval_on_fewer_than_thirty_runs_carries_a_coverage_warning(
