@@ -11,7 +11,7 @@ from research_analysis._reporting_hypers import best_hypers, slice_hypers
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExecutionProvenance, ExperimentDataset
 from research_analysis.diagnostics.bakeoff import IncompleteBlocksError
-from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES
+from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, InsufficientDataError
 from research_analysis.non_finite import NonFiniteValuesError, substitute_non_finite
 from research_analysis.plan import (
     Analysis,
@@ -207,5 +207,8 @@ def run_plan(
             return document((), AnalysisFailure(analysis.name, type(error).__name__, str(error), non_finite_runs=runs))
         except IncompleteBlocksError as error:
             failure = AnalysisFailure(analysis.name, type(error).__name__, str(error), incomplete_cells=error.cells)
+            return document((), failure)
+        except InsufficientDataError as error:
+            failure = AnalysisFailure(analysis.name, type(error).__name__, str(error), insufficient_data=error.cells)
             return document((), failure)
     return document(tuple(results), None)
