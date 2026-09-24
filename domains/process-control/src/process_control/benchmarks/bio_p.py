@@ -30,7 +30,7 @@ from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as analyzer_reset
 from process_control.sensors.lagged import step as analyzer_step
-from process_control.units.asm2d import ASM2dParams, mix, reactor_step
+from process_control.units.asm2d import ASM2dParams, mix, perfect_clarifier, reactor_step
 
 
 @jax_dataclass
@@ -67,8 +67,15 @@ class BioPConfig:
     max_flow: float = 700.0
     drift_scale: float = 0.1
 
-    # Recycle
+    # Recycle: internal nitrate recycle (aerobic → anoxic, A2O convention;
+    # action-controlled) plus a fixed external RAS + wastage loop through an
+    # ideal clarifier (aerobic → anaerobic), sized for an SRT of ~12 d given
+    # the reactor volumes and mean_flow below. Without wastage, SRT = HRT
+    # (~7 h) and PAOs/nitrifiers wash out well before they can establish;
+    # see units/bsm1_plant.perfect_clarifier for the same convention in BSM1.
     q_recycle_max: float = 1500.0  # m³/h (3× Q_in)
+    return_sludge_ratio: float = 1.0  # Q_RAS = ratio × Q_in
+    waste_sludge_ratio: float = 0.0123  # Q_waste = ratio × Q_in (→ SRT ≈ 12 d)
 
     # External carbon
     carbon_dose_max: float = 50.0  # mg COD/L
@@ -172,13 +179,21 @@ def make_bio_p_benchmark(config: BioPConfig):
         q_recycle = jnp.clip(action[0], 0.0, 1.0) * q_max
         carbon_dose = jnp.clip(action[1], 0.0, 1.0) * carbon_max
 
-        # 3. Anaerobic zone: influent + recycle from aerobic (no aeration)
+        # 3. Clarifier (ideal): settles the *previous* step's aerobic-zone
+        # liquor into a solids-free overflow and a concentrated RAS underflow,
+        # avoiding an algebraic loop with this step's own aerobic outlet
+        # (same one-step-lag convention as units/bsm1_plant.perfect_clarifier).
+        q_ras = q_in * config.return_sludge_ratio
+        q_waste = q_in * config.waste_sludge_ratio
+        _, return_sludge = perfect_clarifier(state.aerobic_state, q_in + q_ras, q_ras, q_waste)
+
+        # 4. Anaerobic zone: influent + carbon + RAS (A2O: no nitrate/DO here)
         inf_with_carbon = influent.at[1].set(influent[1] + carbon_dose)  # add VFA to S_S
-        anaerobic_inlet = mix(inf_with_carbon, q_in, state.aerobic_state, q_recycle)
+        anaerobic_inlet = mix(inf_with_carbon, q_in, return_sludge, q_ras)
         new_anaerobic = reactor_step(
             state.anaerobic_state,
             anaerobic_inlet,
-            q_in + q_recycle,
+            q_in + q_ras,
             config.v_anaerobic,
             jnp.array(0.0),
             config.s_o_sat,
@@ -186,11 +201,14 @@ def make_bio_p_benchmark(config: BioPConfig):
             jnp.array(config.dt),
         )
 
-        # 4. Anoxic zone: from anaerobic (no aeration)
+        # 5. Anoxic zone: anaerobic effluent + internal nitrate recycle from
+        # aerobic (A2O: the recycle carrying NO3/DO goes here, not to the
+        # anaerobic zone)
+        anoxic_inlet = mix(new_anaerobic, q_in + q_ras, state.aerobic_state, q_recycle)
         new_anoxic = reactor_step(
             state.anoxic_state,
-            new_anaerobic,
-            q_in + q_recycle,
+            anoxic_inlet,
+            q_in + q_ras + q_recycle,
             config.v_anoxic,
             jnp.array(0.0),
             config.s_o_sat,
@@ -198,11 +216,12 @@ def make_bio_p_benchmark(config: BioPConfig):
             jnp.array(config.dt),
         )
 
-        # 5. Aerobic zone: from anoxic (with aeration)
+        # 6. Aerobic zone: from anoxic (with aeration); carries the internal
+        # recycle flow, which splits off again at this outlet
         new_aerobic = reactor_step(
             state.aerobic_state,
             new_anoxic,
-            q_in + q_recycle,
+            q_in + q_ras + q_recycle,
             config.v_aerobic,
             jnp.array(config.kla_aerobic),
             config.s_o_sat,
@@ -210,19 +229,19 @@ def make_bio_p_benchmark(config: BioPConfig):
             jnp.array(config.dt),
         )
 
-        # 6. Effluent (simplified: no settler, just aerobic effluent soluble fractions)
+        # 7. Effluent (simplified: no settler, just aerobic effluent soluble fractions)
         eff_po4 = new_aerobic[13]  # S_PO4
         eff_nh4 = new_aerobic[9]  # S_NH
         ana_po4 = new_anaerobic[13]
         aerobic_do = new_aerobic[7]
         pha_pao_ratio = new_aerobic[15] / (new_aerobic[14] + 1e-10)
 
-        # 7. Sensors
+        # 8. Sensors
         new_po4_eff, sensed_po4_eff = analyzer_step(state.po4_eff_sensor, eff_po4, po4_analyzer, k2)
         new_nh4_eff, sensed_nh4_eff = analyzer_step(state.nh4_eff_sensor, eff_nh4, nh4_analyzer, k3)
         new_po4_ana, sensed_po4_ana = analyzer_step(state.po4_ana_sensor, ana_po4, po4_analyzer, k4)
 
-        # 8. Observation
+        # 9. Observation
         obs = jnp.array(
             [
                 sensed_po4_eff / 10.0,
@@ -235,7 +254,7 @@ def make_bio_p_benchmark(config: BioPConfig):
             ]
         )
 
-        # 9. Reward
+        # 10. Reward
         po4_violation = jnp.maximum(sensed_po4_eff - config.po4_limit, 0.0)
         nh4_violation = jnp.maximum(sensed_nh4_eff - config.nh4_limit, 0.0)
         reward = -(config.reward_w_po4 * po4_violation**2 + config.reward_w_nh4 * nh4_violation**2 + config.reward_w_carbon * (carbon_dose / carbon_max))

@@ -32,7 +32,7 @@ from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as analyzer_reset
 from process_control.sensors.lagged import step as analyzer_step
-from process_control.units.asm2d import ASM2dParams, make_default_influent_asm2d, mix, reactor_step
+from process_control.units.asm2d import ASM2dParams, make_default_influent_asm2d, mix, perfect_clarifier, reactor_step
 
 
 @jax_dataclass
@@ -70,8 +70,14 @@ class CombinedNPConfig:
     max_flow: float = 700.0
     drift_scale: float = 0.1
 
-    # Recycle
+    # Recycle: internal nitrate recycle (aerobic → anoxic, action-controlled)
+    # plus a fixed external RAS + wastage loop through an ideal clarifier
+    # (aerobic → anaerobic), sized for an SRT of ~12 d; see bio_p.BioPConfig
+    # for the derivation and units/bsm1_plant.perfect_clarifier for the
+    # matching BSM1 convention.
     q_recycle_max: float = 1500.0
+    return_sludge_ratio: float = 1.0
+    waste_sludge_ratio: float = 0.0123
 
     # Chemical P (FeCl₃)
     fe_dose_max: float = 30.0
@@ -213,13 +219,20 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         fe_dose = jnp.clip(action[2], 0.0, 1.0) * fe_max
         carbon_dose = jnp.clip(action[3], 0.0, 1.0) * carbon_max
 
-        # 3. Anaerobic zone: influent + recycle, add external carbon
+        # 3. Clarifier (ideal): settles the *previous* step's aerobic-zone
+        # liquor into a solids-free overflow and a concentrated RAS underflow
+        # (one-step lag avoids an algebraic loop; see bio_p.py / bsm1_plant.py)
+        q_ras = q_in * config.return_sludge_ratio
+        q_waste = q_in * config.waste_sludge_ratio
+        _, return_sludge = perfect_clarifier(state.aerobic_state, q_in + q_ras, q_ras, q_waste)
+
+        # 4. Anaerobic zone: influent + carbon + RAS (A2O: no nitrate/DO here)
         inf_with_carbon = influent.at[1].set(influent[1] + carbon_dose)
-        anaerobic_inlet = mix(inf_with_carbon, q_in, state.aerobic_state, q_recycle)
+        anaerobic_inlet = mix(inf_with_carbon, q_in, return_sludge, q_ras)
         new_anaerobic = reactor_step(
             state.anaerobic_state,
             anaerobic_inlet,
-            q_in + q_recycle,
+            q_in + q_ras,
             config.v_anaerobic,
             zero_kla,
             config.s_o_sat,
@@ -227,11 +240,13 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             jnp.array(config.dt),
         )
 
-        # 4. Anoxic zone
+        # 5. Anoxic zone: anaerobic effluent + internal nitrate recycle from
+        # aerobic (A2O: the recycle carrying NO3/DO goes here, not anaerobic)
+        anoxic_inlet = mix(new_anaerobic, q_in + q_ras, state.aerobic_state, q_recycle)
         new_anoxic = reactor_step(
             state.anoxic_state,
-            new_anaerobic,
-            q_in + q_recycle,
+            anoxic_inlet,
+            q_in + q_ras + q_recycle,
             config.v_anoxic,
             zero_kla,
             config.s_o_sat,
@@ -239,11 +254,12 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             jnp.array(config.dt),
         )
 
-        # 5. Aerobic zone (with variable aeration)
+        # 6. Aerobic zone (with variable aeration); carries the internal
+        # recycle flow, which splits off again at this outlet
         new_aerobic = reactor_step(
             state.aerobic_state,
             new_anoxic,
-            q_in + q_recycle,
+            q_in + q_ras + q_recycle,
             config.v_aerobic,
             kla,
             config.s_o_sat,
@@ -251,27 +267,29 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             jnp.array(config.dt),
         )
 
-        # 6. Chemical P removal on effluent PO₄
+        # 7. Chemical P removal on effluent PO₄, consuming alkalinity
         bio_po4_eff = new_aerobic[13]
         final_po4, fe_consumed = precipitate(bio_po4_eff, fe_dose, config.precip)
+        alk_consumed = config.precip.alk_per_fe * fe_consumed / config.precip.mw_fe
+        new_aerobic = new_aerobic.at[12].add(-alk_consumed)
 
-        # 7. Effluent quality
+        # 8. Effluent quality
         eff_nh4 = new_aerobic[9]
         eff_no3 = new_aerobic[8]
         ana_po4 = new_anaerobic[13]
         aerobic_do = new_aerobic[7]
         pha_pao_ratio = new_aerobic[15] / (new_aerobic[14] + 1e-10)
 
-        # 8. Sensors
+        # 9. Sensors
         new_po4_s, sensed_po4 = analyzer_step(state.po4_eff_sensor, final_po4, po4_analyzer, k2)
         new_nh4_s, sensed_nh4 = analyzer_step(state.nh4_eff_sensor, eff_nh4, nh4_analyzer, k3)
         new_no3_s, sensed_no3 = analyzer_step(state.no3_eff_sensor, eff_no3, no3_analyzer, k4)
         new_po4a_s, sensed_ana_po4 = analyzer_step(state.po4_ana_sensor, ana_po4, po4_analyzer, k5)
 
-        # 9. Observation
+        # 10. Observation
         obs = _observe(sensed_po4, sensed_nh4, sensed_no3, sensed_ana_po4, aerobic_do, pha_pao_ratio, q_in, fe_dose, carbon_dose)
 
-        # 10. Reward
+        # 11. Reward
         po4_v = jnp.maximum(sensed_po4 - config.po4_limit, 0.0)
         nh4_v = jnp.maximum(sensed_nh4 - config.nh4_limit, 0.0)
         no3_v = jnp.maximum(sensed_no3 - config.no3_limit, 0.0)
