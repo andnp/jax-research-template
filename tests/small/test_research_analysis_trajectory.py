@@ -130,14 +130,6 @@ def test_short_trajectory_reports_insufficient_observations() -> None:
     assert report.diagnostics[0].code is TrajectoryDiagnosticCode.INSUFFICIENT_OBSERVATIONS
 
 
-def test_diagnostic_enum_contains_dataset_completeness_codes() -> None:
-    """
-    Verify dataset composition can use the shared trajectory diagnostic enum.
-    """
-    assert TrajectoryDiagnosticCode.MISSING_METRIC_ROWS.value == "missing_metric_rows"
-    assert TrajectoryDiagnosticCode.UNEXPECTED_METRIC_IDENTITY.value == "unexpected_metric_identity"
-
-
 def test_validation_checks_multiple_identities() -> None:
     """
     Verify each identity is checked independently and reported by its values.

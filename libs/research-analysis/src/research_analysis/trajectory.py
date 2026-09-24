@@ -46,8 +46,6 @@ class TrajectoryDiagnosticCode(StrEnum):
     MISSING_COLUMN = "missing_column"
     INVALID_COLUMN_TYPE = "invalid_column_type"
     EMPTY_METRIC = "empty_metric"
-    MISSING_METRIC_ROWS = "missing_metric_rows"
-    UNEXPECTED_METRIC_IDENTITY = "unexpected_metric_identity"
     NON_FINITE_VALUE = "non_finite_value"
     INSUFFICIENT_OBSERVATIONS = "insufficient_observations"
     DUPLICATE_STEP = "duplicate_step"
