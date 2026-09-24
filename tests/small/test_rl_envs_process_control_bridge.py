@@ -4,32 +4,32 @@ import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
-from rl_envs.process_control_bridge import make_adapter, make_process_control_env
+from rl_envs.process_control_bridge import make_process_control_env
 
 
-def test_chlorine_adapter_exposes_native_action_bounds() -> None:
-    action_space = make_adapter("chlorine").action_space()
+def test_chlorine_env_exposes_native_action_bounds() -> None:
+    spec = make_process_control_env("chlorine").spec()
 
-    assert action_space.shape == (1,)
-    assert action_space.action_low is not None
-    assert action_space.action_high is not None
-    assert jnp.array_equal(action_space.action_low, jnp.array([0.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([8.0], dtype=jnp.float32))
+    assert spec.action_shape == (1,)
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([0.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([8.0], dtype=jnp.float32))
 
 
-def test_h2s_adapter_exposes_per_setpoint_action_bounds() -> None:
+def test_h2s_env_exposes_per_setpoint_action_bounds() -> None:
     """Expose physical pH, ORP, and flow limits for the H2S action vector.
 
     Continuous-control consumers need these bounds to normalize each setpoint
     without collapsing the three physical ranges into one scalar interval.
     """
-    action_space = make_adapter("h2s_scrubber").action_space()
+    spec = make_process_control_env("h2s_scrubber").spec()
 
-    assert action_space.shape == (3,)
-    assert action_space.action_low is not None
-    assert action_space.action_high is not None
-    assert jnp.array_equal(action_space.action_low, jnp.array([8.0, 400.0, 10.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([9.8, 800.0, 30.0], dtype=jnp.float32))
+    assert spec.action_shape == (3,)
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([8.0, 400.0, 10.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([9.8, 800.0, 30.0], dtype=jnp.float32))
 
 
 def test_h2s_env_tracks_configured_setpoint_bounds() -> None:
@@ -90,26 +90,26 @@ def test_h2s_normalized_extremes_reach_distinct_physical_controls() -> None:
 
 
 def test_bsm1_exposes_configured_action_bounds() -> None:
-    action_space = make_adapter("bsm1").action_space()
+    spec = make_process_control_env("bsm1").spec()
 
-    assert action_space.shape == (2,)
-    assert action_space.action_low is not None
-    assert action_space.action_high is not None
-    assert jnp.array_equal(action_space.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
+    assert spec.action_shape == (2,)
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
 
 
-def test_chlorine_adapter_tracks_configured_action_bounds() -> None:
-    action_space = make_adapter(
+def test_chlorine_env_tracks_configured_action_bounds() -> None:
+    spec = make_process_control_env(
         "chlorine",
         pump_min_dose=1.0,
         pump_max_dose=10.0,
-    ).action_space()
+    ).spec()
 
-    assert action_space.action_low is not None
-    assert action_space.action_high is not None
-    assert jnp.array_equal(action_space.action_low, jnp.array([1.0], dtype=jnp.float32))
-    assert jnp.array_equal(action_space.action_high, jnp.array([10.0], dtype=jnp.float32))
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([1.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([10.0], dtype=jnp.float32))
 
 
 @pytest.mark.parametrize(
@@ -133,10 +133,10 @@ def test_initial_tranche_benchmarks_expose_native_action_bounds(
 
 
 def test_chlorine_non_direct_mode_omits_native_action_bounds() -> None:
-    action_space = make_adapter("chlorine", control_mode=SUPERVISORY).action_space()
+    spec = make_process_control_env("chlorine", control_mode=SUPERVISORY).spec()
 
-    assert action_space.action_low is None
-    assert action_space.action_high is None
+    assert spec.action_low is None
+    assert spec.action_high is None
 
 
 def test_process_control_env_conforms_to_env_protocol() -> None:

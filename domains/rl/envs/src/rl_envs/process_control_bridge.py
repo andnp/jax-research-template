@@ -1,10 +1,7 @@
-"""Process control benchmark adapters.
+"""Process control benchmark environment bridge.
 
-Wraps a ``make_*_benchmark(config) -> (reset, step)`` function pair into either of
-two interfaces: ``ProcessControlEnv`` implements the canonical
-``rl_components.env_protocol.EnvProtocol``, and ``ProcessControlAdapter`` implements
-the tuple-returning Gymnax-style ``GymEnv[ContinuousActionSpace]`` still consumed by
-``projects/process-control-baselines``.
+Wraps a ``make_*_benchmark(config) -> (reset, step)`` function pair into the
+canonical ``rl_components.env_protocol.EnvProtocol`` interface.
 
 Usage::
 
@@ -17,7 +14,6 @@ Usage::
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import chex
@@ -40,81 +36,6 @@ def _broadcast_action_bounds(
     low = jnp.broadcast_to(jnp.asarray(action_low, dtype=jnp.float32), (action_dim,))
     high = jnp.broadcast_to(jnp.asarray(action_high, dtype=jnp.float32), (action_dim,))
     return low, high
-
-
-@dataclass(frozen=True)
-class _ObsSpace:
-    shape: tuple[int, ...]
-    dtype: jnp.dtype = jnp.float32
-
-
-@dataclass(frozen=True)
-class _ActionSpace:
-    shape: tuple[int, ...]
-    action_low: jax.Array | None = None
-    action_high: jax.Array | None = None
-
-
-class ProcessControlAdapter:
-    """Adapts a process control benchmark to the GymEnv[ContinuousActionSpace] protocol.
-
-    Process-control benchmarks use:
-        reset(rng) -> (state, obs)
-        step(state, action, rng) -> (state, obs, reward, done, info)
-
-    GymEnv protocol expects:
-        reset(key, params) -> (obs, state)
-        step(key, state, action, params) -> (obs, state, reward, done, info)
-    """
-
-    def __init__(
-        self,
-        reset_fn: Callable,
-        step_fn: Callable,
-        obs_dim: int,
-        action_dim: int,
-        env_id: str = "process_control",
-        max_steps: int = 10000,
-        scalar_action: bool = False,
-        action_low: jax.Array | float | tuple[float, ...] | None = None,
-        action_high: jax.Array | float | tuple[float, ...] | None = None,
-    ):
-        normalized_low, normalized_high = _broadcast_action_bounds(action_low, action_high, action_dim)
-        self._reset_fn = reset_fn
-        self._step_fn = step_fn
-        self._obs_dim = obs_dim
-        self._action_dim = action_dim
-        self._env_id = env_id
-        self._max_steps = max_steps
-        self._scalar_action = scalar_action
-        self._obs_space = _ObsSpace(shape=(obs_dim,))
-        self._action_space = _ActionSpace(
-            shape=(action_dim,),
-            action_low=normalized_low,
-            action_high=normalized_high,
-        )
-
-    def observation_space(self, params: object | None = None):
-        return self._obs_space
-
-    def action_space(self, params: object | None = None):
-        return self._action_space
-
-    def reset(self, key: jax.Array, params: object | None = None):
-        state, obs = self._reset_fn(key)
-        return obs, state
-
-    def step(
-        self,
-        key: jax.Array,
-        state: Any,
-        action: jax.Array,
-        params: object | None = None,
-    ):
-        if self._scalar_action:
-            action = jnp.squeeze(action)
-        new_state, obs, reward, done, info = self._step_fn(state, action, key)
-        return obs, new_state, reward, done, info
 
 
 type ProcessControlResetFn[StateT] = Callable[[chex.PRNGKey], tuple[StateT, jax.Array]]
@@ -241,30 +162,6 @@ def make_process_control_env(name: str, **config_overrides: Any) -> ProcessContr
         obs_dim=get_observation_dim(reset_fn),
         action_dim=entry.action_dim,
         env_id=env_id,
-        scalar_action=entry.scalar_action,
-        action_low=action_low,
-        action_high=action_high,
-    )
-
-
-def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
-    """Create a ProcessControlAdapter by benchmark name.
-
-    Args:
-        name: benchmark name (e.g. "bsm1", "chlorine", "membrane_fouling")
-        **config_overrides: keyword overrides for the benchmark config
-
-    Returns:
-        ProcessControlAdapter wrapping the named benchmark.
-    """
-    entry, reset_fn, step_fn, action_low, action_high = _build_benchmark(name, config_overrides)
-
-    return ProcessControlAdapter(
-        reset_fn=reset_fn,
-        step_fn=step_fn,
-        obs_dim=get_observation_dim(reset_fn),
-        action_dim=entry.action_dim,
-        env_id=f"process_control:{entry.name}",
         scalar_action=entry.scalar_action,
         action_low=action_low,
         action_high=action_high,
