@@ -20,6 +20,13 @@ class TanhNormalDiag:
         raw_action = self._base_distribution().sample(seed=seed)
         return cast(jax.Array, jnp.tanh(raw_action))
 
+    def sample_and_log_prob(self, seed: jax.Array) -> tuple[jax.Array, jax.Array]:
+        raw_action = self._base_distribution().sample(seed=seed)
+        action = jnp.tanh(raw_action)
+        log_prob = self._base_distribution().log_prob(raw_action)
+        log_prob -= jnp.log(1.0 - jnp.square(action) + self.epsilon)
+        return action, log_prob
+
     def log_prob(self, value: jax.Array) -> jax.Array:
         clipped_value = jnp.clip(value, -1.0 + self.epsilon, 1.0 - self.epsilon)
         pre_tanh_value = jnp.arctanh(clipped_value)

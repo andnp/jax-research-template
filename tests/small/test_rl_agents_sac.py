@@ -2,9 +2,11 @@
 
 from typing import Protocol, cast
 
+import distrax
 import jax
 import jax.numpy as jnp
 from rl_agents.sac import Actor, Critic, SACConfig
+from rl_components.networks import TanhNormalDiag
 
 
 class _MutableSACConfig(Protocol):
@@ -78,6 +80,18 @@ class TestActor:
         assert jnp.all(action >= -1.0)
         assert jnp.all(action <= 1.0)
         assert log_prob.shape == ()
+
+    def test_distribution_sample_log_prob_preserves_saturated_raw_value(self) -> None:
+        """The helper uses the sampled pre-tanh value for saturated actions."""
+        distribution = TanhNormalDiag(mean=jnp.array([12.0, -0.3]), log_std=jnp.full(2, -20.0))
+        key = jax.random.key(0)
+        raw = distrax.Normal(distribution.mean, jnp.exp(distribution.log_std)).sample(seed=key)
+        expected_action = jnp.tanh(raw)
+        expected_log_prob = distrax.Normal(distribution.mean, jnp.exp(distribution.log_std)).log_prob(raw)
+        expected_log_prob -= jnp.log(1.0 - expected_action**2 + 1e-6)
+        action, log_prob = distribution.sample_and_log_prob(key)
+        assert jnp.allclose(action, expected_action)
+        assert jnp.allclose(log_prob, expected_log_prob, atol=1e-6)
 
 
 class TestSoftUpdate:
