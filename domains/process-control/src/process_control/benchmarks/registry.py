@@ -54,6 +54,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         1,
         "Two-stage chlorine",
         scalar_action=True,
+        action_low_config="pump_min_dose",
+        action_high_config="pump_max_dose",
     ),
     BenchmarkEntry(
         "ph_neutralization",
@@ -87,6 +89,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         9,
         2,
         "BSM1 DO control (ASM1)",
+        action_low_config=("kla_34_min", "kla_5_min"),
+        action_high_config=("kla_34_max", "kla_5_max"),
     ),
     BenchmarkEntry(
         "bsm1_recycle",
@@ -96,6 +100,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         6,
         2,
         "BSM1 nitrate recycle",
+        action_low_config=("q_a_ratio_min", "q_rs_ratio_min"),
+        action_high_config=("q_a_ratio_max", "q_rs_ratio_max"),
     ),
     BenchmarkEntry(
         "bsm1_combined",
@@ -105,6 +111,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         11,
         4,
         "BSM1 combined control",
+        action_low_config=("do.kla_34_min", "do.kla_5_min", "recycle.q_a_ratio_min", "recycle.q_rs_ratio_min"),
+        action_high_config=("do.kla_34_max", "do.kla_5_max", "recycle.q_a_ratio_max", "recycle.q_rs_ratio_max"),
     ),
     BenchmarkEntry(
         "bsm1_lt",
@@ -114,6 +122,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         10,
         2,
         "BSM1-LT seasonal dynamics",
+        action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min"),
+        action_high_config=("bsm1.kla_34_max", "bsm1.kla_5_max"),
     ),
     BenchmarkEntry(
         "bsm1_takacs",
@@ -123,6 +133,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         12,
         3,
         "BSM1 + Takács settler",
+        action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min", "q_w_min"),
+        action_high_config=("bsm1.kla_34_max", "bsm1.kla_5_max", "q_w_max"),
     ),
     BenchmarkEntry(
         "h2s_scrubber",
@@ -145,6 +157,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         4,
         1,
         "Sludge blanket control",
+        action_low=0.0,
+        action_high=1.0,
     ),
     BenchmarkEntry(
         "chem_p_dosing",
@@ -154,6 +168,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         5,
         1,
         "Chemical P dosing",
+        action_low_config="dose_min",
+        action_high_config="dose_max",
     ),
     BenchmarkEntry(
         "primary_clarifier",
@@ -163,6 +179,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         5,
         1,
         "Primary clarifier",
+        action_low=0.0,
+        action_high=1.0,
     ),
     BenchmarkEntry(
         "dewatering",
@@ -172,6 +190,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         5,
         2,
         "Sludge dewatering",
+        action_low=(0.0, 0.0),
+        action_high=(1.0, 1.0),
     ),
     BenchmarkEntry(
         "membrane_fouling",
@@ -181,6 +201,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         6,
         3,
         "Membrane fouling control",
+        action_low=(0.0, 0.0, 0.0),
+        action_high=(1.0, 1.0, 1.0),
     ),
     BenchmarkEntry(
         "anaerobic_digester",
@@ -190,6 +212,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         7,
         2,
         "Anaerobic digester",
+        action_low=(0.0, 0.0),
+        action_high=(1.0, 1.0),
     ),
     BenchmarkEntry(
         "reject_water",
@@ -199,6 +223,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         6,
         2,
         "Reject water management",
+        action_low=(0.0, 0.0),
+        action_high=(1.0, 1.0),
     ),
     BenchmarkEntry(
         "drinking_water_train",
@@ -208,6 +234,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         8,
         3,
         "Drinking water treatment train",
+        action_low=(0.0, 0.0, 0.0),
+        action_high=(1.0, 1.0, 1.0),
     ),
     BenchmarkEntry(
         "bio_p",
@@ -217,6 +245,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         7,
         2,
         "Biological P removal (ASM2d)",
+        action_low=(0.0, 0.0),
+        action_high=(1.0, 1.0),
     ),
     BenchmarkEntry(
         "combined_np",
@@ -226,6 +256,8 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         9,
         4,
         "Combined N+P control",
+        action_low=(0.0, 0.0, 0.0, 0.0),
+        action_high=(1.0, 1.0, 1.0, 1.0),
     ),
 )
 
@@ -262,7 +294,10 @@ def _configured_bound(config: object, fields: ConfigBound) -> ActionBound:
 
 
 def _config_value(config: object, field: str) -> object:
-    return object.__getattribute__(config, field)
+    value = config
+    for part in field.split("."):
+        value = object.__getattribute__(value, part)
+    return value
 
 
 def _config_float(config: object, field: str) -> float:

@@ -44,6 +44,22 @@ def test_registry_resets_are_jit_traceable(entry: BenchmarkEntry):
 
 
 @pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
+def test_registry_entries_declare_action_bounds(entry: BenchmarkEntry) -> None:
+    """Every registered benchmark exposes finite action bounds."""
+    module = importlib.import_module(entry.module)
+    config = getattr(module, entry.config_cls)()
+    low, high = get_action_bounds(entry, config)
+
+    assert low is not None
+    assert high is not None
+    if isinstance(low, tuple) and isinstance(high, tuple):
+        assert all(left < right for left, right in zip(low, high, strict=True))
+    else:
+        assert isinstance(low, float) and isinstance(high, float)
+        assert low < high
+
+
+@pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
 def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
     """Every registered benchmark stays finite during a compiled short rollout."""
     (reset, step), config = _make_benchmark(entry)
