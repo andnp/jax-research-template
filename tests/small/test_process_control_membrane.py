@@ -85,3 +85,36 @@ def test_backwash_retrigger_requires_command_release() -> None:
     state, _, _, _ = _step(state, params, 0.01, 0.0)
     state, _, _, _ = _step(state, params, 0.01, 1.0)
     assert float(state.r_reversible) == pytest.approx(6.25, rel=1e-6)
+
+
+def _foul(flux: float, params: MembraneParams, steps: int = 300) -> MembraneState:
+    state = membrane_reset(params, jax.random.PRNGKey(3))
+    for _ in range(steps):
+        state, _, _, _ = membrane_step(
+            state, jnp.array(50.0), jnp.array(flux), jnp.array(0.0), jnp.array(0.0), params, jnp.array(0.01)
+        )
+    return state
+
+
+def test_higher_flux_fouls_faster_for_same_feed() -> None:
+    """Fouling must depend on flux, not just feed load and time: the same
+    feed TSS over the same duration should deposit more cake at higher flux."""
+    params = MembraneParams(cip_interval=1e6)
+
+    low_flux_state = _foul(0.01, params)
+    high_flux_state = _foul(0.05, params)
+
+    assert float(high_flux_state.r_reversible) > float(low_flux_state.r_reversible)
+    assert float(high_flux_state.r_irreversible) > float(low_flux_state.r_irreversible)
+
+
+def test_irreversible_fouling_scales_with_deposited_mass() -> None:
+    """Irreversible fouling should track the reversible deposit it derives
+    from, not accumulate independently of it."""
+    params = MembraneParams(cip_interval=1e6)
+
+    state = _foul(0.05, params)
+
+    assert float(state.r_irreversible) == pytest.approx(
+        params.irr_fraction * float(state.r_reversible), rel=1e-4
+    )
