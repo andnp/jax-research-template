@@ -192,10 +192,15 @@ def make_sludge_blanket_benchmark(
         new_pump, q_u = actuator_step(state.underflow_actuator, action[0], pump_params, dt)
 
         # 3. Settler step
+        # Feed to the clarifier is influent plus the recycled underflow (RAS):
+        # everything leaving the bottom in this simplified single-action
+        # benchmark is treated as returned, so q_effluent = q_feed - q_u = q_in
+        # stays non-negative across the full action range.
+        q_feed = q_in + q_u
         new_settler = settler_step(
             state.settler_state,
             feed_tss,
-            q_in,
+            q_feed,
             q_u,
             settler_params,
             dt,
@@ -251,6 +256,7 @@ def make_sludge_blanket_benchmark(
             "blanket_height": blanket_h,
             "q_underflow": q_u,
             "q_in": q_in,
+            "q_feed": q_feed,
         }
 
         done = jnp.array(False)

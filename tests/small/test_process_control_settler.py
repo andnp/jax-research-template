@@ -281,6 +281,21 @@ class TestSludgeBlanketBenchmark:
 
         assert float(info_low["blanket_height"]) > float(info_high["blanket_height"])
 
+    def test_effluent_flow_non_negative_across_action_range(self) -> None:
+        """q_feed - q_underflow must stay non-negative at both action extremes,
+        even though q_underflow can exceed the influent flow rate."""
+        config = SludgeBlanketConfig()
+        reset_fn, step_fn = make_sludge_blanket_benchmark(config)
+        key = jax.random.PRNGKey(40)
+        k1, key = jax.random.split(key)
+        state, _ = reset_fn(k1)
+
+        for q_u_action in (config.q_u_min, config.q_u_max):
+            for _ in range(20):
+                k_step, key = jax.random.split(key)
+                state, _, _, _, info = step_fn(state, jnp.array([q_u_action]), k_step)
+                assert float(info["q_feed"]) - float(info["q_underflow"]) >= 0.0
+
     def test_reward_is_negative(self) -> None:
         config = SludgeBlanketConfig()
         reset_fn, step_fn = make_sludge_blanket_benchmark(config)
