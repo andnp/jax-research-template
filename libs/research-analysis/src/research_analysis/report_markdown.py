@@ -249,9 +249,9 @@ def _reuse_lines(report: BakeoffReport) -> list[str]:
     for axis, conditions in report.shared_across.items():
         reused = [run for run in report.runs if run.condition in conditions]
         lines.append(
-            f"- Shared across `{axis}`: {', '.join(conditions) or 'no condition'} lack `{axis}`, so their "
-            f"{len({run.run_id for run in reused})} runs are reused in every `{axis}` block ({len(reused)} cell entries); "
-            "run accounting counts each once"
+            f"- Shared across `{axis}`: {', '.join(conditions) or 'no condition'} lack `{axis}`, so their runs are reused "
+            f"in every `{axis}` block; {len({run.run_id for run in reused})} distinct runs appear in the reported cells "
+            f"({len(reused)} cell entries); run accounting counts each once"
         )
     if report.untuned:
         lines.append(f"- Untuned referents (one configuration, no selection stage): {', '.join(report.untuned)}")

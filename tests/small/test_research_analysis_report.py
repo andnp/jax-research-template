@@ -253,7 +253,7 @@ class TestReportMarkdown:
 
         text = _markdown(dataset, [BakeoffResult("headline", report)])
 
-        assert "Shared across `eta`: shared lack `eta`, so their 4 runs are reused in every `eta` block (8 cell entries)" in text
+        assert "Shared across `eta`: shared lack `eta`, so their runs are reused in every `eta` block; 4 distinct runs appear in the reported cells (8 cell entries)" in text
         assert "No omnibus test: shared referent runs appear in several blocks" in text
 
     def test_skipped_cells_and_pairs_state_why(self) -> None:
