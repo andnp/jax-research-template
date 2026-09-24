@@ -616,9 +616,11 @@ def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_submit_dry_run(tmp_path: Path) -> None:
+def test_submit_dry_run_before_any_sync_creates_no_database(tmp_path: Path) -> None:
+    """A first-use dry run has nothing synced yet; it must not create experiments.sqlite."""
     results_root = tmp_path / "submit"
     spec_file = _write_spec_file(tmp_path, results_root)
+    db_path = results_root / "experiments.sqlite"
     script_path = tmp_path / "slurm_submit.sh"
 
     result = runner.invoke(app, [
@@ -627,8 +629,9 @@ def test_submit_dry_run(tmp_path: Path) -> None:
         "--script-path", str(script_path),
     ])
     assert result.exit_code == 0, result.output
-    assert "dry-run" in result.output.lower()
-    assert script_path.exists()
+    assert "nothing planned yet" in result.output.lower()
+    assert not db_path.exists()
+    assert not script_path.exists()
 
 
 def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
@@ -639,13 +642,7 @@ def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
 
     plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
     assert plan_result.exit_code == 0, plan_result.output
-
-    with DatabaseManager(db_path) as db:
-        db.initialize()
-        exp_row = db.get_experiment("test-experiment")
-        assert exp_row is not None
-        before_run_ids = [r.id for r in db.list_runs(exp_row.id)]
-        before_execution_ids = [e.id for e in db.list_executions(exp_row.id)]
+    before_bytes = db_path.read_bytes()
 
     result = runner.invoke(app, [
         "experiment", "submit", str(spec_file),
@@ -653,18 +650,9 @@ def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
         "--script-path", str(tmp_path / "slurm_submit.sh"),
     ])
     assert result.exit_code == 0, result.output
+    assert "dry-run" in result.output.lower()
 
-    with DatabaseManager(db_path) as db:
-        db.initialize()
-        exp_row = db.get_experiment("test-experiment")
-        assert exp_row is not None
-        after_run_ids = [r.id for r in db.list_runs(exp_row.id)]
-        after_execution_ids = [e.id for e in db.list_executions(exp_row.id)]
-        after_unsatisfied = db.list_unsatisfied_runs(exp_row.id)
-
-    assert after_run_ids == before_run_ids
-    assert after_execution_ids == before_execution_ids
-    assert len(after_unsatisfied) == len(after_run_ids)
+    assert db_path.read_bytes() == before_bytes
 
 
 # ── prune ────────────────────────────────────────────────────────────────────────

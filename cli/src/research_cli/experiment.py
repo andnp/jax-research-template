@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import replace
@@ -79,6 +80,34 @@ def _version_pair_newest_key(pair: tuple[int | None, int | None]) -> tuple[int, 
     """Rank version pairs by recency; NULL never outranks a known version id."""
     algo, env = pair
     return (-1 if algo is None else algo, -1 if env is None else env)
+
+
+def _preview_dry_run_batch_sizes(experiment_spec: ExperimentSpec, db_path: Path) -> list[int] | None:
+    """Preview submit's unsatisfied batches read-only, without syncing or planning.
+
+    Returns ``None`` when there is nothing synced yet to preview (no DB file, or the
+    experiment has never been synced into it).
+    """
+    if not db_path.exists():
+        return None
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    try:
+        database = DatabaseManager(db_path)
+        database._conn = connection
+        try:
+            exp_row = database.get_experiment(experiment_spec.experiment.name)
+        except sqlite3.OperationalError:
+            return None
+        if exp_row is None:
+            return None
+        batches = database.list_unsatisfied_run_batches(
+            exp_row.id,
+            max_runs_per_batch=experiment_spec.max_runs_per_batch,
+        )
+        return [len(batch.run_ids) for batch in batches]
+    finally:
+        connection.close()
 
 
 @experiment_app.command("list")
@@ -506,27 +535,32 @@ def submit(
         experiment_spec = _with_results_root(factory(), results_root)
         db_path = experiment_spec.db_path
 
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        experiment_spec.sync(db_path)
-
-        with DatabaseManager(db_path) as database:
-            database.initialize()
-            exp_row = database.get_experiment(experiment_spec.experiment.name)
-            if exp_row is None:
-                typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
-                raise typer.Exit(code=1)
-            if dry_run:
-                # A real plan claims runs PENDING and commits; a dry run must leave the
-                # DB untouched, so preview batch counts instead of planning them.
-                batches = database.list_unsatisfied_run_batches(
-                    exp_row.id,
-                    max_runs_per_batch=experiment_spec.max_runs_per_batch,
+        # A real plan claims runs PENDING and commits; a dry run must leave the DB
+        # (and, when nothing is synced yet, the DB file itself) untouched. Branch
+        # before any mutating setup rather than syncing/initializing unconditionally.
+        if dry_run:
+            batch_sizes = _preview_dry_run_batch_sizes(experiment_spec, db_path)
+            if batch_sizes is None:
+                typer.echo(
+                    f"Spec '{name}': nothing planned yet ({db_path} not synced). "
+                    "A real submit would sync the spec, plan its unsatisfied run "
+                    "batches, and write a Slurm script for them."
                 )
-                if not batches:
-                    typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
-                    continue
-                execution_ids = list(range(1, len(batches) + 1))
-            else:
+                continue
+            if not batch_sizes:
+                typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
+                continue
+            execution_ids = list(range(1, len(batch_sizes) + 1))
+        else:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            experiment_spec.sync(db_path)
+
+            with DatabaseManager(db_path) as database:
+                database.initialize()
+                exp_row = database.get_experiment(experiment_spec.experiment.name)
+                if exp_row is None:
+                    typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
+                    raise typer.Exit(code=1)
                 planned = database.plan_experiment_execution_batches(
                     exp_row.id,
                     experiment_spec.executions_root,
