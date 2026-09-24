@@ -123,13 +123,15 @@ append-only: a plan that is unchanged is not re-recorded, and earlier entries ar
 never rewritten.
 
 `run_plan(experiments_db, slug, plan, snapshots)` is the only producer of
-`plan_status=declared`. It runs the plan verbatim, and requires that the latest
-snapshot at or before the earliest included execution's start has the same
-fingerprint. Otherwise the document is `exploratory`, with one of these reasons:
+`plan_status=declared`. It runs the plan verbatim, and requires that, for every
+included execution, the latest snapshot at or before that execution's start has
+the same fingerprint. Start times are compared in UTC; one without an offset is
+never guessed. Otherwise the document is `exploratory`, with a reason per
+problem naming the offending execution ids:
 
 - "no plan snapshot before execution";
-- "plan changed after results were recorded";
-- the execution start times were not recorded.
+- "plan changed after results were recorded", with the fingerprint in force;
+- the start time was not recorded, or has no UTC offset.
 
 `exploratory_report(dataset, experiments_db, results)` wraps results chosen by hand.
 It is always `exploratory`.

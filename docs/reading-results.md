@@ -50,10 +50,14 @@ experiment report` then runs the plan exactly as written. It writes `report.json
 
 The report is labelled `exploratory` when:
 
-- no plan snapshot predates the first included execution ("no plan snapshot
-  before execution"), or
-- the plan in force at that moment differs from the one being run ("plan changed
-  after results were recorded").
+- no plan snapshot predates some included execution ("no plan snapshot
+  before execution"),
+- the plan in force when some execution started differs from the one being run
+  ("plan changed after results were recorded"), or
+- an execution's start time is missing or has no UTC offset, so its order
+  against the plan history is unknown.
+
+Each reason lists the execution ids it applies to.
 
 Exit codes are 0 for a report, 2 for fatal load diagnostics, and 3 for a failed
 analysis, such as a diverged run with no declared worst case or an incomplete

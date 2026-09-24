@@ -89,7 +89,7 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Prints a short summary, or with `--json` only the report document.
     - Exits 0 with results, 1 when the spec has no declared plan or no database, 2 when loading has fatal diagnostics, and 3 when an analysis fails (for example a diverged run or an incomplete block). Failed reports are still written, with their diagnostics and no results.
 
-`run` and `submit` (but not `submit --dry-run`) append the spec's declared plan to `<results_root>/analysis-plans.jsonl` before any execution starts. `report` labels its document exploratory unless that history shows the same plan was in force when the first included execution started. Statistics live in `research-analysis`; the CLI only wires a spec's declared plan to it. See the [reporting API](research-reporting-api.md).
+`run` and `submit` (but not `submit --dry-run`) append the spec's declared plan to `<results_root>/analysis-plans.jsonl` before any execution starts. `report` labels its document exploratory unless that history shows the same plan was in force when every included execution started. Statistics live in `research-analysis`; the CLI only wires a spec's declared plan to it. See the [reporting API](research-reporting-api.md).
 
 ### 2.5 Diagnostics
 - `research doctor`:
