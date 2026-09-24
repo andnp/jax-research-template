@@ -11,6 +11,7 @@ from research_analysis.bootstrap import (
     bootstrap_difference_ci,
     bootstrap_scalar_ci,
     circular_moving_block_resample,
+    expanded_percentile_confidence,
     resolve_block_size,
 )
 
@@ -332,3 +333,14 @@ def test_scalar_bootstrap_accepts_two_runs_only_when_declared() -> None:
     result = bootstrap_scalar_ci(values, min_samples=2, rng=np.random.default_rng(0))
 
     assert 1.0 <= result.ci_low <= result.ci_high <= 3.0
+
+# ── Expanded percentile interval (Hesterberg 2015, section 5.3) ─────────────
+
+
+@pytest.mark.parametrize(("n", "tail"), [(5, 0.0010), (80, 0.0226)])
+def test_expanded_percentile_tails_match_hesterberg_table(n: int, tail: float) -> None:
+    """A nominal 0.025 tail widens to Hesterberg's published adjusted levels, 0.0010 at n=5 and 0.0226 at n=80."""
+    confidence = expanded_percentile_confidence(0.95, n)
+
+    assert (1.0 - confidence) / 2.0 == pytest.approx(tail, abs=5e-5)
+
