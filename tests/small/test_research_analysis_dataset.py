@@ -189,6 +189,37 @@ def test_accounting_records_every_planned_run_per_cell(tmp_path: Path) -> None:
     assert dataset.accounting.unassigned == {ExclusionReason.UNRESOLVED_DIMENSION: 1}
 
 
+
+def test_dataset_records_the_git_state_of_every_included_execution(tmp_path: Path) -> None:
+    """Each execution behind a loaded run carries its commit and whether uncommitted changes were recorded.
+
+    Executions that produced no loaded run, such as a failed attempt, are not listed.
+    """
+    fixture = _create_experiment(tmp_path)
+    failed_run = _add_incomplete_run(fixture["db_path"], fixture, 10, ("FAILED",))
+    with DatabaseManager(fixture["db_path"]) as database:
+        experiment = database.get_experiment("dataset-test")
+        assert experiment is not None
+        hyper_id = database.add_hyperparam_config({"condition_name": "candidate", "learning_rate": 1.1, "seed": 7})
+        run_id = database.add_run(experiment.id, fixture["algo_version"], fixture["env_version"], hyper_id, 7)
+        dirty_execution = database.add_execution(hostname="node-1", git_commit="abc123", git_diff_blob="+ edit")
+        database.link_execution_run(dirty_execution, run_id)
+        database.record_execution_artifacts(
+            dirty_execution, str(tmp_path / "execution"), metadata={"metrics_db_path": str(fixture["metrics_path"])}
+        )
+        database.update_execution_status(dirty_execution, "COMPLETED")
+    with sqlite3.connect(fixture["metrics_path"]) as connection:
+        connection.execute("INSERT INTO metrics VALUES (?, ?, 'reward', 0, 1.0)", (run_id, dirty_execution))
+
+    dataset = load_experiment_dataset(fixture["db_path"], "dataset-test", partial=True)
+
+    executions = {item.execution_id: item for item in dataset.executions}
+    assert set(executions) == set(dataset.runs["execution_id"].to_list())
+    assert failed_run not in dataset.runs["run_id"].to_list()
+    dirty = executions[dirty_execution]
+    assert (dirty.git_commit, dirty.dirty, dirty.hostname) == ("abc123", True, "node-1")
+    assert not any(item.dirty for item in executions.values() if item.execution_id != dirty_execution)
+
 def test_exact_selection_without_matches_counts_every_run_as_not_selected(tmp_path: Path) -> None:
     """An exact selection that matches nothing must not count the unselected completed runs as completed."""
     fixture = _create_experiment(tmp_path)
