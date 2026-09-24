@@ -21,9 +21,9 @@ from process_control.disturbances.schedule import (
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.level_sensor import LevelSensorParams, LevelSensorState
-from process_control.sensors.level_sensor import reset as level_sensor_reset
-from process_control.sensors.level_sensor import step as level_sensor_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as level_sensor_reset
+from process_control.sensors.lagged import step as level_sensor_step
 from process_control.units.tank import TankParams, TankState
 from process_control.units.tank import reset as tank_reset
 from process_control.units.tank import step_with_result as tank_step
@@ -81,7 +81,7 @@ class EqualizationPlantState:
     source_state: DiurnalSourceState
     tank_state: TankState
     outlet_pump_state: RampLimitedActuatorState
-    level_sensor_state: LevelSensorState
+    level_sensor_state: LaggedSensorState
     pi_state: PIControllerState
     last_outlet_flow: jax.Array
     disturbance_schedule: DisturbanceSchedule
@@ -115,7 +115,7 @@ def make_equalization_tank_benchmark(
         output_max=config.pi_output_max,
         max_integral=config.pi_max_integral,
     )
-    level_sensor_params = LevelSensorParams(
+    level_sensor_params = LaggedSensorParams(
         noise_std=config.level_noise_std,
         lag_coefficient=config.level_lag_coefficient,
     )
@@ -142,7 +142,7 @@ def make_equalization_tank_benchmark(
         tank_state = tank_reset(tank_params)
         pump_state = actuator_reset(k2)
         level_initial = tank_state.level
-        ls_state = level_sensor_reset(config.tank_max_level * 0.5, k3)
+        ls_state = level_sensor_reset(level_initial, k3)
         pi_state = pi_reset(k4)
         disturbance_schedule = create_empty(max_disturbance_events)
         for start_step, end_step, magnitude, type_id in config.disturbance_events:
