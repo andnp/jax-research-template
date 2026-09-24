@@ -11,6 +11,7 @@ def test_defaults_describe_a_reproducible_bakeoff() -> None:
     assert spec.estimand == "mean"
     assert spec.alpha == 0.05
     assert spec.confidence_level == 0.95
+    assert spec.interval == "percentile"
 
 
 @pytest.mark.parametrize(
@@ -21,6 +22,7 @@ def test_defaults_describe_a_reproducible_bakeoff() -> None:
         ({"n_resamples": 0}, "n_resamples"),
         ({"min_samples": 2}, "min_samples"),
         ({"missingness": "drop"}, "missingness"),
+        ({"interval": "bca"}, "interval"),
     ],
 )
 def test_rejects_invalid_design_settings(kwargs: dict[str, object], message: str) -> None:

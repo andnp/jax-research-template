@@ -1297,6 +1297,19 @@ class TestChampionComparisons:
                 dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(estimand="median")
             )
 
+    def test_champion_mode_rejects_an_expanded_interval(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The hierarchical bootstrap reads percentile bounds; an expanded-interval spec would be silently ignored."""
+        dataset = self._tuned_arms(temp_experiment_setup)
+
+        with pytest.raises(ValueError, match="interval must be 'percentile'"):
+            bakeoff_report(
+                dataset,
+                "metric",
+                ["a", "b"],
+                select_champion_over=["learning_rate"],
+                spec=BakeoffSpec(interval="expanded_percentile"),
+            )
+
 
 class TestSmallSampleCoverageOnChampions:
     @pytest.mark.parametrize(("n_seeds", "warned"), [(29, True), (30, False)])

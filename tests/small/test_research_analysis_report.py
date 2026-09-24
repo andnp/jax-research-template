@@ -134,6 +134,25 @@ class TestReportJson:
         assert result["report"]["measure"] == {"kind": "tail_mean", "fraction": 0.5}
         assert len(result["report"]["runs"]) == 8
 
+    def test_an_expanded_interval_is_recorded_and_widens_every_ci(self) -> None:
+        """The JSON names the interval method in the spec and each difference; on the same resamples it only widens."""
+        dataset = _dataset(_SCORES)
+        results = {
+            interval: bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50, interval=interval))
+            for interval in ("percentile", "expanded_percentile")
+        }
+        document = json.loads(
+            report_to_json(exploratory_report(dataset, Path("db"), [BakeoffResult("x", results["expanded_percentile"])]))
+        )
+
+        report = document["analyses"][0]["report"]
+        assert report["spec"]["interval"] == "expanded_percentile"
+        assert report["differences"][0]["method"] == "paired expanded percentile bootstrap"
+        plain = results["percentile"].difference("new", "base").ci
+        expanded = results["expanded_percentile"].difference("new", "base").ci
+        assert plain is not None and expanded is not None
+        assert expanded[0] <= plain[0] <= plain[1] <= expanded[1]
+
     def test_fatal_diagnostics_withhold_every_result(self) -> None:
         """A load with a fatal diagnostic yields its diagnostics and accounting, never a partial result."""
         fatal = DatasetDiagnostic(DiagnosticCode.MALFORMED_ARTIFACT, "run 7 has no metrics database", 7)
@@ -187,6 +206,18 @@ class TestReportMarkdown:
         assert "mean with its 95% CI" in text
         assert f"each CI at {report.comparison_confidence * 100:.4g}%" in text
         assert "Holm-adjusted" in text
+
+    def test_the_interval_method_is_named_in_the_bakeoff_section(self) -> None:
+        """A reader of the markdown alone can tell an expanded percentile CI from a plain percentile one."""
+        dataset = _dataset(_SCORES)
+        report = bakeoff_report(
+            dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50, interval="expanded_percentile")
+        )
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert "- Expanded percentile bootstrap, 50 resamples, seed 0" in text
+        assert "paired expanded percentile bootstrap" in text
 
     def test_skipped_cells_and_pairs_state_why(self) -> None:
         """A cell or pair below min_samples appears with its reason instead of silently vanishing."""
