@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
-def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = True) -> Path:
+def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = True, seeds: int = 4) -> Path:
     results_root = tmp_path / "results"
     plan = textwrap.dedent("""\
         @analysis_plan(two_arms)
@@ -53,7 +53,7 @@ def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = T
                     experiment.add_parameter("condition_name", ["a", "b"])
                 with experiment.for_component(Component(name="env", path=Path("env.py"), type=ComponentType.ENV)):
                     pass
-                experiment.add_parameter("seed", list(range(4)))
+                experiment.add_parameter("seed", list(range({seeds})))
                 experiment.add_metric("reward", frequency="per_update")
 
                 def train(ctx: ExecutionContext) -> ExecutionResult:
@@ -129,6 +129,20 @@ def test_a_diverged_seed_exits_non_zero_with_the_run_named(tmp_path: Path) -> No
     document = json.loads(result.stdout)
     assert (document["status"], document["analyses"]) == ("analysis_failed", [])
     assert [run["seed"] for run in document["failure"]["non_finite_runs"]] == [0]
+
+
+def test_too_few_seeds_exits_non_zero_with_the_shortfall_named(tmp_path: Path) -> None:
+    """Too few seeds to run the omnibus test fails loudly with exit 3, not a crash."""
+    spec_file = _write_spec(tmp_path, seeds=1)
+    _run(spec_file)
+
+    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "results" / "out")])
+
+    assert result.exit_code == 3
+    document = json.loads(result.stdout)
+    assert (document["status"], document["analyses"]) == ("analysis_failed", [])
+    assert document["failure"]["error_type"] == "InsufficientDataError"
+    assert document["failure"]["insufficient_data"][0]["observed"] == "1"
 
 
 def test_a_spec_without_a_plan_is_refused(tmp_path: Path) -> None:

@@ -217,6 +217,19 @@ class TestFailedReports:
         assert document.plan_status is PlanStatus.DECLARED
         assert any(cell.diverged.get("return") == 1 for cell in document.accounting.cells)
 
+    def test_too_few_seeds_fails_the_analysis_as_insufficient_data(self, tmp_path: Path) -> None:
+        """Fewer seeds than min_samples is a data shortfall, not a crash: the report names what was needed."""
+        experiment = _complete(tmp_path, seeds=1)
+
+        document = run_plan(experiment.db_path, "demo", PLAN, _declared_before())
+
+        assert document.status is ReportStatus.ANALYSIS_FAILED
+        assert document.analyses == ()
+        assert document.failure is not None
+        assert document.failure.error_type == "InsufficientDataError"
+        cell = document.failure.insufficient_data[0]
+        assert (cell.required, cell.observed) == ("at least 3 blocks with at least two observed algorithms", "1")
+
     def test_a_crashed_seed_fails_the_analysis_naming_the_cell(self, tmp_path: Path) -> None:
         """A failed seed under missingness='error' produces the incomplete cell and its failed count."""
         experiment = _complete(tmp_path)
