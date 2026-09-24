@@ -187,10 +187,10 @@ def make_bsm1_lt_benchmark(
         kla_5_state = dosing_reset(c.initial_states.r5.s_o, 0.0, k3)
 
         sensors = BSM1ObsSensors(
-            nh4_eff=ResidualAnalyzerState.create(),
-            no3_eff=ResidualAnalyzerState.create(),
-            no3_r2=ResidualAnalyzerState.create(),
-            nh4_inf=ResidualAnalyzerState.create(),
+            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
+            no3_eff=ResidualAnalyzerState.create(r5.s_no),
+            no3_r2=ResidualAnalyzerState.create(r2.s_no),
+            nh4_inf=ResidualAnalyzerState.create(c.initial_states.influent.s_nh),
             last_q_in=jnp.array(c.mean_flow),
         )
 

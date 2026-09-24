@@ -173,7 +173,8 @@ def make_chem_p_dosing_benchmark(
 
         src_state = source_reset(k1)
         ds_state = dosing_reset(config.po4_mean, config.pi_ff, k2)
-        inf_sensor = analyzer_reset(k3)
+        initial_po4 = po4_channel_params.mean
+        inf_sensor = analyzer_reset(k3, initial_po4)
 
         state = ChemPDosingState(
             step_count=jnp.array(0, dtype=jnp.int32),

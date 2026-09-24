@@ -207,8 +207,8 @@ def make_bsm1_recycle_benchmark(
 
         sensors = BSM1RecycleObsSensors(
             do_r5=DOSensorState.create(bsm1.initial_states.r5.s_o),
-            nh4_eff=ResidualAnalyzerState.create(),
-            no3_eff=ResidualAnalyzerState.create(),
+            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
+            no3_eff=ResidualAnalyzerState.create(r5.s_no),
             last_q_in=jnp.array(bsm1.mean_flow),
         )
 

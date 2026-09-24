@@ -25,7 +25,7 @@ from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import reset as analyzer_reset
 from process_control.sensors.residual_analyzer import step as analyzer_step
-from process_control.units.anaerobic_digester import ADM1Params, ADM1State
+from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _estimate_ph
 from process_control.units.anaerobic_digester import reset as digester_reset
 from process_control.units.anaerobic_digester import step as digester_step
 
@@ -125,9 +125,9 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             step_count=jnp.array(0, dtype=jnp.int32),
             digester_state=dig,
             cod_drift=jnp.array(0.0),
-            vfa_sensor=analyzer_reset(k2),
-            ph_sensor=analyzer_reset(k3),
-            biogas_sensor=analyzer_reset(k4),
+            vfa_sensor=analyzer_reset(k2, dig.s_vfa),
+            ph_sensor=analyzer_reset(k3, _estimate_ph(dig.s_co2, config.digester.alkalinity)),
+            biogas_sensor=analyzer_reset(k4, dig.q_gas),
             temperature=jnp.array(35.0),
             last_q_feed=jnp.array(config.q_feed_max * 0.5),
         )

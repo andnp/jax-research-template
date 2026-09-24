@@ -23,7 +23,7 @@ from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import reset as analyzer_reset
 from process_control.sensors.residual_analyzer import step as analyzer_step
-from process_control.units.membrane import MembraneParams, MembraneState
+from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as membrane_reset
 from process_control.units.membrane import step as membrane_step
 
@@ -93,7 +93,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         mem = membrane_reset(config.membrane, k1)
-        tmp_sensor = analyzer_reset(k2)
+        tmp_sensor = analyzer_reset(k2, compute_tmp(jnp.array(0.0), mem, config.membrane))
         state = MembraneFoulingBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             membrane_state=mem,

@@ -159,9 +159,9 @@ def make_bio_p_benchmark(config: BioPConfig):
             anaerobic_state=init_state.at[7].set(0.0),  # no DO in anaerobic
             anoxic_state=init_state.at[7].set(0.0),
             aerobic_state=init_state.at[7].set(2.0),  # DO ~2 in aerobic
-            po4_eff_sensor=analyzer_reset(k2),
-            nh4_eff_sensor=analyzer_reset(k3),
-            po4_ana_sensor=analyzer_reset(k4),
+            po4_eff_sensor=analyzer_reset(k2, init_state[13]),
+            nh4_eff_sensor=analyzer_reset(k3, init_state[9]),
+            po4_ana_sensor=analyzer_reset(k4, init_state[13]),
             last_q_in=jnp.array(config.mean_flow),
         )
         obs = jnp.array(

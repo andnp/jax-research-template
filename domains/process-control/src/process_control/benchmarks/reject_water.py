@@ -105,13 +105,15 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
     def reset(rng_key: jax.Array):
         k1, k2, k3 = jax.random.split(rng_key, 3)
         src = source_reset(k1)
+        initial_main_nh4 = jnp.array(config.nh4_baseline)
+        initial_reject_nh4 = jnp.array(config.reject_nh4)
         state = RejectWaterBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src,
-            main_nh4=jnp.array(config.nh4_baseline),
+            main_nh4=initial_main_nh4,
             reject_tank_volume=jnp.array(config.reject_tank_max * 0.5),
-            main_nh4_sensor=analyzer_reset(k2),
-            reject_nh4_sensor=analyzer_reset(k3),
+            main_nh4_sensor=analyzer_reset(k2, initial_main_nh4),
+            reject_nh4_sensor=analyzer_reset(k3, initial_reject_nh4),
             last_q_main=jnp.array(config.mean_flow),
         )
         obs = jnp.array(

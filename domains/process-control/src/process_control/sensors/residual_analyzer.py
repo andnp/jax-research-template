@@ -19,15 +19,15 @@ class ResidualAnalyzerState:
     steps_since_sample: jax.Array
 
     @staticmethod
-    def create() -> "ResidualAnalyzerState":
+    def create(initial_value: float | jax.Array) -> "ResidualAnalyzerState":
         return ResidualAnalyzerState(
-            held_value=jnp.array(0.0),
+            held_value=jnp.asarray(initial_value),
             steps_since_sample=jnp.array(0, dtype=jnp.int32),
         )
 
 
-def reset(rng_key: jax.Array) -> ResidualAnalyzerState:
-    return ResidualAnalyzerState.create()
+def reset(rng_key: jax.Array, initial_value: float | jax.Array) -> ResidualAnalyzerState:
+    return ResidualAnalyzerState.create(initial_value)
 
 
 def step(

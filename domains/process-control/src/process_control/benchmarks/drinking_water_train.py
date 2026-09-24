@@ -33,7 +33,7 @@ from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import reset as analyzer_reset
 from process_control.sensors.residual_analyzer import step as analyzer_step
-from process_control.units.membrane import MembraneParams, MembraneState
+from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as membrane_reset
 from process_control.units.membrane import step as membrane_step
 
@@ -150,14 +150,15 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
         src = source_reset(k1)
         mem = membrane_reset(config.membrane, k2)
+        initial_cl2_residual = jnp.array(1.0)
         state = DrinkingWaterTrainState(
             step_count=jnp.array(0, dtype=jnp.int32),
             source_state=src,
             turbidity_drift=jnp.array(0.0),
             membrane_state=mem,
-            cl2_residual=jnp.array(1.0),
-            tmp_sensor=analyzer_reset(k3),
-            cl2_sensor=analyzer_reset(k4),
+            cl2_residual=initial_cl2_residual,
+            tmp_sensor=analyzer_reset(k3, compute_tmp(flux_max * 0.7, mem, config.membrane)),
+            cl2_sensor=analyzer_reset(k4, initial_cl2_residual),
             last_q_in=jnp.array(config.mean_flow),
         )
         obs = jnp.zeros(8)

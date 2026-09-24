@@ -94,7 +94,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         dw = dewatering_reset(config.dewatering, k1)
-        filt_sensor = analyzer_reset(k2)
+        filt_sensor = analyzer_reset(k2, 0.0)
         state = DewateringBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             dewatering_state=dw,

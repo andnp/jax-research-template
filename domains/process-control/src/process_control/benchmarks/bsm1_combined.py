@@ -296,9 +296,9 @@ def make_bsm1_combined_benchmark(
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1CombinedObsSensors(
-            nh4_eff=ResidualAnalyzerState.create(),
-            no3_eff=ResidualAnalyzerState.create(),
-            nh4_inf=ResidualAnalyzerState.create(),
+            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
+            no3_eff=ResidualAnalyzerState.create(r5.s_no),
+            nh4_inf=ResidualAnalyzerState.create(bsm1.initial_states.influent.s_nh),
             last_q_in=jnp.array(bsm1.mean_flow),
         )
 

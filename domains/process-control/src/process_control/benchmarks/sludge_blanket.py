@@ -145,9 +145,9 @@ def make_sludge_blanket_benchmark(
         pump = actuator_reset(k3)
 
         sensors = SludgeBlanketSensorState(
-            blanket_height=ResidualAnalyzerState.create(),
-            eff_tss=ResidualAnalyzerState.create(),
-            und_tss=ResidualAnalyzerState.create(),
+            blanket_height=ResidualAnalyzerState.create(compute_blanket_height(settler, settler_params, blanket_threshold)),
+            eff_tss=ResidualAnalyzerState.create(get_effluent_tss(settler)),
+            und_tss=ResidualAnalyzerState.create(get_underflow_tss(settler)),
         )
 
         plant_state = SludgeBlanketPlantState(

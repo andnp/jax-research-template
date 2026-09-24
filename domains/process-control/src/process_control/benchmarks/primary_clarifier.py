@@ -131,8 +131,16 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         clar = clarifier_reset(config.clarifier, k2)
         pump = actuator_reset(k3)
         sensors = PrimaryClarifierSensorState(
-            eff_tss=ResidualAnalyzerState.create(),
-            und_tss=ResidualAnalyzerState.create(),
+            eff_tss=ResidualAnalyzerState.create(
+                config.tss_mean
+                * (1.0 - config.clarifier.eta_max * config.clarifier.k_slr / (config.clarifier.k_slr + config.mean_flow / config.clarifier.area))
+            ),
+            und_tss=ResidualAnalyzerState.create(
+                jnp.maximum(
+                    clar.sludge_mass / (config.clarifier.area * config.clarifier.depth) * 2.0,
+                    config.clarifier.min_underflow_tss,
+                )
+            ),
         )
         state = PrimaryClarifierBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),

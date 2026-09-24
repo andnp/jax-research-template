@@ -165,10 +165,10 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             anaerobic_state=init_state.at[7].set(0.0),
             anoxic_state=init_state.at[7].set(0.0),
             aerobic_state=init_state.at[7].set(2.0),
-            po4_eff_sensor=analyzer_reset(k2),
-            nh4_eff_sensor=analyzer_reset(k3),
-            no3_eff_sensor=analyzer_reset(k4),
-            po4_ana_sensor=analyzer_reset(k5),
+            po4_eff_sensor=analyzer_reset(k2, init_state[13]),
+            nh4_eff_sensor=analyzer_reset(k3, init_state[9]),
+            no3_eff_sensor=analyzer_reset(k4, init_state[8]),
+            po4_ana_sensor=analyzer_reset(k5, init_state[13]),
             last_q_in=jnp.array(config.mean_flow),
         )
         obs = jnp.zeros(9)
