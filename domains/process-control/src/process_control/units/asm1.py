@@ -35,7 +35,7 @@ class ASM1Params:
     mu_a: float | jax.Array = 0.02083  # max nitrifier growth rate (h⁻¹; 0.5 /day)
     k_nh: float = 1.0  # half-saturation, NH₄ (g N/m³)
     k_o_a: float = 0.4  # half-saturation, O₂ for nitrification (g O₂/m³)
-    b_a: float | jax.Array = 0.00625  # nitrifier decay rate (h⁻¹; 0.15 /day)
+    b_a: float | jax.Array = 0.002083  # nitrifier decay rate (h⁻¹; 0.05 /day)
     y_a: float = 0.24  # yield (g COD / g N oxidised)
 
     # --- Hydrolysis ---
