@@ -86,7 +86,6 @@ def _load_bakeoff_data(
 
 
 _ORDERED_VALUE_TYPES = frozenset({SweepValueType.INTEGER, SweepValueType.FLOAT})
-_PAIRED_METHOD = "paired percentile bootstrap"
 _CHAMPION_METHOD = "hierarchical per-sample bootstrap, selection included"
 _CHAMPION_TESTS_SKIPPED = (
     "no permutation tests on tuned champions: the seeds that selected each champion would be reused to test it"
@@ -210,7 +209,7 @@ def _paired_difference(
         ci=None,
         confidence=confidence,
         n_paired=len(seeds),
-        method=_PAIRED_METHOD,
+        method=f"paired {spec.interval.replace('_', ' ')} bootstrap",
         p_value=None,
         skipped_reason=f"only {len(seeds)} paired runs, fewer than min_samples={spec.min_samples}",
     )
@@ -237,6 +236,7 @@ def _paired_difference(
         confidence=confidence,
         n_resamples=spec.n_resamples,
         min_samples=spec.min_samples,
+        interval=spec.interval,
         rng=rng,
     )
     return replace(
@@ -396,6 +396,7 @@ def _summarize_cell(
         confidence=spec.confidence_level,
         n_resamples=spec.n_resamples,
         min_samples=spec.min_samples,
+        interval=spec.interval,
         rng=rng,
     )
     return replace(summary, ci=(ci.ci_low, ci.ci_high))
@@ -490,6 +491,8 @@ def bakeoff_report(
 
     if select_champion_over is not None and spec.estimand != "mean":
         raise ValueError("tuned-champion comparisons estimate a mean; spec.estimand must be 'mean'")
+    if select_champion_over is not None and spec.interval != "percentile":
+        raise ValueError("tuned-champion comparisons use the hierarchical percentile bootstrap; spec.interval must be 'percentile'")
     family_size = len(block_keys) * len(planned_pairs)
     comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
 

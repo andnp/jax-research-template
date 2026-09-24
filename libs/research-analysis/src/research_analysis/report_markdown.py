@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from research_analysis._reporting_models import BakeoffReport, CellSummary, HyperparameterConfigReport, PairedDifference
+from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import RunAccounting
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
 from research_analysis.diagnostics.types import DatasetDiagnostic
@@ -90,6 +91,10 @@ def _describe_analysis(analysis: Analysis) -> str:
             return f"`{name}`: sensitivity to {vary} per {', '.join(group_by) or 'whole grid'}"
 
 
+def _describe_interval(spec: BakeoffSpec) -> str:
+    return f"{spec.interval.replace('_', ' ')} bootstrap"
+
+
 def _plan_section(plan: AnalysisPlan) -> list[str]:
     stats = plan.stats
     dimensions = plan.dimensions
@@ -104,7 +109,7 @@ def _plan_section(plan: AnalysisPlan) -> list[str]:
         f"{_describe_measure(plan.measure)}; estimand: {stats.estimand}",
         f"- Dimensions: condition `{dimensions.condition}`, environment `{dimensions.environment or 'none'}`, "
         f"swept: {swept}",
-        f"- Statistics: {_percent(stats.confidence_level)} percentile bootstrap, {stats.n_resamples} resamples, "
+        f"- Statistics: {_percent(stats.confidence_level)} {_describe_interval(stats)}, {stats.n_resamples} resamples, "
         f"seed {stats.random_seed}, min samples {stats.min_samples}; missingness: {stats.missingness}; tolerance "
         f"({_percent(stats.tolerance_confidence)} confidence, {_percent(stats.tolerance_coverage)} coverage)",
         f"- Diverged runs: {diverged}",
@@ -237,7 +242,8 @@ def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
         f"## {name}: bakeoff of {', '.join(report.conditions)}",
         "",
         f"- Metric: `{report.metric_name}`, per run: {_describe_measure(report.measure)}; estimand: {spec.estimand}",
-        f"- Percentile bootstrap, {spec.n_resamples} resamples, seed {spec.random_seed}; missingness: {spec.missingness}",
+        f"- {_describe_interval(spec).capitalize()}, {spec.n_resamples} resamples, seed {spec.random_seed}; "
+        f"missingness: {spec.missingness}",
         "",
         f"Cells: {spec.estimand} with its {_percent(spec.confidence_level)} CI; SD and the "
         f"({_percent(spec.tolerance_confidence)} confidence, {_percent(spec.tolerance_coverage)} coverage) "

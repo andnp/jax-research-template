@@ -23,6 +23,7 @@ class BakeoffSpec:
     random_seed: int = 0
     tolerance_confidence: float = 0.95
     tolerance_coverage: float = 0.90
+    interval: IntervalMethod = "percentile"
 
     def __post_init__(self) -> None:
         if self.estimand not in ("mean", "median"):
@@ -37,6 +38,8 @@ class BakeoffSpec:
             raise ValueError(f"unknown missingness policy {self.missingness!r}")
         if not 0.0 < self.tolerance_confidence < 1.0 or not 0.0 < self.tolerance_coverage < 1.0:
             raise ValueError("tolerance_confidence and tolerance_coverage must be in (0, 1)")
+        if self.interval not in ("percentile", "expanded_percentile"):
+            raise ValueError(f"interval must be 'percentile' or 'expanded_percentile', got {self.interval!r}")
 
     @property
     def confidence_level(self) -> float:
