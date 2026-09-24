@@ -8,6 +8,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import rankdata
 
+from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
+
 
 @dataclass(frozen=True)
 class BlockPermutationResult:
@@ -56,8 +58,10 @@ def block_stratified_permutation_test(
     observed_counts = np.isfinite(matrix).sum(axis=1)
     valid_rows = observed_counts >= 2
     if int(valid_rows.sum()) < min_blocks:
-        raise ValueError(
-            f"need at least {min_blocks} blocks with two observations, got {int(valid_rows.sum())}"
+        observed = int(valid_rows.sum())
+        raise InsufficientDataError(
+            f"need at least {min_blocks} blocks with two observations, got {observed}",
+            cells=(InsufficientDataCell({}, f"at least {min_blocks} blocks with two observations", str(observed)),),
         )
     matrix = matrix[valid_rows]
     observed_statistic = _rank_score(matrix)
