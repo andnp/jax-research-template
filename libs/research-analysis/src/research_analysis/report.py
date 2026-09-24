@@ -22,7 +22,7 @@ from research_analysis.dataset.types import (
     SweepValue,
 )
 from research_analysis.diagnostics.bakeoff import IncompleteCell
-from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetDiagnostic
+from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetDiagnostic, InsufficientDataCell
 from research_analysis.plan import AnalysisPlan
 
 REPORT_SCHEMA_VERSION = 1
@@ -94,6 +94,7 @@ class AnalysisFailure:
     message: str
     non_finite_runs: tuple[dict[str, SweepValue | None], ...] = ()
     incomplete_cells: tuple[IncompleteCell, ...] = ()
+    insufficient_data: tuple[InsufficientDataCell, ...] = ()
 
 
 @dataclass(frozen=True)
