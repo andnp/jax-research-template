@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from research_analysis.bootstrap import bootstrap_scalar_ci
+from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from scipy import stats
 
 CONFIDENCE = 0.95
@@ -84,6 +84,20 @@ def mean_ci_coverage(distribution: RunDistribution, n: int, replicates: int, rng
     return hits / replicates
 
 
+def paired_samples(distribution: RunDistribution, n: int, shift: float, rng: np.random.Generator):
+    seed_effect = rng.standard_normal(n)
+    return seed_effect + distribution.sample(rng, n) + shift, seed_effect + distribution.sample(rng, n)
+
+
+def difference_ci_coverage(distribution: RunDistribution, n: int, replicates: int, rng: np.random.Generator):
+    shift, hits = 0.5, 0
+    for _ in range(replicates):
+        values_a, values_b = paired_samples(distribution, n, shift, rng)
+        ci = bootstrap_difference_ci(values_a, values_b, pairing="paired", n_resamples=N_RESAMPLES, rng=rng)
+        hits += ci.ci_low <= shift <= ci.ci_high
+    return hits / replicates
+
+
 # ── Percentile bootstrap CI of the mean ──────────────────────────────────────
 
 
@@ -137,3 +151,39 @@ def test_mean_ci_misses_rare_catastrophes_in_small_samples(n: int) -> None:
 
     cap = 1.0 - (1.0 - CATASTROPHE_RATE) ** n
     assert coverage <= cap + mc_band(cap, replicates), coverage
+
+
+# ── Paired percentile bootstrap CI of a difference ──────────────────────────
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, MILD_SKEW, BIMODAL], ids=lambda d: d.name)
+def test_difference_ci_covers_near_nominal_at_thirty_runs(distribution: RunDistribution) -> None:
+    """The paired difference CI, the bakeoff headline, is calibrated at n=30 with a shared seed effect."""
+    replicates = 4000
+    coverage = difference_ci_coverage(distribution, 30, replicates, np.random.default_rng(0))
+
+    band = mc_band(CONFIDENCE, replicates)
+    assert gaussian_percentile_coverage(30) - 0.015 - band <= coverage <= CONFIDENCE + band, coverage
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, MILD_SKEW, BIMODAL], ids=lambda d: d.name)
+def test_difference_ci_under_covers_at_ten_runs(distribution: RunDistribution) -> None:
+    """At n=10 the paired difference CI under-covers by several points.
+
+    Records current behaviour, so a change of interval method shows up as a deliberate update here.
+    """
+    replicates = 4000
+    coverage = difference_ci_coverage(distribution, 10, replicates, np.random.default_rng(0))
+
+    assert 0.85 <= coverage <= gaussian_percentile_coverage(10) + mc_band(CONFIDENCE, replicates), coverage
+
+
+def test_difference_ci_under_covers_catastrophic_runs_at_thirty() -> None:
+    """Rare catastrophes in either arm still cost coverage at n=30.
+
+    Records current behaviour, so a change of interval method shows up as a deliberate update here.
+    """
+    replicates = 4000
+    coverage = difference_ci_coverage(CATASTROPHIC, 30, replicates, np.random.default_rng(0))
+
+    assert coverage < gaussian_percentile_coverage(30) - mc_band(CONFIDENCE, replicates), coverage
