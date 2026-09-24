@@ -32,12 +32,12 @@ def _validate_positive_int(value: int, name: str) -> None:
         raise ValueError(f"{name} must be a positive int, got {value!r}")
 
 
-def _validate_hyper_matrix(arr: NDArray[np.float64], confidence: float) -> None:
+def _validate_hyper_matrix(arr: NDArray[np.float64], confidence: float, min_hypers: int) -> None:
     if arr.ndim != 2:
         raise ValueError(f"data must be 2D array of shape (n_hypers, n_runs), got {arr.shape}")
     n_hypers, n_runs = arr.shape
-    if n_hypers < 2:
-        raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
+    if n_hypers < min_hypers:
+        raise ValueError(f"need at least {min_hypers} hyperparameters to tune, got {n_hypers}")
     if n_runs < 1:
         raise ValueError(f"need at least 1 run, got {n_runs}")
     if not 0.0 < confidence < 1.0:
@@ -103,7 +103,7 @@ def hierarchical_bootstrap_ci(
     from that induced distribution to prevent confidence interval collapse.
     """
     arr = np.asarray(data, dtype=np.float64)
-    _validate_hyper_matrix(arr, confidence)
+    _validate_hyper_matrix(arr, confidence, min_hypers=2)
     _validate_positive_int(h_samples, "h_samples")
     _validate_positive_int(e_samples, "e_samples")
     _validate_positive_int(n_resamples, "n_resamples")
@@ -159,12 +159,14 @@ def hierarchical_bootstrap_difference_ci(
     Each arm selects its champion hyperparameter independently (its own
     stage-1 draw), then evaluation samples are paired by run index across
     arms, so ``data_a`` and ``data_b`` must have the same number of columns
-    and represent the same seed order, so shared seed noise cancels.
+    and represent the same seed order, so shared seed noise cancels. An arm
+    with a single row is an untuned referent: with nothing to select, its
+    draws are the plain bootstrap mean of the same resampled runs.
     """
     arr_a = np.asarray(data_a, dtype=np.float64)
     arr_b = np.asarray(data_b, dtype=np.float64)
-    _validate_hyper_matrix(arr_a, confidence)
-    _validate_hyper_matrix(arr_b, confidence)
+    _validate_hyper_matrix(arr_a, confidence, min_hypers=1)
+    _validate_hyper_matrix(arr_b, confidence, min_hypers=1)
     _validate_positive_int(h_samples, "h_samples")
     _validate_positive_int(e_samples, "e_samples")
     _validate_positive_int(n_resamples, "n_resamples")

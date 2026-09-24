@@ -169,6 +169,19 @@ class TestHierarchicalBootstrapDifferenceCI:
         res = hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=5, e_samples=20, rng=np.random.default_rng(1))
         assert res.ci_low < 0.0 < res.ci_high
 
+    def test_a_single_configuration_arm_is_an_untuned_referent(self) -> None:
+        """A one-row arm has nothing to select, so it always draws its only configuration."""
+        rng = np.random.default_rng(3)
+        tuned = np.stack([rng.normal(4.0, 0.5, 100), rng.normal(0.0, 0.5, 100)])
+        referent = rng.normal(1.0, 0.5, (1, 100))
+
+        res = hierarchical_bootstrap_difference_ci(tuned, referent, h_samples=100, e_samples=100, rng=np.random.default_rng(0))
+
+        assert res.hyper_probs_b.tolist() == [1.0]
+        assert res.selection_entropy_b == 0.0
+        assert res.mean_diff == pytest.approx(float(tuned[0].mean() - referent[0].mean()), abs=0.05)
+        assert res.ci_low < res.mean_diff < res.ci_high
+
     def test_rejects_mismatched_run_counts(self) -> None:
         """data_a and data_b must be paired by run index, so column counts must match."""
         data_a = np.ones((2, 10))
