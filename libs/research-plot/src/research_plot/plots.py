@@ -54,49 +54,50 @@ def _apply_minimal_style(ax: Axes) -> None:
 
 
 def plot_distributions(
-    data_a: np.ndarray,
-    data_b: np.ndarray,
-    label_a: str,
-    label_b: str,
+    samples: Mapping[str, Sequence[float]],
     save_path: Path | str,
+    *,
     title: str = "Performance Distributions",
+    ylabel: str = "Outcome Metric",
 ) -> Path:
-    """Generate a clean violin plot comparing two performance distributions.
+    """Violin of each condition's per-run outcomes with every run drawn as a point.
 
-    Args:
-        data_a: 1-D array of outcomes for Method A.
-        data_b: 1-D array of outcomes for Method B.
-        label_a: Name of Method A.
-        label_b: Name of Method B.
-        save_path: Location to save the plot.
-        title: Chart title.
+    A condition with fewer than two distinct values has no density to draw, so only its points appear.
     """
+    if not samples:
+        raise ValueError("samples must name at least one condition.")
+    values = [np.asarray(sample, dtype=np.float64) for sample in samples.values()]
+    if any(value.ndim != 1 or value.size == 0 or not np.isfinite(value).all() for value in values):
+        raise ValueError("each condition needs a non-empty one-dimensional sample of finite values.")
+
     path = Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(max(6.0, 1.5 * len(values)), 5))
     _apply_minimal_style(ax)
 
-    # Convert to standard float lists/arrays for matplotlib
-    vals = [np.asarray(data_a, dtype=np.float64), np.asarray(data_b, dtype=np.float64)]
-    
-    parts = ax.violinplot(vals, showmeans=True, showmedians=True, showextrema=False)
-    
-    # Custom styling for violin bodies
-    colors = ["#1f77b4", "#ff7f0e"]  # Consistent Blue & Orange
-    for i, pc in enumerate(cast(list[Any], parts["bodies"])):
-        pc.set_facecolor(colors[i % len(colors)])
-        pc.set_edgecolor("black")
-        pc.set_alpha(0.6)
-        
-    ax.set_xticks([1, 2])
-    ax.set_xticklabels([label_a, label_b])
-    ax.set_ylabel("Outcome Metric")
-    ax.set_title(title, pad=15)
+    positions = np.arange(1, len(values) + 1)
+    spread = [(position, value) for position, value in zip(positions, values, strict=True) if np.unique(value).size > 1]
+    if spread:
+        parts = ax.violinplot(
+            [value for _, value in spread],
+            positions=[position for position, _ in spread],
+            showmeans=True,
+            showmedians=True,
+            showextrema=False,
+        )
+        for body in cast(list[Any], parts["bodies"]):
+            body.set_alpha(0.4)
+    jitter = np.random.default_rng(0)
+    for position, value in zip(positions, values, strict=True):
+        ax.scatter(position + jitter.uniform(-0.08, 0.08, size=value.size), value, s=12, color="black", alpha=0.7)
 
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
+    ax.set_xticks(positions)
+    ax.set_xticklabels(list(samples))
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, pad=15)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
     return path
 
 

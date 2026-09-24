@@ -3,7 +3,13 @@
 from pathlib import Path
 
 import pytest
-from research_plot.plots import EventWindow, TrajectoryPanel, TrajectorySeries, plot_trajectory_panels
+from research_plot.plots import (
+    EventWindow,
+    TrajectoryPanel,
+    TrajectorySeries,
+    plot_distributions,
+    plot_trajectory_panels,
+)
 
 
 def _panel() -> dict[str, TrajectoryPanel]:
@@ -82,3 +88,23 @@ class TestTrajectoryPanels:
                 tmp_path / "invalid.png",
                 event_windows=(EventWindow(2.0, 1.0),),
             )
+
+
+class TestRunDistributions:
+    def test_renders_any_number_of_conditions_including_degenerate_ones(self, tmp_path: Path) -> None:
+        """Conditions with one run or identical runs show their points instead of failing the density."""
+        output_path = tmp_path / "runs" / "distribution.png"
+
+        resolved_path = plot_distributions(
+            {"a": [1.0, 2.0, 5.0], "b": [3.0, 3.0], "c": [4.0], "d": [0.0, -10.0, 2.0, 1.0]},
+            output_path,
+        )
+
+        assert resolved_path == output_path
+        assert output_path.exists()
+
+    @pytest.mark.parametrize("samples", [{}, {"a": []}, {"a": [1.0, float("nan")]}])
+    def test_rejects_empty_or_non_finite_samples(self, tmp_path: Path, samples: dict[str, list[float]]) -> None:
+        """A missing or diverged run must not be drawn as if it were an ordinary outcome."""
+        with pytest.raises(ValueError, match="sample|condition"):
+            plot_distributions(samples, tmp_path / "distribution.png")
