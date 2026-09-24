@@ -31,8 +31,13 @@ from research_analysis._reporting_warnings import (
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
-from research_analysis.dataset.types import ExperimentDataset, SweepValueType
-from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
+from research_analysis.dataset.types import ExperimentDataset, RunAccounting, SweepValueType
+from research_analysis.diagnostics.bakeoff import (
+    BakeoffWarning,
+    BakeoffWarningCode,
+    IncompleteBlocksError,
+    IncompleteCell,
+)
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
@@ -266,9 +271,6 @@ def _omnibus_test(
 
     matrix = np.array(matrix, dtype=np.float64)
     observed_counts = np.isfinite(matrix).sum(axis=1)
-    incomplete_rows = int(np.sum((observed_counts >= 1) & (observed_counts < len(conditions))))
-    if incomplete_rows > 0 and spec.missingness == "error":
-        raise ValueError(f"bakeoff contains {incomplete_rows} incomplete block(s) under missingness='error'")
     # complete_case keeps only rows where every condition was observed; blockwise keeps
     # any row with at least two observed conditions, retaining usable incomplete blocks.
     required_observations = len(conditions) if spec.missingness == "complete_case" else 2
@@ -281,8 +283,6 @@ def _omnibus_test(
             f"got {matrix.shape[0]}"
         )
     has_missing = bool(np.isnan(matrix).any())
-    if has_missing and spec.missingness == "error":
-        raise ValueError("bakeoff contains missing cells under missingness='error'")
     block_result = block_stratified_permutation_test(
         matrix,
         n_resamples=spec.n_resamples,
@@ -308,6 +308,37 @@ def _omnibus_test(
         justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
         intermediate_tests={},
     )
+
+
+def _incomplete_cells(
+    data_by_group: dict[tuple[str, BlockKey], dict[int, float]],
+    conditions: list[str],
+    block_keys: list[BlockKey],
+    accounting: RunAccounting,
+) -> tuple[IncompleteCell, ...]:
+    incomplete: list[IncompleteCell] = []
+    for block_key in block_keys:
+        seeds = {condition: set(data_by_group.get((condition, block_key), {})) for condition in conditions}
+        observed = set().union(*seeds.values())
+        for condition in conditions:
+            missing = sorted(observed - seeds[condition])
+            if not missing:
+                continue
+            coordinates = {"condition_name": condition, **dict(block_key)}
+            planned = [
+                item for item in accounting.cells if all(dict(item.cell).get(k) == v for k, v in coordinates.items())
+            ]
+            incomplete.append(
+                IncompleteCell(
+                    condition=condition,
+                    block=_block_label(block_key),
+                    missing_seeds=tuple(missing),
+                    failed=sum(item.failed for item in planned),
+                    pending=sum(item.pending for item in planned),
+                    excluded=sum(sum(item.excluded.values()) for item in planned),
+                )
+            )
+    return tuple(incomplete)
 
 
 def _summarize_cell(
@@ -535,6 +566,10 @@ def bakeoff_report(
     data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
     omnibus: StatisticalTestDetails | None = None
     differences = tuple(champion_differences)
+    if select_champion_over is None and spec.missingness == "error":
+        incomplete = _incomplete_cells(data_by_group, conditions, block_keys, dataset.accounting)
+        if incomplete:
+            raise IncompleteBlocksError(incomplete)
     if select_champion_over is None:
         test_rng = np.random.default_rng(spec.random_seed)
         omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)

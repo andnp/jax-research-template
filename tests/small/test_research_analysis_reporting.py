@@ -23,7 +23,7 @@ from research_analysis._reporting_warnings import (
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
-from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
+from research_analysis.diagnostics.bakeoff import BakeoffWarningCode, IncompleteBlocksError, IncompleteCell
 from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import ReturnRate, TailMean
 from research_analysis.report_plots import write_bakeoff_plots, write_slice_plot
@@ -162,6 +162,27 @@ def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: Experim
     assert diff == pytest.approx(-50.0)
 
 
+
+def test_a_crashed_seed_fails_the_bakeoff_naming_the_cell_and_its_outcome(temp_experiment_setup: ExperimentSetup) -> None:
+    """Under missingness='error' a failed seed is not dropped: the error names the cell, seed, and why it is missing."""
+    setup = temp_experiment_setup
+    for seed in range(5):
+        _add_observation(setup, {"condition_name": "b"}, seed, float(seed))
+    for seed in range(4):
+        _add_observation(setup, {"condition_name": "a"}, seed, float(seed))
+    with DatabaseManager(setup["db_path"]) as database:
+        hyper_id = database.add_hyperparam_config({"condition_name": "a", "seed": 4})
+        run_id = database.add_run(setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, 4)
+        execution_id = database.add_execution()
+        database.link_execution_run(execution_id, run_id)
+        database.update_execution_status(execution_id, "FAILED")
+    dataset = load_experiment_dataset(setup["db_path"], "test-exp", partial=True)
+
+    with pytest.raises(IncompleteBlocksError, match="complete_case") as raised:
+        bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
+
+    assert raised.value.cells == (IncompleteCell("a", "", (4,), failed=1, pending=0, excluded=0),)
+
 def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: ExperimentSetup) -> None:
     """Reject an incomplete block under missingness='error' unless complete_case is explicit."""
     setup = temp_experiment_setup
@@ -170,7 +191,7 @@ def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: Experim
             _add_observation(setup, {"condition_name": condition}, seed, float(seed))
     dataset = _load(setup)
 
-    with pytest.raises(ValueError, match="incomplete block"):
+    with pytest.raises(IncompleteBlocksError):
         bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
 
     # complete_case no longer raises -- it pairs down to the shared seeds {0, 1, 2}
