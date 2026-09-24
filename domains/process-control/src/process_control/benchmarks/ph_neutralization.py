@@ -22,9 +22,9 @@ from process_control.disturbances.schedule import (
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.ph_sensor import PhSensorParams, PhSensorState
-from process_control.sensors.ph_sensor import reset as ph_sensor_reset
-from process_control.sensors.ph_sensor import step as ph_sensor_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as ph_sensor_reset
+from process_control.sensors.lagged import step as ph_sensor_step
 from process_control.units.cstr import CSTRParams, CSTRState
 from process_control.units.cstr import reset as cstr_reset
 from process_control.units.cstr import step as cstr_step
@@ -79,7 +79,7 @@ class PhPlantState:
     source_state: DiurnalSourceState
     cstr_state: CSTRState
     actuator_state: RampLimitedActuatorState
-    ph_sensor_state: PhSensorState
+    ph_sensor_state: LaggedSensorState
     pi_state: PIControllerState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
@@ -109,7 +109,7 @@ def make_ph_neutralization_benchmark(
         output_max=config.pi_output_max,
         max_integral=config.pi_max_integral,
     )
-    ph_sensor_params = PhSensorParams(
+    ph_sensor_params = LaggedSensorParams(
         noise_std=config.ph_noise_std,
         lag_coefficient=config.ph_lag_coefficient,
     )
@@ -135,7 +135,8 @@ def make_ph_neutralization_benchmark(
         src_state = source_reset(k1)
         cstr_state = cstr_reset(k2)
         dp_state = actuator_reset(k3)
-        ph_state = ph_sensor_reset(k4)
+        initial_ph = compute_ph(cstr_state.concentration, ph_model_params)
+        ph_state = ph_sensor_reset(initial_ph, k4)
         pi_state = pi_reset(k4)
         last_dose = jnp.array(0.0)
 
@@ -160,7 +161,7 @@ def make_ph_neutralization_benchmark(
             disturbance_schedule=disturbance_schedule,
         )
 
-        measured_ph = jnp.array(7.0)
+        measured_ph = ph_state.held_value
         obs = jnp.array(
             [
                 measured_ph / 14.0,
