@@ -244,34 +244,3 @@ def plot_sensitivity(
     plt.savefig(path, dpi=150)
     plt.close()
     return path
-
-
-def plot_ecdf(
-    ecdf_curves: dict[str, tuple[list[float], list[float]]],
-    save_path: Path | str,
-) -> Path:
-    """Generate ECDF curves comparing multiple methods.
-
-    Args:
-        ecdf_curves: Maps method label to (sorted_scores, ecdf_proportions).
-        save_path: Location to save the plot.
-    """
-    path = Path(save_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    _apply_minimal_style(ax)
-
-    for label, (scores, proportions) in ecdf_curves.items():
-        ax.step(scores, proportions, label=label, where="post", linewidth=2)
-
-    ax.set_xlabel("Normalized Score (ECDF)")
-    ax.set_ylabel("Fraction of Task-Seeds")
-    ax.set_ylim(-0.02, 1.02)
-    ax.set_title("Empirical Cumulative Distribution Function (ECDF)", pad=15)
-    ax.legend(frameon=False)
-
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return path
