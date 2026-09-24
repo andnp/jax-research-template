@@ -69,3 +69,22 @@ class ContinuousActorCritic(TypedApply[tuple[TanhNormalDiag, jax.Array]], nn.Mod
         critic_value = nn.Dense(1, kernel_init=nn.initializers.orthogonal(1.0))(critic_x)
 
         return policy, jnp.squeeze(critic_value, axis=-1)
+
+
+class Critic(nn.Module):
+    @nn.compact
+    def __call__(self, x: jax.Array, a: jax.Array) -> jax.Array:
+        x = jnp.concatenate([x, a], axis=-1)
+        x = nn.relu(nn.Dense(256)(x))
+        x = nn.relu(nn.Dense(256)(x))
+        return jnp.squeeze(nn.Dense(1)(x), axis=-1)
+
+    def apply(
+        self,
+        variables: object,
+        x: jax.Array,
+        a: jax.Array,
+        *,
+        rngs: object | None = None,
+    ) -> jax.Array:
+        return super().apply(variables, x, a, rngs=rngs)

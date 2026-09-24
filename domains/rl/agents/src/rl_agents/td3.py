@@ -32,6 +32,7 @@ from rl_components.env_protocol import EnvSpec
 from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
+from rl_networks.networks import Critic
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -83,28 +84,6 @@ def td3_hypers(config: TD3Config) -> TD3Hypers:
         POLICY_NOISE=jnp.asarray(config.POLICY_NOISE, jnp.float32),
         NOISE_CLIP=jnp.asarray(config.NOISE_CLIP, jnp.float32),
     )
-
-
-class Critic(nn.Module):
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, a: jnp.ndarray) -> jnp.ndarray:
-        x = jnp.concatenate([x, a], axis=-1)
-        x = nn.Dense(256)(x)
-        x = nn.relu(x)
-        x = nn.Dense(256)(x)
-        x = nn.relu(x)
-        x = nn.Dense(1)(x)
-        return jnp.squeeze(x, axis=-1)
-
-    def apply(
-        self,
-        variables: object,
-        x: jax.Array,
-        a: jax.Array,
-        *,
-        rngs: object | None = None,
-    ) -> jax.Array:
-        return super().apply(variables, x, a, rngs=rngs)
 
 
 class Actor(TypedApply[jax.Array], nn.Module):
