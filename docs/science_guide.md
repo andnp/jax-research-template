@@ -109,6 +109,13 @@ coverage only with many runs. The Monte-Carlo suite in
 30 runs: bakeoff cells and pairs, tuned champions, and champion differences.
 The remedy is more runs (handbook §2.6), not a cleverer interval.
 
+`BakeoffSpec(interval="expanded_percentile")` opts an untuned bakeoff's cell and
+paired-difference CIs into Hesterberg's expanded percentile interval (2015, §5.3),
+which reads the same resamples at tails widened to match a t interval on normal data.
+The same calibration suite shows it recovers most of the n=10 shortfall on
+well-behaved runs, but not the coverage lost to heavy skew or rare catastrophes. It
+is an explicit, recorded choice, never the default; tuned analyses reject it.
+
 ### Headline comparison: paired differences, adjusted for multiplicity
 A comparison is a seed-paired difference with its percentile CI: an effect size, not a
 verdict. The estimand applies to the per-seed differences, so a paired median is

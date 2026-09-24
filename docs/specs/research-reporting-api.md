@@ -62,7 +62,9 @@ axis.
 
 `BakeoffSpec` fixes the estimand (`mean` or `median`), alpha, resamples, `min_samples`,
 missingness (`error`, `complete_case`, or `blockwise`), RNG seed, and the tolerance
-interval's confidence and coverage. A paired difference takes the estimand of the
+interval's confidence and coverage, and the CI `interval` method: `percentile` (default)
+or `expanded_percentile` (Hesterberg 2015), which untuned bakeoffs record in the spec
+and in each difference's `method`, and tuned analyses reject. A paired difference takes the estimand of the
 per-seed differences (a paired median is median(A − B)); cells take it per condition.
 
 ## 3. Result records
