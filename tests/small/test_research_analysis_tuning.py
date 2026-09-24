@@ -182,6 +182,48 @@ class TestHierarchicalBootstrapDifferenceCI:
         assert res.mean_diff == pytest.approx(float(tuned[0].mean() - referent[0].mean()), abs=0.05)
         assert res.ci_low < res.mean_diff < res.ci_high
 
+    def test_shared_seed_indices_collapse_tuned_vs_tuned_difference(self) -> None:
+        """Arm B is arm A plus a constant offset for every seed and config, so if the two
+        arms resample the same evaluation seed indices every bootstrap replicate's
+        difference is exactly the negated constant; independently drawn seed indices per
+        arm would instead reflect the champion row's own noise and widen the CI.
+        """
+        rng = np.random.default_rng(11)
+        champion_a = rng.uniform(100.0, 101.0, size=50)
+        loser_a = rng.uniform(0.0, 1.0, size=50)
+        data_a = np.stack([champion_a, loser_a])
+        data_b = data_a + 3.0
+
+        res = hierarchical_bootstrap_difference_ci(
+            data_a, data_b, h_samples=50, e_samples=10, n_resamples=2_000, rng=np.random.default_rng(5)
+        )
+
+        assert res.hyper_probs_a.tolist() == [1.0, 0.0]
+        assert res.hyper_probs_b.tolist() == [1.0, 0.0]
+        assert res.mean_diff == pytest.approx(-3.0, abs=1e-6)
+        assert res.ci_low == pytest.approx(-3.0, abs=1e-6)
+        assert res.ci_high == pytest.approx(-3.0, abs=1e-6)
+
+    def test_shared_seed_indices_collapse_tuned_vs_untuned_referent_difference(self) -> None:
+        """Same shared-seed-index contract when arm B is a single-config untuned referent
+        built from arm A's champion row plus a constant offset.
+        """
+        rng = np.random.default_rng(12)
+        champion_a = rng.uniform(100.0, 101.0, size=50)
+        loser_a = rng.uniform(0.0, 1.0, size=50)
+        data_a = np.stack([champion_a, loser_a])
+        referent = (champion_a + 3.0).reshape(1, -1)
+
+        res = hierarchical_bootstrap_difference_ci(
+            data_a, referent, h_samples=50, e_samples=10, n_resamples=2_000, rng=np.random.default_rng(6)
+        )
+
+        assert res.hyper_probs_a.tolist() == [1.0, 0.0]
+        assert res.hyper_probs_b.tolist() == [1.0]
+        assert res.mean_diff == pytest.approx(-3.0, abs=1e-6)
+        assert res.ci_low == pytest.approx(-3.0, abs=1e-6)
+        assert res.ci_high == pytest.approx(-3.0, abs=1e-6)
+
     def test_rejects_mismatched_run_counts(self) -> None:
         """data_a and data_b must be paired by run index, so column counts must match."""
         data_a = np.ones((2, 10))
