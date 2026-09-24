@@ -655,6 +655,30 @@ def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
     assert db_path.read_bytes() == before_bytes
 
 
+
+def test_submit_reads_slurm_settings_from_a_config_file_with_flags_overriding(tmp_path: Path) -> None:
+    """--slurm-config supplies cluster settings; an explicit flag still wins over the file."""
+    results_root = tmp_path / "submit_config"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    config_path = tmp_path / "slurm.json"
+    config_path.write_text('{"account": "acct-from-file", "time": "1:00:00", "mem_per_cpu": "8G"}')
+    script_path = tmp_path / "slurm_submit.sh"
+    assert runner.invoke(app, ["experiment", "plan", str(spec_file)]).exit_code == 0
+
+    result = runner.invoke(app, [
+        "experiment", "submit", str(spec_file),
+        "--dry-run",
+        "--slurm-config", str(config_path),
+        "--time", "0:30:00",
+        "--script-path", str(script_path),
+    ])
+
+    assert result.exit_code == 0, result.output
+    script = script_path.read_text()
+    assert "#SBATCH --account=acct-from-file" in script
+    assert "#SBATCH --mem-per-cpu=8G" in script
+    assert "#SBATCH --time=0:30:00" in script
+
 # ── prune ────────────────────────────────────────────────────────────────────────
 
 

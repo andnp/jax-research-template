@@ -538,10 +538,13 @@ def submit(
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     account: str | None = typer.Option(None, "--account", help="Slurm account."),
     partition: str | None = typer.Option(None, "--partition", help="Slurm partition."),
-    time: str = typer.Option("2:59:00", "--time", help="Slurm time limit."),
-    cpus_per_task: int = typer.Option(1, "--cpus-per-task", help="CPUs per task."),
-    mem_per_cpu: str = typer.Option("4G", "--mem-per-cpu", help="Memory per CPU."),
+    time: str | None = typer.Option(None, "--time", help="Slurm time limit (default 2:59:00)."),
+    cpus_per_task: int | None = typer.Option(None, "--cpus-per-task", help="CPUs per task (default 1)."),
+    mem_per_cpu: str | None = typer.Option(None, "--mem-per-cpu", help="Memory per CPU (default 4G)."),
     gpus: int | None = typer.Option(None, "--gpus", help="GPUs per task."),
+    slurm_config: Path | None = typer.Option(
+        None, "--slurm-config", help="JSON SlurmConfig file; the flags above override its values."
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Write script without submitting."),
     script_path: Path | None = typer.Option(None, "--script-path", help="Override output script path."),
 ):
@@ -592,13 +595,15 @@ def submit(
                     continue
                 execution_ids = [p.execution_id for p in planned]
 
-        config = SlurmConfig(
-            account=account,
-            partition=partition,
-            time=time,
-            cpus_per_task=cpus_per_task,
-            mem_per_cpu=mem_per_cpu,
-            gpus_per_task=gpus,
+        base = SlurmConfig() if slurm_config is None else SlurmConfig.from_json(str(slurm_config))
+        config = replace(
+            base,
+            account=base.account if account is None else account,
+            partition=base.partition if partition is None else partition,
+            time=base.time if time is None else time,
+            cpus_per_task=base.cpus_per_task if cpus_per_task is None else cpus_per_task,
+            mem_per_cpu=base.mem_per_cpu if mem_per_cpu is None else mem_per_cpu,
+            gpus_per_task=base.gpus_per_task if gpus is None else gpus,
         )
         job_result = submit_experiment(
             config,
