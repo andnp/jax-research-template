@@ -122,3 +122,29 @@ def test_champion_difference_ci_is_calibrated_at_three_configs_and_conservative_
     band = 3.0 * math.sqrt(0.95 * 0.05 / REPLICATES)
     expected_low, expected_high = (0.95 - band, 0.95 + band) if h == 3 else (0.975, 1.0)
     assert expected_low <= coverage <= expected_high, coverage
+
+
+@pytest.mark.parametrize(("h", "n"), [(3, 10), (3, 30), (10, 10), (10, 30)], ids=lambda value: str(value))
+def test_champion_cis_stay_calibrated_when_seeds_correlate_configurations(h: int, n: int) -> None:
+    """Reusing a seed across configurations and arms correlates their runs; both champion CIs must still cover.
+
+    Selection resamples each configuration's runs independently, so this checks that ignoring the shared
+    seed effect (half the run variance here) does not break coverage.
+    """
+    rng = np.random.default_rng(0)
+    means, gap = np.linspace(0.0, 1.0, h), 0.5
+
+    single_hits = difference_hits = 0
+    for _ in range(REPLICATES):
+        seed_effect = math.sqrt(0.5) * rng.standard_normal(n)
+        data_a = means[:, np.newaxis] + seed_effect + math.sqrt(0.5) * rng.standard_normal((h, n))
+        data_b = means[:, np.newaxis] - gap + seed_effect + math.sqrt(0.5) * rng.standard_normal((h, n))
+        single = hierarchical_bootstrap_ci(data_a, n, n, n_resamples=N_RESAMPLES, rng=rng)
+        difference = hierarchical_bootstrap_difference_ci(data_a, data_b, n, n, n_resamples=N_RESAMPLES, rng=rng)
+        single_hits += single.ci_low <= 1.0 <= single.ci_high
+        difference_hits += difference.ci_low <= gap <= difference.ci_high
+
+    # The diary's calibrated cells sit within three points of nominal; hold correlated seeds to that.
+    floor = 0.92 - 3.0 * math.sqrt(0.95 * 0.05 / REPLICATES)
+    assert single_hits / REPLICATES >= floor, single_hits / REPLICATES
+    assert difference_hits / REPLICATES >= floor, difference_hits / REPLICATES
