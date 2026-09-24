@@ -1,7 +1,7 @@
-"""Automated statistical reporting API for RL experiments.
+"""Statistical reports for RL experiments: bakeoffs, bias-corrected champions, and sensitivity slices.
 
-Implements pairwise comparisons, hyperparameter sensitivity analysis, and benchmark bakeoffs
-with pedagogical explanations and diagnostic plotting.
+These functions only compute. Wrap results in a report document (research_analysis.report) to serialize,
+render, or plot them.
 """
 
 from __future__ import annotations
