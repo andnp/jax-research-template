@@ -392,9 +392,11 @@ def bakeoff_report(
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
-    Compare two or more conditions using paired block-and-seed observations, with an
-    optional champion-selection stage and warnings for unstable or poorly supported
-    comparisons.
+    The headline is each block's paired, seed-matched difference between every pair of
+    conditions, with percentile CIs Bonferroni-adjusted across the whole family; the omnibus
+    and Holm-adjusted permutation p-values are secondary. With ``select_champion_over``, the
+    differences come from the hierarchical per-sample bootstrap over each arm's grid, so they
+    include selection uncertainty, and no tests are run on the selecting seeds.
     """
     if len(conditions) < 2:
         raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
