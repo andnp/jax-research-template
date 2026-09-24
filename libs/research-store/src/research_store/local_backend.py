@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import shutil
 import uuid
 from pathlib import Path
 
@@ -165,10 +166,17 @@ class LocalBackend:
         """
         final_path = parent / f"{uri.artifact_name}_v{uri.version}"
         tmp_path = parent / f".tmp_{uri.artifact_name}_{uuid.uuid4().hex}"
-        checkpointer = ocp.StandardCheckpointer()
-        checkpointer.save(tmp_path, blob)
-        checkpointer.wait_until_finished()
-        os.rename(tmp_path, final_path)
+        try:
+            with ocp.Checkpointer(ocp.StandardCheckpointHandler()) as checkpointer:
+                checkpointer.save(tmp_path, blob)
+            os.rename(tmp_path, final_path)
+        except Exception:
+            for staging_path in parent.glob(f"{tmp_path.name}*"):
+                if staging_path.is_dir():
+                    shutil.rmtree(staging_path, ignore_errors=True)
+                else:
+                    staging_path.unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def _get_orbax(path: Path) -> object:

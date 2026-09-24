@@ -119,6 +119,18 @@ class TestOrbaxPutGet:
         tmp_dirs = list(parent.glob(".tmp_*"))
         assert tmp_dirs == []
 
+    def test_failed_orbax_write_removes_staging_directory(
+        self, store: Store, run_id: uuid.UUID, tmp_path: Path,
+    ) -> None:
+        """A failed Orbax save propagates without leaving staging data."""
+        blob = {"array": jnp.ones(1), "unsupported": object()}
+
+        with pytest.raises((TypeError, ValueError, RuntimeError)):
+            store.put(blob, name="broken", execution_id=run_id)
+
+        parent = tmp_path / "test_experiment" / str(run_id)
+        assert list(parent.glob(".tmp_*")) == []
+
     def test_orbax_versions_increment(self, store: Store, run_id: uuid.UUID) -> None:
         params = {"w": jnp.ones(2)}
         uri1 = store.put(params, name="net", execution_id=run_id)
