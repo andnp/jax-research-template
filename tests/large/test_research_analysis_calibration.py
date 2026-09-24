@@ -17,7 +17,7 @@ import pytest
 from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import Estimand
-from research_analysis.multiplicity import holm_step_down
+from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.statistics import (
@@ -330,3 +330,40 @@ def test_holm_controls_family_wise_error_over_dependent_pairs() -> None:
 
     rate = family_errors / replicates
     assert rate <= ALPHA + mc_band(ALPHA, replicates), rate
+
+
+def bonferroni_family_coverage(distribution: RunDistribution, n: int, replicates: int, rng: np.random.Generator):
+    shifts = np.array([0.0, 0.3, 0.6, 0.9])
+    pairs = [(i, j) for i in range(len(shifts)) for j in range(i + 1, len(shifts))]
+    confidence = bonferroni_confidence(CONFIDENCE, len(pairs))
+
+    hits = np.zeros((replicates, len(pairs)), dtype=bool)
+    for replicate in range(replicates):
+        seed_effect = rng.standard_normal(n)
+        values = [seed_effect + distribution.sample(rng, n) + shift for shift in shifts]
+        for column, (i, j) in enumerate(pairs):
+            ci = bootstrap_difference_ci(
+                values[i], values[j], pairing="paired", confidence=confidence, n_resamples=2000, rng=rng
+            )
+            hits[replicate, column] = ci.ci_low <= shifts[i] - shifts[j] <= ci.ci_high
+    return float(hits.mean()), float(hits.all(axis=1).mean()), len(pairs)
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, BIMODAL], ids=lambda d: d.name)
+@pytest.mark.parametrize(("n", "expected_low", "expected_high"), [(10, 0.72, 0.88), (30, 0.88, 0.935), (100, 0.935, 0.965)])
+def test_bonferroni_family_coverage_approaches_nominal_only_with_many_runs(
+    distribution: RunDistribution, n: int, expected_low: float, expected_high: float
+) -> None:
+    """Six Bonferroni-adjusted paired CIs cover every true difference jointly about as often as Bonferroni allows.
+
+    The union bound on the measured per-interval coverage always holds. Jointly the family reaches its
+    nominal 95% only near n=100: at n=10 and n=30 the percentile bootstrap under-covers at the extreme
+    per-interval level, and those ranges record current behaviour, so a change of interval method shows
+    up as a deliberate update here.
+    """
+    replicates = 2000
+    marginal, family, family_size = bonferroni_family_coverage(distribution, n, replicates, np.random.default_rng(0))
+
+    band = mc_band(CONFIDENCE, replicates)
+    assert family >= 1.0 - family_size * (1.0 - marginal) - band, (family, marginal)
+    assert expected_low <= family <= expected_high, family
