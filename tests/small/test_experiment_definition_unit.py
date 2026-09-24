@@ -207,6 +207,25 @@ class TestComponentProvenance:
             assert len(runs) == 1
             assert runs[0].algo_version_id is not None
 
+    def test_default_other_component_syncs_to_a_fresh_database(self, tmp_path: Path) -> None:
+        """A component left at its default OTHER type must be storable, not rejected by the schema."""
+        db_path = tmp_path / "experiments.sqlite"
+        algo = Component(name="PPO", path=Path("/nonexistent/ppo.py"), type=ComponentType.ALGO)
+        model = Component(name="Model", path=Path("/nonexistent/model.py"))
+        exp = Experiment("WithOther")
+        exp.add_parameter("seed", [0])
+        with exp.for_component(algo):
+            exp.add_parameter("lr", [1e-3])
+        with exp.for_component(model):
+            exp.add_parameter("width", [4])
+        exp.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("WithOther")
+            assert experiment_row is not None
+            assert len(database.list_runs(experiment_row.id)) == 1
+
     def test_two_algo_components_leave_version_null(self, tmp_path: Path) -> None:
         """
         A two-agent bakeoff declares two ALGO components. There is no
