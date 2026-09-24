@@ -476,6 +476,8 @@ def bakeoff_report(
             f"{sorted(declared_axes)}, got {sorted(select_champion_over)}"
         )
 
+    dataset = _filter_dataset(dataset, pl.col("condition_name").is_in(conditions))
+
     # Only numeric axes have grid edges; string and boolean values carry no declared order.
     ordered_axes = [
         axis.name

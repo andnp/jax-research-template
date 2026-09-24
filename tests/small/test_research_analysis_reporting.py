@@ -1279,6 +1279,24 @@ class TestChampionComparisons:
         assert report.difference("a", "b").p_value is None
         assert report.tests_skipped_reason is not None and "selected" in report.tests_skipped_reason
 
+    def test_an_uncompared_condition_takes_no_part_in_selection(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A condition outside ``conditions`` is neither tuned nor scored, however many configurations it has."""
+        setup = temp_experiment_setup
+        dataset = self._tuned_arms(setup)
+        for seed in range(6):
+            _add_observation(setup, {"condition_name": "c", "learning_rate": "low"}, seed, 0.0)
+        with_bystander = _load(setup, dataset.dimensions)
+
+        report = bakeoff_report(
+            with_bystander, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50)
+        )
+        alone = bakeoff_report(
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50)
+        )
+
+        assert report.champions is not None and set(report.champions[""]) == {"a", "b"}
+        assert report.difference("a", "b") == alone.difference("a", "b")
+
     def test_an_arm_with_nothing_to_tune_fails_loudly(self, temp_experiment_setup: ExperimentSetup) -> None:
         """A single configuration cannot be a selected champion, so the comparison refuses rather than falls back."""
         dataset = self._tuned_arms(temp_experiment_setup, configs_for_b=("low",))
