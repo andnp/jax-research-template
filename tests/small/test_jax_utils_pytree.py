@@ -1,6 +1,7 @@
 """Small tests for jax_utils.pytree — math operations on pytrees."""
 
 import jax.numpy as jnp
+import optax
 from jax_utils.pytree import (
     shift_head_readout,
     tree_add,
@@ -84,6 +85,11 @@ class TestTreeNorm:
         tree = {"a": jnp.array([1.0]), "b": jnp.array([2.0]), "c": jnp.array([2.0])}
         # sqrt(1 + 4 + 4) = 3
         assert jnp.allclose(tree_norm(tree), 3.0)
+
+    def test_matches_optax_global_norm(self) -> None:
+        """Match the norm used by gradient clipping across nested leaves."""
+        tree = {"a": jnp.array([1.0, 2.0]), "b": {"c": jnp.array([3.0])}}
+        assert jnp.allclose(tree_norm(tree), optax.global_norm(tree))
 
 
 class TestTreeSumOfSquares:

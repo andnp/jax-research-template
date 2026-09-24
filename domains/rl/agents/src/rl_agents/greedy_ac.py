@@ -46,6 +46,7 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from jax_utils.pytree import tree_norm
 from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
@@ -249,13 +250,6 @@ class QRCMetrics(NamedTuple):
     q_loss: jax.Array
     h_loss: jax.Array
     delta: jax.Array
-
-
-def _tree_norm(tree: VariableDict) -> jax.Array:
-    """Frobenius norm of all leaves in a parameter tree."""
-    leaves = jax.tree.leaves(tree)
-    norms = [jnp.sqrt(jnp.sum(jnp.square(leaf))) for leaf in leaves]
-    return jnp.sum(jnp.array(norms))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -852,8 +846,7 @@ class GACAgent:
             {
                 "critic_loss": critic_loss.astype(jnp.float32),
                 "actor_loss": actor_loss.astype(jnp.float32),
-                "critic_grad_norm": _tree_norm(critic_grads).astype(jnp.float32),
-                "actor_grad_norm": _tree_norm(actor_grads).astype(jnp.float32),
+                "critic_grad_norm": tree_norm(critic_grads).astype(jnp.float32),
+                "actor_grad_norm": tree_norm(actor_grads).astype(jnp.float32),
             },
         )
-
