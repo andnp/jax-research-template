@@ -8,7 +8,6 @@ from pathlib import Path
 from research_store.local_backend import LocalBackend
 from research_store.types import StoreURI
 
-_DEFAULT_ROOT = Path.home() / ".research_store"
 _DEFAULT_EXPERIMENT_ID = "default"
 
 
@@ -20,21 +19,20 @@ class Store:
 
     Args:
         root: Filesystem root for all stored artifacts.
-              Defaults to ``~/.research_store``.
         experiment_id: A human-readable label shared by a family of related
                        executions (e.g. the name of the experiment script).
                        Defaults to ``"default"``.
 
     Example::
 
-        store = Store(experiment_id="ppo_cartpole")
+        store = Store(root=Path("/results"), experiment_id="ppo_cartpole")
         uri = store.put(params, name="policy_weights", execution_id=run_id)
         params_recovered = store.get(uri)
     """
 
     def __init__(
         self,
-        root: Path = _DEFAULT_ROOT,
+        root: Path,
         experiment_id: str = _DEFAULT_EXPERIMENT_ID,
     ) -> None:
         self._backend = LocalBackend(root)

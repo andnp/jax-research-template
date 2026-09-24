@@ -74,7 +74,10 @@ def main() -> None:
     print(f"✓ Metrics backend: {metrics_db}")
 
     # ── 3. Configure artifact store ───────────────────────────────────────────
-    store = Store(experiment_id="dqn_cartpole_integration")
+    store = Store(
+        root=metrics_db.parent / "artifacts",
+        experiment_id="dqn_cartpole_integration",
+    )
     artifact_execution_id = uuid.uuid4()
     print(f"✓ Store configured (execution_id={artifact_execution_id})")
 
