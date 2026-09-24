@@ -14,6 +14,7 @@ from research_analysis._reporting_models import (
 )
 from research_analysis._reporting_warnings import small_sample_coverage_warning
 from research_analysis.dataset.types import ExperimentDataset
+from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
@@ -47,7 +48,10 @@ def _load_dataset_hyperparameter_records(
         records.append({"run_id": row["run_id"], "seed": row["seed"], "value": row["value"], "hypers": hypers})
 
     if not records:
-        raise ValueError(f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}")
+        raise InsufficientDataError(
+            f"No completed runs found containing hyperparameters {list(hyperparameter_keys)!r}",
+            cells=(InsufficientDataCell({}, f"completed runs containing {list(hyperparameter_keys)!r}", "0"),),
+        )
     return records
 
 
@@ -234,7 +238,14 @@ def _best_hypers_group(
     hyper_matrix = _build_hyper_matrix(search_records, free_axes)
     matrix = hyper_matrix.values
     if len(hyper_matrix.seeds) < min_samples:
-        raise ValueError(f"need at least {min_samples} seeds shared by every hyperparameter configuration")
+        raise InsufficientDataError(
+            f"need at least {min_samples} seeds shared by every hyperparameter configuration",
+            cells=(
+                InsufficientDataCell(
+                    {}, f"at least {min_samples} seeds shared by every configuration", str(len(hyper_matrix.seeds))
+                ),
+            ),
+        )
     winning_config, raw_winner_mean = _raw_champion(matrix, hyper_matrix.keys, free_axes)
     n_runs = matrix.shape[1]
 
@@ -303,9 +314,15 @@ def _best_hypers_difference(
     records_a = [record for record in records if record["hypers"].get(group_axis) == minuend]
     records_b = [record for record in records if record["hypers"].get(group_axis) == subtrahend]
     if not records_a:
-        raise ValueError(f"no runs found with {group_axis}={minuend!r}")
+        raise InsufficientDataError(
+            f"no runs found with {group_axis}={minuend!r}",
+            cells=(InsufficientDataCell({group_axis: str(minuend)}, "at least one run", "0"),),
+        )
     if not records_b:
-        raise ValueError(f"no runs found with {group_axis}={subtrahend!r}")
+        raise InsufficientDataError(
+            f"no runs found with {group_axis}={subtrahend!r}",
+            cells=(InsufficientDataCell({group_axis: str(subtrahend)}, "at least one run", "0"),),
+        )
 
     if not higher_is_better:
         records_a = _negate_record_values(records_a)
@@ -315,7 +332,16 @@ def _best_hypers_difference(
     hyper_b = _build_hyper_matrix(records_b, free_axes)
     common_seeds = sorted(set(hyper_a.seeds) & set(hyper_b.seeds))
     if len(common_seeds) < min_samples:
-        raise ValueError(f"need at least {min_samples} seeds shared by both compared groups")
+        raise InsufficientDataError(
+            f"need at least {min_samples} seeds shared by both compared groups",
+            cells=(
+                InsufficientDataCell(
+                    {group_axis: f"{minuend!r} vs {subtrahend!r}"},
+                    f"at least {min_samples} shared seeds",
+                    str(len(common_seeds)),
+                ),
+            ),
+        )
     matrix_a = hyper_a.values[:, [hyper_a.seeds.index(seed) for seed in common_seeds]]
     matrix_b = hyper_b.values[:, [hyper_b.seeds.index(seed) for seed in common_seeds]]
     minuend_config, _minuend_raw_mean = _raw_champion(matrix_a, hyper_a.keys, free_axes)
