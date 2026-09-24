@@ -2,131 +2,155 @@
 
 ## 1. Overview
 
-Reinforcement Learning (RL) researchers—especially graduate students—frequently face challenges when conducting rigorous statistical analysis of experiment data. Common issues include hyperparameter maximization bias, using statistically invalid averages across heterogeneous tasks, and misapplying hypothesis tests (e.g., performing unpaired tests on paired seed runs).
+The reporting API turns an experiment's recorded runs into statistics that an agent can
+act on and a person can audit. The rules are fixed by the
+[Empirical Design & Analysis Guide](../science_guide.md):
 
-The `research-analysis` reporting API introduces specialized entry points to automate statistical decision-making, enforce monorepo standards defined in the [Empirical Design & Analysis Guide](../science_guide.md), and produce both structured dataclass outputs and human-readable, pedagogical console outputs using `rich`.
+- the resampling unit is the run;
+- intervals are percentile-bootstrap intervals with a stated confidence;
+- the headline comparison is a seed-paired difference, adjusted for the number of
+  comparisons;
+- tuned champions carry selection uncertainty;
+- variability is reported apart from confidence;
+- diverged, failed, and pending runs are never dropped silently.
 
-The data boundary lives in [dataset.py](../../libs/research-analysis/src/research_analysis/dataset.py); reporting lives in [reporting.py](../../libs/research-analysis/src/research_analysis/reporting.py).
+There are three layers:
 
-## 2.1 Dataset boundary
+1. **Compute**, in `research_analysis.reporting`: `bakeoff_report`, `best_hypers`, and
+   `slice_hypers`. They take an `ExperimentDataset` and return frozen dataclasses.
+   They never print and never write files.
+2. **Document**, in `research_analysis.report`, `plan`, `plan_report`, and
+   `plan_snapshots`: a versioned `ReportDocument` that holds provenance, accounting,
+   diagnostics, the declared plan and its status, results, failures, and figure
+   paths.
+3. **Render**, in `research_analysis.report_json`, `report_markdown`, and
+   `report_plots`: strict JSON, markdown, and figures, each written only where the
+   caller says.
 
-Callers first build an `ExperimentDataset` with
-`load_experiment_dataset(experiments_db, slug, *, dimensions, version_selection,
-cohort, metrics, partial)`. The dataset owns run selection, component
-provenance, artifact lookup, metric materialization, and diagnostics. Reporting
-does not accept database paths, experiment slugs, `AnalysisSchema`, or execution
-roots.
+`research experiment report` (see [research-cli](research-cli.md)) connects the three
+layers for a spec's declared plan.
 
-The canonical tables contain `condition_name`, `seed`, `run_id`,
-`execution_id`, and `ablation`; `metrics` additionally contains `step`,
-`metric`, and `value`. An optional `env_name` and declared typed sweep-axis
-columns are included when requested. Curves may impose additional step-grid
-requirements for operations that need aligned trajectories.
+## 2. Compute entry points
 
----
+`bakeoff_report(dataset, metric_name, conditions, *, select_champion_over=None,
+block_by=None, spec=None, higher_is_better=True, min_seeds=5, measure=FinalValue(),
+pairs=None)` compares two or more conditions:
 
-## 2. Goals
+- It compares block by block, never pooling runs across blocks, and pairs runs by seed.
+- `pairs` is the planned comparison family. When it is omitted, every pair is compared.
+- Each run is scored by `measure` through `run_scores`. A non-finite score raises
+  `NonFiniteValuesError`.
+- Under `missingness="error"`, a seed that some conditions observed and others did not
+  raises `IncompleteBlocksError`. The error carries every `IncompleteCell` (condition,
+  block, missing seeds, and the failed, pending, and excluded counts from the dataset
+  accounting).
+- With `select_champion_over`, the differences come from the hierarchical per-sample
+  bootstrap over each arm's grid, and no tests are run.
 
-- **Pedagogical Value:** Explain the *why* and *how* behind statistical test selections to guide researchers through correct empirical interpretation.
-- **Explicit Design:** Require bakeoff callers to declare the estimand, alpha,
-  resampling, minimum sample size, and missingness policy.
-- **Statistical Rigor:** Directly integrate monorepo primitives such as BCa
-  confidence intervals, permutation tests, Holm correction, fixed-reference
-  aggregates, and cross-fitted tuning.
-- **JAX-Free Execution:** Maintain alignment with [ADR 009: Analysis Stack](../adrs/009-analysis-stack.md) using Polars, NumPy, and Numba instead of JAX.
+`best_hypers(dataset, metric_name, group_by=None, *, difference_between=None, ...)`
+returns a bias-corrected champion per group, or the champion difference between two
+values of one axis. `slice_hypers(dataset, metric_name, vary, group_by=None, ...)`
+returns the selection-corrected best curve and the champion-pinned slice over one
+axis.
 
-`BakeoffSpec` is the design contract for `bakeoff_report`. Callers can set the
-estimand (`mean` or `median`), alpha, resample count, minimum sample size,
-random seed, and missingness policy (`error`, `complete_case`, or `blockwise`).
-Bakeoff comparisons always pair observations by block dimensions and seed; the
-low-level permutation and bootstrap functions are the separate entry points for
-choosing paired or independent designs directly.
+`BakeoffSpec` fixes the estimand (`mean` or `median`), alpha, resamples, `min_samples`,
+missingness (`error`, `complete_case`, or `blockwise`), RNG seed, and the tolerance
+interval's confidence and coverage.
 
----
+## 3. Result records
 
-## 3. Reporting entry points
+- **`BakeoffReport`** contains:
+  - `conditions`, `metric_name`, `measure`, `spec`, and `blocks`;
+  - `cells[condition][block]`, a `CellSummary`: n, the estimate, the CI with its
+    `confidence` (or a `ci_skipped_reason` below `min_samples`), SD, the
+    distribution-free tolerance interval (or the runs it needs), and the median
+    representative run;
+  - `runs`, one `RunScore` per run behind the cells;
+  - `champions`, when the arms were tuned;
+  - `differences`, one `PairedDifference` per planned (block, pair). Each has an
+    estimate, a CI at the Bonferroni-adjusted `comparison_confidence`, `n_paired`, a
+    Holm-adjusted p-value, and the method. A skipped pair keeps its `skipped_reason`;
+  - `family_size` and `comparison_confidence`;
+  - the omnibus test, or `tests_skipped_reason`;
+  - `warnings`, as `BakeoffWarning` values: boundary champions (numeric axes only),
+    insufficient seeds, non-normality, flatlined curves, zero variance, and
+    `small_sample_coverage` on every interval resting on fewer than 30 runs.
+- **`HyperparameterConfigReport`** holds the winning configuration, raw and corrected
+  means, the maximization bias, the CI and its confidence, the normalized selection
+  entropy, `unpaired_run_ids`, and the measure.
+- **`HyperparameterDifferenceReport`** and **`HyperparameterSliceReport`** follow the
+  same conventions.
 
-`bakeoff_report(dataset, metric_name, conditions, ...)` is the canonical
-comparison entry point. It handles two or more conditions, optionally grouped
-by block dimensions such as environments, and always uses paired block-and-seed
-observations. It can also select champions over declared sweep axes before the
-comparison. Supply `BakeoffSpec` when the estimand, resampling, or missingness
-policy needs to differ from the defaults.
+## 4. Report document, schema version 1
 
-`best_hypers(dataset, metric_name, ...)` finds a bias-corrected champion for a
-declared sweep. `slice_hypers(dataset, metric_name, vary, ...)` reports the
-sensitivity curve for one axis. These functions own hyperparameter selection;
-`bakeoff_report` composes them when `select_champion_over` is requested.
-
-For a direct comparison of two arrays, use the low-level
-`run_permutation_test` and `bootstrap_difference_ci` functions. Their `pairing`
-argument is the appropriate place to choose paired or independent inference.
-
----
-
-## 4. Structured Output Data Schemas
-
-The API returns structured dataclasses to support programmatic plotting, paper-writing scripts, or custom dashboards.
-
-```python
-@dataclass(frozen=True)
-class StatisticalTestDetails:
-    test_name: str
-    statistic: float
-    p_value: float
-    effect_size: float | None
-    is_significant: bool
-    assumptions: dict[str, Any]
-    justification: str
-    intermediate_tests: dict[str, StatisticalTestDetails]
-
-@dataclass(frozen=True)
-class BakeoffReport:
-    conditions: list[str]
-    metric_name: str
-    seed_counts: dict[str, dict[str, int]]
-    cell_means: dict[str, dict[str, float]]
-    cell_variances: dict[str, dict[str, float]]
-    champions: dict[str, dict[str, HyperparameterConfigReport]] | None
-    comparison: BenchmarkBakeoffReport
-    warnings: tuple[BakeoffWarning, ...]
-
-@dataclass(frozen=True)
-class BenchmarkBakeoffReport:
-    algorithms: list[str]
-    environments: list[str]
-    normalized_scores: dict[str, dict[str, float]]  # Algo -> Env -> score
-    performance_profiles: dict[str, dict[float, float]]
-    probability_of_improvement: dict[str, dict[str, float | None]]
-    optimality_gaps: dict[str, float]
-    dispersion: dict[str, float]
-    lower_tail: dict[str, float]
-    supplementary_iqm: dict[str, float]
-    omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float | None]]  # None means unavailable
-    aggregate_plot_path: Path | None
+```text
+ReportDocument
+  schema_version        1 (REPORT_SCHEMA_VERSION)
+  status                ok | load_failed | analysis_failed
+  plan_status           declared | exploratory
+  exploratory_reasons   why the plan could not be shown to predate the results
+  plan, plan_fingerprint  the AnalysisPlan and its sha256 over canonical JSON
+  provenance            experiment, experiments_db, generated_at,
+                        component_versions, executions (commit, dirty, host, times)
+  accounting            per-cell planned/completed/failed/pending/diverged/excluded, unassigned
+  fatal_diagnostics, non_fatal_diagnostics
+  analyses              [{kind: bakeoff|best_hypers|hypers_difference|slice_hypers, name, [group], report}]
+  failure               {analysis, error_type, message, non_finite_runs, incomplete_cells} | null
+  plots                 {figure name: path relative to the report directory}
 ```
 
-Bootstrap primitives report `method="BCa"` for ordinary intervals or
-`method="degenerate-point"` for a finite point interval whose declared
-statistic is exactly constant. Non-degenerate undefined BCa intervals remain
-errors.
+- `analyses` is empty unless `status` is `ok`. A document never carries partial
+  results.
+- In JSON, union members carry a `kind` tag. Measures appear as, for example,
+  `{"kind": "tail_mean", "fraction": 0.1}`. Cell keys are objects keyed by axis.
+- Serialization is strict: a NaN anywhere raises instead of writing invalid JSON.
+- A breaking change to this shape increments `schema_version`.
 
----
+## 5. Declared plans and the exploratory label
 
-## 5. Pedagogical Console Output Design
+An `AnalysisPlan` fixes:
 
-When `verbose=True`, the reporter writes to the standard output using `rich` console panels. Every report must output:
-1. **Design Summary Panel:** Outlining identified independent/dependent variables and sample structure (e.g., repeated measures availability).
-2. **Methodology Justification Box:** Explaining the declared estimand, pairing,
-   permutation design, confidence level, resample count, and missingness policy.
-3. **Findings & Interpretation Section:** Presenting statistics, significance, and a plain-English translation of p-values (e.g., "This p-value indicates a 1.2% probability of observing this performance gap purely due to random seed variation under identical algorithms").
-4. **Correction Logs (For Hypers):** Explaining maximization bias and showing the contrast between raw averages and corrected estimates.
-5. **Artifact Outputs Panel:** Surfacing the file paths of generated diagnostic distribution plots (e.g. violin plots or PDFs) saved in the experiment's analysis directory.
+- the metric and the measure;
+- the dimensions, version selection, and cohort;
+- the analyses (`BakeoffAnalysis`, `BestHypersAnalysis`, `HypersDifferenceAnalysis`,
+  `SliceHypersAnalysis`);
+- the statistics, as a `BakeoffSpec`;
+- `higher_is_better`, and optionally a worst-case score for diverged runs.
 
----
+`@analysis_plan(spec_factory)` registers a plan beside its spec. The CLI's `run` and
+`submit` commands append it to `<results_root>/analysis-plans.jsonl`. The history is
+append-only: a plan that is unchanged is not re-recorded, and earlier entries are
+never rewritten.
 
-## 6. Non-Goals
+`run_plan(experiments_db, slug, plan, snapshots)` is the only producer of
+`plan_status=declared`. It runs the plan verbatim, and requires that the latest
+snapshot at or before the earliest included execution's start has the same
+fingerprint. Otherwise the document is `exploratory`, with one of these reasons:
 
-- **Interactive GUI Rendering:** This API does not launch interactive GUI windows or web servers. Plotting is restricted to generating and saving static diagnostic visual artifacts (including ECDF diagnostic curves) directly to the file system using `research-plot`.
-- **Dynamic DB Writing:** This is a read-only API. It does not modify logical runs, hyperparameter configs, or execution metadata tables in the sqlite registry.
+- "no plan snapshot before execution";
+- "plan changed after results were recorded";
+- the execution start times were not recorded.
+
+`exploratory_report(dataset, experiments_db, results)` wraps results chosen by hand.
+It is always `exploratory`.
+
+## 6. Rendering
+
+- `report_to_json(document)` produces strict, indented JSON.
+- `render_markdown(document)` gives the audit copy. Status, provenance, accounting,
+  and diagnostics come first, then each analysis, then the figures. Every interval
+  states its confidence, and nothing is written as `mean ± x`.
+- `render_summary(document)` gives a few console lines.
+- `write_report_plots(document, output_dir)` draws per-block run distributions and
+  sensitivity curves into `output_dir`, and returns the document with relative
+  paths. `write_bakeoff_plots` and `write_slice_plot` draw single figures.
+- Callers pass a directory under the durable results root.
+
+## 7. Non-Goals
+
+- Interactive rendering or servers.
+- Writing to the experiment database. Apart from report output directories, the only
+  file written is the append-only plan history, recorded by the CLI launch commands.
+- Cross-environment aggregates (IQM, performance profiles, probability of
+  improvement, optimality gap) in any default path. They remain opt-in functions in
+  `research_analysis.aggregates`.
