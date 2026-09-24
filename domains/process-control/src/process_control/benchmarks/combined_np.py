@@ -32,7 +32,7 @@ from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import reset as analyzer_reset
 from process_control.sensors.residual_analyzer import step as analyzer_step
-from process_control.units.asm2d import ASM2dParams, make_default_influent_asm2d, reactions_asm2d
+from process_control.units.asm2d import ASM2dParams, make_default_influent_asm2d, mix, reactor_step
 
 
 @jax_dataclass
@@ -102,11 +102,6 @@ class CombinedNPConfig:
     no3_limit: float = 10.0
 
 
-def _mix_asm2d(state_a: jax.Array, q_a: jax.Array, state_b: jax.Array, q_b: jax.Array):
-    q_total = q_a + q_b + 1e-10
-    return (state_a * q_a + state_b * q_b) / q_total
-
-
 def make_combined_np_benchmark(config: CombinedNPConfig):
     source_params = DiurnalSourceParams(
         mean_flow=config.mean_flow,
@@ -169,16 +164,6 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             ]
         )
 
-    def _reactor_step(state: jax.Array, inlet: jax.Array, q_total: jax.Array, volume: float, kla: jax.Array):
-        dilution = q_total / volume
-        dc_reactions = reactions_asm2d(state, config.asm2d)
-        dc_dilution = dilution * (inlet - state)
-        s_o = state[7]
-        dc_aeration = kla * (config.s_o_sat - s_o)
-        new_state = state + (dc_reactions + dc_dilution) * config.dt
-        new_state = new_state.at[7].add(dc_aeration * config.dt)
-        return jnp.maximum(new_state, 0.0)
-
     def reset(rng_key: jax.Array):
         k1, k2, k3, k4, k5 = jax.random.split(rng_key, 5)
         src = source_reset(k1)
@@ -230,31 +215,40 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
 
         # 3. Anaerobic zone: influent + recycle, add external carbon
         inf_with_carbon = influent.at[1].set(influent[1] + carbon_dose)
-        anaerobic_inlet = _mix_asm2d(inf_with_carbon, q_in, state.aerobic_state, q_recycle)
-        new_anaerobic = _reactor_step(
+        anaerobic_inlet = mix(inf_with_carbon, q_in, state.aerobic_state, q_recycle)
+        new_anaerobic = reactor_step(
             state.anaerobic_state,
             anaerobic_inlet,
             q_in + q_recycle,
             config.v_anaerobic,
             zero_kla,
+            config.s_o_sat,
+            config.asm2d,
+            jnp.array(config.dt),
         )
 
         # 4. Anoxic zone
-        new_anoxic = _reactor_step(
+        new_anoxic = reactor_step(
             state.anoxic_state,
             new_anaerobic,
             q_in + q_recycle,
             config.v_anoxic,
             zero_kla,
+            config.s_o_sat,
+            config.asm2d,
+            jnp.array(config.dt),
         )
 
         # 5. Aerobic zone (with variable aeration)
-        new_aerobic = _reactor_step(
+        new_aerobic = reactor_step(
             state.aerobic_state,
             new_anoxic,
             q_in + q_recycle,
             config.v_aerobic,
             kla,
+            config.s_o_sat,
+            config.asm2d,
+            jnp.array(config.dt),
         )
 
         # 6. Chemical P removal on effluent PO₄
