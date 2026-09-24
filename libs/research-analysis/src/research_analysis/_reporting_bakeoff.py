@@ -25,6 +25,7 @@ from research_analysis._reporting_warnings import (
     boundary_warning,
     insufficient_seeds_warning,
     non_normality_warning,
+    small_sample_coverage_warning,
     variance_warning,
 )
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
@@ -549,6 +550,9 @@ def bakeoff_report(
             values = list(seed_map.values())
             cell_run_ids = [run_ids[(condition, block_key, seed)] for seed in seed_map]
             cells[condition][label] = _summarize_cell(values, cell_run_ids, spec, cell_rng)
+            coverage_issue = small_sample_coverage_warning(len(values), "cell", condition=condition, cell=block_key)
+            if cells[condition][label].ci is not None and coverage_issue is not None:
+                warnings.append(coverage_issue)
 
             if not values:
                 continue
@@ -582,6 +586,19 @@ def bakeoff_report(
                     block_key,
                 )
             )
+
+    block_keys_by_label = {_block_label(block_key): block_key for block_key in block_keys}
+    for item in differences:
+        if item.ci is None:
+            continue
+        issue = small_sample_coverage_warning(
+            item.n_paired,
+            "paired difference",
+            condition=f"{item.minuend} - {item.subtrahend}",
+            cell=block_keys_by_label[item.block],
+        )
+        if issue is not None:
+            warnings.append(issue)
 
     report = BakeoffReport(
         conditions=conditions,

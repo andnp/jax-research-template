@@ -1029,6 +1029,24 @@ class TestBakeoffCells:
         assert cell.ci_skipped_reason is not None and "min_samples=3" in cell.ci_skipped_reason
         assert report.cells["a"][""].ci_skipped_reason is None
 
+    def test_intervals_on_fewer_than_thirty_runs_carry_a_coverage_warning(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """Small-n percentile intervals under-cover, so every cell and pair CI below 30 runs says so."""
+        setup = temp_experiment_setup
+        for seed in range(30):
+            _add_observation(setup, {"condition_name": "a"}, seed, float(seed))
+            _add_observation(setup, {"condition_name": "b"}, seed, float(seed % 7))
+        for seed in range(29):
+            _add_observation(setup, {"condition_name": "c"}, seed, float(seed % 5))
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+        )
+
+        flagged = {w.condition for w in report.warnings if w.code == BakeoffWarningCode.SMALL_SAMPLE_COVERAGE}
+        assert flagged == {"c", "a - c", "b - c"}
+
     def test_cells_report_a_tolerance_interval_only_with_enough_runs(
         self, temp_experiment_setup: ExperimentSetup
     ) -> None:

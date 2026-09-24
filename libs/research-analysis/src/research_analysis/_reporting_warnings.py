@@ -139,3 +139,28 @@ def variance_warning(
         condition=condition,
         cell=cell,
     )
+
+
+SMALL_SAMPLE_RUNS = 30
+
+
+def small_sample_coverage_warning(
+    n_runs: int,
+    subject: str,
+    *,
+    condition: str | None = None,
+    cell: tuple[tuple[str, object], ...] = (),
+) -> BakeoffWarning | None:
+    """Flag a reported CI resting on too few runs for the percentile bootstrap to reach its stated confidence."""
+    if n_runs >= SMALL_SAMPLE_RUNS:
+        return None
+    return BakeoffWarning(
+        code=BakeoffWarningCode.SMALL_SAMPLE_COVERAGE,
+        message=(
+            f"the {subject} CI rests on {n_runs} runs, fewer than {SMALL_SAMPLE_RUNS}; the percentile bootstrap "
+            "under-covers at small n, so the interval is likely narrower than its stated confidence (handbook "
+            "section 2.6: we may need more runs). See core/tests/large/test_research_analysis_calibration.py."
+        ),
+        condition=condition,
+        cell=cell,
+    )
