@@ -62,9 +62,16 @@ class RejectWaterConfig:
     reject_tank_max: float = 200.0  # m³ buffer tank
     q_reject_max: float = 30.0  # m³/h max return rate
 
-    # Simplified main plant NH₄ model
+    # Simplified main plant NH₄ model. Nitrification is Monod-limited rather
+    # than a constant sink (ASM1; Henze et al. 1987, "Activated Sludge Model
+    # No. 1", IAWPRC), so it saturates near r_max at high NH₄ but self-limits
+    # near baseline — a constant sink instead pins the plant permanently
+    # above alarm regardless of load. r_max is sized so the no-reject
+    # pseudo-steady-state settles near nh4_baseline (compliant); a reject
+    # surge can still push the sink into saturation and violate the alarm.
     influent_nh4: float = 31.56  # mg-N/L (BSM1)
-    nitrification_rate: float = 5.0  # mg-N/L/h at 15°C
+    nitrification_rate: float = 22.0  # mg-N/L/h max rate (r_max) at 15°C
+    k_nh: float = 1.0  # mg-N/L half-saturation (ASM1 K_NH, Henze et al. 1987)
     nh4_baseline: float = 2.0  # mg-N/L typical effluent NH₄
 
     # Sensors
@@ -154,9 +161,11 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         diurnal_nh4 = config.influent_nh4 * q_main / config.mean_flow
         total_nh4_in = diurnal_nh4 + nh4_load_from_reject
 
-        # Simple first-order approach to pseudo-steady-state
-        nitr_capacity = config.nitrification_rate
-        new_main_nh4 = state.main_nh4 + (total_nh4_in - state.main_nh4 - nitr_capacity) * config.dt * 0.5
+        # Simple first-order approach to pseudo-steady-state (dilution term),
+        # minus a Monod nitrification sink that saturates at r_max instead of
+        # being a constant drain regardless of concentration.
+        nitrification_sink = config.nitrification_rate * state.main_nh4 / (config.k_nh + state.main_nh4)
+        new_main_nh4 = state.main_nh4 + (0.5 * (total_nh4_in - state.main_nh4) - nitrification_sink) * config.dt
         new_main_nh4 = jnp.maximum(new_main_nh4, 0.0)
 
         # 5. Sensors

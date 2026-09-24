@@ -344,6 +344,55 @@ class TestADM1Unit:
         assert jnp.isfinite(ph)
 
 
+def _adm1_cod_pool(s: ADM1State) -> jax.Array:
+    # CO2 carries no COD; every other tracked pool is mg-COD/L.
+    return s.x_substrate + s.x_biomass + s.x_inert + s.s_vfa + s.s_ch4
+
+
+class TestADM1CODConservation:
+    def test_cod_balance_over_multiple_steps(self) -> None:
+        """Input COD equals effluent + CH4-COD vented + storage change, within numerical tolerance."""
+        params = ADM1Params()
+        state = adm1_reset(30000.0, params, jax.random.PRNGKey(5))
+        dt = jnp.array(0.04167)
+        feed_cod = jnp.array(30000.0)
+        q_feed = jnp.array(125.0)
+        temperature = jnp.array(35.0)
+        dilution = q_feed / params.volume
+
+        net_dilution_total = jnp.array(0.0)
+        ch4_cod_out_total = jnp.array(0.0)
+        pool_before = _adm1_cod_pool(state)
+
+        for _ in range(200):
+            pool_start = _adm1_cod_pool(state)
+            state, q_biogas, ch4_frac, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
+            net_dilution_total += dilution * (feed_cod - pool_start) * dt
+            ch4_vol = q_biogas * ch4_frac * dt
+            ch4_cod_out_total += ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume
+
+        delta_storage = _adm1_cod_pool(state) - pool_before
+        residual = net_dilution_total - ch4_cod_out_total - delta_storage
+        assert abs(float(residual)) < 0.01 * abs(float(net_dilution_total))
+
+    def test_organic_overload_drops_ph(self) -> None:
+        """A hydraulic/organic overload accumulates VFA and drops pH (acid-crash failure mode)."""
+        params = ADM1Params()
+        state = adm1_reset(30000.0, params, jax.random.PRNGKey(6))
+        dt = jnp.array(0.04167)
+        feed_cod = jnp.array(30000.0)
+        temperature = jnp.array(35.0)
+
+        for _ in range(24 * 10):
+            state, _, _, ph_baseline = adm1_step(state, feed_cod, jnp.array(125.0), temperature, params, dt)
+
+        overload_q_feed = jnp.array(1500.0)  # dilution rate far exceeds mu_max -> washout + VFA accumulation
+        for _ in range(120):
+            state, _, _, ph_overload = adm1_step(state, feed_cod, overload_q_feed, temperature, params, dt)
+
+        assert float(ph_overload) < float(ph_baseline) - 0.5
+
+
 # ---------------------------------------------------------------------------
 # Unit model: ASM2d
 # ---------------------------------------------------------------------------
@@ -492,6 +541,23 @@ class TestRejectWaterBenchmark:
             state, jnp.array([1.0, 0.0]), jax.random.PRNGKey(99),
         )
         assert drained_info["overflow"] == 0.0
+
+    def test_nitrification_compliant_baseline_but_reject_surge_violates(self) -> None:
+        """Monod nitrification must clear baseline load below the alarm, but
+        a sustained reject-water return must still be able to spike past it
+        — a constant-rate sink either stays permanently over alarm or never
+        responds to load at all."""
+        reset_fn, step_fn = make_reject_water_benchmark(RejectWaterConfig(reject_nh4=800.0))
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        for index in range(2000):
+            state, _, _, _, info = step_fn(state, jnp.array([0.0, 0.0]), jax.random.PRNGKey(index))
+        assert float(info["main_nh4"]) < RejectWaterConfig.nh4_limit
+
+        peak = 0.0
+        for index in range(300):
+            state, _, _, _, info = step_fn(state, jnp.array([1.0, 0.0]), jax.random.PRNGKey(3000 + index))
+            peak = max(peak, float(info["main_nh4"]))
+        assert peak > RejectWaterConfig.nh4_limit
 
 # ---------------------------------------------------------------------------
 # Benchmark: Drinking Water Train (3D action, 8D obs)
