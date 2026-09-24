@@ -23,8 +23,9 @@ from research_analysis.dataset.types import (
     SweepAxis,
     SweepValueType,
 )
+from research_analysis.declared_plan import PlanInterpretationError, plan_fingerprint, recorded_plan_fingerprint
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
-from research_analysis.performance import ReturnRate, TailMean
+from research_analysis.performance import FinalValue, ReturnRate, TailMean
 from research_analysis.plan import (
     AnalysisPlan,
     BakeoffAnalysis,
@@ -43,7 +44,7 @@ from research_analysis.report import (
     exploratory_report,
 )
 from research_analysis.report_files import report_directory, write_report_document
-from research_analysis.report_json import plan_fingerprint, report_to_json
+from research_analysis.report_json import JsonValue, report_to_json, to_jsonable
 from research_analysis.report_markdown import render_markdown, render_summary
 from research_analysis.report_plots import write_report_plots
 from research_analysis.reporting import HyperparameterConfigReport, HyperparameterDifferenceReport, bakeoff_report
@@ -177,6 +178,17 @@ class TestReportJson:
             report_to_json(exploratory_report(dataset, Path("db"), [BakeoffResult("headline", broken)]))
 
 
+_BARE_PLAN = AnalysisPlan("return", (BakeoffAnalysis("h", ("a", "b")),), ExperimentDimensions())
+
+
+def _recorded_parent(path: tuple[str | int, ...]) -> tuple[Any, str | int, Any]:
+    recorded = json.loads(json.dumps(to_jsonable(_BARE_PLAN)))
+    node = recorded
+    for key in path[:-1]:
+        node = node[key]
+    return recorded, path[-1], node
+
+
 class TestPlanFingerprint:
     def test_identical_declarations_share_a_fingerprint(self) -> None:
         """Two separately built but equal plans hash the same, so a snapshot can be matched later."""
@@ -187,18 +199,86 @@ class TestPlanFingerprint:
 
     def test_any_change_to_the_plan_changes_its_fingerprint(self) -> None:
         """Changing the measure after the fact must be detectable."""
-        plan = AnalysisPlan("return", (BakeoffAnalysis("h", ("a", "b")),), ExperimentDimensions())
+        assert plan_fingerprint(_BARE_PLAN) != plan_fingerprint(replace(_BARE_PLAN, measure=TailMean(0.1)))
 
-        assert plan_fingerprint(plan) != plan_fingerprint(replace(plan, measure=TailMean(0.1)))
+    def test_a_field_spelled_out_at_its_default_is_not_hashed(self) -> None:
+        """Only declarations are hashed: writing a default out explicitly is the same plan as leaving it implicit."""
+        explicit = AnalysisPlan(
+            "return",
+            (BakeoffAnalysis("h", ("a", "b"), min_seeds=5, measure=None),),
+            ExperimentDimensions(condition="condition_name"),
+            stats=BakeoffSpec(alpha=0.05, random_seed=0),
+            higher_is_better=True,
+        )
 
-    def test_an_analysis_measure_is_hashed_only_when_declared(self) -> None:
-        """Plans snapshotted before an analysis could override the measure keep matching their snapshots."""
-        plan = AnalysisPlan("return", (BakeoffAnalysis("h", ("a", "b")),), ExperimentDimensions())
-        overridden = replace(plan, analyses=(BakeoffAnalysis("h", ("a", "b"), measure=TailMean(0.1)),))
-        document = replace(exploratory_report(_dataset(_SCORES), Path("db"), []), plan=plan)
+        assert plan_fingerprint(explicit) == plan_fingerprint(_BARE_PLAN)
 
-        assert "measure" not in json.loads(report_to_json(document))["plan"]["analyses"][0]
-        assert plan_fingerprint(plan) != plan_fingerprint(overridden)
+    def test_a_declared_value_that_differs_from_its_default_is_hashed(self) -> None:
+        """A changed statistic nested inside the plan is a changed plan."""
+        tightened = replace(_BARE_PLAN, stats=BakeoffSpec(alpha=0.01))
+
+        assert plan_fingerprint(tightened) != plan_fingerprint(_BARE_PLAN)
+
+    def test_every_measure_declaration_hashes_distinctly(self) -> None:
+        """Kind tags keep union members apart, and an analysis override differs from inheriting the plan's measure."""
+        plans = [
+            _BARE_PLAN,
+            replace(_BARE_PLAN, measure=ReturnRate()),
+            replace(_BARE_PLAN, measure=TailMean(0.1)),
+            replace(_BARE_PLAN, measure=TailMean(0.2)),
+            replace(_BARE_PLAN, analyses=(BakeoffAnalysis("h", ("a", "b"), measure=FinalValue()),)),
+        ]
+
+        assert len({plan_fingerprint(plan) for plan in plans}) == len(plans)
+
+    def test_the_report_keeps_the_full_resolved_plan(self) -> None:
+        """Defaults are left out of the fingerprint only; the report JSON still says what every setting was."""
+        document = replace(exploratory_report(_dataset(_SCORES), Path("db"), []), plan=_BARE_PLAN)
+
+        plan = json.loads(report_to_json(document))["plan"]
+
+        assert plan["analyses"][0]["measure"] is None
+        assert plan["stats"]["alpha"] == 0.05
+
+
+class TestRecordedPlanFingerprint:
+    def test_a_recorded_plan_matches_the_plan_it_records(self) -> None:
+        """A snapshot stores the full resolved plan; reading it back yields the declared-only fingerprint."""
+        plan = replace(_BARE_PLAN, stats=BakeoffSpec(alpha=0.01), measure=TailMean(0.1))
+
+        assert recorded_plan_fingerprint(to_jsonable(plan)) == plan_fingerprint(plan)
+
+    @pytest.mark.parametrize(
+        "path",
+        [("non_finite_worst_case",), ("stats", "interval"), ("analyses", 0, "measure")],
+        ids=["plan-field", "stats-field", "analysis-field"],
+    )
+    def test_a_field_added_with_a_default_keeps_old_fingerprints(self, path: tuple[str | int, ...]) -> None:
+        """A snapshot recorded before a defaulted field existed reads as that default, not as a changed plan."""
+        recorded, leaf, parent = _recorded_parent(path)
+        del parent[leaf]
+
+        assert recorded_plan_fingerprint(recorded) == plan_fingerprint(_BARE_PLAN)
+
+    @pytest.mark.parametrize(
+        ("path", "value", "problem"),
+        [
+            (("renamed_field",), 1, "AnalysisPlan has no field 'renamed_field'"),
+            (("measure",), {"kind": "windowed"}, "'windowed'"),
+            (("stats", "estimand"), "trimmed", "'trimmed'"),
+            (("dimensions", "sweep_axes"), [{"value_type": "float"}], "SweepAxis is missing its required field 'name'"),
+        ],
+        ids=["unknown-field", "unknown-kind", "unknown-literal", "missing-required"],
+    )
+    def test_a_plan_the_schema_cannot_read_is_rejected(
+        self, path: tuple[str, ...], value: JsonValue, problem: str
+    ) -> None:
+        """Never guess: a recorded plan that does not fit the current schema has no fingerprint."""
+        recorded, leaf, parent = _recorded_parent(path)
+        parent[leaf] = value
+
+        with pytest.raises(PlanInterpretationError, match=re.escape(problem)):
+            recorded_plan_fingerprint(recorded)
 
 
 def _markdown(dataset: ExperimentDataset, results: list[AnalysisResult]) -> str:

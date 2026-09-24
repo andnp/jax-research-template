@@ -10,6 +10,7 @@ from research_analysis._reporting_bakeoff import bakeoff_report
 from research_analysis._reporting_hypers import best_hypers, slice_hypers
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExecutionProvenance, ExperimentDataset
+from research_analysis.declared_plan import plan_fingerprint
 from research_analysis.diagnostics.bakeoff import IncompleteBlocksError
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, InsufficientDataError
 from research_analysis.non_finite import NonFiniteValuesError, substitute_non_finite
@@ -32,7 +33,6 @@ from research_analysis.report import (
     SliceHypersResult,
     _document,
 )
-from research_analysis.report_json import plan_fingerprint
 
 
 def _utc_instant(text: str) -> datetime | None:

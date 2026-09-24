@@ -14,13 +14,14 @@ from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import ExperimentDimensions, SweepAxis, SweepValueType
+from research_analysis.declared_plan import plan_fingerprint
 from research_analysis.diagnostics.bakeoff import IncompleteCell
 from research_analysis.performance import FinalValue, ReturnRate
 from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, against_baseline
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import PLAN_HISTORY_FILE, PlanSnapshot, read_plan_snapshots, record_plan_snapshot
 from research_analysis.report import BakeoffResult, PlanStatus, ReportStatus
-from research_analysis.report_json import plan_fingerprint, report_to_json, to_jsonable
+from research_analysis.report_json import report_to_json, to_jsonable
 
 STARTED = "2026-01-02T00:00:00+00:00"
 BEFORE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -355,6 +356,19 @@ class TestPlanHistory:
 
         plan_json = json.dumps(to_jsonable(PLAN), sort_keys=True)
         assert history == (PlanSnapshot(plan_fingerprint(PLAN), None, plan_json, invalid_reason=reason),)
+
+    def test_a_plan_the_current_schema_cannot_read_is_invalid_not_guessed(self, tmp_path: Path) -> None:
+        """A recorded measure of an unknown kind has no fingerprint, so the history cannot vouch for any plan."""
+        plan_json = {**json.loads(json.dumps(to_jsonable(PLAN))), "measure": {"kind": "windowed"}}
+        entry = {"fingerprint": plan_fingerprint(PLAN), "recorded_at": BEFORE.isoformat(), "plan": plan_json}
+        (tmp_path / PLAN_HISTORY_FILE).write_text(json.dumps(entry) + "\n")
+
+        [snapshot] = read_plan_snapshots(tmp_path)
+
+        assert snapshot.fingerprint is None
+        assert snapshot.invalid_reason is not None
+        assert snapshot.invalid_reason.startswith("recorded plan does not fit the current plan schema:")
+        assert "'windowed'" in snapshot.invalid_reason
 
     def test_the_fingerprint_is_recomputed_from_the_recorded_plan(self, tmp_path: Path) -> None:
         """A stored fingerprint that disagrees with its plan is ignored: only the recorded plan is compared."""
