@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 from research_instrument.collector import MetricFrame, subsample_frames
 from research_instrument.seed_batch import write_seed_batch_curve
-from research_instrument.sqlite_backend import SQLiteBackend
+from research_instrument.sqlite_backend import SQLiteBackend, open_metrics_connection
 
 
 def make_backend(db_path: Path, *, batch_size: int = 100) -> SQLiteBackend:
@@ -261,6 +261,33 @@ class TestSQLiteBackendBasic:
             with sqlite3.connect(db_path) as conn:
                 mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             backend.close()
+
+            assert str(mode).lower() != "wal"
+
+    def test_wal_database_from_an_earlier_version_is_converted_to_rollback(self) -> None:
+        """Journal mode is persisted in the file, so a metrics DB created while WAL was
+        the default (commit 63c8bec) stays WAL until something converts it back."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy_wal.db"
+            setup_conn = sqlite3.connect(db_path)
+            setup_conn.execute("PRAGMA journal_mode=WAL")
+            setup_conn.execute(
+                "CREATE TABLE metrics ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, metric_name TEXT NOT NULL, value REAL, "
+                "global_step INTEGER NOT NULL, seed_id INTEGER NOT NULL, experiment_id INTEGER NOT NULL, "
+                "run_id INTEGER NOT NULL, execution_id INTEGER NOT NULL, "
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            setup_conn.commit()
+            mode = setup_conn.execute("PRAGMA journal_mode").fetchone()[0]
+            setup_conn.close()
+            assert str(mode).lower() == "wal"
+
+            conn = open_metrics_connection(db_path)
+            try:
+                mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            finally:
+                conn.close()
 
             assert str(mode).lower() != "wal"
 

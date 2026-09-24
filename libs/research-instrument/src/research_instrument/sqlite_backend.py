@@ -64,8 +64,27 @@ def open_metrics_connection(db_path: Path | str) -> sqlite3.Connection:
     """
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.execute("PRAGMA busy_timeout=30000")
+    _ensure_rollback_journal(conn, db_path)
     _initialize_schema(conn)
     return conn
+
+
+def _ensure_rollback_journal(conn: sqlite3.Connection, db_path: Path | str) -> None:
+    """Convert a database left in WAL mode by an earlier version back to rollback.
+
+    Journal mode is stored in the database file itself, not chosen per connection, so a
+    metrics.sqlite created while WAL was enabled stays WAL — and unsafe over NFS/Lustre —
+    until something converts it.
+    """
+    mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    if mode != "wal":
+        return
+    new_mode = str(conn.execute("PRAGMA journal_mode=DELETE").fetchone()[0]).lower()
+    if new_mode == "wal":
+        raise RuntimeError(
+            f"{db_path} is stuck in WAL journal mode, likely because another connection "
+            "still holds it open; close it and retry"
+        )
 
 
 def _initialize_schema(conn: sqlite3.Connection) -> None:
