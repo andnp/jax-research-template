@@ -19,6 +19,7 @@ from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from . import _planning_service as _planning
 from . import _query_repository as _query
+from . import schema
 from ._database_utils import _hash_dict  # noqa: F401
 from ._planning_service import _run_matches, _static_config_json  # noqa: F401
 from ._types import PlannedExecution, RunBatch
@@ -231,7 +232,7 @@ class DatabaseManager:
             sqlite3.IntegrityError: If a component with this name already exists.
             ValueError: If ``component_type`` is not a valid value.
         """
-        if component_type not in ("ALGO", "ENV", "WRAPPER"):
+        if component_type not in schema.COMPONENT_TYPES:
             raise ValueError(f"Invalid component_type {component_type!r}. Must be ALGO, ENV, or WRAPPER.")
         with self.conn:
             return _definition.add_component(self.conn, name, component_type)

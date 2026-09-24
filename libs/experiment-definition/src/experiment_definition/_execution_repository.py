@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
+from .schema import EXECUTION_STATUSES
 
 _EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
     "PENDING": frozenset({"RUNNING", "COMPLETED", "FAILED", "INVALID"}),
@@ -126,7 +127,7 @@ def update_execution_status(
     start_time: str | None,
     end_time: str | None,
 ) -> None:
-    if status not in ("PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID"):
+    if status not in EXECUTION_STATUSES:
         raise ValueError(f"Invalid status {status!r}.")
     conn.execute("BEGIN IMMEDIATE")
     try:
