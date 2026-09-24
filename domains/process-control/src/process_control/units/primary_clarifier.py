@@ -45,7 +45,7 @@ def step(
     q_waste: jax.Array,
     params: PrimaryClarifierParams,
     dt: jax.Array,
-):
+)-> tuple[PrimaryClarifierState, jax.Array, jax.Array, jax.Array]:
     """Advance primary clarifier by one timestep.
 
     Args:
@@ -55,7 +55,7 @@ def step(
         dt: timestep (h)
 
     Returns:
-        (new_state, effluent_tss, underflow_tss)
+        (new_state, effluent_tss, underflow_tss, overflow)
     """
     slr = q_feed / params.area
     eta = params.eta_max * params.k_slr / (params.k_slr + slr)
@@ -70,7 +70,9 @@ def step(
         params.min_underflow_tss,
     )
     mass_out = underflow_tss * q_waste * dt  # g removed
-    new_mass = jnp.clip(state.sludge_mass + mass_in - mass_out, 0.0, params.max_sludge_mass)
+    raw_mass = state.sludge_mass + mass_in - mass_out
+    overflow = jnp.maximum(raw_mass - params.max_sludge_mass, 0.0)
+    new_mass = jnp.clip(raw_mass, 0.0, params.max_sludge_mass)
 
     new_state = PrimaryClarifierState(sludge_mass=new_mass)
-    return new_state, effluent_tss, underflow_tss
+    return new_state, effluent_tss, underflow_tss, overflow

@@ -54,7 +54,7 @@ class TestPrimaryClarifierUnit:
     def test_step_reduces_tss(self) -> None:
         params = PrimaryClarifierParams()
         state = pc_reset(params, jax.random.PRNGKey(0))
-        state2, eff_tss, und_tss = pc_step(
+        state2, eff_tss, und_tss, _ = pc_step(
             state, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02),
         )
         assert float(eff_tss) < 250.0
@@ -63,7 +63,7 @@ class TestPrimaryClarifierUnit:
     def test_underflow_tss_exceeds_effluent(self) -> None:
         params = PrimaryClarifierParams()
         state = pc_reset(params, jax.random.PRNGKey(1))
-        _, eff_tss, und_tss = pc_step(
+        _, eff_tss, und_tss, _ = pc_step(
             state, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02),
         )
         assert float(und_tss) > float(eff_tss)
@@ -71,10 +71,19 @@ class TestPrimaryClarifierUnit:
     def test_sludge_mass_increases_with_no_wasting(self) -> None:
         params = PrimaryClarifierParams()
         state = pc_reset(params, jax.random.PRNGKey(2))
-        state2, _, _ = pc_step(
+        state2, _, _, _ = pc_step(
             state, jnp.array(250.0), jnp.array(600.0), jnp.array(0.0), params, jnp.array(0.02),
         )
         assert float(state2.sludge_mass) >= float(state.sludge_mass)
+
+    def test_sludge_overflow_is_reported(self) -> None:
+        """Clarifier capacity clipping reports positive and zero overflow."""
+        params = PrimaryClarifierParams(max_sludge_mass=1.0)
+        state = PrimaryClarifierState(sludge_mass=jnp.array(0.9))
+        _, _, _, overflow = pc_step(
+            state, jnp.array(1e6), jnp.array(500.0), jnp.array(0.0), params, jnp.array(1.0),
+        )
+        assert overflow > 0.0
 
     def test_jit_compatible(self) -> None:
         params = PrimaryClarifierParams()
@@ -83,7 +92,7 @@ class TestPrimaryClarifierUnit:
             return pc_step(s, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02))
 
         jit_step = jax.jit(step_fn)
-        state2, eff, und = jit_step(state)
+        state2, eff, und, _ = jit_step(state)
         assert jnp.isfinite(eff)
         assert jnp.isfinite(und)
 
@@ -422,7 +431,6 @@ class TestAnaerobicDigesterBenchmark:
 class TestRejectWaterBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_reject_water_benchmark, RejectWaterConfig(), action_dim=2, obs_dim=6)
-
 
 # ---------------------------------------------------------------------------
 # Benchmark: Drinking Water Train (3D action, 8D obs)

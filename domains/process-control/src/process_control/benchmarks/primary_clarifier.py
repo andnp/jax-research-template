@@ -182,7 +182,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         new_pump, q_waste = actuator_step(state.pump_state, action[0], pump_params, dt)
 
         # 4. Clarifier
-        new_clar, eff_tss, und_tss = clarifier_step(
+        new_clar, eff_tss, und_tss, sludge_overflow = clarifier_step(
             state.clarifier_state,
             feed_tss,
             flow,
@@ -228,6 +228,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
             "q_waste": q_waste,
             "flow": flow,
             "sludge_mass": new_clar.sludge_mass,
+            "clarifier_sludge_overflow": sludge_overflow,
         }
         done = jnp.array(False)
         return new_state, obs, reward, done, info
