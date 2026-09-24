@@ -32,6 +32,7 @@ from research_analysis.report import (
 )
 from research_analysis.report_json import plan_fingerprint, report_to_json
 from research_analysis.report_markdown import render_markdown
+from research_analysis.report_plots import write_report_plots
 from research_analysis.reporting import HyperparameterConfigReport, bakeoff_report
 
 
@@ -228,3 +229,17 @@ class TestReportMarkdown:
         assert "Corrected mean 4.2, 95% CI [3.9, 4.6]" in text
         assert "maximization bias 0.8" in text
         assert "left out: 2" in text
+
+
+class TestReportPlots:
+    def test_figures_are_written_under_the_report_directory_and_listed_relative_to_it(self, tmp_path: Path) -> None:
+        """A report directory is self-contained: the document names its figures by relative path."""
+        dataset = _dataset(_SCORES)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
+        document = exploratory_report(dataset, Path("db"), [BakeoffResult("headline", report)])
+
+        written = write_report_plots(document, tmp_path)
+
+        assert list(written.plots.values()) == [Path("headline__run_distribution.png")]
+        assert all((tmp_path / path).exists() for path in written.plots.values())
+        assert "![headline__run_distribution](headline__run_distribution.png)" in render_markdown(written)
