@@ -1,5 +1,7 @@
 # Process-Control Toolkit Roadmap
 
+> **Status (2026-09-23):** The versioned environment contract was shelved and removed. Removed modules: `environment.py`, `environment_conformance.py`, `environment_specs.py`, `instrumentation.py`, `scenarios/scenario_pack.py`, `environments/chlorine.py`, `certification.py`, and `metrics.py`.
+
 ## Purpose
 
 This is the top-level table of contents and task map for developing the process-control toolkit into:
