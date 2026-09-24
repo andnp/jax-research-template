@@ -1037,6 +1037,22 @@ def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: Experime
     assert report.cells["a"]["low"].n == 3
 
 
+class TestRunDistributionFigures:
+    def test_bakeoff_draws_one_run_distribution_figure_per_block(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Each block gets a figure of per-run scores, so the distribution behind a cell is inspectable."""
+        setup = temp_experiment_setup
+        for environment in ("cartpole", "mountaincar"):
+            for seed in range(3):
+                _add_observation(setup, {"algorithm": "ppo", "env_source": environment}, seed, float(seed))
+                _add_observation(setup, {"algorithm": "sac", "env_source": environment}, seed, 1.0)
+        dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
+
+        report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20), verbose=False)
+
+        assert sorted(report.distribution_plot_paths) == ["cartpole", "mountaincar"]
+        assert all(path.exists() for path in report.distribution_plot_paths.values())
+
+
 class TestPairedDifferences:
     def test_an_underpowered_pair_is_reported_as_skipped(self, temp_experiment_setup: ExperimentSetup) -> None:
         """A pair with fewer paired runs than min_samples stays in the report with its reason."""

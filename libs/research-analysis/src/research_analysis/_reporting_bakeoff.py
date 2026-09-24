@@ -20,7 +20,7 @@ from research_analysis._reporting_models import (
     PairedDifference,
     StatisticalTestDetails,
 )
-from research_analysis._reporting_plots import _plot_bakeoff
+from research_analysis._reporting_plots import _plot_run_distributions
 from research_analysis._reporting_warnings import (
     boundary_warning,
     insufficient_seeds_warning,
@@ -85,7 +85,6 @@ def _load_bakeoff_data(
 class _BakeoffStatistics:
     omnibus_details: StatisticalTestDetails
     differences: tuple[PairedDifference, ...]
-    score_curves: dict[str, tuple[list[float], list[float]]]
 
 
 def _paired_differences(
@@ -225,16 +224,6 @@ def _compute_bakeoff_statistics(
 
     differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, rng)
 
-    score_curves = {}
-    for condition in conditions:
-        all_vals = []
-        for block_key in block_keys:
-            all_vals.extend(data_by_group.get((condition, block_key), {}).values())
-        if all_vals:
-            sorted_vals = sorted(all_vals)
-            proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
-            score_curves[condition] = (sorted_vals, proportions)
-
     return _BakeoffStatistics(
         omnibus_details=StatisticalTestDetails(
             test_name="Block-stratified permutation omnibus test",
@@ -256,7 +245,6 @@ def _compute_bakeoff_statistics(
             intermediate_tests={},
         ),
         differences=differences,
-        score_curves=score_curves,
     )
 
 
@@ -487,9 +475,20 @@ def bakeoff_report(
             algorithms=conditions,
             environments=[_block_label(block_key) for block_key in block_keys],
             omnibus_details=comparison_statistics.omnibus_details,
-            aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
         ),
         differences=comparison_statistics.differences,
+        distribution_plot_paths=_plot_run_distributions(
+            {
+                _block_label(block_key): {
+                    condition: list(seed_map.values())
+                    for condition in conditions
+                    if (seed_map := data_by_group.get((condition, block_key)))
+                }
+                for block_key in block_keys
+            },
+            metric_name,
+            dataset.experiment_name,
+        ),
         family_size=family_size,
         comparison_confidence=comparison_confidence,
         warnings=warnings.as_tuple(),
