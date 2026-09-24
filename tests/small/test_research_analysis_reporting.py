@@ -14,6 +14,12 @@ import polars as pl
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
+from research_analysis._reporting_warnings import (
+    boundary_warning,
+    insufficient_seeds_warning,
+    non_normality_warning,
+    variance_warning,
+)
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
@@ -26,11 +32,7 @@ from research_analysis.reporting import (
     HyperparameterSliceReport,
     bakeoff_report,
     best_hypers,
-    boundary_warning,
-    insufficient_seeds_warning,
-    non_normality_warning,
     slice_hypers,
-    variance_warning,
 )
 from research_analysis.statistics import pointwise_tolerance_interval
 
