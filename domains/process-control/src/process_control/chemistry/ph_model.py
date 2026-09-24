@@ -21,7 +21,7 @@ import jax.numpy as jnp
 # are the paper's Table I nominal values, consistent with standard 25°C
 # carbonic-acid dissociation constants (e.g. Millero, "Dissociation Constants
 # for Carbonic Acid Determined from Field Measurements," Deep-Sea Research I,
-# 2010: https://www.gfdl.noaa.gov/bibliography/related_files/millero0201.pdf).
+# 2002: https://www.gfdl.noaa.gov/bibliography/related_files/millero0201.pdf).
 PKA1 = 6.35
 PKA2 = 10.25
 PKW = 14.0
@@ -35,8 +35,9 @@ _PH_BOUNDS = (-5.0, 21.0)  # keeps 10**(...) terms from overflowing float32
 class PhModelParams:
     # Wb: total dissolved carbonate (mol/L), the wastewater's fixed background
     # buffering capacity. 0.005 mol/L (~5 meq/L) corresponds to ~250 mg/L
-    # alkalinity as CaCO3, within the typical range reported for municipal
-    # wastewater (e.g. 250-334 mg/L as CaCO3):
+    # alkalinity as CaCO3; the cited source discusses municipal wastewater
+    # alkalinity requirements but does not itself state a 250-334 mg/L
+    # typical range, so that specific range is unverified:
     # https://mantech-inc.com/wp-content/uploads/2018/07/Alkalinity-Profiling-in-Wastewater-Operations.pdf
     buffer_capacity: float = 0.005
 
