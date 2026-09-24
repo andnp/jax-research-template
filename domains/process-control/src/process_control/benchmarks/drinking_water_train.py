@@ -76,9 +76,10 @@ class DrinkingWaterTrainConfig:
     # Membrane
     membrane: MembraneParams = MembraneParams(
         area=50.0,  # smaller plant
-        r_membrane=1e11,
-        k_rev_fouling=3e8,  # lower fouling rate (coag-treated water)
-        k_irr_fouling=5e5,
+        # Coagulated floc particles are much larger than raw colloidal TSS,
+        # which lowers specific cake resistance (Carman-Kozeny: alpha ~ 1/r²);
+        # reduced-order tuning, not calibrated to a specific measured cake.
+        alpha_cake=5e13,
     )
     flux_max: float = 0.06  # m/h
 
