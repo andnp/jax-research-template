@@ -45,8 +45,10 @@ All workspace lifecycle management is handled by the `research` command-line too
   Read-only progress and execution history against an `experiments.sqlite` database.
 - `experiment invalidate <db_path> --execution <id>`
   Marks an execution `INVALID` (with a confirmation prompt) so its runs are re-planned by the next `run`.
-- `experiment submit <spec_file.py> [--spec <name>] [...slurm options]`
-  Submits the planned batches as a Slurm job array instead of running them locally.
+- `experiment submit <spec_file.py> [--spec <name>] [--slurm-config <file.json>] [...slurm options]`
+  Submits the planned batches as a Slurm job array instead of running them locally. Flags override values from `--slurm-config`.
+- `experiment report <spec_file.py> [--spec <name>] [--results-root <path>] [--output-dir <path>] [--json]`
+  Runs the spec's declared analysis plan and writes `report.json`, `report.md`, and figures under `<results_root>/reports/`. Exits 2 on fatal load diagnostics and 3 on a failed analysis. With `--json`, it prints the document to stdout.
 
 ---
 
@@ -148,12 +150,21 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    Before re-running anything, read [Running Experiments Without Wasting Compute](experiment-efficiency.md) — editing an
    agent's source invalidates nothing on its own, and re-identifying a study re-runs all of it.
 
-5. **Read the results:**
-   Reporting and analysis are library functions, not CLI subcommands. First call
-   `research_analysis.dataset.load_experiment_dataset` with the experiment
-   database and explicit dimensions/version policy, then pass the resulting
-   `ExperimentDataset` to `research_analysis.reporting.best_hypers`,
-   `slice_hypers`, `bakeoff_report`, or a low-level bootstrap helper. Reporting does
-   not open the two SQLite databases itself.
+5. **Report the results:**
+   Declare the primary analysis beside the spec with `@analysis_plan(my_sweep)` from
+   `research_analysis.plan`. `run` and `submit` snapshot it before any execution starts.
+   Then:
+   ```bash
+   uv run research experiment report sweep.py --spec my_sweep
+   ```
+   This runs the declared plan and writes a versioned JSON report, a markdown copy, and
+   figures to `results/reports/<experiment>/<UTC time>/`. The report embeds provenance
+   (component versions, execution commits and dirty state), per-cell run accounting,
+   every diagnostic, and the results. It is labelled `exploratory` when the plan cannot
+   be shown to predate the runs. Read the accounting and diagnostics before the numbers.
+   For exploratory questions, load the dataset with
+   `research_analysis.dataset.loading.load_experiment_dataset` and call
+   `research_analysis.reporting` directly. See [Reading Results](reading-results.md) and
+   [Auto-Research Loop](auto-research.md).
 
 For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and metrics together, see `core/examples/run_experiment.py`.
