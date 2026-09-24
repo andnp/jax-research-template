@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -156,18 +157,18 @@ def _champion_difference(
 
 def _paired_differences(
     scores: dict[tuple[str, BlockKey], dict[int, float]],
-    conditions: list[str],
+    pairs: list[tuple[str, str]],
     block_keys: list[BlockKey],
     spec: BakeoffSpec,
     confidence: float,
     rng: np.random.Generator,
 ) -> tuple[PairedDifference, ...]:
-    """Compare every pair of conditions within each block, never pooling runs across blocks."""
-    planned: list[PairedDifference] = []
-    for block_key in block_keys:
-        for index, minuend in enumerate(conditions):
-            for subtrahend in conditions[index + 1 :]:
-                planned.append(_paired_difference(scores, minuend, subtrahend, block_key, spec, confidence, rng))
+    """Compare every planned pair within each block, never pooling runs across blocks."""
+    planned = [
+        _paired_difference(scores, minuend, subtrahend, block_key, spec, confidence, rng)
+        for block_key in block_keys
+        for minuend, subtrahend in pairs
+    ]
 
     # A skipped pair still belongs to the family: counting it as p=1 keeps Holm's divisor honest.
     adjusted = holm_step_down([1.0 if item.p_value is None else item.p_value for item in planned])
@@ -376,6 +377,18 @@ def _filter_to_champions(dataset: ExperimentDataset, champions: dict[str, dict[s
     return _filter_dataset(dataset, selected)
 
 
+def _planned_pairs(conditions: list[str], pairs: Sequence[tuple[str, str]] | None) -> list[tuple[str, str]]:
+    if pairs is None:
+        return [(minuend, subtrahend) for index, minuend in enumerate(conditions) for subtrahend in conditions[index + 1 :]]
+    unknown = sorted({name for pair in pairs for name in pair} - set(conditions))
+    if unknown:
+        raise ValueError(f"pairs name conditions outside {conditions!r}: {unknown}")
+    unordered = [frozenset(pair) for pair in pairs]
+    if not unordered or any(len(pair) < 2 for pair in unordered) or len(set(unordered)) < len(unordered):
+        raise ValueError(f"pairs must compare two distinct conditions, each pair once, got {list(pairs)!r}")
+    return list(pairs)
+
+
 def bakeoff_report(
     dataset: ExperimentDataset,
     metric_name: str,
@@ -388,17 +401,19 @@ def bakeoff_report(
     min_seeds: int = 5,
     verbose: bool = True,
     measure: PerformanceMeasure = FINAL_VALUE,
+    pairs: Sequence[tuple[str, str]] | None = None,
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
-    The headline is each block's paired, seed-matched difference between every pair of
-    conditions, with percentile CIs Bonferroni-adjusted across the whole family; the omnibus
+    The headline is each block's paired, seed-matched difference for every planned pair of
+    conditions (``pairs``; every pair when omitted), with percentile CIs Bonferroni-adjusted across the whole family; the omnibus
     and Holm-adjusted permutation p-values are secondary. With ``select_champion_over``, the
     differences come from the hierarchical per-sample bootstrap over each arm's grid, so they
     include selection uncertainty, and no tests are run on the selecting seeds.
     """
     if len(conditions) < 2:
         raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
+    planned_pairs = _planned_pairs(conditions, pairs)
     block_by = block_by or []
     if spec is None:
         spec = BakeoffSpec(missingness="blockwise" if block_by else "error")
@@ -427,7 +442,7 @@ def bakeoff_report(
 
     if select_champion_over is not None and spec.estimand != "mean":
         raise ValueError("tuned-champion comparisons estimate a mean; spec.estimand must be 'mean'")
-    family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
+    family_size = len(block_keys) * len(planned_pairs)
     comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
 
     warnings: list[BakeoffWarning] = []
@@ -451,23 +466,22 @@ def bakeoff_report(
         seeds_by_config = _seeds_by_config(
             tuned_records, conditions, dataset.dimensions.condition, sorted(select_champion_over), _block_label(block_key)
         )
-        for index, minuend in enumerate(conditions):
-            for subtrahend in conditions[index + 1 :]:
-                champion_differences.append(
-                    _champion_difference(
-                        block_dataset,
-                        metric_name,
-                        seeds_by_config,
-                        minuend,
-                        subtrahend,
-                        block_key,
-                        spec,
-                        comparison_confidence,
-                        spec.random_seed + len(champion_differences),
-                        higher_is_better,
-                        measure,
-                    )
+        for minuend, subtrahend in planned_pairs:
+            champion_differences.append(
+                _champion_difference(
+                    block_dataset,
+                    metric_name,
+                    seeds_by_config,
+                    minuend,
+                    subtrahend,
+                    block_key,
+                    spec,
+                    comparison_confidence,
+                    spec.random_seed + len(champion_differences),
+                    higher_is_better,
+                    measure,
                 )
+            )
 
         raw_champions = best_hypers(
             block_dataset,
@@ -520,7 +534,7 @@ def bakeoff_report(
     if select_champion_over is None:
         test_rng = np.random.default_rng(spec.random_seed)
         omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
-        differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, test_rng)
+        differences = _paired_differences(data_by_group, planned_pairs, block_keys, spec, comparison_confidence, test_rng)
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
