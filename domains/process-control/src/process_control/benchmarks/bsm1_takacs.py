@@ -40,9 +40,9 @@ from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import step as ra_step
-from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
+from process_control.units.asm1 import ASM1Params, ASM1State
 from process_control.units.asm1 import reset as asm1_reset
-from process_control.units.asm1 import step as asm1_step
+from process_control.units.bsm1_plant import reactor_train
 from process_control.units.takacs_settler import (
     TakacsSettlerParams,
     TakacsSettlerState,
@@ -376,7 +376,6 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         # 4. Flows
         q_a = q_in * internal_recycle_ratio
         q_rs = q_in * return_sludge_ratio
-        q_total = q_in + q_rs + q_a
         q_to_clarifier = q_in + q_rs
         q_underflow = q_rs + q_w  # total underflow = return sludge + waste
 
@@ -386,13 +385,10 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         return_sludge = _return_sludge_from_tss(state.reactor5, feed_tss, underflow_tss)
 
         # 6. Reactor train
-        inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
-        inlet_r1, _ = mix_streams(inlet_rs, q_after_1, state.reactor5, q_a)
-        new_r1 = asm1_step(state.reactor1, inlet_r1, q_total, jnp.array(0.0), p1, dt)
-        new_r2 = asm1_step(state.reactor2, new_r1, q_total, jnp.array(0.0), p2, dt)
-        new_r3 = asm1_step(state.reactor3, new_r2, q_total, kla_34, p3, dt)
-        new_r4 = asm1_step(state.reactor4, new_r3, q_total, kla_34, p4, dt)
-        new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5, p5, dt)
+        new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
+            (state.reactor1, state.reactor2, state.reactor3, state.reactor4, state.reactor5),
+            influent, q_in, return_sludge, q_rs, q_a, kla_34, kla_5, (p1, p2, p3, p4, p5), dt,
+        )
 
         # 7. Takács settler step
         new_feed_tss = _compute_tss(new_r5)
