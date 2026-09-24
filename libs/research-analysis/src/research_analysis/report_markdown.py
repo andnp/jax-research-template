@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 
+from research_analysis._reporting_models import BakeoffReport, CellSummary, PairedDifference
 from research_analysis.dataset.types import RunAccounting
 from research_analysis.diagnostics.types import DatasetDiagnostic
-from research_analysis.report import AnalysisFailure, PlanStatus, ReportDocument
+from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, TailMean
+from research_analysis.report import AnalysisFailure, AnalysisResult, BakeoffResult, PlanStatus, ReportDocument
 
 _LISTED_MESSAGES = 10
 
@@ -19,6 +21,28 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
         "|" + "|".join("---" for _ in header) + "|",
         *("| " + " | ".join(row) + " |" for row in escaped),
     ]
+
+
+def _number(value: float) -> str:
+    return f"{value:.4g}"
+
+
+def _interval(interval: tuple[float, float] | None) -> str:
+    return "—" if interval is None else f"[{interval[0]:.4g}, {interval[1]:.4g}]"
+
+
+def _percent(confidence: float) -> str:
+    return f"{confidence * 100:.4g}%"
+
+
+def _describe_measure(measure: PerformanceMeasure) -> str:
+    match measure:
+        case FinalValue():
+            return "final logged value"
+        case TailMean(fraction=fraction):
+            return f"mean over the final {fraction:.0%} of logged steps"
+        case ReturnRate():
+            return "return rate (mean over every logged point)"
 
 
 def _status_section(document: ReportDocument) -> list[str]:
@@ -100,6 +124,95 @@ def _failure_section(failure: AnalysisFailure) -> list[str]:
     return ["## Analysis failed", "", f"`{failure.analysis}` raised {failure.error_type}: {failure.message}"]
 
 
+def _cell_row(condition: str, block: str, cell: CellSummary) -> list[str]:
+    return [
+        condition,
+        block or "—",
+        str(cell.n),
+        "—" if cell.estimate is None else _number(cell.estimate),
+        _interval(cell.ci) if cell.ci_skipped_reason is None else f"none: {cell.ci_skipped_reason}",
+        "—" if cell.sd is None else _number(cell.sd),
+        _interval(cell.tolerance) if cell.tolerance is not None else f"needs n ≥ {cell.tolerance_min_runs}",
+        "—" if cell.median_run_id is None else str(cell.median_run_id),
+    ]
+
+
+def _difference_row(item: PairedDifference) -> list[str]:
+    if item.estimate is None:
+        return [item.block or "—", f"{item.minuend} − {item.subtrahend}", "—", "—", str(item.n_paired), "—", f"skipped: {item.skipped_reason}"]
+    p_value = "—" if item.p_value is None else f"{item.p_value:.4g}"
+    return [
+        item.block or "—",
+        f"{item.minuend} − {item.subtrahend}",
+        _number(item.estimate),
+        f"{_interval(item.ci)} at {_percent(item.confidence)}",
+        str(item.n_paired),
+        p_value,
+        item.method,
+    ]
+
+
+def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
+    spec = report.spec
+    lines = [
+        f"## {name}: bakeoff of {', '.join(report.conditions)}",
+        "",
+        f"- Metric: `{report.metric_name}`, per run: {_describe_measure(report.measure)}; estimand: {spec.estimand}",
+        f"- Percentile bootstrap, {spec.n_resamples} resamples, seed {spec.random_seed}; missingness: {spec.missingness}",
+        "",
+        f"Cells: {spec.estimand} with its {_percent(spec.confidence_level)} CI; SD and the "
+        f"({_percent(spec.tolerance_confidence)} confidence, {_percent(spec.tolerance_coverage)} coverage) "
+        "tolerance interval describe run-to-run variability.",
+        "",
+    ]
+    cell_rows = [
+        _cell_row(condition, block, report.cells[condition][block])
+        for block in report.blocks
+        for condition in report.conditions
+    ]
+    header = ["Condition", "Block", "n", spec.estimand.capitalize(), "CI", "SD", "Tolerance interval", "Median run"]
+    lines += _table(header, cell_rows)
+    lines += [
+        "",
+        f"Paired differences: {report.family_size} comparisons, each CI at {_percent(report.comparison_confidence)} "
+        f"so all hold jointly at {_percent(spec.confidence_level)} (Bonferroni); p-values are Holm-adjusted.",
+        "",
+        *_table(["Block", "Difference", "Estimate", "CI", "n paired", "Holm p", "Method"], [_difference_row(item) for item in report.differences]),
+    ]
+    if report.omnibus is not None:
+        lines += ["", f"Omnibus: {report.omnibus.test_name}, p = {report.omnibus.p_value:.4g}."]
+    if report.tests_skipped_reason is not None:
+        lines += ["", f"No hypothesis tests: {report.tests_skipped_reason}."]
+    if report.champions is not None:
+        champion_rows = [
+            [
+                block or "—",
+                condition,
+                ", ".join(f"{key}={value}" for key, value in champion.winning_config.items()),
+                _number(champion.corrected_mean),
+                f"{_interval(champion.estimate_ci)} at {_percent(champion.confidence_level)}",
+                _number(champion.maximization_bias),
+                f"{champion.normalized_selection_entropy:.2f}",
+            ]
+            for block, per_condition in report.champions.items()
+            for condition, champion in per_condition.items()
+        ]
+        header = ["Block", "Condition", "Champion", "Corrected mean", "CI", "Maximization bias", "Selection entropy"]
+        lines += ["", "Champions (their cells above carry selection bias; differences do not):", "", *_table(header, champion_rows)]
+    lines += ["", f"Warnings ({len(report.warnings)}):", ""]
+    lines += [
+        f"- `{item.code}` {item.condition or '(all)'} {dict(item.cell) or ''}: {item.message}" for item in report.warnings
+    ] or ["- none"]
+    return lines
+
+
+def _analysis_section(result: AnalysisResult) -> list[str]:
+    match result:
+        case BakeoffResult(name=name, report=report):
+            return _bakeoff_section(name, report)
+    return []
+
+
 def render_markdown(document: ReportDocument) -> str:
     """The whole document as markdown; every number shown is also in the JSON report."""
     sections = [
@@ -110,4 +223,5 @@ def render_markdown(document: ReportDocument) -> str:
     ]
     if document.failure is not None:
         sections.append(_failure_section(document.failure))
+    sections.extend(_analysis_section(result) for result in document.analyses)
     return "\n\n".join("\n".join(section) for section in sections) + "\n"
