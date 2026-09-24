@@ -27,10 +27,9 @@ from process_control.scenarios.diurnal_source import (
 )
 from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
 from process_control.sensors.residual_analyzer import step as ra_step
-from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
+from process_control.units.asm1 import ASM1Params, ASM1State
 from process_control.units.asm1 import reset as asm1_reset
-from process_control.units.asm1 import step as asm1_step
-from process_control.units.bsm1_plant import perfect_clarifier
+from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
 
 
 @dataclass(frozen=True)
@@ -412,26 +411,16 @@ def make_bsm1_combined_benchmark(
         # 5. Derived flows
         q_a = q_in * q_a_ratio
         q_rs = q_in * q_rs_ratio
-        q_total = q_in + q_rs + q_a
         q_to_clarifier = q_in + q_rs
 
         # 6. Clarifier: return sludge from previous R5
         _, return_sludge = perfect_clarifier(state.reactors.r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
 
         # 7. R1: influent + return sludge + internal recycle (R5)
-        inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
-        inlet_r1, _ = mix_streams(inlet_rs, q_after_1, state.reactors.r5, q_a)
-        new_r1 = asm1_step(state.reactors.r1, inlet_r1, q_total, jnp.array(0.0), p1, dt)
-
-        # 8. R2 (anoxic)
-        new_r2 = asm1_step(state.reactors.r2, new_r1, q_total, jnp.array(0.0), p2, dt)
-
-        # 9. R3, R4 (aerobic, shared kla_34)
-        new_r3 = asm1_step(state.reactors.r3, new_r2, q_total, kla_34, p3, dt)
-        new_r4 = asm1_step(state.reactors.r4, new_r3, q_total, kla_34, p4, dt)
-
-        # 10. R5 (aerobic, kla_5)
-        new_r5 = asm1_step(state.reactors.r5, new_r4, q_total, kla_5, p5, dt)
+        new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
+            (state.reactors.r1, state.reactors.r2, state.reactors.r3, state.reactors.r4, state.reactors.r5),
+            influent, q_in, return_sludge, q_rs, q_a, kla_34, kla_5, (p1, p2, p3, p4, p5), dt,
+        )
 
         # 11. Effluent quality from clarifier
         effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
