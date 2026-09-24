@@ -50,8 +50,10 @@ class ScrubberSumpParams:
     # At scrubber pH (~9-10) hypochlorite drives sulfide oxidation mostly to
     # sulfate rather than elemental S (HS- + 4OCl- -> SO4^2- + 4Cl- + H+ vs.
     # HS- + OCl- -> S + Cl- + OH- at lower pH/limited oxidant); the sulfate
-    # route needs ~8.7 mg NaOCl per mg H2S (4 x 74.44/34.08), not ~2.2:
-    # https://fklaz.com/h2s-removal-from-water-with-sodium-hypochlorite-naocl/
+    # route needs ~8.7 mg NaOCl per mg H2S (4 x 74.44/34.08), not ~2.2 (Choppin
+    # & Faulkenberry, "The Oxidation of Aqueous Sulfide Solutions by
+    # Hypochlorites," J. Am. Chem. Soc. 59(11):2203-2207, 1937,
+    # https://doi.org/10.1021/ja01290a033):
     oxidant_sulfide_rate: float | jax.Array = 8.7  # mg-oxidant consumed / mg-sulfide oxidised
 
     # ── Alkalinity (caustic) kinetics ─────────────────────────────
