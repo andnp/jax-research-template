@@ -1,9 +1,15 @@
 """Primary clarifier unit model.
 
-A simplified gravity settler for primary treatment. Removes TSS based
-on surface loading rate (SLR) with a Monod-type saturation:
+A simplified gravity settler for primary treatment. Removes TSS as a
+function of hydraulic retention time (HRT), using the empirical
+Crites & Tchobanoglous / Metcalf & Eddy correlation:
 
-    eta(SLR) = eta_max * K_SLR / (K_SLR + SLR)
+    R(t) = t / (a + b*t)
+
+with a=0.0075 h, b=0.014 h giving ~59% TSS removal at a 2.5 h HRT, in
+the observed 50-70% range for primary clarifiers (values as widely
+reproduced from Metcalf & Eddy's design tables, e.g.
+https://d3pcsg2wjq9izr.cloudfront.net/files/28606/download/33719/SanJose.pdf).
 
 Sludge accumulates at the bottom and must be wasted to prevent
 inventory build-up. The underflow TSS concentration depends on
@@ -22,8 +28,8 @@ from process_control._jax_dataclass import jax_dataclass
 class PrimaryClarifierParams:
     area: float = 500.0  # settling area (m²)
     depth: float = 3.0  # settler depth (m)
-    eta_max: float = 0.65  # max TSS removal efficiency at low SLR
-    k_slr: float = 1.5  # half-saturation SLR (m³/m²/h)
+    a_settle: float = 0.0075  # Crites & Tchobanoglous TSS removal constant (h)
+    b_settle: float = 0.014  # Crites & Tchobanoglous TSS removal constant (h)
     max_sludge_mass: float = 5e6  # kg — capacity limit (triggers overflow)
     min_underflow_tss: float = 5000.0  # g/m³ minimum underflow concentration
 
@@ -57,8 +63,9 @@ def step(
     Returns:
         (new_state, effluent_tss, underflow_tss, overflow)
     """
-    slr = q_feed / params.area
-    eta = params.eta_max * params.k_slr / (params.k_slr + slr)
+    # R(t) = t/(a+b*t) yields percent removal directly, per the source table.
+    hrt = params.area * params.depth / (q_feed + 1e-10)
+    eta = hrt / (params.a_settle + params.b_settle * hrt) / 100.0
 
     tss_removed = eta * feed_tss
     effluent_tss = feed_tss - tss_removed

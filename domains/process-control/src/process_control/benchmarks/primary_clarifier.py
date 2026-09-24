@@ -130,11 +130,10 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         src = source_reset(k1)
         clar = clarifier_reset(config.clarifier, k2)
         pump = actuator_reset(k3)
+        hrt_mean = config.clarifier.area * config.clarifier.depth / config.mean_flow
+        eta_mean = hrt_mean / (config.clarifier.a_settle + config.clarifier.b_settle * hrt_mean) / 100.0
         sensors = PrimaryClarifierSensorState(
-            eff_tss=LaggedSensorState.create(
-                config.tss_mean
-                * (1.0 - config.clarifier.eta_max * config.clarifier.k_slr / (config.clarifier.k_slr + config.mean_flow / config.clarifier.area))
-            ),
+            eff_tss=LaggedSensorState.create(config.tss_mean * (1.0 - eta_mean)),
             und_tss=LaggedSensorState.create(
                 jnp.maximum(
                     clar.sludge_mass / (config.clarifier.area * config.clarifier.depth) * 2.0,
@@ -153,7 +152,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         )
         obs = jnp.array(
             [
-                config.tss_mean * 0.35 / 100.0,
+                config.tss_mean * (1.0 - eta_mean) / 100.0,
                 config.clarifier.min_underflow_tss / 10000.0,
                 0.3,
                 1.0,
