@@ -45,7 +45,11 @@ from research_analysis.non_finite import require_finite
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
-from research_analysis.statistics import minimum_tolerance_samples, pointwise_tolerance_interval
+from research_analysis.statistics import (
+    minimum_tolerance_samples,
+    pointwise_tolerance_interval,
+    select_median_run_index,
+)
 
 
 def _block_label(block_key: BlockKey) -> str:
@@ -58,7 +62,7 @@ def _load_bakeoff_data(
     block_by: list[str],
     metric_name: str,
     measure: PerformanceMeasure,
-) -> dict[tuple[str, BlockKey], dict[int, float]]:
+) -> tuple[dict[tuple[str, BlockKey], dict[int, float]], dict[tuple[str, BlockKey, int], int]]:
     missing = [column for column in block_by if column not in dataset.runs.columns]
     if missing:
         raise ValueError(f"block_by columns not present in the dataset: {missing}")
@@ -81,7 +85,7 @@ def _load_bakeoff_data(
             raise duplicate_seed_error(cell, seed, (run_ids[(condition, block_key, seed)], row["run_id"]))
         run_ids[(condition, block_key, seed)] = int(row["run_id"])
         data_by_group.setdefault((condition, block_key), {})[seed] = float(row["value"])
-    return data_by_group
+    return data_by_group, run_ids
 
 
 @dataclass(frozen=True)
@@ -317,7 +321,9 @@ def _compute_bakeoff_statistics(
     )
 
 
-def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Generator) -> CellSummary:
+def _summarize_cell(
+    values: list[float], run_ids: list[int], spec: BakeoffSpec, rng: np.random.Generator
+) -> CellSummary:
     array = np.asarray(values, dtype=np.float64)
     min_runs = minimum_tolerance_samples(confidence=spec.tolerance_confidence, coverage=spec.tolerance_coverage)
     tolerance = None
@@ -326,7 +332,7 @@ def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Gener
             array, confidence=spec.tolerance_confidence, coverage=spec.tolerance_coverage
         )
         tolerance = (float(interval.ci_low), float(interval.ci_high))
-    empty = CellSummary(
+    summary = CellSummary(
         n=int(array.size),
         estimate=None,
         ci=None,
@@ -334,12 +340,19 @@ def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Gener
         sd=None,
         tolerance=tolerance,
         tolerance_min_runs=min_runs,
+        median_run_id=None,
     )
     if array.size == 0:
-        return empty
-    estimate = float(np.median(array) if spec.estimand == "median" else np.mean(array))
+        return summary
+
+    summary = replace(
+        summary,
+        estimate=float(np.median(array) if spec.estimand == "median" else np.mean(array)),
+        median_run_id=run_ids[select_median_run_index(array)],
+    )
     if array.size < 2:
-        return replace(empty, estimate=estimate)
+        return summary
+
     ci = bootstrap_scalar_ci(
         array,
         estimand=spec.estimand,
@@ -348,7 +361,7 @@ def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Gener
         min_samples=2,
         rng=rng,
     )
-    return replace(empty, estimate=estimate, ci=(ci.ci_low, ci.ci_high), sd=float(np.std(array, ddof=1)))
+    return replace(summary, ci=(ci.ci_low, ci.ci_high), sd=float(np.std(array, ddof=1)))
 
 
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
@@ -476,7 +489,7 @@ def bakeoff_report(
         comparison_metrics.append(champion_dataset.metrics)
 
     combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
-    data_by_group = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
+    data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
     comparison_statistics = _compute_bakeoff_statistics(data_by_group, conditions, block_keys, references, spec)
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
@@ -489,7 +502,8 @@ def bakeoff_report(
         for condition in conditions:
             seed_map = data_by_group.get((condition, block_key), {})
             values = list(seed_map.values())
-            cells[condition][label] = _summarize_cell(values, spec, cell_rng)
+            cell_run_ids = [run_ids[(condition, block_key, seed)] for seed in seed_map]
+            cells[condition][label] = _summarize_cell(values, cell_run_ids, spec, cell_rng)
 
             if not values:
                 continue

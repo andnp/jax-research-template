@@ -124,7 +124,7 @@ def _format_cell(cell: CellSummary) -> str:
         if cell.tolerance is not None
         else f" TI needs n≥{cell.tolerance_min_runs}"
     )
-    return f"{cell.estimate:.3g}{interval}{spread}{tolerance} (n={cell.n})"
+    return f"{cell.estimate:.3g}{interval}{spread}{tolerance} (n={cell.n}, median run {cell.median_run_id})"
 
 
 def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None:

@@ -69,6 +69,8 @@ class CellSummary:
     # None below tolerance_min_runs.
     tolerance: tuple[float, float] | None
     tolerance_min_runs: int
+    # The run whose score is closest to the cell median, as a representative curve to inspect.
+    median_run_id: int | None
 
 
 @dataclass(frozen=True)
