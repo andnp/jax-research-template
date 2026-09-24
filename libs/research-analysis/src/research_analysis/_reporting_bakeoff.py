@@ -14,6 +14,7 @@ from research_analysis._reporting_models import (
     BakeoffReport,
     BenchmarkBakeoffReport,
     BlockKey,
+    CellSummary,
     HyperparameterConfigReport,
     HyperparameterSliceReport,
     StatisticalTestDetails,
@@ -33,7 +34,7 @@ from research_analysis.aggregates import (
     performance_profile,
     probability_of_improvement,
 )
-from research_analysis.bootstrap import bootstrap_difference_ci
+from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
@@ -315,6 +316,30 @@ def _compute_bakeoff_statistics(
     )
 
 
+def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Generator) -> CellSummary:
+    if not values:
+        return CellSummary(n=0, estimate=None, ci=None, confidence=spec.confidence_level, sd=None)
+    array = np.asarray(values, dtype=np.float64)
+    estimate = float(np.median(array) if spec.estimand == "median" else np.mean(array))
+    if array.size < 2:
+        return CellSummary(n=1, estimate=estimate, ci=None, confidence=spec.confidence_level, sd=None)
+    interval = bootstrap_scalar_ci(
+        array,
+        estimand=spec.estimand,
+        confidence=spec.confidence_level,
+        n_resamples=spec.n_resamples,
+        min_samples=2,
+        rng=rng,
+    )
+    return CellSummary(
+        n=int(array.size),
+        estimate=estimate,
+        ci=(interval.ci_low, interval.ci_high),
+        confidence=spec.confidence_level,
+        sd=float(np.std(array, ddof=1)),
+    )
+
+
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
     predicate = pl.lit(True)
     for column, value in block_key:
@@ -443,9 +468,8 @@ def bakeoff_report(
     data_by_group = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
     comparison_statistics = _compute_bakeoff_statistics(data_by_group, conditions, block_keys, references, spec)
 
-    seed_counts: dict[str, dict[str, int]] = {condition: {} for condition in conditions}
-    cell_means: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
-    cell_variances: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
+    cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
+    cell_rng = np.random.default_rng(spec.random_seed)
     all_values = [value for seed_map in data_by_group.values() for value in seed_map.values()]
     cross_condition_range = float(max(all_values) - min(all_values)) if all_values else 0.0
 
@@ -454,9 +478,7 @@ def bakeoff_report(
         for condition in conditions:
             seed_map = data_by_group.get((condition, block_key), {})
             values = list(seed_map.values())
-            seed_counts[condition][label] = len(values)
-            cell_means[condition][label] = float(np.mean(values)) if values else float("nan")
-            cell_variances[condition][label] = float(np.var(values, ddof=1)) if len(values) > 1 else 0.0
+            cells[condition][label] = _summarize_cell(values, spec, cell_rng)
 
             if not values:
                 continue
@@ -494,9 +516,7 @@ def bakeoff_report(
         metric_name=metric_name,
         measure=measure,
         spec=spec,
-        seed_counts=seed_counts,
-        cell_means=cell_means,
-        cell_variances=cell_variances,
+        cells=cells,
         champions=champions or None,
         comparison=BenchmarkBakeoffReport(
             algorithms=conditions,

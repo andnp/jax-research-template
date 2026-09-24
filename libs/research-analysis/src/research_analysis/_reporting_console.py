@@ -9,6 +9,7 @@ from rich.text import Text
 
 from research_analysis._reporting_models import (
     BakeoffReport,
+    CellSummary,
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
@@ -113,24 +114,27 @@ def _present_slice_hypers(
     )
 
 
+def _format_cell(cell: CellSummary) -> str:
+    if cell.estimate is None:
+        return "— (n=0)"
+    interval = "" if cell.ci is None else f" [{cell.ci[0]:.3g}, {cell.ci[1]:.3g}]"
+    spread = "" if cell.sd is None else f" SD {cell.sd:.2g}"
+    return f"{cell.estimate:.3g}{interval}{spread} (n={cell.n})"
+
+
 def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None:
     console = Console()
     console.print()
     console.print(Panel(Text(f"🏆 BAKEOFF REPORT: {report.conditions}", style="bold cyan"), subtitle=f"Experiment: {experiment_slug}"))
 
-    blocks = sorted({label for per_condition in report.seed_counts.values() for label in per_condition})
-    table = Table(title=f"Cells ({report.metric_name})", show_header=True, header_style="bold magenta")
+    blocks = sorted({label for per_condition in report.cells.values() for label in per_condition})
+    title = f"Cells ({report.metric_name}: {report.spec.estimand} [{report.spec.confidence_level:.0%} CI], SD)"
+    table = Table(title=title, show_header=True, header_style="bold magenta")
     table.add_column("Condition")
     for label in blocks:
         table.add_column(label or "(no blocking)", justify="right")
     for condition in report.conditions:
-        row = [condition]
-        for label in blocks:
-            n = report.seed_counts[condition].get(label, 0)
-            mean = report.cell_means[condition].get(label, float("nan"))
-            var = report.cell_variances[condition].get(label, float("nan"))
-            row.append(f"{mean:.3g} ± {var:.2g} (n={n})")
-        table.add_row(*row)
+        table.add_row(condition, *[_format_cell(report.cells[condition][label]) for label in blocks])
     console.print(table)
 
     if report.champions is not None:

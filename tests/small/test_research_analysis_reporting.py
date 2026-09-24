@@ -171,7 +171,7 @@ def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: Experim
         bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
 
     # complete_case no longer raises -- it pairs down to the shared seeds {0, 1, 2}
-    # for the comparison itself, though seed_counts still reports each condition's
+    # for the comparison itself, though cells still report each condition's
     # own raw seed count (4), not the paired subset used by the statistical test.
     report = bakeoff_report(
         dataset,
@@ -180,8 +180,8 @@ def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: Experim
         verbose=False,
         spec=BakeoffSpec(missingness="complete_case", n_resamples=64),
     )
-    assert report.seed_counts["a"][""] == 4
-    assert report.seed_counts["b"][""] == 4
+    assert report.cells["a"][""].n == 4
+    assert report.cells["b"][""].n == 4
 
 
 def test_best_hypers_consumes_declared_sweep_axes(temp_experiment_setup: ExperimentSetup) -> None:
@@ -758,9 +758,9 @@ class TestBakeoffReport:
         report = bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
 
         assert report.champions is None
-        assert report.seed_counts["a"][""] == 6
-        assert report.cell_means["a"][""] == pytest.approx(5.0)
-        assert report.cell_means["b"][""] == pytest.approx(3.0)
+        assert report.cells["a"][""].n == 6
+        assert report.cells["a"][""].estimate == pytest.approx(5.0)
+        assert report.cells["b"][""].estimate == pytest.approx(3.0)
 
     def test_champion_selection_picks_the_right_config_per_condition_and_block(
         self, temp_experiment_setup: ExperimentSetup
@@ -977,4 +977,26 @@ class TestDeclaredMeasure:
         report = bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False, measure=TailMean(0.5))
 
         assert report.measure == TailMean(0.5)
-        assert report.cell_means["a"][""] == pytest.approx(5.0)
+        assert report.cells["a"][""].estimate == pytest.approx(5.0)
+
+
+class TestBakeoffCells:
+    def test_cells_report_estimate_interval_and_spread_but_no_variance(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """Each cell carries its estimand with a labelled percentile CI and SD for variability."""
+        setup = temp_experiment_setup
+        for seed, (value_a, value_b) in enumerate([(1.0, 0.0), (2.0, 0.5), (4.0, 1.0), (8.0, 1.5)]):
+            _add_observation(setup, {"condition_name": "a"}, seed, value_a)
+            _add_observation(setup, {"condition_name": "b"}, seed, value_b)
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b"], spec=BakeoffSpec(estimand="median", n_resamples=200), verbose=False
+        )
+
+        cell = report.cells["a"][""]
+        assert cell.n == 4
+        assert cell.estimate == pytest.approx(3.0)
+        assert cell.sd == pytest.approx(np.std([1.0, 2.0, 4.0, 8.0], ddof=1))
+        assert cell.confidence == pytest.approx(0.95)
+        assert cell.ci is not None and 1.0 <= cell.ci[0] <= cell.ci[1] <= 8.0

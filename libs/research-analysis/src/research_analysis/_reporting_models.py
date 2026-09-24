@@ -57,6 +57,17 @@ class HyperparameterSliceReport:
 
 
 @dataclass(frozen=True)
+class CellSummary:
+    """Distribution of one condition's per-run scores within one block; None where too few runs."""
+
+    n: int
+    estimate: float | None
+    ci: tuple[float, float] | None
+    confidence: float
+    sd: float | None
+
+
+@dataclass(frozen=True)
 class StatisticalTestDetails:
     test_name: str
     statistic: float
@@ -100,9 +111,8 @@ class BakeoffReport:
     metric_name: str
     measure: PerformanceMeasure
     spec: BakeoffSpec
-    seed_counts: dict[str, dict[str, int]]
-    cell_means: dict[str, dict[str, float]]
-    cell_variances: dict[str, dict[str, float]]
+    cells: dict[str, dict[str, CellSummary]]
+    """[condition][block label] -> that cell's per-run score summary, under ``spec.estimand``."""
     champions: dict[str, dict[str, HyperparameterConfigReport]] | None
     comparison: BenchmarkBakeoffReport
     warnings: tuple[BakeoffWarning, ...]
