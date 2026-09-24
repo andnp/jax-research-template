@@ -1,28 +1,51 @@
+import math
+
+import jax
 import jax.numpy as jnp
 from process_control.chemistry.ph_model import PhModelParams, compute_ph
 
 
 class TestPhModel:
-    def test_zero_excess_is_neutral(self) -> None:
-        """Zero base excess maps to neutral pH."""
-        result = compute_ph(jnp.array(0.0), PhModelParams())
+    def test_matches_strong_acid_base_closed_form_without_buffer(self) -> None:
+        """With no carbonate buffer, pH follows the exact strong acid/base charge balance.
 
-        assert jnp.allclose(result, 7.0)
+        The reference values are computed in double-precision Python floats:
+        float32 catastrophic cancellation in (-BE + sqrt(BE**2 + 4*Kw))/2 would
+        otherwise swamp the tiny Kw = 1e-14 term.
+        """
+        values = [-0.01, -0.001, 0.001, 0.01]
+        kw = 1e-14
+        expected = [-math.log10((-be + math.sqrt(be**2 + 4.0 * kw)) / 2.0) for be in values]
+
+        result = compute_ph(jnp.array(values), PhModelParams(buffer_capacity=0.0))
+
+        assert jnp.allclose(result, jnp.array(expected), atol=1e-3)
 
     def test_ph_is_finite_bounded_and_monotone(self) -> None:
-        """The titration curve stays physical while increasing with base excess."""
-        excess = jnp.array([-1.0, -0.1, 0.0, 0.1, 1.0])
+        """The titration curve stays physical while increasing with net base excess."""
+        excess = jnp.array([-0.02, -0.01, -0.001, 0.0, 0.001, 0.01, 0.02])
 
-        result = compute_ph(excess, PhModelParams(sensitivity=0.5))
+        result = compute_ph(excess, PhModelParams())
 
         assert jnp.all(jnp.isfinite(result))
         assert jnp.all((result > 0.0) & (result < 14.0))
         assert jnp.all(jnp.diff(result) > 0.0)
 
-    def test_sensitivity_widens_the_neutrality_transition(self) -> None:
-        """Larger sensitivity reduces pH displacement for the same excess."""
-        excess = jnp.array(0.1)
-        sharp = compute_ph(excess, PhModelParams(sensitivity=0.01))
-        wide = compute_ph(excess, PhModelParams(sensitivity=1.0))
+    def test_buffer_capacity_resists_ph_change(self) -> None:
+        """A larger carbonate buffer needs more net base to reach the same pH shift."""
+        excess = jnp.array(0.002)
+        low_buffer = compute_ph(excess, PhModelParams(buffer_capacity=0.001))
+        high_buffer = compute_ph(excess, PhModelParams(buffer_capacity=0.02))
 
-        assert jnp.abs(wide - 7.0) < jnp.abs(sharp - 7.0)
+        assert high_buffer < low_buffer
+
+    def test_jit_and_vmap_compatible(self) -> None:
+        """The Newton solve uses only fixed-count, data-independent iteration."""
+        excess = jnp.array([-0.01, 0.0, 0.01])
+        params = PhModelParams()
+
+        def f(x: jax.Array) -> jax.Array:
+            return compute_ph(x, params)
+
+        assert jnp.allclose(jax.jit(f)(excess), compute_ph(excess, params))
+        assert jnp.allclose(jax.vmap(f)(excess), compute_ph(excess, params))
