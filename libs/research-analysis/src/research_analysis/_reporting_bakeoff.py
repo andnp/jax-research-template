@@ -55,33 +55,22 @@ def _block_label(block_key: BlockKey) -> str:
 
 
 def _load_bakeoff_data(
-    dataset: ExperimentDataset,
-    conditions: list[str],
-    block_by: list[str],
+    block_datasets: list[tuple[BlockKey, ExperimentDataset]],
     metric_name: str,
     measure: PerformanceMeasure,
 ) -> tuple[dict[tuple[str, BlockKey], dict[int, float]], dict[tuple[str, BlockKey, int], int]]:
-    missing = [column for column in block_by if column not in dataset.runs.columns]
-    if missing:
-        raise ValueError(f"block_by columns not present in the dataset: {missing}")
-
-    scores = run_scores(dataset.metrics, metric_name, measure).select(["run_id", "value"])
-    joined = scores.join(
-        dataset.runs.select(["run_id", "seed", "condition_name", *block_by]),
-        on="run_id",
-        how="inner",
-    ).filter(pl.col("condition_name").is_in(conditions))
-
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     run_ids: dict[tuple[str, BlockKey, int], int] = {}
-    for row in joined.iter_rows(named=True):
-        block_key: BlockKey = tuple((column, row[column]) for column in block_by)
-        condition, seed = str(row["condition_name"]), int(row["seed"])
-        if (condition, block_key, seed) in run_ids:
-            cell = f"condition {condition!r} in block {_block_label(block_key)!r}"
-            raise duplicate_seed_error(cell, seed, (run_ids[(condition, block_key, seed)], row["run_id"]))
-        run_ids[(condition, block_key, seed)] = int(row["run_id"])
-        data_by_group.setdefault((condition, block_key), {})[seed] = float(row["value"])
+    for block_key, block_dataset in block_datasets:
+        scores = run_scores(block_dataset.metrics, metric_name, measure).select(["run_id", "value"])
+        joined = scores.join(block_dataset.runs.select(["run_id", "seed", "condition_name"]), on="run_id", how="inner")
+        for row in joined.iter_rows(named=True):
+            condition, seed = str(row["condition_name"]), int(row["seed"])
+            if (condition, block_key, seed) in run_ids:
+                cell = f"condition {condition!r} in block {_block_label(block_key)!r}"
+                raise duplicate_seed_error(cell, seed, (run_ids[(condition, block_key, seed)], row["run_id"]))
+            run_ids[(condition, block_key, seed)] = int(row["run_id"])
+            data_by_group.setdefault((condition, block_key), {})[seed] = float(row["value"])
     return data_by_group, run_ids
 
 
@@ -501,16 +490,14 @@ def bakeoff_report(
     warnings: list[BakeoffWarning] = []
     champions: dict[str, dict[str, HyperparameterConfigReport]] = {}
     champion_differences: list[PairedDifference] = []
-    comparison_runs: list[pl.DataFrame] = []
-    comparison_metrics: list[pl.DataFrame] = []
+    compared_blocks: list[tuple[BlockKey, ExperimentDataset]] = []
 
     for block_key in block_keys:
         block_dataset = _filter_dataset(dataset, _block_predicate(block_key)) if block_key else dataset
         cell = block_key
 
         if select_champion_over is None:
-            comparison_runs.append(block_dataset.runs)
-            comparison_metrics.append(block_dataset.metrics)
+            compared_blocks.append((block_key, block_dataset))
             continue
 
         tuned_records = _load_dataset_hyperparameter_records(
@@ -576,11 +563,9 @@ def bakeoff_report(
         champion_dataset = _filter_to_champions(
             block_dataset, {condition: report.winning_config for condition, report in block_champions.items()}
         )
-        comparison_runs.append(champion_dataset.runs)
-        comparison_metrics.append(champion_dataset.metrics)
+        compared_blocks.append((block_key, champion_dataset))
 
-    combined = replace(dataset, runs=pl.concat(comparison_runs), metrics=pl.concat(comparison_metrics))
-    data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
+    data_by_group, run_ids = _load_bakeoff_data(compared_blocks, metric_name, measure)
     omnibus: StatisticalTestDetails | None = None
     differences = tuple(champion_differences)
     if select_champion_over is None and spec.missingness == "error":
@@ -595,7 +580,7 @@ def bakeoff_report(
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
 
-    for block_key in block_keys:
+    for block_key, block_dataset in compared_blocks:
         label = _block_label(block_key)
         for condition in conditions:
             seed_map = data_by_group.get((condition, block_key), {})
@@ -624,11 +609,8 @@ def bakeoff_report(
                 if seeds_issue is not None:
                     warnings.append(seeds_issue)
 
-        block_metrics = _filter_dataset(combined, _block_predicate(block_key)).metrics
-        flat = flatline_flags(block_metrics, metric_name)
+        flat = flatline_flags(block_dataset.metrics, metric_name)
         for row in flat.filter(pl.col("flatlined")).iter_rows(named=True):
-            if row["condition_name"] not in conditions:
-                continue
             warnings.append(
                 BakeoffWarning(
                     BakeoffWarningCode.FLATLINED_LEARNING_CURVE,
