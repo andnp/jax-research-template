@@ -237,17 +237,7 @@ def add_hyperparam_config(
     params: Mapping[str, ParameterValue],
     vmap_zone: dict[str, list[str]] | None,
 ) -> int:
-    json_blob = json.dumps(params, sort_keys=True)
-    config_hash = _hash_dict(params)
-    vmap_json = json.dumps(vmap_zone, sort_keys=True) if vmap_zone is not None else None
-
-    conn.execute(
-        "INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
-        (config_hash, json_blob, vmap_json),
-    )
-    row = conn.execute("SELECT id FROM HyperparamConfigs WHERE hash = ?", (config_hash,)).fetchone()
-    assert row is not None
-    return int(row[0])
+    return _upsert_hyperparam_config(conn.cursor(), dict(params), vmap_zone)
 
 
 def get_hyperparam_config(conn: sqlite3.Connection, config_id: int) -> HyperparamConfigRow | None:
@@ -267,13 +257,9 @@ def get_hyperparam_config(conn: sqlite3.Connection, config_id: int) -> Hyperpara
 
 
 def add_experiment(conn: sqlite3.Connection, name: str, description: str | None) -> int:
-    cur = conn.execute(
-        "INSERT INTO Experiments(name, description) VALUES (?, ?)",
-        (name, description),
-    )
-    if cur.lastrowid is None:
-        raise RuntimeError("Insert failed: no experiment ID returned.")
-    return int(cur.lastrowid)
+    if get_experiment(conn, name) is not None:
+        raise sqlite3.IntegrityError(f"Experiment {name!r} already exists.")
+    return _upsert_experiment(conn.cursor(), name, description)
 
 
 def get_experiment(conn: sqlite3.Connection, name: str) -> ExperimentRow | None:
