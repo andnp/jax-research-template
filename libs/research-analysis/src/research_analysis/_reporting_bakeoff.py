@@ -17,6 +17,7 @@ from research_analysis._reporting_models import (
     CellSummary,
     HyperparameterConfigReport,
     HyperparameterSliceReport,
+    PairedDifference,
     StatisticalTestDetails,
 )
 from research_analysis._reporting_plots import _plot_bakeoff
@@ -88,10 +89,83 @@ def _load_bakeoff_data(
 class _BakeoffStatistics:
     normalized_scores: dict[str, dict[str, float]]
     omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float | None]]
-    difference_estimate: dict[str, dict[str, float | None]]
-    difference_ci: dict[str, dict[str, tuple[float, float] | None]]
+    differences: tuple[PairedDifference, ...]
     score_curves: dict[str, tuple[list[float], list[float]]]
+
+
+def _paired_differences(
+    scores: dict[tuple[str, BlockKey], dict[int, float]],
+    conditions: list[str],
+    block_keys: list[BlockKey],
+    spec: BakeoffSpec,
+    rng: np.random.Generator,
+) -> tuple[PairedDifference, ...]:
+    """Compare every pair of conditions within each block, never pooling runs across blocks."""
+    planned: list[PairedDifference] = []
+    for block_key in block_keys:
+        for index, minuend in enumerate(conditions):
+            for subtrahend in conditions[index + 1 :]:
+                planned.append(_paired_difference(scores, minuend, subtrahend, block_key, spec, rng))
+
+    adjusted = iter(holm_step_down([item.p_value for item in planned if item.p_value is not None]))
+    return tuple(item if item.p_value is None else replace(item, p_value=next(adjusted)) for item in planned)
+
+
+def _paired_difference(
+    scores: dict[tuple[str, BlockKey], dict[int, float]],
+    minuend: str,
+    subtrahend: str,
+    block_key: BlockKey,
+    spec: BakeoffSpec,
+    rng: np.random.Generator,
+) -> PairedDifference:
+    runs_a = scores.get((minuend, block_key), {})
+    runs_b = scores.get((subtrahend, block_key), {})
+    seeds = sorted(set(runs_a) & set(runs_b))
+    skipped = PairedDifference(
+        minuend=minuend,
+        subtrahend=subtrahend,
+        block=_block_label(block_key),
+        estimate=None,
+        ci=None,
+        confidence=spec.confidence_level,
+        n_paired=len(seeds),
+        method="paired percentile bootstrap",
+        p_value=None,
+        skipped_reason=f"only {len(seeds)} paired runs, fewer than min_samples={spec.min_samples}",
+    )
+    if len(seeds) < spec.min_samples:
+        return skipped
+
+    values_a = np.array([runs_a[seed] for seed in seeds])
+    values_b = np.array([runs_b[seed] for seed in seeds])
+    test = run_permutation_test(
+        values_a,
+        values_b,
+        estimand=spec.estimand,
+        pairing="paired",
+        alpha=spec.alpha,
+        n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        rng=rng,
+    )
+    interval = bootstrap_difference_ci(
+        values_a,
+        values_b,
+        estimand=spec.estimand,
+        pairing="paired",
+        confidence=spec.confidence_level,
+        n_resamples=spec.n_resamples,
+        min_samples=spec.min_samples,
+        rng=rng,
+    )
+    return replace(
+        skipped,
+        estimate=interval.estimate,
+        ci=(interval.ci_low, interval.ci_high),
+        p_value=test.p_value,
+        skipped_reason=None,
+    )
 
 
 def _compute_bakeoff_statistics(
@@ -173,70 +247,7 @@ def _compute_bakeoff_statistics(
         rng=rng,
     )
 
-    raw_posthoc: dict[tuple[str, str], float] = {}
-    raw_difference: dict[tuple[str, str], float] = {}
-    raw_difference_ci: dict[tuple[str, str], tuple[float, float]] = {}
-    for i, condition_a in enumerate(conditions):
-        for j, condition_b in enumerate(conditions):
-            if i >= j:
-                continue
-            paired_a = []
-            paired_b = []
-            for block_key, seed in row_keys:
-                va = normalized.get((condition_a, block_key), {}).get(seed)
-                vb = normalized.get((condition_b, block_key), {}).get(seed)
-                if va is not None and vb is not None:
-                    paired_a.append(va)
-                    paired_b.append(vb)
-            values_a = np.array(paired_a)
-            values_b = np.array(paired_b)
-            if len(paired_a) < spec.min_samples:
-                continue
-            result = run_permutation_test(
-                values_a,
-                values_b,
-                estimand=spec.estimand,
-                pairing="paired",
-                alpha=spec.alpha,
-                n_resamples=spec.n_resamples,
-                min_samples=spec.min_samples,
-                rng=rng,
-            )
-            raw_posthoc[(condition_a, condition_b)] = result.p_value
-            raw_difference[(condition_a, condition_b)] = result.statistic
-            interval = bootstrap_difference_ci(
-                values_a,
-                values_b,
-                estimand=spec.estimand,
-                pairing="paired",
-                confidence=spec.confidence_level,
-                n_resamples=spec.n_resamples,
-                min_samples=spec.min_samples,
-                rng=rng,
-            )
-            raw_difference_ci[(condition_a, condition_b)] = (interval.ci_low, interval.ci_high)
-
-    adjusted_values = holm_step_down(list(raw_posthoc.values()))
-    posthoc = {
-        condition: {other: 1.0 if condition == other else None for other in conditions}
-        for condition in conditions
-    }
-    for (condition_a, condition_b), adjusted in zip(raw_posthoc, adjusted_values, strict=True):
-        posthoc[condition_a][condition_b] = adjusted
-        posthoc[condition_b][condition_a] = adjusted
-
-    difference_estimate: dict[str, dict[str, float | None]] = {
-        condition: {other: None for other in conditions} for condition in conditions
-    }
-    difference_ci: dict[str, dict[str, tuple[float, float] | None]] = {
-        condition: {other: None for other in conditions} for condition in conditions
-    }
-    for (condition_a, condition_b), diff in raw_difference.items():
-        ci_low, ci_high = raw_difference_ci[(condition_a, condition_b)]
-        difference_estimate[condition_a][condition_b] = diff
-        difference_estimate[condition_b][condition_a] = -diff
-        difference_ci[condition_a][condition_b] = (ci_low, ci_high)
-        difference_ci[condition_b][condition_a] = (-ci_high, -ci_low)
+    differences = _paired_differences(normalized, conditions, block_keys, spec, rng)
 
     score_curves = {}
     for condition in conditions:
@@ -269,9 +280,7 @@ def _compute_bakeoff_statistics(
             justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
             intermediate_tests={},
         ),
-        posthoc_matrix=posthoc,
-        difference_estimate=difference_estimate,
-        difference_ci=difference_ci,
+        differences=differences,
         score_curves=score_curves,
     )
 
@@ -501,11 +510,9 @@ def bakeoff_report(
             environments=[_block_label(block_key) for block_key in block_keys],
             normalized_scores=comparison_statistics.normalized_scores,
             omnibus_details=comparison_statistics.omnibus_details,
-            posthoc_matrix=comparison_statistics.posthoc_matrix,
-            difference_estimate=comparison_statistics.difference_estimate,
-            difference_ci=comparison_statistics.difference_ci,
             aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
         ),
+        differences=comparison_statistics.differences,
         warnings=warnings.as_tuple(),
     )
 

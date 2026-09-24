@@ -156,7 +156,7 @@ def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: Experim
 
     report = bakeoff_report(_load(setup), "metric", ["baseline", "candidate"], verbose=False)
 
-    diff = report.comparison.difference_estimate["baseline"]["candidate"]
+    diff = report.difference("baseline", "candidate").estimate
     assert diff is not None
     assert diff == pytest.approx(-50.0)
 
@@ -669,11 +669,11 @@ def test_bakeoff_report_accepts_two_conditions(temp_experiment_setup: Experiment
     )
 
     assert report.conditions == algorithms
-    assert report.comparison.posthoc_matrix["ppo"]["sac"] == report.comparison.posthoc_matrix["sac"]["ppo"]
+    assert report.difference("ppo", "sac", "cartpole").p_value == report.difference("sac", "ppo", "cartpole").p_value
 
 
 def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experiment_setup: ExperimentSetup) -> None:
-    """difference_estimate/difference_ci must be antisymmetric and carry a magnitude, not just a p-value."""
+    """Differences must read antisymmetrically and carry a magnitude, not just a p-value."""
     setup = temp_experiment_setup
     for algorithm, base in (("ppo", 5.0), ("sac", 3.0)):
         for seed in range(6):
@@ -690,10 +690,10 @@ def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experim
     )
 
     # references=(0, 10) normalizes scores, so the raw +2.0 gap becomes +0.2 here.
-    assert report.comparison.difference_estimate["ppo"]["sac"] == pytest.approx(0.2, abs=0.01)
-    assert report.comparison.difference_estimate["sac"]["ppo"] == pytest.approx(-0.2, abs=0.01)
-    ppo_ci = report.comparison.difference_ci["ppo"]["sac"]
-    sac_ci = report.comparison.difference_ci["sac"]["ppo"]
+    assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(0.2, abs=0.01)
+    assert report.difference("sac", "ppo", "cartpole").estimate == pytest.approx(-0.2, abs=0.01)
+    ppo_ci = report.difference("ppo", "sac", "cartpole").ci
+    sac_ci = report.difference("sac", "ppo", "cartpole").ci
     assert ppo_ci is not None
     assert sac_ci is not None
     assert sac_ci[0] == pytest.approx(-ppo_ci[1])
@@ -1060,3 +1060,21 @@ def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: Experime
     )
 
     assert report.cells["a"]["low"].n == 3
+
+
+class TestPairedDifferences:
+    def test_an_underpowered_pair_is_reported_as_skipped(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A pair with fewer paired runs than min_samples stays in the report with its reason."""
+        setup = temp_experiment_setup
+        for condition, seeds in (("a", range(4)), ("b", range(4)), ("c", range(2))):
+            for seed in seeds:
+                _add_observation(setup, {"condition_name": condition}, seed, float(seed) + len(condition))
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+        )
+
+        skipped = report.difference("a", "c")
+        assert (skipped.estimate, skipped.ci, skipped.p_value, skipped.n_paired) == (None, None, None, 2)
+        assert skipped.skipped_reason is not None and "min_samples=3" in skipped.skipped_reason
+        assert [(item.minuend, item.subtrahend) for item in report.differences] == [("a", "b"), ("a", "c"), ("b", "c")]

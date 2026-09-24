@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +74,33 @@ class CellSummary:
 
 
 @dataclass(frozen=True)
+class PairedDifference:
+    """``minuend`` minus ``subtrahend`` in one block, paired by seed; estimate None when the pair was skipped."""
+
+    minuend: str
+    subtrahend: str
+    block: str
+    estimate: float | None
+    ci: tuple[float, float] | None
+    confidence: float
+    n_paired: int
+    method: str
+    # Holm-adjusted across the report's comparison family.
+    p_value: float | None
+    skipped_reason: str | None
+
+    def reversed(self) -> PairedDifference:
+        """The same comparison read as ``subtrahend`` minus ``minuend``."""
+        return replace(
+            self,
+            minuend=self.subtrahend,
+            subtrahend=self.minuend,
+            estimate=None if self.estimate is None else -self.estimate,
+            ci=None if self.ci is None else (-self.ci[1], -self.ci[0]),
+        )
+
+
+@dataclass(frozen=True)
 class StatisticalTestDetails:
     test_name: str
     statistic: float
@@ -91,11 +118,6 @@ class BenchmarkBakeoffReport:
     environments: list[str]
     normalized_scores: dict[str, dict[str, float]]
     omnibus_details: StatisticalTestDetails
-    posthoc_matrix: dict[str, dict[str, float | None]]
-    difference_estimate: dict[str, dict[str, float | None]]
-    """[condition_a][condition_b] = condition_a's estimand minus condition_b's, paired by
-    (block, seed); None where fewer than min_samples paired observations were shared."""
-    difference_ci: dict[str, dict[str, tuple[float, float] | None]]
     aggregate_plot_path: Path | None
 
 
@@ -115,7 +137,20 @@ class BakeoffReport:
     """[condition][block label] -> that cell's per-run score summary, under ``spec.estimand``."""
     champions: dict[str, dict[str, HyperparameterConfigReport]] | None
     comparison: BenchmarkBakeoffReport
+    differences: tuple[PairedDifference, ...]
+    """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
     warnings: tuple[BakeoffWarning, ...]
+
+    def difference(self, minuend: str, subtrahend: str, block: str = "") -> PairedDifference:
+        """Return the ``minuend - subtrahend`` comparison in ``block`` (a block label; "" when unblocked)."""
+        for item in self.differences:
+            if item.block != block:
+                continue
+            if (item.minuend, item.subtrahend) == (minuend, subtrahend):
+                return item
+            if (item.minuend, item.subtrahend) == (subtrahend, minuend):
+                return item.reversed()
+        raise KeyError(f"no comparison of {minuend!r} and {subtrahend!r} in block {block!r}")
 
 
 BlockKey = tuple[tuple[str, object], ...]

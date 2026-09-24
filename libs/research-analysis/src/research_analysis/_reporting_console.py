@@ -163,22 +163,21 @@ def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None
     else:
         console.print(Panel(Text("No warnings."), style="green"))
 
-    diff_table = Table(title="Pairwise differences", show_header=True, header_style="bold magenta")
+    confidences = sorted({item.confidence for item in report.differences})
+    diff_table = Table(title="Paired differences by block", show_header=True, header_style="bold magenta")
+    diff_table.add_column("Block")
     diff_table.add_column("A")
     diff_table.add_column("B")
     diff_table.add_column("A − B")
-    diff_table.add_column("95% CI")
+    diff_table.add_column(" / ".join(f"{confidence * 100:.4g}%" for confidence in confidences) + " CI")
+    diff_table.add_column("n")
     diff_table.add_column("Holm p")
-    seen: set[tuple[str, str]] = set()
-    for condition_a in report.conditions:
-        for condition_b in report.conditions:
-            if condition_a == condition_b or (condition_b, condition_a) in seen:
-                continue
-            seen.add((condition_a, condition_b))
-            diff = report.comparison.difference_estimate[condition_a][condition_b]
-            ci = report.comparison.difference_ci[condition_a][condition_b]
-            p_value = report.comparison.posthoc_matrix[condition_a][condition_b]
-            if diff is None or ci is None:
-                continue
-            diff_table.add_row(condition_a, condition_b, f"{diff:+.3g}", f"[{ci[0]:+.3g}, {ci[1]:+.3g}]", f"{p_value:.4f}" if p_value is not None else "—")
+    diff_table.add_column("Method / note")
+    for item in report.differences:
+        if item.estimate is None or item.ci is None:
+            diff_table.add_row(item.block or "(no blocking)", item.minuend, item.subtrahend, "—", "—", str(item.n_paired), "—", f"skipped: {item.skipped_reason}")
+            continue
+        p_value = "—" if item.p_value is None else f"{item.p_value:.4f}"
+        interval = f"[{item.ci[0]:+.3g}, {item.ci[1]:+.3g}]"
+        diff_table.add_row(item.block or "(no blocking)", item.minuend, item.subtrahend, f"{item.estimate:+.3g}", interval, str(item.n_paired), p_value, item.method)
     console.print(diff_table)
