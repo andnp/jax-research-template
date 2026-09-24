@@ -51,9 +51,9 @@ from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_components.distributions import TanhNormalDiag
 from rl_components.env_protocol import EnvSpec
 from rl_components.losses import qrc_terms
-from rl_components.networks import TanhNormalDiag
 from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep

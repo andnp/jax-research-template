@@ -9,7 +9,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jax_nn.typed_module import TypedApply
-from rl_components.networks import TanhNormalDiag
+from rl_components.distributions import TanhNormalDiag
 
 
 def _activation_fn(name: str) -> Callable[[jax.Array], jax.Array]:

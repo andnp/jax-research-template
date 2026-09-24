@@ -6,7 +6,7 @@ import distrax
 import jax
 import jax.numpy as jnp
 from rl_agents.sac import Actor, Critic, SACConfig
-from rl_components.networks import TanhNormalDiag
+from rl_components.distributions import TanhNormalDiag
 
 
 class _MutableSACConfig(Protocol):
