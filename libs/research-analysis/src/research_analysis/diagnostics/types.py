@@ -1,4 +1,4 @@
-"""Structured diagnostics for experiment dataset loading."""
+"""Structured diagnostics for experiment dataset loading and analysis preconditions."""
 
 from __future__ import annotations
 
@@ -37,6 +37,23 @@ class DatasetLoadError(ValueError):
     def __init__(self, diagnostics: tuple[DatasetDiagnostic, ...]) -> None:
         self.diagnostics = diagnostics
         super().__init__("experiment dataset loading failed: " + "; ".join(d.message for d in diagnostics))
+
+
+@dataclass(frozen=True)
+class InsufficientDataCell:
+    """One place an analysis needed more observed data than the dataset provided."""
+
+    coordinates: dict[str, str]
+    required: str
+    observed: str
+
+
+class InsufficientDataError(ValueError):
+    """Raised when an analysis' data-dependent precondition fails, never for a programmer error."""
+
+    def __init__(self, message: str, cells: tuple[InsufficientDataCell, ...] = ()) -> None:
+        self.cells = cells
+        super().__init__(message)
 
 
 FATAL_DIAGNOSTIC_CODES = frozenset(
