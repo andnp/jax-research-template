@@ -113,13 +113,6 @@ class StatisticalTestDetails:
 
 
 @dataclass(frozen=True)
-class BenchmarkBakeoffReport:
-    algorithms: list[str]
-    environments: list[str]
-    omnibus_details: StatisticalTestDetails
-
-
-@dataclass(frozen=True)
 class BakeoffReport:
     """A repeatable bakeoff analysis: champion selection, comparison, and caveats in one call.
 
@@ -134,7 +127,9 @@ class BakeoffReport:
     cells: dict[str, dict[str, CellSummary]]
     """[condition][block label] -> that cell's per-run score summary, under ``spec.estimand``."""
     champions: dict[str, dict[str, HyperparameterConfigReport]] | None
-    comparison: BenchmarkBakeoffReport
+    blocks: list[str]
+    """Block labels in report order; "" when the report has no blocking axes."""
+    omnibus: StatisticalTestDetails
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
     distribution_plot_paths: dict[str, Path]

@@ -10,7 +10,6 @@ from research_analysis._reporting_bakeoff import bakeoff_report as bakeoff_repor
 from research_analysis._reporting_hypers import best_hypers as best_hypers
 from research_analysis._reporting_hypers import slice_hypers as slice_hypers
 from research_analysis._reporting_models import BakeoffReport as BakeoffReport
-from research_analysis._reporting_models import BenchmarkBakeoffReport as BenchmarkBakeoffReport
 from research_analysis._reporting_models import BlockKey as BlockKey
 from research_analysis._reporting_models import HyperparameterConfigReport as HyperparameterConfigReport
 from research_analysis._reporting_models import HyperparameterDifferenceReport as HyperparameterDifferenceReport

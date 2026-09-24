@@ -21,7 +21,6 @@ from research_analysis.diagnostics.bakeoff import BakeoffWarningCode
 from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import ReturnRate, TailMean
 from research_analysis.reporting import (
-    BenchmarkBakeoffReport,
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
@@ -594,9 +593,8 @@ def test_bakeoff_report_consumes_canonical_environment_dimension(temp_experiment
         verbose=False,
     )
 
-    assert isinstance(report.comparison, BenchmarkBakeoffReport)
     assert report.conditions == algorithms
-    assert sorted(report.comparison.environments) == sorted(environments)
+    assert sorted(report.blocks) == sorted(environments)
 
 
 def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: ExperimentSetup) -> None:
@@ -618,7 +616,7 @@ def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: Exp
         verbose=False,
     )
 
-    assert report.comparison.omnibus_details.assumptions["has_missing"] is True
+    assert report.omnibus.assumptions["has_missing"] is True
 
 
 def test_bakeoff_report_cells_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:

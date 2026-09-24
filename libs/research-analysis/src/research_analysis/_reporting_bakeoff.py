@@ -12,7 +12,6 @@ from research_analysis._reporting_console import _present_bakeoff_report
 from research_analysis._reporting_hypers import _load_dataset_hyperparameter_records, best_hypers
 from research_analysis._reporting_models import (
     BakeoffReport,
-    BenchmarkBakeoffReport,
     BlockKey,
     CellSummary,
     HyperparameterConfigReport,
@@ -471,11 +470,8 @@ def bakeoff_report(
         spec=spec,
         cells=cells,
         champions=champions or None,
-        comparison=BenchmarkBakeoffReport(
-            algorithms=conditions,
-            environments=[_block_label(block_key) for block_key in block_keys],
-            omnibus_details=comparison_statistics.omnibus_details,
-        ),
+        blocks=[_block_label(block_key) for block_key in block_keys],
+        omnibus=comparison_statistics.omnibus_details,
         differences=comparison_statistics.differences,
         distribution_plot_paths=_plot_run_distributions(
             {
