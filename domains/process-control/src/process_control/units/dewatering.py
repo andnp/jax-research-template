@@ -78,9 +78,13 @@ def step(
     solids_captured = solids_in * capture
     solids_lost = solids_in - solids_captured
 
-    # Filtrate
-    q_filtrate = q_actual * (1.0 - dryness * capture * feed_tss / 1e6)
-    q_filtrate = jnp.maximum(q_filtrate, 0.0)
+    # Cake volumetric flow: dry-solids mass flow divided by (dryness fraction
+    # * cake bulk density), not multiplied — a cake at lower dryness carries
+    # more water per unit dry solids, so it takes a *larger* volume to remove
+    # the same captured mass. Bulk density approximated as water's (1e6 g/m³);
+    # filtrate is whatever volume isn't carried out in the cake.
+    q_cake = q_actual * feed_tss * capture / (dryness * 1e6 + 1e-10)
+    q_filtrate = jnp.maximum(q_actual - q_cake, 0.0)
     filtrate_tss = jnp.where(
         q_filtrate > 0.0,
         solids_lost * 1e3 / (q_filtrate * dt + 1e-10),  # g/m³

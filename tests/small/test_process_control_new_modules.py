@@ -142,6 +142,30 @@ class TestDewateringUnit:
         s2, dry, filt, q = jit_step(state)
         assert jnp.isfinite(dry)
 
+    def test_water_and_solids_mass_balance(self) -> None:
+        """Cake + filtrate flow must reconstruct the actual throughput, and
+        captured + lost solids must reconstruct solids fed in — catches the
+        cake-volume formula silently destroying or creating mass."""
+        params = DewateringParams()
+        state = dw_reset(params, jax.random.PRNGKey(0))
+        feed_tss = jnp.array(10000.0)
+        q_feed = jnp.array(30.0)
+        belt_speed = jnp.array(0.8)
+        dt = jnp.array(0.05)
+
+        new_state, dryness, filtrate_tss, q_filtrate = dw_step(
+            state, feed_tss, q_feed, jnp.array(5.0), belt_speed, params, dt,
+        )
+
+        q_actual = jnp.minimum(q_feed, belt_speed * params.max_throughput)
+        cake_mass_flow = (new_state.cake_produced - state.cake_produced) / dt  # kg/h
+        implied_q_cake = cake_mass_flow / (dryness * 1000.0)  # kg/h / (kg/m3)
+        assert jnp.allclose(implied_q_cake + q_filtrate, q_actual, rtol=1e-5)
+
+        solids_in = feed_tss * q_actual * dt / 1e3
+        solids_lost = filtrate_tss * q_filtrate * dt / 1e3
+        assert jnp.allclose((new_state.cake_produced - state.cake_produced) + solids_lost, solids_in, rtol=1e-5)
+
 
 # ---------------------------------------------------------------------------
 # Unit model: Membrane
