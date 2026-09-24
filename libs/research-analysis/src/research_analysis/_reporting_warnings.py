@@ -22,7 +22,8 @@ def boundary_warning(
     performance is still trending toward that edge over the grid's outer half, not
     merely plateaued there. A champion at the edge with an interior peak elsewhere
     (or a plateau right at the edge) is not flagged: only a still-climbing trend
-    means the true optimum may lie outside the swept range.
+    means the true optimum may lie outside the swept range. Only meaningful for numeric
+    axes, whose values have an order; unordered string or boolean axes have no edge.
     """
     values = report.values
     performance = report.best_performance

@@ -785,16 +785,7 @@ class TestBakeoffReport:
 
     def test_flags_a_boundary_champion_on_a_coarse_grid(self, temp_experiment_setup: ExperimentSetup) -> None:
         """Only two swept values: whichever wins is necessarily at an edge of the grid."""
-        setup = temp_experiment_setup
-        for learning_rate, value in (("low", 1.0), ("high", 5.0)):
-            for seed in range(6):
-                _add_curve_observation(
-                    setup, {"condition_name": "a", "learning_rate": learning_rate}, seed, [value] * 3
-                )
-        for learning_rate in ("low", "high"):
-            for seed in range(6):
-                _add_curve_observation(setup, {"condition_name": "b", "learning_rate": learning_rate}, seed, [1.0, 1.0, 1.0])
-        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+        dataset = self._two_value_sweep(temp_experiment_setup, (1e-4, 1e-2), SweepValueType.FLOAT)
 
         report = bakeoff_report(
             dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], verbose=False
@@ -802,6 +793,30 @@ class TestBakeoffReport:
 
         boundary_warnings = [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
         assert any(w.condition == "a" for w in boundary_warnings)
+
+    def test_never_flags_a_boundary_on_an_unordered_axis(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """String values have no grid edge; sorting them alphabetically would invent one."""
+        dataset = self._two_value_sweep(temp_experiment_setup, ("low", "high"), SweepValueType.STRING)
+
+        report = bakeoff_report(
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], verbose=False
+        )
+
+        assert not [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
+
+    @staticmethod
+    def _two_value_sweep(
+        setup: ExperimentSetup, values: tuple[ParameterValue, ParameterValue], value_type: SweepValueType
+    ) -> ExperimentDataset:
+        for learning_rate, value in zip(values, (1.0, 5.0), strict=True):
+            for seed in range(6):
+                _add_curve_observation(
+                    setup, {"condition_name": "a", "learning_rate": learning_rate}, seed, [value] * 3
+                )
+        for learning_rate in values:
+            for seed in range(6):
+                _add_curve_observation(setup, {"condition_name": "b", "learning_rate": learning_rate}, seed, [1.0, 1.0, 1.0])
+        return _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", value_type),)))
 
 
 class TestNonFiniteChampionInputs:

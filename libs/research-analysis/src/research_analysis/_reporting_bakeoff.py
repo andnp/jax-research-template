@@ -29,7 +29,7 @@ from research_analysis._reporting_warnings import (
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
-from research_analysis.dataset.types import ExperimentDataset
+from research_analysis.dataset.types import ExperimentDataset, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
@@ -78,6 +78,7 @@ def _load_bakeoff_data(
     return data_by_group, run_ids
 
 
+_ORDERED_VALUE_TYPES = frozenset({SweepValueType.INTEGER, SweepValueType.FLOAT})
 _PAIRED_METHOD = "paired percentile bootstrap"
 _CHAMPION_METHOD = "hierarchical per-sample bootstrap, selection included"
 _CHAMPION_TESTS_SKIPPED = (
@@ -411,6 +412,13 @@ def bakeoff_report(
             f"{sorted(declared_axes)}, got {sorted(select_champion_over)}"
         )
 
+    # Only numeric axes have grid edges; string and boolean values carry no declared order.
+    ordered_axes = [
+        axis.name
+        for axis in dataset.dimensions.sweep_axes
+        if axis.name in (select_champion_over or ()) and axis.value_type in _ORDERED_VALUE_TYPES
+    ]
+
     block_keys: list[BlockKey] = (
         [tuple((column, row[column]) for column in block_by) for row in dataset.runs.select(block_by).unique().sort(block_by).iter_rows(named=True)]
         if block_by
@@ -476,7 +484,7 @@ def bakeoff_report(
         block_champions = {key[0]: report for key, report in raw_champions.items() if key[0] in conditions}
         champions[_block_label(block_key)] = block_champions
 
-        for axis in select_champion_over:
+        for axis in ordered_axes:
             # Raw per-value means, not best_hypers/slice_hypers: those require at least one
             # OTHER declared axis to search over while vary is grouped out, which a
             # single-axis sweep (very common) can never satisfy.
