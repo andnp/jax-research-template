@@ -90,6 +90,25 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
     tmp_target = jnp.array(config.tmp_target)
     area = jnp.array(config.membrane.area)
 
+    def _observe(
+        sensed_tmp: jax.Array,
+        perm_ratio: jax.Array,
+        q_permeate: jax.Array,
+        air_scour: jax.Array,
+        hours_since_bw: jax.Array,
+        feed_tss: jax.Array,
+    ):
+        return jnp.array(
+            [
+                sensed_tmp / max_tmp,
+                perm_ratio,
+                q_permeate / (flux_max * area),
+                air_scour,
+                hours_since_bw,
+                feed_tss / 1000.0,
+            ]
+        )
+
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         mem = membrane_reset(config.membrane, k1)
@@ -101,7 +120,14 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             tmp_sensor=tmp_sensor,
             last_feed_tss=jnp.array(config.feed_tss_mean),
         )
-        obs = jnp.zeros(6)
+        obs = _observe(
+            tmp_sensor.held_value,
+            jnp.array(1.0),
+            jnp.array(0.0),
+            jnp.array(0.0),
+            mem.hours_since_bw,
+            jnp.array(config.feed_tss_mean),
+        )
         return state, obs
 
     def step(state: MembraneFoulingBenchState, action: jax.Array, rng_key: jax.Array):
@@ -136,16 +162,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         perm_ratio = config.membrane.r_membrane / (r_total + 1e-10)
 
         # 6. Observation
-        obs = jnp.array(
-            [
-                sensed_tmp / max_tmp,
-                perm_ratio,
-                q_permeate / (flux_max * area),
-                air_scour,
-                new_mem.hours_since_bw,
-                feed_tss / 1000.0,
-            ]
-        )
+        obs = _observe(sensed_tmp, perm_ratio, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss)
 
         # 7. Reward: throughput benefit minus costs
         tmp_violation = jnp.maximum(sensed_tmp - tmp_target, 0.0)

@@ -64,3 +64,13 @@ def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
     assert obs.shape == (200, entry.obs_dim)
     assert jnp.all(jnp.isfinite(obs))
     assert jnp.all(jnp.isfinite(reward))
+
+
+@pytest.mark.parametrize("name", ["membrane_fouling"])
+def test_selected_registry_resets_report_initial_observation(name: str) -> None:
+    """Selected benchmark resets expose their initialized observation."""
+    entry = next(item for item in BENCHMARK_REGISTRY if item.name == name)
+    (reset, _), _config = _make_benchmark(entry)
+    _state, obs = reset(jax.random.PRNGKey(3))
+
+    assert jnp.any(obs != 0.0)
