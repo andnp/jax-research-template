@@ -22,9 +22,17 @@ from research_analysis.dataset.types import (
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
 from research_analysis.performance import TailMean
 from research_analysis.plan import AnalysisPlan, BakeoffAnalysis
-from research_analysis.report import BakeoffResult, PlanStatus, ReportStatus, exploratory_report
+from research_analysis.report import (
+    AnalysisResult,
+    BakeoffResult,
+    BestHypersResult,
+    PlanStatus,
+    ReportStatus,
+    exploratory_report,
+)
 from research_analysis.report_json import plan_fingerprint, report_to_json
-from research_analysis.reporting import bakeoff_report
+from research_analysis.report_markdown import render_markdown
+from research_analysis.reporting import HyperparameterConfigReport, bakeoff_report
 
 
 def _dataset(scores: dict[str, list[float]], diagnostics: tuple[DatasetDiagnostic, ...] = ()) -> ExperimentDataset:
@@ -149,3 +157,74 @@ class TestPlanFingerprint:
         plan = AnalysisPlan("return", (BakeoffAnalysis("h", ("a", "b")),), ExperimentDimensions())
 
         assert plan_fingerprint(plan) != plan_fingerprint(replace(plan, measure=TailMean(0.1)))
+
+
+def _markdown(dataset: ExperimentDataset, results: list[AnalysisResult]) -> str:
+    return render_markdown(exploratory_report(dataset, Path("experiments.sqlite"), results))
+
+
+class TestReportMarkdown:
+    def test_every_interval_states_its_confidence_and_no_spread_is_written_as_plus_minus(self) -> None:
+        """Honest display: CIs carry their level, family CIs their adjusted level, and nothing reads 'mean ± x'."""
+        dataset = _dataset({"a": [1.0, 2.0, 3.0, 4.0], "b": [2.0, 3.0, 3.5, 6.0], "c": [0.0, 1.0, 1.5, 2.0]})
+        report = bakeoff_report(dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert "±" not in text
+        assert "mean with its 95% CI" in text
+        assert f"each CI at {report.comparison_confidence * 100:.4g}%" in text
+        assert "Holm-adjusted" in text
+
+    def test_skipped_cells_and_pairs_state_why(self) -> None:
+        """A cell or pair below min_samples appears with its reason instead of silently vanishing."""
+        dataset = _dataset({"a": [1.0, 2.0, 3.0], "b": [2.0, 3.0, 4.0], "c": [5.0, 6.0]})
+        report = bakeoff_report(
+            dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+        )
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert "none: only 2 runs, fewer than min_samples=3" in text
+        assert "skipped: only 2 paired runs" in text
+
+    def test_accounting_and_diagnostics_precede_results(self) -> None:
+        """A reader meets failed and pending runs before any number built on the survivors."""
+        pending = DatasetDiagnostic(DiagnosticCode.RUN_PENDING, "run 8 has not completed yet", 8)
+        dataset = _dataset(_SCORES, (pending,))
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert text.index("## Run accounting") < text.index("## Diagnostics") < text.index("## headline")
+        assert "run 8 has not completed yet" in text
+        assert "**exploratory**" in text
+
+    def test_a_fatal_load_renders_diagnostics_and_no_results(self) -> None:
+        """With a fatal diagnostic the rendering says no results are reported and shows none."""
+        fatal = DatasetDiagnostic(DiagnosticCode.MALFORMED_ARTIFACT, "run 7 has no metrics database", 7)
+        dataset = _dataset(_SCORES, (fatal,))
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert "**Fatal: no results are reported.**" in text
+        assert "## headline" not in text
+
+    def test_a_champion_is_reported_by_its_corrected_mean_beside_its_bias(self) -> None:
+        """The raw argmax mean is shown only next to the maximization bias it carries."""
+        champion = HyperparameterConfigReport(
+            winning_config={"lr": 0.1},
+            raw_mean=5.0,
+            corrected_mean=4.2,
+            maximization_bias=0.8,
+            estimate_ci=(3.9, 4.6),
+            unpaired_run_ids=(3, 4),
+        )
+
+        text = _markdown(_dataset(_SCORES), [BestHypersResult("tuned", {"algorithm": "ppo"}, champion)])
+
+        assert "Champion: lr=0.1" in text
+        assert "Corrected mean 4.2, 95% CI [3.9, 4.6]" in text
+        assert "maximization bias 0.8" in text
+        assert "left out: 2" in text
