@@ -36,6 +36,10 @@ def step(
     dt: jax.Array,
     rng_key: jax.Array,
 ) -> tuple[ContactBasinState, jax.Array]:
+    # `chlorine` is total free residual (HOCl + OCl-), not speciated. HOCl is
+    # the more effective disinfectant and its share depends on pH (pKa~7.5 at
+    # 25C, Morris, J. Phys. Chem. 70(12), 1966); Transport carries no pH
+    # signal, so speciation is not modeled here.
     segments = state.segments
     chlorine = segments[:, 0]
     demand_col = segments[:, 1]
