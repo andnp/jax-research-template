@@ -8,14 +8,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from research_analysis.plan import AnalysisPlan
-from research_analysis.report_json import plan_fingerprint, to_jsonable
+from research_analysis.report_json import json_fingerprint, plan_fingerprint, to_jsonable
 
 PLAN_HISTORY_FILE = "analysis-plans.jsonl"
 
 
 @dataclass(frozen=True)
 class PlanSnapshot:
-    """One plan as declared at a moment; ``plan_json`` is its canonical JSON.
+    """One plan as declared at a moment; ``fingerprint`` is recomputed from ``plan_json``, its canonical JSON.
 
     ``recorded_at`` is None when the persisted timestamp could not be trusted to order
     this snapshot against execution start times; ``invalid_reason`` then says why.
@@ -52,7 +52,7 @@ def read_plan_snapshots(results_root: Path) -> tuple[PlanSnapshot, ...]:
         recorded_at, invalid_reason = _parse_recorded_at(entry["recorded_at"])
         snapshots.append(
             PlanSnapshot(
-                entry["fingerprint"], recorded_at, json.dumps(entry["plan"], sort_keys=True), invalid_reason=invalid_reason
+                json_fingerprint(entry["plan"]), recorded_at, json.dumps(entry["plan"], sort_keys=True), invalid_reason=invalid_reason
             )
         )
     return tuple(snapshots)

@@ -20,7 +20,7 @@ from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, against_baseli
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import PLAN_HISTORY_FILE, PlanSnapshot, read_plan_snapshots, record_plan_snapshot
 from research_analysis.report import BakeoffResult, PlanStatus, ReportStatus
-from research_analysis.report_json import plan_fingerprint, report_to_json
+from research_analysis.report_json import plan_fingerprint, report_to_json, to_jsonable
 
 STARTED = "2026-01-02T00:00:00+00:00"
 BEFORE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -348,9 +348,19 @@ class TestPlanHistory:
     )
     def test_a_bad_recorded_at_is_read_as_invalid_not_guessed(self, tmp_path: Path, raw: str, reason: str) -> None:
         """A hand-edited history entry never raises: it comes back flagged instead of silently misordered."""
-        entry = {"fingerprint": plan_fingerprint(PLAN), "recorded_at": raw, "plan": {}}
+        entry = {"fingerprint": plan_fingerprint(PLAN), "recorded_at": raw, "plan": to_jsonable(PLAN)}
         (tmp_path / PLAN_HISTORY_FILE).write_text(json.dumps(entry) + "\n")
 
         history = read_plan_snapshots(tmp_path)
 
-        assert history == (PlanSnapshot(plan_fingerprint(PLAN), None, "{}", invalid_reason=reason),)
+        plan_json = json.dumps(to_jsonable(PLAN), sort_keys=True)
+        assert history == (PlanSnapshot(plan_fingerprint(PLAN), None, plan_json, invalid_reason=reason),)
+
+    def test_the_fingerprint_is_recomputed_from_the_recorded_plan(self, tmp_path: Path) -> None:
+        """A stored fingerprint that disagrees with its plan is ignored: only the recorded plan is compared."""
+        entry = {"fingerprint": "sha256:stale", "recorded_at": BEFORE.isoformat(), "plan": to_jsonable(PLAN)}
+        (tmp_path / PLAN_HISTORY_FILE).write_text(json.dumps(entry) + "\n")
+
+        [snapshot] = read_plan_snapshots(tmp_path)
+
+        assert snapshot.fingerprint == plan_fingerprint(PLAN)

@@ -88,7 +88,12 @@ def report_to_json(document: ReportDocument) -> str:
     return json.dumps(to_jsonable(document), indent=2, allow_nan=False) + "\n"
 
 
+def json_fingerprint(plan_json: JsonValue) -> str:
+    """Stable content hash of a plan's JSON, as recorded in a snapshot."""
+    canonical = json.dumps(plan_json, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def plan_fingerprint(plan: AnalysisPlan) -> str:
     """Stable content hash of a plan, identical across processes for identical declarations."""
-    canonical = json.dumps(to_jsonable(plan), sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+    return json_fingerprint(to_jsonable(plan))
