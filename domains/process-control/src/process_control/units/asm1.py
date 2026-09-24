@@ -261,17 +261,29 @@ def compute_cod(state: ASM1State) -> jax.Array:
     return state.s_i + state.s_s + state.x_i + state.x_s + state.x_bh + state.x_ba + state.x_p
 
 
-def compute_bod5(state: ASM1State) -> jax.Array:
+def compute_bod5(state: ASM1State, params: ASM1Params) -> jax.Array:
     """Biochemical oxygen demand over 5 days (g O₂/m³).
 
-    Approximate using soluble substrate and biomass fractions.
+    BSM1 effluent quality definition (Alex et al., 2008, eq. in section 6):
+    https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
     """
-    return 0.68 * state.s_s + 0.5 * state.x_s
+    return 0.25 * (state.s_s + state.x_s + (1.0 - params.f_p) * (state.x_bh + state.x_ba))
 
 
-def compute_tn(state: ASM1State) -> jax.Array:
-    """Total nitrogen (g N/m³)."""
-    return state.s_no + state.s_nh + state.s_nd + state.x_nd + 0.086 * (state.x_bh + state.x_ba) + 0.06 * state.x_p
+def compute_tkn(state: ASM1State, params: ASM1Params) -> jax.Array:
+    """Total Kjeldahl nitrogen (g N/m³): BSM1 S_Nkj definition (Alex et al., 2008)."""
+    return (
+        state.s_nh
+        + state.s_nd
+        + state.x_nd
+        + params.i_xb * (state.x_bh + state.x_ba)
+        + params.i_xp * (state.x_p + state.x_i)
+    )
+
+
+def compute_tn(state: ASM1State, params: ASM1Params) -> jax.Array:
+    """Total nitrogen (g N/m³): TKN + nitrate/nitrite (BSM1 N_tot)."""
+    return compute_tkn(state, params) + state.s_no
 
 
 def compute_ammonia_as_n(state: ASM1State) -> jax.Array:

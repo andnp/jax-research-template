@@ -15,7 +15,9 @@ from process_control.benchmarks.bsm1_recycle import (
 from process_control.units.asm1 import (
     ASM1Params,
     ASM1State,
+    compute_bod5,
     compute_cod,
+    compute_tn,
     compute_tss,
     mix_streams,
 )
@@ -152,6 +154,28 @@ class TestASM1Unit:
         expected_tss = 0.75 * (1000.0 + 40.0 + 2500.0 + 150.0 + 450.0)
         assert jnp.allclose(tss, jnp.array(expected_tss), atol=1e-2)
         assert float(cod) > 0.0
+
+    def test_compute_bod5_matches_bsm1_formula(self) -> None:
+        """BSM1 BOD5 = 0.25 * (S_S + X_S + (1-f_P) * (X_BH + X_BA))."""
+        params = ASM1Params(volume=1000.0, f_p=0.08)
+        state = ASM1State.create(s_s=1.0, x_s=2.0, x_bh=10.0, x_ba=5.0)
+
+        bod5 = compute_bod5(state, params)
+
+        expected = 0.25 * (1.0 + 2.0 + (1.0 - 0.08) * (10.0 + 5.0))
+        assert jnp.allclose(bod5, jnp.array(expected), atol=1e-6)
+
+    def test_compute_tn_matches_bsm1_formula(self) -> None:
+        """BSM1 N_tot = S_NH + S_ND + X_ND + i_XB*(X_BH+X_BA) + i_XP*(X_P+X_I) + S_NO."""
+        params = ASM1Params(volume=1000.0, i_xb=0.08, i_xp=0.06)
+        state = ASM1State.create(
+            x_i=100.0, x_bh=10.0, x_ba=5.0, x_p=8.0, s_no=3.0, s_nh=2.0, s_nd=1.0, x_nd=0.5
+        )
+
+        tn = compute_tn(state, params)
+
+        tkn = 2.0 + 1.0 + 0.5 + 0.08 * (10.0 + 5.0) + 0.06 * (8.0 + 100.0)
+        assert jnp.allclose(tn, jnp.array(tkn + 3.0), atol=1e-6)
 
 
 class TestBSM1Benchmark:
