@@ -432,6 +432,19 @@ class TestRejectWaterBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_reject_water_benchmark, RejectWaterConfig(), action_dim=2, obs_dim=6)
 
+    def test_tank_overflow_is_reported(self) -> None:
+        """Reject tank capacity clipping reports positive and zero overflow."""
+        reset_fn, step_fn = make_reject_water_benchmark(RejectWaterConfig(reject_tank_max=1.0))
+        state, _ = reset_fn(jax.random.PRNGKey(1))
+        for index in range(10):
+            state, _, _, _, info = step_fn(state, jnp.array([0.0, 0.0]), jax.random.PRNGKey(index))
+        assert info["overflow"] > 0.0
+
+        _, _, _, _, drained_info = step_fn(
+            state, jnp.array([1.0, 0.0]), jax.random.PRNGKey(99),
+        )
+        assert drained_info["overflow"] == 0.0
+
 # ---------------------------------------------------------------------------
 # Benchmark: Drinking Water Train (3D action, 8D obs)
 # ---------------------------------------------------------------------------
