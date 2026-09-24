@@ -7,6 +7,11 @@ database, recorded metric artifacts, and statistical reporting. Reporters consum
 an `ExperimentDataset`; they do not open experiment databases or resolve run
 artifacts themselves.
 
+The package `__init__.py` is empty. Import the loader from
+`research_analysis.dataset.loading` and the types (`ExperimentDimensions`,
+`SweepAxis`, `VersionSelection`, `CohortSelection`, and the rest) from
+`research_analysis.dataset.types`.
+
 The API is intentionally final-state only. It does not retain wrappers for the
 former `resolve_run_artifacts` or `load_experiment_metrics` entry points.
 
@@ -22,6 +27,11 @@ former `resolve_run_artifacts` or `load_experiment_metrics` entry points.
   optional environment, and declared typed sweep axes.
 - `diagnostics`: structured non-row outcomes produced while selecting and
   materializing the dataset.
+- `accounting`: per-cell run outcome counts (section 5).
+- `provenance`: every selected component version.
+- `executions`: one `ExecutionProvenance` per execution behind a loaded run, with
+  its git commit, whether uncommitted changes were recorded (`dirty`), host, and
+  start and end times.
 
 The canonical dimension column names are `condition_name` and `env_name`.
 `env_name` is present only when the experiment declares an environment
@@ -112,9 +122,16 @@ experiments database path:
 - `slice_hypers`
 
 They operate only on the already-selected runs and materialized metrics in the
-dataset. Statistical behavior, estimands, pairing, missingness, and fixed
-reference normalization remain governed by `BakeoffSpec` and the existing
-reporting contracts. Low-level array comparisons expose pairing directly.
+dataset. They reduce each run's curve to one score with a declared
+`PerformanceMeasure` through `run_scores`. `BakeoffSpec` governs estimands,
+pairing, missingness, and resampling. The functions only compute: they never
+print or write files.
+
+`research_analysis.plan_report.run_plan` is the one reporting entry point that
+takes a database path. It loads the dataset from the declared plan's dimensions,
+version selection, and cohort, always with `partial=True`, and embeds the
+dataset's diagnostics and accounting in the report document. See the
+[reporting API](research-reporting-api.md).
 
 ## 7. Artifact loading
 
