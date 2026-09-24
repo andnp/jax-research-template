@@ -45,7 +45,7 @@ class HyperparameterDifferenceReport:
 
 @dataclass(frozen=True)
 class HyperparameterSliceReport:
-    """Sensitivity curve for one hyperparameter: best-achievable performance vs. a champion-pinned slice."""
+    """Sensitivity curve for one hyperparameter: selection-corrected best performance vs. a champion-pinned slice."""
 
     vary: str
     values: list[Any]

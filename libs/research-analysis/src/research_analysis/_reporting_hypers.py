@@ -518,7 +518,7 @@ def _slice_hypers_group(
         slice_by_value.setdefault(record["hypers"][vary], []).append(record["value"])
 
     sorted_values = sorted(profile_by_value)
-    best_performance = [profile_by_value[value].raw_mean for value in sorted_values]
+    best_performance = [profile_by_value[value].corrected_mean for value in sorted_values]
     slice_performance = [
         float(np.mean(slice_by_value[value])) if value in slice_by_value else profile_by_value[value].raw_mean
         for value in sorted_values

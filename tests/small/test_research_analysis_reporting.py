@@ -291,6 +291,29 @@ def test_slice_hypers_pins_champion_config_while_varying_one_axis(
     assert report.slice_performance == pytest.approx([3.0, 5.0])
 
 
+def test_slice_hypers_plots_selection_corrected_best_values(temp_experiment_setup: ExperimentSetup) -> None:
+    """The best-achievable curve carries each value's corrected champion, not the raw maximum over noise."""
+    setup = temp_experiment_setup
+    noise = np.random.default_rng(0)
+    for learning_rate in ("low", "high"):
+        for eta in (1, 2):
+            for seed in range(5):
+                metadata: dict[str, ParameterValue] = {"condition_name": "baseline", "learning_rate": learning_rate, "eta": eta}
+                _add_observation(setup, metadata, seed, float(noise.normal()))
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING), SweepAxis("eta", SweepValueType.INTEGER))
+        ),
+    )
+
+    report = slice_hypers(dataset, "metric", vary="eta", verbose=False, n_resamples=256)
+    profiles = best_hypers(dataset, "metric", group_by=["eta"], verbose=False, n_resamples=256)
+
+    assert report.best_performance == pytest.approx([profiles[(1,)].corrected_mean, profiles[(2,)].corrected_mean])
+    assert report.best_performance != pytest.approx([profiles[(1,)].raw_mean, profiles[(2,)].raw_mean])
+
+
 def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: ExperimentSetup) -> None:
     """vary and group_by must name disjoint axes."""
     setup = temp_experiment_setup
