@@ -91,6 +91,23 @@ def make_dewatering_benchmark(config: DewateringConfig):
     target_dryness = jnp.array(config.target_dryness)
     filtrate_limit = jnp.array(config.filtrate_limit)
 
+    def _observe(
+        dryness: jax.Array,
+        sensed_filtrate: jax.Array,
+        throughput: jax.Array,
+        polymer_dose: jax.Array,
+        feed_tss: jax.Array,
+    ):
+        return jnp.array(
+            [
+                dryness,
+                sensed_filtrate / 500.0,
+                throughput / config.dewatering.max_throughput,
+                polymer_dose / dose_max,
+                feed_tss / 15000.0,
+            ]
+        )
+
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         dw = dewatering_reset(config.dewatering, k1)
@@ -102,14 +119,12 @@ def make_dewatering_benchmark(config: DewateringConfig):
             filtrate_sensor=filt_sensor,
             last_feed_tss=jnp.array(config.feed_tss_mean),
         )
-        obs = jnp.array(
-            [
-                config.dewatering.base_dryness,
-                0.0,
-                0.5,
-                0.0,
-                config.feed_tss_mean / 15000.0,
-            ]
+        obs = _observe(
+            jnp.array(config.dewatering.base_dryness),
+            filt_sensor.held_value,
+            jnp.minimum(q_feed, 0.5 * config.dewatering.max_throughput),
+            jnp.array(0.0),
+            jnp.array(config.feed_tss_mean),
         )
         return state, obs
 
@@ -146,15 +161,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
 
         # 5. Observation
         throughput = jnp.minimum(q_feed, belt_speed * config.dewatering.max_throughput)
-        obs = jnp.array(
-            [
-                dryness,
-                sensed_filtrate / 500.0,
-                throughput / config.dewatering.max_throughput,
-                polymer_dose / dose_max,
-                feed_tss / 15000.0,
-            ]
-        )
+        obs = _observe(dryness, sensed_filtrate, throughput, polymer_dose, feed_tss)
 
         # 6. Reward
         dryness_gap = jnp.maximum(target_dryness - dryness, 0.0)
