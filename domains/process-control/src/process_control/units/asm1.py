@@ -23,7 +23,7 @@ class ASM1Params:
 
     # --- Heterotrophic kinetics ---
     mu_h: float | jax.Array = 0.16667  # max growth rate (h⁻¹; BSM1 at 15°C: 4.0 /day)
-    k_s: float = 20.0  # half-saturation, biodegradable substrate (g COD/m³)
+    k_s: float = 10.0  # half-saturation, biodegradable substrate (g COD/m³)
     k_o_h: float = 0.2  # half-saturation, O₂ for aerobic growth (g O₂/m³)
     k_no: float = 0.5  # half-saturation, NO₃ for anoxic growth (g N/m³)
     eta_g: float = 0.8  # anoxic growth correction factor
@@ -41,13 +41,13 @@ class ASM1Params:
     # --- Hydrolysis ---
     k_h: float | jax.Array = 0.12500  # max hydrolysis rate (h⁻¹; 3.0 /day)
     k_x: float = 0.1  # half-saturation, X_S/X_BH ratio
-    eta_h: float = 0.4  # anoxic correction factor for hydrolysis
+    eta_h: float = 0.8  # anoxic correction factor for hydrolysis
 
     # --- Ammonification ---
-    k_a: float | jax.Array = 0.003333  # rate constant (m³ gCOD⁻¹ h⁻¹; 0.08 /day)
+    k_a: float | jax.Array = 0.002083  # rate constant (m³ gCOD⁻¹ h⁻¹; 0.05 /day)
 
     # --- Stoichiometric constants ---
-    i_xb: float = 0.086  # N content of biomass (g N / g COD)
+    i_xb: float = 0.08  # N content of biomass (g N / g COD)
     i_xp: float = 0.06  # N content of X_P (g N / g COD)
 
     # --- O₂ saturation ---
