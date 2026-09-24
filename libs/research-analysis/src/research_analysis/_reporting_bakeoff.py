@@ -30,7 +30,6 @@ from research_analysis.aggregates import (
     ReferenceRange,
     interquartile_mean,
     normalize_scores,
-    probability_of_improvement,
 )
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import BakeoffSpec
@@ -89,7 +88,6 @@ def _load_bakeoff_data(
 @dataclass(frozen=True)
 class _BakeoffStatistics:
     normalized_scores: dict[str, dict[str, float]]
-    probability_of_improvement: dict[str, dict[str, float | None]]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
@@ -182,7 +180,6 @@ def _compute_bakeoff_statistics(
     raw_posthoc: dict[tuple[str, str], float] = {}
     raw_difference: dict[tuple[str, str], float] = {}
     raw_difference_ci: dict[tuple[str, str], tuple[float, float]] = {}
-    pair_data: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
     for i, condition_a in enumerate(conditions):
         for j, condition_b in enumerate(conditions):
             if i >= j:
@@ -197,8 +194,6 @@ def _compute_bakeoff_statistics(
                     paired_b.append(vb)
             values_a = np.array(paired_a)
             values_b = np.array(paired_b)
-            pair_data[(condition_a, condition_b)] = (values_a, values_b)
-            pair_data[(condition_b, condition_a)] = (values_b, values_a)
             if len(paired_a) < spec.min_samples:
                 continue
             result = run_permutation_test(
@@ -263,19 +258,8 @@ def _compute_bakeoff_statistics(
             lower_tails[condition] = float(np.quantile(all_vals, 0.1))
             iqms[condition] = interquartile_mean(np.array(all_vals))
 
-    probabilities: dict[str, dict[str, float | None]] = {condition: {} for condition in conditions}
-    for condition_a in conditions:
-        for condition_b in conditions:
-            if condition_a == condition_b:
-                continue
-            values_a, values_b = pair_data[(condition_a, condition_b)]
-            probabilities[condition_a][condition_b] = (
-                probability_of_improvement(values_a, values_b) if len(values_a) else None
-            )
-
     return _BakeoffStatistics(
         normalized_scores=normalized_means,
-        probability_of_improvement=probabilities,
         dispersion=dispersions,
         lower_tail=lower_tails,
         supplementary_iqm=iqms,
@@ -529,7 +513,6 @@ def bakeoff_report(
             algorithms=conditions,
             environments=[_block_label(block_key) for block_key in block_keys],
             normalized_scores=comparison_statistics.normalized_scores,
-            probability_of_improvement=comparison_statistics.probability_of_improvement,
             dispersion=comparison_statistics.dispersion,
             lower_tail=comparison_statistics.lower_tail,
             supplementary_iqm=comparison_statistics.supplementary_iqm,

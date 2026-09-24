@@ -90,7 +90,6 @@ class BenchmarkBakeoffReport:
     algorithms: list[str]
     environments: list[str]
     normalized_scores: dict[str, dict[str, float]]
-    probability_of_improvement: dict[str, dict[str, float | None]]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
