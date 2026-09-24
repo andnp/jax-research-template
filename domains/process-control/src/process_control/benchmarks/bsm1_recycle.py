@@ -14,7 +14,7 @@ from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, _clarify_asm1
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
     DiurnalSourceState,
@@ -32,6 +32,7 @@ from process_control.sensors.residual_analyzer import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
+from process_control.units.bsm1_plant import perfect_clarifier
 
 
 @dataclass(frozen=True)
@@ -280,7 +281,7 @@ def make_bsm1_recycle_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 5. Clarifier
-        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
 
         # 6. R1: influent + return sludge + internal recycle
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
@@ -298,7 +299,7 @@ def make_bsm1_recycle_benchmark(
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5_fixed, p5, dt)
 
         # 10. Effluent
-        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
 
         # 11. Standalone observation sensors
         new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)

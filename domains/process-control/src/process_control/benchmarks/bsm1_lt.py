@@ -28,7 +28,6 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.benchmarks.bsm1 import (
     BSM1BenchmarkConfig,
     BSM1ObsSensors,
-    _clarify_asm1,
 )
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -38,6 +37,7 @@ from process_control.sensors.residual_analyzer import step as ra_step
 from process_control.units.asm1 import ArrheniusCoeffs, ASM1Params, ASM1State, apply_arrhenius, mix_streams
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.asm1 import step as asm1_step
+from process_control.units.bsm1_plant import perfect_clarifier
 
 # ── State ──────────────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ def make_bsm1_lt_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 4. Clarifier
-        _, return_sludge = _clarify_asm1(state.reactor5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
 
         # 5. Reactor chain (corrected params)
         inlet_rs, q_after_1 = mix_streams(influent, q_in, return_sludge, q_rs)
@@ -300,7 +300,7 @@ def make_bsm1_lt_benchmark(
         new_r5 = asm1_step(state.reactor5, new_r4, q_total, kla_5, p5, dt)
 
         # 6. Effluent
-        effluent, _ = _clarify_asm1(new_r5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
 
         # 7. Observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)
