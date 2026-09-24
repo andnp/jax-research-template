@@ -237,7 +237,7 @@ def _champion_lines(report: HyperparameterConfigReport) -> list[str]:
     return [
         f"- Champion: {_config(report.winning_config)}, scored per run by {_describe_measure(report.measure)}",
         f"- Corrected mean {_number(report.corrected_mean)}, {_percent(report.confidence_level)} CI "
-        f"{_interval(report.estimate_ci)} (hierarchical bootstrap, selection re-run in every resample)",
+        f"{_interval(report.estimate_ci)} (hierarchical bootstrap over the selection distribution)",
         f"- Raw champion mean {_number(report.raw_mean)}; maximization bias {_number(report.maximization_bias)}; "
         f"normalized selection entropy {report.normalized_selection_entropy:.2f}",
         f"- Runs outside the shared seeds, left out: {len(report.unpaired_run_ids)}",
