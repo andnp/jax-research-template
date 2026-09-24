@@ -6,6 +6,7 @@ import math
 from types import ModuleType
 
 import pytest
+from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import ExperimentDimensions
 from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, BestHypersAnalysis, against_baseline, registered_plans
 
@@ -51,6 +52,16 @@ class TestAnalysisPlan:
         """A declared divergence score must itself be a usable number."""
         with pytest.raises(ValueError, match="finite"):
             AnalysisPlan("return", (BestHypersAnalysis("x"),), ExperimentDimensions(), non_finite_worst_case=worst_case)
+
+    def test_expanded_intervals_apply_only_to_untuned_bakeoffs(self) -> None:
+        """Tuned analyses use the hierarchical percentile bootstrap, so declaring another interval for them fails."""
+        expanded = BakeoffSpec(interval="expanded_percentile")
+        untuned = AnalysisPlan("return", (BakeoffAnalysis("headline", ("a", "b")),), ExperimentDimensions(), stats=expanded)
+        tuned = (BakeoffAnalysis("headline", ("a", "b"), select_champion_over=("lr",)), BestHypersAnalysis("champion"))
+
+        assert untuned.stats.interval == "expanded_percentile"
+        with pytest.raises(ValueError, match=r"\['headline', 'champion'\] use the hierarchical percentile bootstrap"):
+            AnalysisPlan("return", tuned, ExperimentDimensions(), stats=expanded)
 
 
 class TestPlanRegistry:
