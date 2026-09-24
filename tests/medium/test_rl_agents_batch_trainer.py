@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import gymnax
@@ -28,7 +29,7 @@ from rl_agents.sac import SACAgent, SACConfig, SACHypers
 from rl_agents.sac_rc import SACRCAgent, SACRCConfig, SACRCHypers
 from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 from rl_components.action_normalization import make_action_normalization_wrapper
-from rl_components.env_protocol import EnvProtocol, EnvStep
+from rl_components.env_protocol import EnvProtocol, EnvSpec, EnvStep
 from rl_components.types import PPOConfig
 from rl_envs.gymnax_bridge import make_gymnax_env
 
@@ -96,6 +97,24 @@ QRC_SPEC = AlgorithmSpec("qrc", QRCAgent, QRCConfig, QRCHypers)
 SAC_SPEC = AlgorithmSpec("sac", SACAgent, SACConfig, SACHypers, artifact_projector=extract_actor_params)
 SAC_RC_SPEC = AlgorithmSpec("sac-rc", SACRCAgent, SACRCConfig, SACRCHypers)
 TD3_SPEC = AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers, artifact_projector=extract_actor_params)
+
+
+def test_train_state_artifact_extractor_reads_replay_algorithm_state() -> None:
+    """A replay agent's final policy lives under its algorithm state."""
+    spec = EnvSpec(id="dqn-artifact", observation_shape=(2,), action_shape=(), num_actions=2)
+    agent_state = DQNAgent(DQNConfig(BUFFER_SIZE=8, BATCH_SIZE=2)).init(jax.random.key(5), spec)
+    expected = agent_state.algorithm_state.train_state.params
+
+    artifacts = extract_train_state_params(SimpleNamespace(agent_state=agent_state))
+
+    actual = artifacts["final_policy_params"]
+    assert jax.tree_util.tree_structure(actual) == jax.tree_util.tree_structure(expected)
+    for actual_leaf, expected_leaf in zip(
+        jax.tree_util.tree_leaves(actual),
+        jax.tree_util.tree_leaves(expected),
+        strict=True,
+    ):
+        assert jnp.array_equal(actual_leaf, expected_leaf)
 
 # The dynamic_keys each now-deleted hand-written *_batch.py module used to declare, kept
 # here only to prove the derivation in AlgorithmSpec.parameter_schema reproduces (or

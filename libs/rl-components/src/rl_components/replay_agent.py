@@ -65,7 +65,8 @@ def replay_agent_step[AlgorithmStateT, ReplayStateT: _CountedReplayState](
         tuple[AlgorithmStateT, ReplayStateT, dict[str, jax.Array]],
     ],
     select_action: Callable[
-        [AlgorithmStateT, jax.Array, jax.Array, tuple[jax.Array, ...]], jax.Array
+        [AlgorithmStateT, jax.Array, jax.Array, tuple[jax.Array, ...]],
+        tuple[jax.Array, dict[str, jax.Array]],
     ],
     minimum_replay_size: int = 0,
     after_learn: Callable[[AlgorithmStateT, jax.Array, jax.Array], AlgorithmStateT] | None = None,
@@ -81,7 +82,8 @@ def replay_agent_step[AlgorithmStateT, ReplayStateT: _CountedReplayState](
 
     When ``warmup_steps`` is provided, the helper selects a uniform continuous action
     before that index. In that case ``action_keys`` must contain its action key. Otherwise
-    ``select_action`` handles the algorithm's exploration policy on every step.
+    ``select_action`` handles the algorithm's exploration policy and reports any
+    action-derived metrics on every step.
     """
     if warmup_steps is not None and not action_keys:
         raise ValueError("action_keys must contain a key when uniform warmup is enabled")
@@ -130,16 +132,28 @@ def replay_agent_step[AlgorithmStateT, ReplayStateT: _CountedReplayState](
     if after_learn is not None:
         algorithm_state = after_learn(algorithm_state, step_index, can_train)
 
-    def choose_action() -> jax.Array:
+    def choose_action() -> tuple[jax.Array, dict[str, jax.Array]]:
         return select_action(algorithm_state, timestep.observation, step_index, action_keys)
 
     if warmup_steps is None:
-        action = choose_action()
+        action, action_metrics = choose_action()
     else:
-        def explore() -> jax.Array:
-            return uniform_exploration_action(action_keys[0], state.last_action.shape, state.last_action.dtype)
+        action_metrics_shape = jax.eval_shape(
+            select_action,
+            algorithm_state,
+            timestep.observation,
+            step_index,
+            action_keys,
+        )[1]
+        zero_action_metrics = jax.tree.map(zero_metric, action_metrics_shape)
 
-        action = jax.lax.cond(step_index < warmup_steps, explore, choose_action)
+        def explore() -> tuple[jax.Array, dict[str, jax.Array]]:
+            action = uniform_exploration_action(action_keys[0], state.last_action.shape, state.last_action.dtype)
+            return action, zero_action_metrics
+
+        action, action_metrics = jax.lax.cond(step_index < warmup_steps, explore, choose_action)
+
+    metrics = {**metrics, **action_metrics}
 
     return AgentStep(
         state=ReplayAgentState(

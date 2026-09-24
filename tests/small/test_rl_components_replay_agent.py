@@ -68,9 +68,11 @@ def test_replay_agent_step_preserves_transition_and_training_order_under_jit() -
         observation: jax.Array,
         step_index: jax.Array,
         keys: tuple[jax.Array, ...],
-    ) -> jax.Array:
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
         del observation, step_index, keys
-        return jnp.full((1,), algorithm_state, dtype=jnp.float32)
+        return jnp.full((1,), algorithm_state, dtype=jnp.float32), {
+            "policy_value": algorithm_state.astype(jnp.float32) + 10.0
+        }
 
     def after_learn(algorithm_state: jax.Array, step_index: jax.Array, did_learn: jax.Array) -> jax.Array:
         del step_index
@@ -119,6 +121,7 @@ def test_replay_agent_step_preserves_transition_and_training_order_under_jit() -
     assert jnp.array_equal(metrics["loss"], jnp.array([0.0, 0.0, 3.0], dtype=jnp.float32))
     assert jnp.array_equal(metrics["histogram"], jnp.array([[0, 0], [0, 0], [4, 5]], jnp.int32))
     assert metrics["histogram"].dtype == jnp.int32
+    assert jnp.array_equal(metrics["policy_value"], jnp.array([0.0, 10.0, 12.0], jnp.float32))
     assert jnp.array_equal(final_state.algorithm_state, 2)
 
 
@@ -169,9 +172,9 @@ def test_replay_agent_step_starts_learning_after_the_configured_index() -> None:
         observation: jax.Array,
         step_index: jax.Array,
         keys: tuple[jax.Array, ...],
-    ) -> jax.Array:
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
         del algorithm_state, observation, step_index, keys
-        return jnp.zeros((1,), jnp.float32)
+        return jnp.zeros((1,), jnp.float32), {}
 
     def step(state: ReplayAgentState[jax.Array, ReplayBufferState]):
         carry_key, learn_key, action_key = jax.random.split(state.key, 3)

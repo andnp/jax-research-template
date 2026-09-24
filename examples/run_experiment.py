@@ -110,7 +110,7 @@ def main() -> None:
     print("✓ Training complete")
 
     # ── 5. Save checkpoint ────────────────────────────────────────────────────
-    final_params = final_state.agent_state.train_state.params
+    final_params = final_state.agent_state.algorithm_state.train_state.params
     uri = store.put(final_params, name="final_weights", execution_id=artifact_execution_id)
     print(f"✓ Checkpoint saved: {uri}")
 

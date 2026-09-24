@@ -80,7 +80,7 @@ class TestDQNNatureEnvIntegration:
         for key_name in ("loss", "epsilon", "q_max", "loop/reward", "loop/episode_end"):
             assert metrics[key_name].shape == (STEPS,), key_name
 
-        buffer_state = final_state.agent_state.buffer_state
+        buffer_state = final_state.agent_state.replay_state
         assert buffer_state.obs.dtype == jnp.uint8, "the spec's observation dtype must reach the buffer"
         assert int(buffer_state.count) == STEPS - 1, "the final action opens a transition that never closes"
         assert jnp.all(metrics["loss"] == 0.0), "LEARNING_STARTS above the budget must keep the learn path shut"
@@ -91,12 +91,12 @@ class TestDQNNatureEnvIntegration:
 
         state = agent.init(jax.random.key(0), FakeAtariLikeEnv().spec())
 
-        q_values = state.train_state.apply_fn(
-            state.train_state.params,
+        q_values = state.algorithm_state.train_state.apply_fn(
+            state.algorithm_state.train_state.params,
             jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
         )
         assert q_values.shape == (NUM_ACTIONS,)
         assert state.last_obs.shape == OBSERVATION_SHAPE
         assert state.last_obs.dtype == jnp.uint8
         assert state.last_action.shape == ()
-        assert int(state.num_actions) == NUM_ACTIONS
+        assert int(state.algorithm_state.num_actions) == NUM_ACTIONS

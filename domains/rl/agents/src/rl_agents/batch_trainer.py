@@ -73,6 +73,12 @@ class _TrainStateAgent(Protocol):
 
 
 @runtime_checkable
+class _AlgorithmStateTrainStateAgent(Protocol):
+    @property
+    def algorithm_state(self) -> _TrainStateAgent: ...
+
+
+@runtime_checkable
 class _ActorStateAgent(Protocol):
     @property
     def actor_state(self) -> TrainState: ...
@@ -145,9 +151,19 @@ def no_artifacts(_: object) -> dict[str, object]:
 
 def extract_train_state_params(state: object) -> dict[str, object]:
     """Extract parameters from an agent state with one train state."""
-    if not isinstance(state, _FinalState) or not isinstance(state.agent_state, _TrainStateAgent):
+    if not isinstance(state, _FinalState):
         raise TypeError(f"expected a final state with a train state, got {type(state).__name__}")
-    return {"final_policy_params": state.agent_state.train_state.params}
+
+    agent_state = state.agent_state
+    if isinstance(agent_state, _TrainStateAgent):
+        train_state = agent_state.train_state
+    elif isinstance(agent_state, _AlgorithmStateTrainStateAgent) and isinstance(
+        agent_state.algorithm_state, _TrainStateAgent
+    ):
+        train_state = agent_state.algorithm_state.train_state
+    else:
+        raise TypeError(f"expected a final state with a train state, got {type(state).__name__}")
+    return {"final_policy_params": train_state.params}
 
 
 def extract_actor_params(state: object) -> dict[str, object]:

@@ -46,7 +46,7 @@ def _module_names(agent: DoubleDQNAgent | DuelingDQNAgent) -> list[str]:
     Returns:
         The module names Flax assigned, in declaration order.
     """
-    params = agent.init(jax.random.key(0), SPEC).train_state.params
+    params = agent.init(jax.random.key(0), SPEC).algorithm_state.train_state.params
     return list(params["params"])
 
 
