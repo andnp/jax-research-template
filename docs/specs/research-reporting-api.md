@@ -141,8 +141,9 @@ It is always `exploratory`.
 ## 6. Rendering
 
 - `report_to_json(document)` produces strict, indented JSON.
-- `render_markdown(document)` gives the audit copy. Status, provenance, accounting,
-  and diagnostics come first, then each analysis, then the figures. Every interval
+- `render_markdown(document)` gives the audit copy. Status, the declared plan (when
+  there is one), provenance, accounting, and diagnostics come first, then each
+  analysis, then the figures. Every interval
   states its confidence, and nothing is written as `mean ± x`.
 - `render_summary(document)` gives a few console lines.
 - `write_report_plots(document, output_dir)` draws per-block run distributions and

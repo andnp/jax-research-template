@@ -19,10 +19,19 @@ from research_analysis.dataset.types import (
     ExperimentDataset,
     ExperimentDimensions,
     RunAccounting,
+    SweepAxis,
+    SweepValueType,
 )
 from research_analysis.diagnostics.types import DatasetDiagnostic, DiagnosticCode
 from research_analysis.performance import TailMean
-from research_analysis.plan import AnalysisPlan, BakeoffAnalysis
+from research_analysis.plan import (
+    AnalysisPlan,
+    BakeoffAnalysis,
+    BestHypersAnalysis,
+    HypersDifferenceAnalysis,
+    SliceHypersAnalysis,
+    against_baseline,
+)
 from research_analysis.report import (
     AnalysisResult,
     BakeoffResult,
@@ -271,6 +280,39 @@ class TestReportMarkdown:
         assert "`small_sample_coverage` (all) : the champion difference CI rests on 5 runs" in text
         assert [w["code"] for w in payload["analyses"][0]["report"]["warnings"]] == ["small_sample_coverage"]
 
+
+    def test_the_declared_plan_is_rendered_so_the_markdown_is_self_auditable(self) -> None:
+        """A reader of report.md alone can see which metric, statistics, and analyses produced the numbers."""
+        plan = AnalysisPlan(
+            "return",
+            (
+                BakeoffAnalysis("headline", ("base", "new"), pairs=against_baseline(("base", "new"), "base")),
+                BestHypersAnalysis("tuned", ("algorithm",)),
+                HypersDifferenceAnalysis("gap", "algorithm", "ppo", "dqn"),
+                SliceHypersAnalysis("sensitivity", "lr"),
+            ),
+            ExperimentDimensions(sweep_axes=(SweepAxis("lr", SweepValueType.FLOAT),)),
+            measure=TailMean(0.1),
+            stats=BakeoffSpec(estimand="median", n_resamples=500, missingness="blockwise", random_seed=7),
+            higher_is_better=False,
+            non_finite_worst_case=-100.0,
+        )
+        document = replace(exploratory_report(_dataset(_SCORES), Path("db"), []), plan=plan)
+
+        text = render_markdown(document)
+
+        plan_text = text[text.index("## Declared plan") : text.index("## Provenance")]
+        for expected in (
+            "`return` (lower is better), per run: mean over the final 10% of logged steps; estimand: median",
+            "condition `condition_name`, environment `none`, swept: lr (float)",
+            "95% percentile bootstrap, 500 resamples, seed 7, min samples 3; missingness: blockwise",
+            "Diverged runs: score -100",
+            "`headline`: bakeoff of base, new; pairs: new − base; blocked by: nothing; champion over: none",
+            "`tuned`: champion per algorithm",
+            "`gap`: champion difference algorithm=ppo minus algorithm=dqn",
+            "`sensitivity`: sensitivity to lr per whole grid",
+        ):
+            assert expected in plan_text, expected
 
     def test_summary_gives_status_run_outcomes_and_each_headline_difference(self) -> None:
         """The console summary is short but still states run outcomes and each difference with its confidence."""

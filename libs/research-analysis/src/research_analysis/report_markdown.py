@@ -10,6 +10,14 @@ from research_analysis.dataset.types import RunAccounting
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
 from research_analysis.diagnostics.types import DatasetDiagnostic
 from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, TailMean
+from research_analysis.plan import (
+    Analysis,
+    AnalysisPlan,
+    BakeoffAnalysis,
+    BestHypersAnalysis,
+    HypersDifferenceAnalysis,
+    SliceHypersAnalysis,
+)
 from research_analysis.report import (
     AnalysisFailure,
     AnalysisResult,
@@ -63,6 +71,46 @@ def _status_section(document: ReportDocument) -> list[str]:
         lines.append("- Plan: **exploratory**")
         lines.extend(f"  - {reason}" for reason in document.exploratory_reasons)
     return lines
+
+
+def _describe_analysis(analysis: Analysis) -> str:
+    match analysis:
+        case BakeoffAnalysis(name=name, conditions=conditions, pairs=pairs, block_by=block_by):
+            planned = "every pair" if pairs is None else ", ".join(f"{a} − {b}" for a, b in pairs)
+            champions = "none" if analysis.select_champion_over is None else ", ".join(analysis.select_champion_over)
+            return (
+                f"`{name}`: bakeoff of {', '.join(conditions)}; pairs: {planned}; blocked by: "
+                f"{', '.join(block_by) or 'nothing'}; champion over: {champions}; min seeds {analysis.min_seeds}"
+            )
+        case BestHypersAnalysis(name=name, group_by=group_by):
+            return f"`{name}`: champion per {', '.join(group_by) or 'whole grid'}"
+        case HypersDifferenceAnalysis(name=name, group_axis=axis, minuend=minuend, subtrahend=subtrahend):
+            return f"`{name}`: champion difference {axis}={minuend} minus {axis}={subtrahend}"
+        case SliceHypersAnalysis(name=name, vary=vary, group_by=group_by):
+            return f"`{name}`: sensitivity to {vary} per {', '.join(group_by) or 'whole grid'}"
+
+
+def _plan_section(plan: AnalysisPlan) -> list[str]:
+    stats = plan.stats
+    dimensions = plan.dimensions
+    swept = ", ".join(f"{axis.name} ({axis.value_type})" for axis in dimensions.sweep_axes) or "none"
+    diverged = (
+        "fail the report" if plan.non_finite_worst_case is None else f"score {_number(plan.non_finite_worst_case)}"
+    )
+    return [
+        "## Declared plan",
+        "",
+        f"- Metric: `{plan.metric}` ({'higher' if plan.higher_is_better else 'lower'} is better), per run: "
+        f"{_describe_measure(plan.measure)}; estimand: {stats.estimand}",
+        f"- Dimensions: condition `{dimensions.condition}`, environment `{dimensions.environment or 'none'}`, "
+        f"swept: {swept}",
+        f"- Statistics: {_percent(stats.confidence_level)} percentile bootstrap, {stats.n_resamples} resamples, "
+        f"seed {stats.random_seed}, min samples {stats.min_samples}; missingness: {stats.missingness}; tolerance "
+        f"({_percent(stats.tolerance_confidence)} confidence, {_percent(stats.tolerance_coverage)} coverage)",
+        f"- Diverged runs: {diverged}",
+        "- Analyses:",
+        *(f"  - {_describe_analysis(analysis)}" for analysis in plan.analyses),
+    ]
 
 
 def _provenance_section(document: ReportDocument) -> list[str]:
@@ -278,8 +326,10 @@ def _figures_section(document: ReportDocument) -> list[str]:
 
 def render_markdown(document: ReportDocument) -> str:
     """The whole document as markdown; every number shown is also in the JSON report."""
-    sections = [
-        _status_section(document),
+    sections = [_status_section(document)]
+    if document.plan is not None:
+        sections.append(_plan_section(document.plan))
+    sections += [
         _provenance_section(document),
         _accounting_section(document.accounting),
         _diagnostics_section(document),
