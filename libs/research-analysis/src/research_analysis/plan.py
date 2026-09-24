@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from research_analysis.dataset.types import SweepValue
+from research_analysis.comparison import BakeoffSpec
+from research_analysis.dataset.types import CohortSelection, ExperimentDimensions, SweepValue, VersionSelection
+from research_analysis.performance import FINAL_VALUE, PerformanceMeasure
 
 
 @dataclass(frozen=True)
@@ -53,3 +56,31 @@ type Analysis = BakeoffAnalysis | BestHypersAnalysis | HypersDifferenceAnalysis 
 def against_baseline(conditions: Sequence[str], baseline: str) -> tuple[tuple[str, str], ...]:
     """Plan each condition minus ``baseline``, and nothing else."""
     return tuple((condition, baseline) for condition in conditions if condition != baseline)
+
+
+@dataclass(frozen=True)
+class AnalysisPlan:
+    """The declared primary analysis: one metric and measure, the analyses to run, and their statistics.
+
+    ``stats`` sets alpha, resampling, minimum samples, and seed for every analysis. ``non_finite_worst_case``
+    declares the value a diverged run scores; without it, a diverged run fails the report loudly.
+    """
+
+    metric: str
+    analyses: tuple[Analysis, ...]
+    dimensions: ExperimentDimensions
+    measure: PerformanceMeasure = FINAL_VALUE
+    stats: BakeoffSpec = field(default_factory=BakeoffSpec)
+    higher_is_better: bool = True
+    version_selection: VersionSelection = field(default_factory=VersionSelection.latest_completed)
+    cohort: CohortSelection | None = None
+    non_finite_worst_case: float | None = None
+
+    def __post_init__(self) -> None:
+        names = [analysis.name for analysis in self.analyses]
+        if not names:
+            raise ValueError("an analysis plan needs at least one analysis")
+        if len(set(names)) < len(names):
+            raise ValueError(f"analysis names must be unique, got {names!r}")
+        if self.non_finite_worst_case is not None and not math.isfinite(self.non_finite_worst_case):
+            raise ValueError(f"non_finite_worst_case must be finite, got {self.non_finite_worst_case!r}")
