@@ -394,7 +394,7 @@ def _summarize_cell(
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
     predicate = pl.lit(True)
     for column, value in block_key:
-        predicate = predicate & (pl.col(column) == value)
+        predicate = predicate & pl.col(column).eq_missing(value)
     return predicate
 
 

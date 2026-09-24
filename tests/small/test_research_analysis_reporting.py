@@ -1130,6 +1130,29 @@ def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: Experime
     assert report.cells["a"]["low"].n == 3
 
 
+def test_bakeoff_keeps_runs_without_a_blocking_axis_in_their_own_block(temp_experiment_setup: ExperimentSetup) -> None:
+    """A run the blocking axis does not apply to forms a null block instead of silently vanishing."""
+    setup = temp_experiment_setup
+    for seed in range(3):
+        _add_observation(setup, {"condition_name": "shared"}, seed, float(seed))
+        _add_observation(setup, {"condition_name": "twin"}, seed, float(seed))
+        _add_observation(setup, {"condition_name": "adversarial", "eta": 5.0}, seed, float(seed))
+    eta = SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial",)})
+    dataset = _load(setup, ExperimentDimensions(sweep_axes=(eta,)))
+
+    report = bakeoff_report(
+        dataset,
+        "metric",
+        ["shared", "twin", "adversarial"],
+        block_by=["eta"],
+        spec=BakeoffSpec(missingness="blockwise", n_resamples=50),
+    )
+
+    assert report.blocks == ["None", "5.0"]
+    assert report.cells["shared"]["None"].n == 3
+    assert report.cells["adversarial"]["5.0"].n == 3
+
+
 class TestRunDistributionFigures:
     def test_bakeoff_draws_one_run_distribution_figure_per_block(
         self, temp_experiment_setup: ExperimentSetup, tmp_path: Path
