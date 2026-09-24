@@ -6,16 +6,25 @@ environment rewards before passing a timestep to the wrapper, so loop metrics st
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Sequence
 
 import chex
 import jax
+import jax.numpy as jnp
 
 from rl_components.agent_protocol import AgentProtocol, AgentStep
 from rl_components.env_protocol import EnvSpec
 from rl_components.timestep import Timestep
 
 type TimestepTransform[ObsT] = Callable[[Timestep[ObsT]], Timestep[ObsT]]
+
+
+def clip_reward[ObsT](low: float, high: float) -> TimestepTransform[ObsT]:
+    def transform(timestep: Timestep[ObsT]) -> Timestep[ObsT]:
+        return dataclasses.replace(timestep, reward=jnp.clip(timestep.reward, low, high))
+
+    return transform
 
 
 class PreprocessedAgent[AgentStateT, ObsT, ActT]:
