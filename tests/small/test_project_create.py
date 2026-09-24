@@ -16,41 +16,6 @@ def _write_workspace_config(workspace_root: Path) -> None:
     (workspace_root / "research.yaml").write_text("core_path: core\nstorage_backend: local\n", encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("algorithm", "agent", "env_name"),
-    [
-        ("ppo", "PPOAgent", "CartPole-v1"),
-        ("dqn", "DQNAgent", "CartPole-v1"),
-        ("double_dqn", "DoubleDQNAgent", "CartPole-v1"),
-        ("dueling_dqn", "DuelingDQNAgent", "CartPole-v1"),
-        ("sac", "SACAgent", "MountainCarContinuous-v0"),
-        ("td3", "TD3Agent", "MountainCarContinuous-v0"),
-    ],
-)
-def test_ported_project_template_train_drives_the_shared_loop(algorithm: str, agent: str, env_name: str) -> None:
-    """A ported algorithm's starter must build an agent and hand it to ``loop.run``.
-
-    The starter is the composition root, so it is where the discount lives now that the
-    agent config no longer carries one, and it must not reach for the Gymnax tuple surface
-    or a ``LogWrapper``: the loop reports episode returns itself.
-    """
-    rendered = _render_project_template(
-        "train.py.jinja",
-        project_name="demo",
-        description="A demo experiment",
-        env_name=env_name,
-        algorithm=algorithm,
-    )
-
-    assert "from rl_components.loop import run" in rendered
-    assert "env = make_gymnax_env(raw_env)" in rendered
-    assert f"agent = {agent}(config)" in rendered
-    assert "steps=config.TOTAL_TIMESTEPS," in rendered
-    assert "gamma=GAMMA," in rendered
-    assert "gymnax.wrappers" not in rendered
-    assert "make_train" not in rendered
-
-
 def _render_project_template(template_name: str, **context: str) -> str:
     template_path = _template_root() / "{{project_name}}" / template_name
     template = template_path.read_text(encoding="utf-8")
@@ -161,37 +126,26 @@ def test_project_create_fails_if_project_already_exists(tmp_path: Path, monkeypa
     assert str(project_root) in result.output
 
 
-@pytest.mark.parametrize("algorithm", ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac", "td3"])
-def test_project_template_pyproject_declares_truthful_runtime_dependencies(algorithm: str) -> None:
+def test_project_template_pyproject_declares_declarative_runtime_dependencies() -> None:
     """The generated project must declare the runtime packages its starter imports require."""
     rendered = _render_project_template(
         "pyproject.toml.jinja",
         project_name="demo",
         description="A demo experiment",
         python_version="3.13",
-        algorithm=algorithm,
     )
 
     assert 'dependencies = [' in rendered
     assert 'dependencies = []' not in rendered
-    assert '"gymnax>=0.0.9"' in rendered
-    assert '"jax~=0.9"' in rendered
+    assert '"experiment-definition"' in rendered
+    assert '"research-runner"' in rendered
     assert '"rl-agents"' in rendered
+    assert '"rl-envs"' in rendered
     assert "[tool.uv.sources]" in rendered
+    assert "experiment-definition = { workspace = true }" in rendered
+    assert "research-runner = { workspace = true }" in rendered
     assert "rl-agents = { workspace = true }" in rendered
-
-    if algorithm == "ppo":
-        assert '"matplotlib>=3.9"' in rendered
-    else:
-        assert '"matplotlib>=3.9"' not in rendered
-
-    # The ported starters import rl_components directly, for the loop and the Gymnax adapter.
-    if algorithm in ("ppo", "dqn", "double_dqn", "dueling_dqn", "sac", "td3"):
-        assert '"rl-components"' in rendered
-        assert "rl-components = { workspace = true }" in rendered
-    else:
-        assert '"rl-components"' not in rendered
-        assert "rl-components = { workspace = true }" not in rendered
+    assert "rl-envs = { workspace = true }" in rendered
 
 
 def test_project_template_readme_documents_workspace_aware_bootstrap() -> None:
@@ -199,12 +153,17 @@ def test_project_template_readme_documents_workspace_aware_bootstrap() -> None:
     rendered = _render_project_template(
         "README.md.jinja",
         project_name="demo",
+        experiment_slug="demo",
         description="A demo experiment",
     )
 
     assert "From the workspace root:" in rendered
     assert "uv sync --all-packages" in rendered
-    assert "uv run --directory projects/demo python train.py" in rendered
+    assert "uv run research experiment plan" in rendered
+    assert "projects/demo/experiments/001_demo.py" in rendered
+    assert "--spec demo_spec" in rendered
+    assert "uv run research experiment run" in rendered
+    assert "train.py" not in rendered
 
 
 def test_project_create_renders_then_initializes_git_without_github_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

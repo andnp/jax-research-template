@@ -10,10 +10,20 @@ From the workspace root:
 uv sync --all-packages
 ```
 
-## Run
+## Plan and run
 
 From the workspace root:
 
 ```bash
-uv run --directory projects/{{ project_name }} python train.py
+uv run research experiment plan \
+  projects/{{ project_name }}/experiments/001_{{ experiment_slug }}.py \
+  --spec {{ experiment_slug }}_spec
+```
+
+Review the planned batches before starting the runs:
+
+```bash
+uv run research experiment run \
+  projects/{{ project_name }}/experiments/001_{{ experiment_slug }}.py \
+  --spec {{ experiment_slug }}_spec
 ```

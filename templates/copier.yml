@@ -24,18 +24,6 @@ python_version:
   choices:
     - "3.13"
 
-algorithm:
-  type: str
-  help: "Primary RL algorithm for this experiment"
-  default: "ppo"
-  choices:
-    - "ppo"
-    - "dqn"
-    - "double_dqn"
-    - "dueling_dqn"
-    - "sac"
-    - "td3"
-
 env_name:
   type: str
   help: "Gymnax environment name"

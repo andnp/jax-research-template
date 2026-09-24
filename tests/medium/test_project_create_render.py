@@ -30,7 +30,8 @@ def test_project_create_renders_template_and_initializes_git(tmp_path: Path, mon
     assert result.exit_code == 0, result.output
     assert (project_root / "README.md").is_file()
     assert (project_root / "pyproject.toml").is_file()
-    assert (project_root / "train.py").is_file()
+    assert (project_root / "experiments" / "001_demo.py").is_file()
+    assert not (project_root / "train.py").exists()
     assert (project_root / ".git").is_dir()
     assert not (project_root / "demo").exists()
 
@@ -55,7 +56,8 @@ def test_project_create_from_child_project_repo_renders_under_shell_projects(tmp
     assert result.exit_code == 0, result.output
     assert (project_root / "README.md").is_file()
     assert (project_root / "pyproject.toml").is_file()
-    assert (project_root / "train.py").is_file()
+    assert (project_root / "experiments" / "001_demo.py").is_file()
+    assert not (project_root / "train.py").exists()
     assert (project_root / ".git").is_dir()
 
 
@@ -78,7 +80,7 @@ def test_project_create_renders_importable_linted_declarative_experiment(
     assert result.exit_code == 0, result.output
     experiment_path = project_root / "experiments" / "001_demo_project.py"
     assert experiment_path.is_file()
-    assert (project_root / "train.py").is_file()
+    assert not (project_root / "train.py").exists()
 
     ruff_result = subprocess.run(
         [
@@ -108,3 +110,7 @@ def test_project_create_renders_importable_linted_declarative_experiment(
     assert generated_spec.results_root == project_root / "results"
     assert generated_spec.parameter_schema is not None
     assert "learning_rate" in generated_spec.parameter_schema.dynamic_keys
+
+    plan_result = runner.invoke(app, ["experiment", "plan", str(experiment_path), "--spec", "demo_project_spec"])
+    assert plan_result.exit_code == 0, plan_result.output
+    assert "Spec 'demo_project_spec': 1 batch(es) planned" in plan_result.output

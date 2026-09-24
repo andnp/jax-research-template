@@ -4,15 +4,10 @@ version = "0.1.0"
 description = "{{ description }}"
 requires-python = ">={{ python_version }}"
 dependencies = [
-	"gymnax>=0.0.9",
-	"jax~=0.9",
+	"experiment-definition",
+	"research-runner",
 	"rl-agents",
-{% if algorithm == "ppo" %}
-	"matplotlib>=3.9",
-{% endif %}
-{% if algorithm in ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac", "td3"] %}
-	"rl-components",
-{% endif %}
+	"rl-envs",
 ]
 
 [build-system]
@@ -23,7 +18,7 @@ build-backend = "setuptools.build_meta"
 package = false
 
 [tool.uv.sources]
+experiment-definition = { workspace = true }
+research-runner = { workspace = true }
 rl-agents = { workspace = true }
-{% if algorithm in ["ppo", "dqn", "double_dqn", "dueling_dqn", "sac", "td3"] %}
-rl-components = { workspace = true }
-{% endif %}
+rl-envs = { workspace = true }
