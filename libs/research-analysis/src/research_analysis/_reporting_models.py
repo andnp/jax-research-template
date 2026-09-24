@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,8 @@ class HyperparameterSliceReport:
     vary: str
     values: list[Any]
     best_performance: list[float]
-    slice_performance: list[float]
+    # None where the champion-pinned configuration was never run at that value.
+    slice_performance: Sequence[float | None]
     plot_path: Path | None
 
 

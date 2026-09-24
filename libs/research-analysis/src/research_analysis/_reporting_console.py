@@ -101,7 +101,7 @@ def _present_slice_hypers(
     table.add_column("Best Achievable Mean", justify="right")
     table.add_column("Champion-Pinned Slice Mean", justify="right")
     for value, best, slice_val in zip(report.values, report.best_performance, report.slice_performance, strict=True):
-        table.add_row(str(value), f"{best:.2f}", f"{slice_val:.2f}")
+        table.add_row(str(value), f"{best:.2f}", "—" if slice_val is None else f"{slice_val:.2f}")
     console.print(table)
 
     console.print(

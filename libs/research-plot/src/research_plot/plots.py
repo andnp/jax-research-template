@@ -206,7 +206,7 @@ def plot_trajectory_panels(
 def plot_sensitivity(
     param_name: str,
     values: list[Any],
-    slice_performance: list[float],
+    slice_performance: Sequence[float | None],
     best_performance: list[float],
     save_path: Path | str,
 ) -> Path:
@@ -215,7 +215,7 @@ def plot_sensitivity(
     Args:
         param_name: Name of target hyperparameter.
         values: Sweep values.
-        slice_performance: Performance along the optimal slice (fixed remaining hypers).
+        slice_performance: Performance along the optimal slice (fixed remaining hypers); None leaves a gap.
         best_performance: Maximum achievable performance at each value of target hyperparameter.
         save_path: Location to save the plot.
     """
@@ -227,7 +227,8 @@ def plot_sensitivity(
 
     x = np.arange(len(values))
     ax.plot(x, best_performance, label="Best Achievable", color="#2ca02c", marker="o", linewidth=2)
-    ax.plot(x, slice_performance, label="Optimal Slice", color="#d62728", marker="s", linestyle="--", linewidth=2)
+    slice_values = [np.nan if value is None else value for value in slice_performance]
+    ax.plot(x, slice_values, label="Optimal Slice", color="#d62728", marker="s", linestyle="--", linewidth=2)
 
     ax.set_xticks(x)
     ax.set_xticklabels([str(v) for v in values])

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from research_plot.plots import plot_ecdf, plot_sensitivity
@@ -10,7 +11,7 @@ from research_plot.plots import plot_ecdf, plot_sensitivity
 def _plot_hypers(
     target_hyperparameter: str,
     sorted_keys: list[object],
-    slice_perf_sorted: list[float],
+    slice_perf_sorted: Sequence[float | None],
     best_perf_sorted: list[float],
     experiment_slug: str,
     plot_suffix: str,

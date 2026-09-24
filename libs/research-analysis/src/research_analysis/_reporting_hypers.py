@@ -520,8 +520,7 @@ def _slice_hypers_group(
     sorted_values = sorted(profile_by_value)
     best_performance = [profile_by_value[value].corrected_mean for value in sorted_values]
     slice_performance = [
-        float(np.mean(slice_by_value[value])) if value in slice_by_value else profile_by_value[value].raw_mean
-        for value in sorted_values
+        float(np.mean(slice_by_value[value])) if value in slice_by_value else None for value in sorted_values
     ]
 
     plot_path = _plot_hypers(vary, sorted_values, slice_performance, best_performance, experiment_slug, plot_suffix)

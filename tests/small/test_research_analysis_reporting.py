@@ -314,6 +314,28 @@ def test_slice_hypers_plots_selection_corrected_best_values(temp_experiment_setu
     assert report.best_performance != pytest.approx([profiles[(1,)].raw_mean, profiles[(2,)].raw_mean])
 
 
+def test_slice_hypers_leaves_an_unrun_pinned_value_empty(temp_experiment_setup: ExperimentSetup) -> None:
+    """A pinned configuration never run at some value shows no slice value rather than a borrowed best one."""
+    setup = temp_experiment_setup
+    combos = {("low", 1): 10.0, ("mid", 1): 1.0, ("high", 1): 1.0, ("mid", 2): 2.0, ("high", 2): 3.0}
+    for (learning_rate, eta), value in combos.items():
+        for seed in range(3):
+            _add_observation(
+                setup, {"condition_name": "baseline", "learning_rate": learning_rate, "eta": eta}, seed, value
+            )
+    dataset = _load(
+        setup,
+        ExperimentDimensions(
+            sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING), SweepAxis("eta", SweepValueType.INTEGER))
+        ),
+    )
+
+    report = slice_hypers(dataset, "metric", vary="eta", verbose=False, n_resamples=64)
+
+    assert report.values == [1, 2]
+    assert report.slice_performance == [pytest.approx(10.0), None]
+
+
 def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: ExperimentSetup) -> None:
     """vary and group_by must name disjoint axes."""
     setup = temp_experiment_setup
