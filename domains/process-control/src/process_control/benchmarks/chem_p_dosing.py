@@ -91,7 +91,6 @@ class ChemPDosingConfig:
     # ── Precipitation chemistry ───────────────────────────────────
     stoich_fe_per_p: float = 1.8
     k_half: float = 0.5
-    precip_efficiency: float = 0.85
     p_min: float = 0.01
 
     # ── Flow source ───────────────────────────────────────────────
@@ -150,7 +149,6 @@ def make_chem_p_dosing_benchmark(
     precip_params = PrecipitationParams(
         stoich_fe_per_p=config.stoich_fe_per_p,
         k_half=config.k_half,
-        efficiency=config.precip_efficiency,
         p_min=config.p_min,
     )
 
