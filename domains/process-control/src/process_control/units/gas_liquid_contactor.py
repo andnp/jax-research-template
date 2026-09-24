@@ -179,9 +179,16 @@ def compute_removal(
 
     # ── Sulfide mass transfer to liquid ───────────────────────────
     # H₂S removed from gas → dissolved sulfide in liquid
-    # Approximate: ppmv × gas_flow → mass rate
-    # At STP: 1 ppmv H₂S in 1 m³/h ≈ 1.43 mg/h of H₂S
-    h2s_density_factor = 1.43 / 60.0  # mg/min per (ppmv × m³/h)
+    # Approximate: ppmv × gas_flow → mass rate, via the ideal gas law at the
+    # actual inlet temperature (not a fixed STP figure): molar volume scales
+    # as T/T0 from its 0°C value 22.414 L/mol (IUPAC STP), so 1 ppmv in
+    # 1 m3/h is (34.08 g/mol / 22.414 L/mol) * (273.15 K / T) mg/h of H2S —
+    # 1.520 mg/h at 0°C, 1.417 mg/h at 20°C (NIST H2S molar mass, see module
+    # docstring), matching the audit's correction of the prior fixed "1.43".
+    h2s_molar_mass = 34.08  # g/mol
+    molar_volume_stp = 22.414  # L/mol at 0°C, 101.325 kPa
+    gas_temp_k = gas_inlet.temperature + 273.15
+    h2s_density_factor = (h2s_molar_mass / molar_volume_stp) * (273.15 / gas_temp_k) / 60.0  # mg/min per (ppmv × m³/h)
     removed_h2s_ppm = gas_inlet.h2s_ppm * efficiency
     sulfide_load = removed_h2s_ppm * gas_inlet.gas_flow * h2s_density_factor
 

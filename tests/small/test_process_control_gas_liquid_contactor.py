@@ -330,6 +330,38 @@ def test_higher_dissolved_sulfide_reduces_removal(params: ContactorParams, nomin
     assert float(low_load.removal_efficiency) > float(high_load.removal_efficiency)
 
 
+def test_sulfide_load_density_factor_matches_ideal_gas_law(params: ContactorParams):
+    """Mass transferred per removed ppmv shrinks with temperature (ideal gas law), not fixed at STP."""
+    cold_gas = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(0.0))
+    warm_gas = GasInlet(gas_flow=jnp.array(500.0), h2s_ppm=jnp.array(50.0), temperature=jnp.array(20.0))
+
+    cold = compute_removal(
+        cold_gas,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        ph=jnp.array(9.8),
+        sulfide=jnp.array(1.0),
+        params=params,
+    )
+    warm = compute_removal(
+        warm_gas,
+        oxidant=jnp.array(5.0),
+        alkalinity=jnp.array(3.0),
+        recirc_flow=jnp.array(50.0),
+        ph=jnp.array(9.8),
+        sulfide=jnp.array(1.0),
+        params=params,
+    )
+    # Density factor at 0°C is 22.414/(22.414*293.15/273.15) ~= 1.073x the
+    # factor at 20°C; the two removal_efficiency values differ only through
+    # f_temperature, so normalize sulfide_load by that ratio before comparing.
+    density_ratio = (293.15) / (273.15)
+    assert float(cold.sulfide_load) / float(warm.sulfide_load) == pytest.approx(
+        density_ratio * float(cold.removal_efficiency) / float(warm.removal_efficiency), rel=1e-3
+    )
+
+
 def test_zero_dissolved_sulfide_does_not_throttle_removal(params: ContactorParams, nominal_gas: GasInlet):
     """An empty liquid has full remaining absorption capacity (f_loading == 1)."""
     result = compute_removal(
