@@ -55,6 +55,8 @@ class ExecutionResult:
     metadata: dict[str, object] = field(default_factory=dict)
     metric_curves: Mapping[str, Sequence[Sequence[float]]] = field(default_factory=dict)
     artifacts: Mapping[str, object] = field(default_factory=dict)
+    metric_scalars: Mapping[str, Sequence[float]] = field(default_factory=dict)
+    execution_metrics: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

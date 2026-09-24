@@ -7,6 +7,21 @@ from experiment_definition.db import DatabaseManager
 from research_runner import ExecutionContext, ExecutionResult, execute_batch
 
 
+def test_execution_result_separates_run_and_execution_scalars() -> None:
+    """
+    Verify per-run scalar values stay distinct from execution-wide values.
+    """
+    result = ExecutionResult(
+        metric_scalars={"score": (1.0, 2.0)},
+        execution_metrics={"batch_score": 1.5},
+    )
+
+    assert result.metric_scalars == {"score": (1.0, 2.0)}
+    assert result.execution_metrics == {"batch_score": 1.5}
+    assert ExecutionResult().metric_scalars == {}
+    assert ExecutionResult().execution_metrics == {}
+
+
 def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
     """
     Verify the runner persists trainer metric curves with run and seed identity.
