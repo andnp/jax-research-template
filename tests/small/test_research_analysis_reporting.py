@@ -1031,3 +1031,20 @@ class TestBakeoffCells:
         report = bakeoff_report(dataset, "metric", ["a", "b"], spec=BakeoffSpec(n_resamples=50), verbose=False)
 
         assert report.cells["a"][""].median_run_id == median_run
+
+
+def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: ExperimentSetup) -> None:
+    """Sweep-axis columns live on runs, not metric rows, so blocking by one must still reach every check."""
+    setup = temp_experiment_setup
+    for condition, offset in (("a", 1.0), ("b", 0.0)):
+        for seed in range(3):
+            _add_curve_observation(
+                setup, {"condition_name": condition, "learning_rate": "low"}, seed, [0.0, seed + offset]
+            )
+    dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+    report = bakeoff_report(
+        dataset, "metric", ["a", "b"], block_by=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+    )
+
+    assert report.cells["a"]["low"].n == 3

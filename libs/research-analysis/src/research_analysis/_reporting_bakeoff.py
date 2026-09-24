@@ -521,7 +521,7 @@ def bakeoff_report(
                 if seeds_issue is not None:
                     warnings.add(seeds_issue.code, seeds_issue.message, seeds_issue.condition, seeds_issue.cell)
 
-        block_metrics = combined.metrics.filter(_block_predicate(block_key)) if block_key else combined.metrics
+        block_metrics = _filter_dataset(combined, _block_predicate(block_key)).metrics
         flat = flatline_flags(block_metrics, metric_name)
         for row in flat.filter(pl.col("flatlined")).iter_rows(named=True):
             if row["condition_name"] not in conditions:
