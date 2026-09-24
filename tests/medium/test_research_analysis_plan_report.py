@@ -15,6 +15,7 @@ from experiment_definition.parameter import ParameterValue
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import IncompleteCell
+from research_analysis.performance import FinalValue, ReturnRate
 from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, against_baseline
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import PLAN_HISTORY_FILE, PlanSnapshot, read_plan_snapshots, record_plan_snapshot
@@ -126,6 +127,26 @@ class TestPerArmAxisPlan:
         assert tuned.difference("ortho", "shared").estimate == pytest.approx(10.0, abs=0.5)
         assert sum(cell.completed for cell in document.accounting.cells) == 25
         assert json.loads(report_to_json(document))["analyses"][0]["report"]["shared_across"] == {"eta": ["shared"]}
+
+
+class TestPerAnalysisMeasure:
+    def test_a_declared_secondary_measure_scores_only_its_own_analysis(self, tmp_path: Path) -> None:
+        """A secondary analysis declared with its own measure scores whole curves while the primary keeps the plan's."""
+        experiment = _complete(tmp_path)
+        with sqlite3.connect(experiment.metrics_path) as connection:
+            connection.execute(
+                "INSERT INTO metrics SELECT run_id, execution_id, metric_name, 1, 0.0 FROM metrics WHERE global_step = 0"
+            )
+        plan = replace(
+            PLAN, analyses=(*PLAN.analyses, BakeoffAnalysis("whole_run", ("base", "new"), measure=ReturnRate()))
+        )
+
+        document = run_plan(experiment.db_path, "demo", plan, (PlanSnapshot(plan_fingerprint(plan), BEFORE, "{}"),))
+
+        headline, whole_run = (result.report for result in document.analyses if isinstance(result, BakeoffResult))
+        assert (headline.measure, whole_run.measure) == (FinalValue(), ReturnRate())
+        assert headline.difference("new", "base").estimate == pytest.approx(0.0)
+        assert whole_run.difference("new", "base").estimate == pytest.approx(0.6)
 
 
 class TestPlanStatus:

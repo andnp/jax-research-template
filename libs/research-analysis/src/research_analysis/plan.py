@@ -18,6 +18,7 @@ class BakeoffAnalysis:
 
     ``shared_across`` reuses the runs of conditions a blocking axis does not apply to in every block
     of that axis; ``untuned`` declares single-configuration referents in a tuned-champion comparison.
+    Every analysis type takes an optional ``measure`` that replaces the plan's for that analysis alone.
     """
 
     name: str
@@ -28,6 +29,7 @@ class BakeoffAnalysis:
     min_seeds: int = 5
     shared_across: tuple[str, ...] = ()
     untuned: tuple[str, ...] = ()
+    measure: PerformanceMeasure | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class BestHypersAnalysis:
 
     name: str
     group_by: tuple[str, ...] = ()
+    measure: PerformanceMeasure | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,7 @@ class HypersDifferenceAnalysis:
     group_axis: str
     minuend: SweepValue
     subtrahend: SweepValue
+    measure: PerformanceMeasure | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class SliceHypersAnalysis:
     name: str
     vary: str
     group_by: tuple[str, ...] = ()
+    measure: PerformanceMeasure | None = None
 
 
 type Analysis = BakeoffAnalysis | BestHypersAnalysis | HypersDifferenceAnalysis | SliceHypersAnalysis
@@ -69,8 +74,9 @@ def against_baseline(conditions: Sequence[str], baseline: str) -> tuple[tuple[st
 class AnalysisPlan:
     """The declared primary analysis: one metric and measure, the analyses to run, and their statistics.
 
-    ``stats`` sets alpha, resampling, minimum samples, and seed for every analysis. ``non_finite_worst_case``
-    declares the value a diverged run scores; without it, a diverged run fails the report loudly.
+    ``stats`` sets alpha, resampling, minimum samples, and seed for every analysis. ``measure`` scores the runs
+    of every analysis that declares none of its own. ``non_finite_worst_case`` declares the value a diverged run
+    scores; without it, a diverged run fails the report loudly.
     """
 
     metric: str
@@ -101,6 +107,10 @@ class AnalysisPlan:
                 f"analyses {hierarchical!r} use the hierarchical percentile bootstrap; "
                 f"stats.interval {self.stats.interval!r} applies only to untuned bakeoffs"
             )
+
+    def measure_of(self, analysis: Analysis) -> PerformanceMeasure:
+        """The measure ``analysis`` scores runs by: its own when declared, otherwise the plan's."""
+        return self.measure if analysis.measure is None else analysis.measure
 
 
 PLANS_ATTRIBUTE = "__research_analysis_plans__"

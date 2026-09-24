@@ -78,6 +78,7 @@ def _snapshot_reasons(
 
 def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Analysis) -> list[AnalysisResult]:
     stats = plan.stats
+    measure = plan.measure_of(analysis)
     match analysis:
         case BakeoffAnalysis():
             report = bakeoff_report(
@@ -89,7 +90,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 spec=stats,
                 higher_is_better=plan.higher_is_better,
                 min_seeds=analysis.min_seeds,
-                measure=plan.measure,
+                measure=measure,
                 pairs=analysis.pairs,
                 shared_across=analysis.shared_across,
                 untuned=analysis.untuned,
@@ -104,7 +105,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 n_resamples=stats.n_resamples,
                 min_samples=stats.min_samples,
                 random_seed=stats.random_seed,
-                measure=plan.measure,
+                measure=measure,
             )
             return [BestHypersResult(analysis.name, {}, champion)]
         case BestHypersAnalysis(group_by=group_by):
@@ -117,7 +118,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 n_resamples=stats.n_resamples,
                 min_samples=stats.min_samples,
                 random_seed=stats.random_seed,
-                measure=plan.measure,
+                measure=measure,
             )
             return [
                 BestHypersResult(analysis.name, dict(zip(group_by, key, strict=True)), report)
@@ -134,7 +135,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 n_resamples=stats.n_resamples,
                 min_samples=stats.min_samples,
                 random_seed=stats.random_seed,
-                measure=plan.measure,
+                measure=measure,
             )
             return [HypersDifferenceResult(analysis.name, difference)]
         case SliceHypersAnalysis(group_by=()):
@@ -147,7 +148,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 n_resamples=stats.n_resamples,
                 min_samples=stats.min_samples,
                 random_seed=stats.random_seed,
-                measure=plan.measure,
+                measure=measure,
             )
             return [SliceHypersResult(analysis.name, {}, sensitivity)]
         case SliceHypersAnalysis(group_by=group_by):
@@ -161,7 +162,7 @@ def _run_analysis(dataset: ExperimentDataset, plan: AnalysisPlan, analysis: Anal
                 n_resamples=stats.n_resamples,
                 min_samples=stats.min_samples,
                 random_seed=stats.random_seed,
-                measure=plan.measure,
+                measure=measure,
             )
             return [
                 SliceHypersResult(analysis.name, dict(zip(group_by, key, strict=True)), report)

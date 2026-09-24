@@ -46,6 +46,8 @@ _KINDS: dict[type, str] = {
     SliceHypersResult: "slice_hypers",
 }
 
+_ANALYSES = (BakeoffAnalysis, BestHypersAnalysis, HypersDifferenceAnalysis, SliceHypersAnalysis)
+
 
 def _tagged(value: object, data: dict[str, JsonValue]) -> dict[str, JsonValue]:
     if isinstance(value, CellAccounting | BakeoffWarning):
@@ -73,7 +75,11 @@ def to_jsonable(value: object) -> JsonValue:
             return [to_jsonable(item) for item in value]
     if is_dataclass(value) and not isinstance(value, type):
         attributes = vars(value)
-        return _tagged(value, {item.name: to_jsonable(attributes[item.name]) for item in fields(value)})
+        data = {item.name: to_jsonable(attributes[item.name]) for item in fields(value)}
+        # An analysis inheriting the plan's measure omits the field, so plans that never override keep their fingerprint.
+        if isinstance(value, _ANALYSES) and value.measure is None:
+            del data["measure"]
+        return _tagged(value, data)
     raise TypeError(f"cannot serialize {type(value).__name__} in a report")
 
 

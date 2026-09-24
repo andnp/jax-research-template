@@ -191,6 +191,15 @@ class TestPlanFingerprint:
 
         assert plan_fingerprint(plan) != plan_fingerprint(replace(plan, measure=TailMean(0.1)))
 
+    def test_an_analysis_measure_is_hashed_only_when_declared(self) -> None:
+        """Plans snapshotted before an analysis could override the measure keep matching their snapshots."""
+        plan = AnalysisPlan("return", (BakeoffAnalysis("h", ("a", "b")),), ExperimentDimensions())
+        overridden = replace(plan, analyses=(BakeoffAnalysis("h", ("a", "b"), measure=TailMean(0.1)),))
+        document = replace(exploratory_report(_dataset(_SCORES), Path("db"), []), plan=plan)
+
+        assert "measure" not in json.loads(report_to_json(document))["plan"]["analyses"][0]
+        assert plan_fingerprint(plan) != plan_fingerprint(overridden)
+
 
 def _markdown(dataset: ExperimentDataset, results: list[AnalysisResult]) -> str:
     return render_markdown(exploratory_report(dataset, Path("experiments.sqlite"), results))
