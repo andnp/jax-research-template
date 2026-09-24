@@ -24,6 +24,7 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
+from jax_utils.pytree import tree_lerp
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
@@ -119,10 +120,7 @@ class Actor(TypedApply[jax.Array], nn.Module):
 
 
 def _soft_update(tau: jax.Array | float, target: VariableDict, online: VariableDict) -> VariableDict:
-    def polyak_average(tp: jax.Array, p: jax.Array) -> jax.Array:
-        return tau * p + (1.0 - tau) * tp
-
-    return jax.tree_util.tree_map(polyak_average, target, online)
+    return tree_lerp(target, online, tau)
 
 
 def td3_critic_loss(
@@ -491,4 +489,3 @@ class TD3Agent:
             critic_loss.astype(jnp.float32),
             actor_loss,
         )
-

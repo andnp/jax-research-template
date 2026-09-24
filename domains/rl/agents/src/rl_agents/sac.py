@@ -26,6 +26,7 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from jax_utils.pytree import tree_lerp
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
@@ -529,10 +530,7 @@ class SACAgent:
         )
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
-        def polyak_average(target: jax.Array, online: jax.Array) -> jax.Array:
-            return hypers.TAU * online + (1.0 - hypers.TAU) * target
-
-        critic_target_params = jax.tree_util.tree_map(polyak_average, state.critic_target_params, critic_state.params)
+        critic_target_params = tree_lerp(state.critic_target_params, critic_state.params, hypers.TAU)
 
         return (
             actor_state,

@@ -51,6 +51,7 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from jax_utils.pytree import tree_lerp
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
@@ -321,12 +322,9 @@ class ReplayQAgent:
             lambda: (state.train_state, jnp.zeros((), jnp.float32)),
         )
 
-        def polyak_average(target: jax.Array, online: jax.Array) -> jax.Array:
-            return hypers.TAU * online + (1.0 - hypers.TAU) * target
-
         target_params = jax.lax.cond(
             step_index % hypers.TARGET_NETWORK_FREQUENCY == 0,
-            lambda: jax.tree_util.tree_map(polyak_average, state.target_params, train_state.params),
+            lambda: tree_lerp(state.target_params, train_state.params, hypers.TAU),
             lambda: state.target_params,
         )
 
