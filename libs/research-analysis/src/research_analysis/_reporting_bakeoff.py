@@ -30,7 +30,7 @@ from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scala
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
 from research_analysis.dataset.types import ExperimentDataset
-from research_analysis.diagnostics.bakeoff import BakeoffWarningAccumulator, BakeoffWarningCode
+from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.non_finite import require_finite
@@ -422,7 +422,7 @@ def bakeoff_report(
     family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
     comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
 
-    warnings = BakeoffWarningAccumulator()
+    warnings: list[BakeoffWarning] = []
     champions: dict[str, dict[str, HyperparameterConfigReport]] = {}
     champion_differences: list[PairedDifference] = []
     comparison_runs: list[pl.DataFrame] = []
@@ -497,7 +497,7 @@ def bakeoff_report(
                 )
                 warning = boundary_warning(slice_report, condition=cond, cell=cell, higher_is_better=higher_is_better)
                 if warning is not None:
-                    warnings.add(warning.code, warning.message, warning.condition, warning.cell)
+                    warnings.append(warning)
 
         champion_dataset = _filter_to_champions(
             block_dataset, {condition: report.winning_config for condition, report in block_champions.items()}
@@ -529,31 +529,33 @@ def bakeoff_report(
                 continue
             variance_issue = variance_warning(values, condition=condition, cell=block_key)
             if variance_issue is not None:
-                warnings.add(variance_issue.code, variance_issue.message, variance_issue.condition, variance_issue.cell)
+                warnings.append(variance_issue)
             if variance_issue is None or variance_issue.code != BakeoffWarningCode.ZERO_VARIANCE:
                 # Shapiro-Wilk is undefined (and noisy) on constant data; zero variance
                 # is already reported above, so skip the redundant, degenerate check.
                 normality_issue = non_normality_warning(values, condition=condition, cell=block_key)
                 if normality_issue is not None:
-                    warnings.add(normality_issue.code, normality_issue.message, normality_issue.condition, normality_issue.cell)
+                    warnings.append(normality_issue)
             if condition in champions.get(label, {}):
                 seeds_issue = insufficient_seeds_warning(
                     champions[label][condition], len(values), condition=condition, cell=block_key, min_seeds=min_seeds
                 )
                 if seeds_issue is not None:
-                    warnings.add(seeds_issue.code, seeds_issue.message, seeds_issue.condition, seeds_issue.cell)
+                    warnings.append(seeds_issue)
 
         block_metrics = _filter_dataset(combined, _block_predicate(block_key)).metrics
         flat = flatline_flags(block_metrics, metric_name)
         for row in flat.filter(pl.col("flatlined")).iter_rows(named=True):
             if row["condition_name"] not in conditions:
                 continue
-            warnings.add(
-                BakeoffWarningCode.FLATLINED_LEARNING_CURVE,
-                f"mean curve stops moving well before the run ends (tail range "
-                f"{row['tail_range']:.4g} of whole range {row['whole_range']:.4g}).",
-                row["condition_name"],
-                block_key,
+            warnings.append(
+                BakeoffWarning(
+                    BakeoffWarningCode.FLATLINED_LEARNING_CURVE,
+                    f"mean curve stops moving well before the run ends (tail range "
+                    f"{row['tail_range']:.4g} of whole range {row['whole_range']:.4g}).",
+                    row["condition_name"],
+                    block_key,
+                )
             )
 
     report = BakeoffReport(
@@ -581,7 +583,7 @@ def bakeoff_report(
         ),
         family_size=family_size,
         comparison_confidence=comparison_confidence,
-        warnings=warnings.as_tuple(),
+        warnings=tuple(warnings),
     )
 
     if verbose:
