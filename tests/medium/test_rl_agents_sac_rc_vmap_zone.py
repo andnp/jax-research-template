@@ -4,8 +4,10 @@ import dataclasses
 
 import jax
 import jax.numpy as jnp
-from rl_agents.sac_rc import SACRCAgent, SACRCAgentState, SACRCConfig, SACRCHypers, sac_rc_hypers
+from rl_agents.sac_rc import SACRCAgent, SACRCAlgorithmState, SACRCConfig, SACRCHypers, sac_rc_hypers
+from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvSpec
+from rl_components.replay_agent import ReplayAgentState
 from rl_components.timestep import Timestep
 
 SPEC = EnvSpec(
@@ -20,9 +22,13 @@ SPEC = EnvSpec(
 
 def _run_arm(agent: SACRCAgent, base_hypers: SACRCHypers, learning_rate: jax.Array, key: jax.Array):
     hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
-    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
+    state = agent.init(key, SPEC)
+    state = dataclasses.replace(
+        state,
+        algorithm_state=dataclasses.replace(state.algorithm_state, hypers=hypers),
+    )
 
-    def one_step(state: SACRCAgentState, step_index: jax.Array):
+    def one_step(state: ReplayAgentState[SACRCAlgorithmState, ReplayBufferState], step_index: jax.Array):
         timestep = Timestep(
             observation=jnp.ones((2,), jnp.float32) * (step_index + 1),
             reward=jnp.float32(1.0),
@@ -34,7 +40,7 @@ def _run_arm(agent: SACRCAgent, base_hypers: SACRCHypers, learning_rate: jax.Arr
         return out.state, out.metrics["critic_loss"]
 
     state, _ = jax.lax.scan(one_step, state, jnp.arange(8))
-    return state.critic_state.params
+    return state.algorithm_state.critic_state.params
 
 
 class TestVmapZone:

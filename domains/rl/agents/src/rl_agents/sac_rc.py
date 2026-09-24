@@ -41,6 +41,7 @@ name had left it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import cast
 
 import chex
@@ -53,10 +54,11 @@ from flax.typing import VariableDict
 from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
-from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
+from rl_components.continuous_actions import continuous_action_dim
 from rl_components.env_protocol import EnvSpec
 from rl_components.losses import qrc_terms
 from rl_components.optim import with_hyperparams
+from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -250,38 +252,13 @@ def sac_rc_actor_loss(
 
 
 @chex_struct(frozen=True)
-class SACRCAgentState:
-    """Everything :class:`SACRCAgent` carries between loop iterations.
-
-    There is no ``critic_target_params`` field, and its absence is the algorithm: SAC-RC
-    is pure gradient TD, so every bootstrap reads the online critic and the ``h``-head's
-    correction term stands in for what a target network would otherwise damp.
-
-    Attributes:
-        actor_state: Policy parameters, optimizer state and the static ``apply_fn``.
-        critic_state: Twin-critic ensemble parameters, leading axis over members.
-        alpha_state: The tuned entropy temperature, held as ``log_alpha``. Its
-            ``apply_fn`` is ``None``: there is no network, only a parameter.
-        buffer_state: Replay contents, and the only record of the buffer's geometry.
-        last_obs: Observation the pending transition started from. Zero-primed at
-            ``init``; never read before the first insertion, which is guarded on
-            ``step_index > 0``.
-        last_action: Action that opened the pending transition, zero-primed likewise. Its
-            shape is also where ``step`` recovers the action dimension.
-        target_entropy: The entropy target, as a float32 leaf. It is derived from the
-            action dimension, which only ``init`` sees, so ``step`` reaches it here.
-        key: PRNG key for sampling minibatches, actions and exploration.
-        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
-    """
+class SACRCAlgorithmState:
+    """SAC-RC learner state carried by the shared replay-agent wrapper."""
 
     actor_state: TrainState
     critic_state: TrainState
     alpha_state: TrainState
-    buffer_state: ReplayBufferState
-    last_obs: jax.Array
-    last_action: jax.Array
     target_entropy: jax.Array
-    key: chex.PRNGKey
     hypers: SACRCHypers
 
 
@@ -314,7 +291,7 @@ class SACRCAgent:
         """
         self.config = config
 
-    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> SACRCAgentState:
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> ReplayAgentState[SACRCAlgorithmState, ReplayBufferState]:
         """Build networks, optimizers, replay buffer and the zero-primed pending slots.
 
         Args:
@@ -348,38 +325,39 @@ class SACRCAgent:
         target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
 
         lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
-        return SACRCAgentState(
-            actor_state=TrainState.create(
-                apply_fn=actor.apply,
-                params=actor.init(actor_key, zero_obs),
-                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
-            ),
-            critic_state=TrainState.create(
-                apply_fn=critic.apply,
-                params=jax.vmap(critic.init, in_axes=(0, None, None))(
-                    jax.random.split(critic_key, 2), zero_obs, zero_action
+        return init_replay_agent_state(
+            SACRCAlgorithmState(
+                actor_state=TrainState.create(
+                    apply_fn=actor.apply,
+                    params=actor.init(actor_key, zero_obs),
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
                 ),
-                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
+                critic_state=TrainState.create(
+                    apply_fn=critic.apply,
+                    params=jax.vmap(critic.init, in_axes=(0, None, None))(
+                        jax.random.split(critic_key, 2), zero_obs, zero_action
+                    ),
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
+                ),
+                alpha_state=TrainState.create(
+                    apply_fn=None,
+                    params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
+                ),
+                target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),
+                hypers=sac_rc_hypers(self.config),
             ),
-            alpha_state=TrainState.create(
-                apply_fn=None,
-                params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
-                tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
-            ),
-            buffer_state=buffer.init(),
-            last_obs=zero_obs,
-            last_action=zero_action,
-            target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),
-            key=carry_key,
-            hypers=sac_rc_hypers(self.config),
+            buffer.init(),
+            carry_key,
+            spec,
         )
 
     def step(
         self,
-        state: SACRCAgentState,
+        state: ReplayAgentState[SACRCAlgorithmState, ReplayBufferState],
         timestep: Timestep[jax.Array],
         step_index: jax.Array,
-    ) -> AgentStep[SACRCAgentState, jax.Array]:
+    ) -> AgentStep[ReplayAgentState[SACRCAlgorithmState, ReplayBufferState], jax.Array]:
         """Close the pending transition, learn from replay, then act.
 
         The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
@@ -398,96 +376,88 @@ class SACRCAgent:
             loss is a zero placeholder on the iterations that do not learn, so the pytree
             returned to ``lax.scan`` is identical on every iteration.
         """
-        hypers = state.hypers
+        algorithm_state = state.algorithm_state
         action_dim = state.last_action.shape[0]
         actor, _ = _networks(action_dim)
-        buffer = ReplayBuffer.from_state(state.buffer_state)
+        buffer = ReplayBuffer.from_state(state.replay_state)
         carry_key, learn_key, action_key = jax.random.split(state.key, 3)
 
-        buffer_state = jax.lax.cond(
-            step_index > 0,
-            lambda: buffer.add(
-                state.buffer_state,
-                state.last_obs[None, ...],
-                state.last_action[None, ...],
-                timestep.reward[None, ...],
-                timestep.bootstrap_observation[None, ...],
-                timestep.discount[None, ...],
-            ),
-            lambda: state.buffer_state,
-        )
+        def close_transition(
+            replay_state: ReplayBufferState,
+            last_obs: jax.Array,
+            last_action: jax.Array,
+            current_timestep: Timestep[jax.Array],
+        ) -> ReplayBufferState:
+            return buffer.add(
+                replay_state,
+                last_obs[None, ...],
+                last_action[None, ...],
+                current_timestep.reward[None, ...],
+                current_timestep.bootstrap_observation[None, ...],
+                current_timestep.discount[None, ...],
+            )
 
-        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
-        (
-            actor_state,
-            critic_state,
-            alpha_state,
-            critic_loss,
-            actor_loss,
-            alpha_loss,
-        ) = jax.lax.cond(
-            can_train,
-            lambda: self._learn(state, buffer_state, buffer, learn_key),
-            lambda: (
-                state.actor_state,
-                state.critic_state,
-                state.alpha_state,
-                jnp.zeros((), jnp.float32),
-                jnp.zeros((), jnp.float32),
-                jnp.zeros((), jnp.float32),
-            ),
-        )
+        def learn(
+            learner_state: SACRCAlgorithmState,
+            replay_state: ReplayBufferState,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[SACRCAlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
+            return self._learn(learner_state, replay_state, buffer, keys[0], action_dim)
 
-        action = jax.lax.cond(
-            step_index < hypers.LEARNING_STARTS,
-            lambda: uniform_exploration_action(action_key, (action_dim,), state.last_action.dtype),
-            lambda: actor.sample(actor_state.params, timestep.observation, action_key)[0].astype(
+        def select_action(
+            learner_state: SACRCAlgorithmState,
+            observation: jax.Array,
+            _step_index: jax.Array,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[jax.Array, dict[str, jax.Array]]:
+            action = actor.sample(learner_state.actor_state.params, observation, keys[0])[0].astype(
                 state.last_action.dtype
-            ),
-        )
+            )
+            return action, {}
 
-        return AgentStep(
-            state=SACRCAgentState(
-                actor_state=actor_state,
-                critic_state=critic_state,
-                alpha_state=alpha_state,
-                buffer_state=buffer_state,
-                last_obs=timestep.observation,
-                last_action=action,
-                target_entropy=state.target_entropy,
-                key=carry_key,
-                hypers=hypers,
-            ),
-            action=action,
-            metrics={
-                "critic_loss": critic_loss,
-                "actor_loss": actor_loss,
-                "alpha_loss": alpha_loss,
-                "alpha": jnp.exp(cast(jax.Array, alpha_state.params["log_alpha"])[0]).astype(jnp.float32),
+        hypers = algorithm_state.hypers
+        return replay_agent_step(
+            state,
+            timestep,
+            step_index,
+            carry_key=carry_key,
+            learn_keys=(learn_key,),
+            action_keys=(action_key,),
+            learning_starts=hypers.LEARNING_STARTS,
+            train_frequency=hypers.TRAIN_FREQUENCY,
+            warmup_steps=hypers.LEARNING_STARTS,
+            close_transition=close_transition,
+            learn=learn,
+            select_action=select_action,
+            metrics_when_not_learning={
+                "alpha": jnp.exp(cast(jax.Array, algorithm_state.alpha_state.params["log_alpha"])[0]).astype(
+                    jnp.float32
+                )
             },
         )
 
     def _learn(
         self,
-        state: SACRCAgentState,
+        learner_state: SACRCAlgorithmState,
         buffer_state: ReplayBufferState,
         buffer: ReplayBuffer,
         key: chex.PRNGKey,
-    ) -> tuple[TrainState, TrainState, TrainState, jax.Array, jax.Array, jax.Array]:
+        action_dim: int,
+    ) -> tuple[SACRCAlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
         """Take one critic, actor and temperature gradient step on a replay minibatch.
 
         The rate is pushed into each optimizer's state each step because the
         transformation itself is a static field and cannot hold a traced value.
         """
-        hypers = state.hypers
-        actor, critic = _networks(state.last_action.shape[0])
+        hypers = learner_state.hypers
+        actor, critic = _networks(action_dim)
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
-        alpha = jnp.exp(cast(jax.Array, state.alpha_state.params["log_alpha"])[0])
+        alpha = jnp.exp(cast(jax.Array, learner_state.alpha_state.params["log_alpha"])[0])
 
-        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
-        actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.LEARNING_RATE)
-        alpha_state = with_hyperparams(state.alpha_state, learning_rate=hypers.LEARNING_RATE)
+        critic_state = with_hyperparams(learner_state.critic_state, learning_rate=hypers.LEARNING_RATE)
+        actor_state = with_hyperparams(learner_state.actor_state, learning_rate=hypers.LEARNING_RATE)
+        alpha_state = with_hyperparams(learner_state.alpha_state, learning_rate=hypers.LEARNING_RATE)
 
         def critic_loss_fn(params: VariableDict) -> jax.Array:
             return sac_rc_loss_batch(
@@ -515,16 +485,20 @@ class SACRCAgent:
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
         def alpha_loss_fn(params: VariableDict) -> jax.Array:
-            return sac_alpha_loss(params, actor_state.params, obs, state.target_entropy, alpha_key, actor=actor)
+            return sac_alpha_loss(params, actor_state.params, obs, learner_state.target_entropy, alpha_key, actor=actor)
 
         alpha_loss, alpha_grads = jax.value_and_grad(alpha_loss_fn)(alpha_state.params)
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
-        return (
-            actor_state,
-            critic_state,
-            alpha_state,
-            critic_loss.astype(jnp.float32),
-            actor_loss.astype(jnp.float32),
-            alpha_loss.astype(jnp.float32),
+        updated_state = replace(
+            learner_state,
+            actor_state=actor_state,
+            critic_state=critic_state,
+            alpha_state=alpha_state,
         )
+        return updated_state, buffer_state, {
+            "critic_loss": critic_loss.astype(jnp.float32),
+            "actor_loss": actor_loss.astype(jnp.float32),
+            "alpha_loss": alpha_loss.astype(jnp.float32),
+            "alpha": jnp.exp(cast(jax.Array, alpha_state.params["log_alpha"])[0]).astype(jnp.float32),
+        }
