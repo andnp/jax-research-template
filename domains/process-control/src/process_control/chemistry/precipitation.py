@@ -22,7 +22,7 @@ should not be multiplied by a further "efficiency" factor on top (that
 double-counts the same loss). Reported practical ratios for effluent
 P below ~1 mg/L cluster around 1.5-3 mol Fe/mol P; see Szabó et al.
 (2008), "Significance of Design and Operational Variables in Chemical
-Phosphorus Removal", Water Environment Research 80(5):407-414,
+Phosphorus Removal", Water Environment Research 80(5):407-416,
 https://doi.org/10.2175/106143008X268498, and WEF Manual of Practice
 No. 8 for the general dosing guidance this reduced-order model follows.
 
