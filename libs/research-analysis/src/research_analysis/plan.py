@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from types import ModuleType
 
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import CohortSelection, ExperimentDimensions, SweepValue, VersionSelection
@@ -84,3 +85,26 @@ class AnalysisPlan:
             raise ValueError(f"analysis names must be unique, got {names!r}")
         if self.non_finite_worst_case is not None and not math.isfinite(self.non_finite_worst_case):
             raise ValueError(f"non_finite_worst_case must be finite, got {self.non_finite_worst_case!r}")
+
+
+PLANS_ATTRIBUTE = "__research_analysis_plans__"
+
+type PlanFactory = Callable[[], AnalysisPlan]
+
+
+def analysis_plan(spec_factory: Callable[[], object]) -> Callable[[PlanFactory], PlanFactory]:
+    """Register the decorated factory as the declared plan of ``spec_factory``, in their shared spec module."""
+
+    def register(factory: PlanFactory) -> PlanFactory:
+        registry: dict[str, PlanFactory] = factory.__globals__.setdefault(PLANS_ATTRIBUTE, {})
+        if spec_factory.__name__ in registry:
+            raise ValueError(f"spec {spec_factory.__name__!r} already has a declared analysis plan")
+        registry[spec_factory.__name__] = factory
+        return factory
+
+    return register
+
+
+def registered_plans(module: ModuleType) -> dict[str, PlanFactory]:
+    """Spec factory name -> its declared plan factory, for a loaded spec module."""
+    return dict(vars(module).get(PLANS_ATTRIBUTE, {}))
