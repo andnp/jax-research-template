@@ -27,6 +27,20 @@ def _clip_gradient_bwd(residual: tuple[float, float], cotangent: jax.Array):
 clip_gradient.defvjp(_clip_gradient_fwd, _clip_gradient_bwd)
 
 
+def qrc_terms(
+    v: jax.Array,
+    h: jax.Array,
+    reward: jax.Array,
+    discount: jax.Array,
+    bootstrap: jax.Array,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    target = jax.lax.stop_gradient(reward + discount * bootstrap)
+    delta = target - v
+    value_loss = 0.5 * delta**2 + discount * jax.lax.stop_gradient(h) * bootstrap
+    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - h) ** 2
+    return value_loss, h_loss, delta
+
+
 def qrc_loss(
     params: VariableDict,
     apply_fn: ApplyFn,
@@ -42,9 +56,5 @@ def qrc_loss(
     """
     v, h = apply_fn(params, states)[:2]
     v_next = apply_fn(params, next_states)[0]
-    target = jax.lax.stop_gradient(rewards + discounts * v_next)
-    delta = target - v
-
-    v_loss = 0.5 * delta**2 + discounts * jax.lax.stop_gradient(h) * v_next
-    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - h) ** 2
+    v_loss, h_loss, delta = qrc_terms(v, h, rewards, discounts, v_next)
     return jnp.mean(v_loss + h_loss), (delta, h)
