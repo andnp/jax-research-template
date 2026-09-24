@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import types as stdlib_types
 
 
 class TestExperimentDefinitionPublicApi:
@@ -30,32 +31,22 @@ class TestExperimentDefinitionPublicApi:
         }
 
 
-class TestResearchRunnerPublicApi:
-    def test_documented_names_resolve_to_canonical_symbols(self) -> None:
+class TestResearchRunnerPackageBoundary:
+    def test_documented_names_live_in_defining_modules(self) -> None:
         import research_runner
+        from research_runner.registry import registered_specs, spec
         from research_runner.runner import run_experiment
-        from research_runner.runner import run_experiment as canonical_run_experiment
         from research_runner.types import ExecutionContext, ExperimentSpec
-        from research_runner.types import ExecutionContext as CanonicalExecutionContext
-        from research_runner.types import ExperimentSpec as CanonicalExperimentSpec
 
-        assert run_experiment is canonical_run_experiment
-        assert ExecutionContext is CanonicalExecutionContext
-        assert ExperimentSpec is CanonicalExperimentSpec
-        assert set(research_runner.__all__) == {
-            "BatchTrainer",
-            "BoundBatch",
-            "ExecutionContext",
-            "ExecutionResult",
-            "ExperimentSpec",
-            "ParameterSchema",
-            "RunPoint",
-            "execute_batch",
-            "get_parameter",
-            "registered_specs",
-            "run_experiment",
-            "spec",
-        }
+        assert run_experiment.__module__ == "research_runner.runner"
+        assert ExecutionContext.__module__ == "research_runner.types"
+        assert ExperimentSpec.__module__ == "research_runner.types"
+        assert callable(registered_specs)
+        assert callable(spec)
+        assert all(
+            name.startswith("__") or isinstance(value, stdlib_types.ModuleType)
+            for name, value in vars(research_runner).items()
+        )
 
 
 class TestPackageInitInFreshInterpreter:

@@ -88,7 +88,8 @@ decorated factories in that module.
 ```python
 from pathlib import Path
 
-from research_runner import ExecutionContext, ExecutionResult, ExperimentSpec, spec
+from research_runner.registry import spec
+from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
