@@ -34,6 +34,10 @@ class DewateringParams:
     max_dryness: float = 0.30  # cake dry solids fraction at saturating polymer
     k_polymer_dryness: float = 4.0  # half-sat dose ratio for dryness (kg/tonne DS)
     speed_penalty: float = 0.15  # capture loss per unit normalised speed above 0.5
+    # Faster belt/bowl travel shortens dewatering (pressing/centrifugation)
+    # residence time, so cake retains more moisture — qualitative direction
+    # only, magnitude unverified against a specific press/centrifuge source.
+    dryness_speed_penalty: float = 0.05  # dryness fraction lost per unit speed above 0.5
 
 
 @jax_dataclass
@@ -97,9 +101,10 @@ def step(
     # Dryness keeps a plain Monod saturation — no reported overdose penalty on dryness.
     dryness = params.base_dryness + (params.max_dryness - params.base_dryness) * (dose_ratio / (params.k_polymer_dryness + dose_ratio))
 
-    # Speed penalty: running faster reduces capture
-    speed_penalty = params.speed_penalty * jnp.maximum(belt_speed - 0.5, 0.0)
-    capture = jnp.clip(capture - speed_penalty, 0.0, 1.0)
+    # Speed penalty: running faster reduces both capture and cake dryness
+    speed_excess = jnp.maximum(belt_speed - 0.5, 0.0)
+    capture = jnp.clip(capture - params.speed_penalty * speed_excess, 0.0, 1.0)
+    dryness = jnp.clip(dryness - params.dryness_speed_penalty * speed_excess, 0.0, params.max_dryness)
 
     # Mass balance
     solids_in = feed_tss * q_actual * dt / 1e3  # kg (feed_tss in g/m³)
