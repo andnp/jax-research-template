@@ -121,25 +121,28 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
     def reset(rng_key: jax.Array):
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
         dig = digester_reset(config.feed_cod_mean, config.digester, k1)
+        ph0 = _estimate_ph(dig.s_co2, dig.alkalinity)
         state = AnaerobicDigesterBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             digester_state=dig,
             cod_drift=jnp.array(0.0),
             vfa_sensor=analyzer_reset(dig.s_vfa, k2),
-            ph_sensor=analyzer_reset(_estimate_ph(dig.s_co2, config.digester.alkalinity), k3),
+            ph_sensor=analyzer_reset(ph0, k3),
             biogas_sensor=analyzer_reset(dig.q_gas, k4),
             temperature=jnp.array(35.0),
             last_q_feed=jnp.array(config.q_feed_max * 0.5),
         )
+        # Built from the same reset state fed to the sensors above, rather
+        # than separately hardcoded literals that can drift out of sync with it.
         obs = jnp.array(
             [
-                1000.0 / 2000.0,  # initial biogas
-                0.65,  # CH₄ fraction
-                200.0 / 1000.0,  # VFA
-                7.2 / 9.0,  # pH
-                35.0 / 45.0,  # temperature
+                dig.q_gas / 2000.0,
+                dig.gas_ch4_frac,
+                dig.s_vfa / 1000.0,
+                ph0 / 9.0,
+                35.0 / 45.0,
                 config.feed_cod_mean / 50000.0,
-                1500.0 / 5000.0,  # biomass
+                dig.x_biomass / 5000.0,
             ]
         )
         return state, obs
