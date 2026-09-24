@@ -39,6 +39,12 @@ class TestArrheniusCorrection:
         # O₂ dissolves better in cold water
         assert float(cold.s_o_sat) > float(warm.s_o_sat)
 
+    def test_o2_saturation_matches_bsm1_reference_at_15c(self) -> None:
+        """BSM1 fixes S_O,sat = 8 g/m³ at 15°C; the BSM1_LT formula is scaled to match."""
+        params = ASM1Params(volume=1333.0)
+        at_ref = apply_arrhenius(params, jnp.array(15.0))
+        assert abs(float(at_ref.s_o_sat) - 8.0) < 1e-3
+
     def test_jit_compatible(self) -> None:
         params = ASM1Params(volume=1333.0)
 

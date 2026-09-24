@@ -68,12 +68,13 @@ class BSM1LTConfig:
     days_per_year: float = 365.0
 
     # ── Arrhenius coefficients (override defaults if needed) ──────
-    theta_mu_h: float = 0.069
-    theta_mu_a: float = 0.098
-    theta_b_h: float = 0.069
-    theta_b_a: float = 0.098
-    theta_k_h: float = 0.040
-    theta_k_a: float = 0.040
+    # See units/asm1.py ArrheniusCoeffs for derivation and source.
+    theta_mu_h: float = 0.057536
+    theta_mu_a: float = 0.102165
+    theta_b_h: float = 0.081093
+    theta_b_a: float = 0.102165
+    theta_k_h: float = 0.036464
+    theta_k_a: float = 0.044629
 
     # ── Reward (may differ from BSM1 to account for seasonal variation) ───
     reward_w_nh: float = 1.0

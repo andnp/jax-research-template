@@ -61,16 +61,18 @@ class ASM1Params:
 class ArrheniusCoeffs:
     """Temperature coefficients for ASM1 rate constants.
 
-    Standard values from Henze et al. (2000) and BSM1-LT specification.
-    Each coefficient θ adjusts a rate via: rate(T) = rate(T_ref) × exp(θ × (T − T_ref))
+    Each coefficient θ adjusts a rate via: rate(T) = rate(T_ref) × exp(θ × (T − T_ref)).
+    θ = ln(rate_15°C / rate_10°C) / 5, from Henze et al. (1987) 10/20°C values as
+    fit by Vanrolleghem, Batstone & Pons (2009), "Temperature effects in BSM1_LT
+    and BSM2" (eqs. 1-6): https://wwtmodels.pubpub.org/pub/01quq2jb
     """
 
-    theta_mu_h: float = 0.069  # heterotrophic growth
-    theta_mu_a: float = 0.098  # autotrophic growth (most temperature-sensitive)
-    theta_b_h: float = 0.069  # heterotrophic decay
-    theta_b_a: float = 0.098  # autotrophic decay
-    theta_k_h: float = 0.040  # hydrolysis
-    theta_k_a: float = 0.040  # ammonification
+    theta_mu_h: float = 0.057536  # heterotrophic growth: ln(4.0/3.0)/5
+    theta_mu_a: float = 0.102165  # autotrophic growth: ln(0.5/0.3)/5
+    theta_b_h: float = 0.081093  # heterotrophic decay: ln(0.3/0.2)/5
+    theta_b_a: float = 0.102165  # autotrophic decay: ln(0.05/0.03)/5
+    theta_k_h: float = 0.036464  # hydrolysis: ln(3.0/2.5)/5
+    theta_k_a: float = 0.044629  # ammonification: ln(0.05/0.04)/5
 
 
 def apply_arrhenius(
@@ -80,7 +82,12 @@ def apply_arrhenius(
 ):
     """Return ASM1Params with rate constants corrected to the given temperature.
 
-    Also adjusts O₂ saturation using the ASCE empirical formula (simplified).
+    Also adjusts O₂ saturation using the BSM1_LT/BSM2 convention: a Lide (2004)
+    solubility correlation, scaled so it reproduces S_O,sat = 8 g/m³ at 15°C —
+    the BSM1 reference value — rather than the true ~10.3 g/m³ physical
+    solubility at that temperature. Vanrolleghem, Batstone & Pons (2009),
+    "Temperature effects in BSM1_LT and BSM2", eqs. 12-13:
+    https://wwtmodels.pubpub.org/pub/01quq2jb
     """
     if coeffs is None:
         coeffs = ArrheniusCoeffs()
@@ -89,7 +96,10 @@ def apply_arrhenius(
     def _corr(base: float | jax.Array, theta: float):
         return base * jnp.exp(theta * dt)
 
-    s_o_sat_t = 14.62 - 0.3898 * temperature + 0.006969 * temperature**2 - 5.897e-5 * temperature**3
+    t_k_star = (temperature + 273.15) / 100.0
+    lide_a, lide_b, lide_c = -66.7354, 87.4755, 24.4526
+    solubility = 56.12 * jnp.exp(lide_a + lide_b / t_k_star + lide_c * jnp.log(t_k_star))
+    s_o_sat_t = 0.09521660204 * 8.0 * 6791.5 * solubility
 
     return ASM1Params(
         volume=params.volume,
