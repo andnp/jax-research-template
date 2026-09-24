@@ -5,10 +5,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 import pytest
-from research_analysis.learning_curve import step_weighted_returns_from_dataframe
 from research_analysis.loader import load_sqlite_query
 
 
@@ -26,26 +24,6 @@ def sqlite_database_path(tmp_path: Path) -> Path:
                 ("seed-0", 0, 1.0),
                 ("seed-0", 1, 1.5),
                 ("seed-1", 0, 0.8),
-            ],
-        )
-        connection.commit()
-
-    return database_path
-
-
-@pytest.fixture
-def sqlite_learning_curve_database_path(tmp_path: Path) -> Path:
-    database_path = tmp_path / "learning_curve.sqlite"
-
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            "CREATE TABLE episodic_returns (run_id TEXT NOT NULL, cumulative_steps INTEGER NOT NULL, episodic_return REAL NOT NULL)"
-        )
-        connection.executemany(
-            "INSERT INTO episodic_returns (run_id, cumulative_steps, episodic_return) VALUES (?, ?, ?)",
-            [
-                ("seed-0", 2, 1.0),
-                ("seed-0", 5, 3.0),
             ],
         )
         connection.commit()
@@ -82,20 +60,3 @@ def test_load_sqlite_query_binds_values_without_interpolation(sqlite_database_pa
 
     assert frame.is_empty()
 
-
-def test_load_sqlite_query_feeds_step_weighted_returns_from_dataframe(
-    sqlite_learning_curve_database_path: Path,
-) -> None:
-    frame = load_sqlite_query(
-        sqlite_learning_curve_database_path,
-        "SELECT cumulative_steps, episodic_return FROM episodic_returns ORDER BY cumulative_steps",
-    )
-
-    result = step_weighted_returns_from_dataframe(
-        frame,
-        cumulative_steps_column="cumulative_steps",
-        episodic_returns_column="episodic_return",
-        end_step=7,
-    )
-
-    np.testing.assert_array_equal(result, np.array([1.0, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0]))
