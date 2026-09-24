@@ -23,14 +23,35 @@ from process_control._jax_dataclass import jax_dataclass
 @dataclass(frozen=True)
 class MembraneParams:
     area: float = 100.0  # membrane area (m²)
-    r_membrane: float = 1e11  # clean membrane resistance (1/m)
-    mu: float = 1.002e-3  # water viscosity at 20°C (Pa·s)
+    # Measured clean UF/NF membrane resistances run ~1e12-1e14 1/m depending on
+    # pore size (tighter membranes resist more): 2.2e13-9.0e13 1/m for 300-8000 Da
+    # UF/NF membranes, https://pmc.ncbi.nlm.nih.gov/articles/PMC5618119/. This
+    # benchmark models a looser MF/UF membrane, near the low end of that range.
+    r_membrane: float = 1e12  # clean membrane resistance (1/m)
+    water_temp_c: float = 20.0  # feed/membrane temperature (°C)
     max_tmp: float = 2.0e5  # max TMP before damage (Pa) — ~2 bar
 
-    # Fouling rates
-    k_rev_fouling: float = 5e8  # reversible fouling rate (1/m per g/m³ per h)
-    k_irr_fouling: float = 1e6  # irreversible fouling rate (1/m per g/m³ per h)
+    # Cake fouling: deposited cake mass per unit area grows as J*C*dt (the
+    # classical cake-filtration form underlying the Darcy's-law resistance
+    # model TMP = J*mu*(R_m + R_cake), e.g. Luongo et al. 2021 eq. 2.1,
+    # https://arxiv.org/abs/2104.03996), and each mass increment adds
+    # resistance alpha_cake * mass. Reported specific cake resistances for
+    # particulate/NOM cakes span ~1e13-1e16 m/kg; alpha_cake below sits near
+    # the low (more permeable) end for reduced-order tuning of this benchmark.
+    alpha_cake: float = 5e13  # specific cake resistance (m/kg)
+    # Fraction of each cake increment that remains after backwash (compaction
+    # or pore blocking rather than a loose cake) — reduced-order tuning value,
+    # not verified against a specific measured source.
+    irr_fraction: float = 0.01
     air_scour_factor: float = 0.6  # fouling rate reduction at max air scour
+
+    # Above the critical flux, fouling accelerates rather than merely scaling
+    # with J (Field, Wu, Howell & Gupta 1995, "Critical flux concept for
+    # microfiltration fouling", J. Membrane Sci. 100:259-272,
+    # https://doi.org/10.1016/0376-7388(94)00265-Z). The gain is a reduced-order
+    # tuning value, not itself from that source.
+    flux_critical: float = 0.03  # critical flux (m/h)
+    flux_critical_gain: float = 2.0  # extra fouling multiplier per m/h above critical
 
     # Backwash
     bw_recovery: float = 0.95  # fraction of reversible fouling removed per backwash
@@ -38,7 +59,7 @@ class MembraneParams:
     bw_flux_ratio: float = 2.0  # backwash flux as multiple of operating flux
 
     # Feed quality → permeate quality
-    rejection: float = 0.999  # TSS rejection (log-4 removal)
+    rejection: float = 0.999  # TSS rejection: -log10(1 - rejection) = 3 (log-3 removal)
 
     # CIP (chemical in place cleaning)
     cip_recovery: float = 0.80  # fraction of irreversible fouling removed per CIP
@@ -70,6 +91,17 @@ def reset(params: MembraneParams, rng_key: jax.Array):
     )
 
 
+def _water_viscosity(temp_c: jax.Array | float) -> jax.Array:
+    """Water dynamic viscosity (Pa·s) from temperature (°C).
+
+    Standard exponential (Vogel-type) fit; matches tabulated values to
+    within ~0.5% over 0-100°C (e.g. 1.002 mPa·s at 20°C, 0.890 mPa·s at
+    25°C) — https://www.engineeringtoolbox.com/water-dynamic-kinematic-viscosity-d_596.html
+    """
+    temp_k = temp_c + 273.15
+    return 2.414e-5 * 10.0 ** (247.8 / (temp_k - 140.0))
+
+
 def compute_tmp(
     flux: jax.Array,
     state: MembraneState,
@@ -77,7 +109,7 @@ def compute_tmp(
 ):
     """Compute transmembrane pressure (Pa) for given flux."""
     r_total = params.r_membrane + state.r_reversible + state.r_irreversible
-    return flux * params.mu * r_total
+    return flux * _water_viscosity(params.water_temp_c) * r_total
 
 
 def step(
@@ -119,9 +151,16 @@ def step(
     # Air scour reduces fouling rate while the membrane is producing permeate.
     scour_effect = 1.0 - params.air_scour_factor * jnp.clip(air_scour, 0.0, 1.0)
 
-    # Fouling accumulation
-    d_r_rev = params.k_rev_fouling * feed_tss * scour_effect * operating_time
-    d_r_irr = params.k_irr_fouling * feed_tss * scour_effect * operating_time
+    # Cake mass deposits as flux * feed concentration * time; resistance
+    # grows as alpha_cake * deposited mass, so higher flux fouls faster for
+    # the same feed load. Above the critical flux, deposition accelerates
+    # rather than merely scaling with flux (see MembraneParams.flux_critical).
+    feed_tss_kg_m3 = feed_tss / 1000.0  # g/m³ → kg/m³
+    flux_above_critical = jnp.maximum(flux - params.flux_critical, 0.0)
+    fouling_flux = flux + params.flux_critical_gain * flux_above_critical
+    deposition_rate = params.alpha_cake * fouling_flux * feed_tss_kg_m3 * scour_effect
+    d_r_rev = deposition_rate * operating_time
+    d_r_irr = params.irr_fraction * d_r_rev
 
     new_r_rev = state.r_reversible
     new_r_irr = state.r_irreversible + d_r_irr
@@ -152,7 +191,7 @@ def step(
     # TMP at current conditions
     flux_ms = effective_flux / 3600.0  # m/h → m/s
     r_total = params.r_membrane + new_r_rev + new_r_irr
-    tmp = flux_ms * params.mu * r_total
+    tmp = flux_ms * _water_viscosity(params.water_temp_c) * r_total
 
     # Permeate quality
     permeate_tss = feed_tss * (1.0 - params.rejection)

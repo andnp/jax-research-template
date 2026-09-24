@@ -14,8 +14,7 @@ def _cleaning_params() -> MembraneParams:
     return MembraneParams(
         bw_duration=0.03,
         bw_recovery=0.75,
-        k_rev_fouling=0.0,
-        k_irr_fouling=0.0,
+        alpha_cake=0.0,
         cip_interval=1e6,
     )
 
