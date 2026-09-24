@@ -59,6 +59,7 @@ def tree_sample_batch(tree: jax.Array, key: jax.Array, capacity: int, batch_size
     def _sample_segment(key_i: jax.Array, segment_idx: jax.Array) -> jax.Array:
         low = segment_size * segment_idx
         target = low + jax.random.uniform(key_i, ()) * segment_size
+        target = jnp.minimum(target, jnp.nextafter(total, jnp.float32(0.0)))
         return _tree_find(tree, target, capacity)
 
     indices = jax.vmap(_sample_segment)(keys, jnp.arange(batch_size, dtype=jnp.float32))

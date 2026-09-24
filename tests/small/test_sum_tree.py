@@ -107,6 +107,18 @@ class TestTreeSample:
 
 
 class TestTreeSampleBatch:
+    def test_random_zero_priority_slots_are_never_sampled(self) -> None:
+        """Keep stratified float32 samples on positive-priority leaves."""
+        priorities = jax.random.uniform(jax.random.key(0), (16,), dtype=jnp.float32)
+        priorities = priorities.at[::3].set(0.0)
+        tree = tree_init(16)
+        for index, priority in enumerate(priorities):
+            tree = tree_update(tree, jnp.uint32(index), priority)
+
+        for seed in range(100):
+            indices = tree_sample_batch(tree, jax.random.key(seed), 16, batch_size=4)
+            assert jnp.all(priorities[indices] > 0.0)
+
     def test_uniform_tree_stratification_covers_each_segment_once(self) -> None:
         tree = tree_init(4)
         for i in range(4):
