@@ -61,6 +61,7 @@ def test_replay_agent_step_preserves_transition_and_training_order_under_jit() -
         return algorithm_state + 1, replay_state, {
             "loss": jnp.array(3.0, jnp.float32),
             "histogram": jnp.array([4, 5], jnp.int32),
+            "alpha": jnp.array(0.3, jnp.float32),
         }
 
     def select_action(
@@ -98,6 +99,7 @@ def test_replay_agent_step_preserves_transition_and_training_order_under_jit() -
             learn=learn,
             select_action=select_action,
             minimum_replay_size=2,
+            metrics_when_not_learning={"alpha": jnp.array(0.2, jnp.float32)},
             after_learn=after_learn,
         )
         return result.state, (result.action, result.metrics)
@@ -121,6 +123,7 @@ def test_replay_agent_step_preserves_transition_and_training_order_under_jit() -
     assert jnp.array_equal(metrics["loss"], jnp.array([0.0, 0.0, 3.0], dtype=jnp.float32))
     assert jnp.array_equal(metrics["histogram"], jnp.array([[0, 0], [0, 0], [4, 5]], jnp.int32))
     assert metrics["histogram"].dtype == jnp.int32
+    assert jnp.array_equal(metrics["alpha"], jnp.array([0.2, 0.2, 0.3], dtype=jnp.float32))
     assert jnp.array_equal(metrics["policy_value"], jnp.array([0.0, 10.0, 12.0], jnp.float32))
     assert jnp.array_equal(final_state.algorithm_state, 2)
 

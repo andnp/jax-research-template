@@ -85,6 +85,12 @@ class _ActorStateAgent(Protocol):
 
 
 @runtime_checkable
+class _AlgorithmStateActorStateAgent(Protocol):
+    @property
+    def algorithm_state(self) -> _ActorStateAgent: ...
+
+
+@runtime_checkable
 class _BatchConfig(Protocol):
     @property
     def TOTAL_TIMESTEPS(self) -> int: ...
@@ -168,9 +174,18 @@ def extract_train_state_params(state: object) -> dict[str, object]:
 
 def extract_actor_params(state: object) -> dict[str, object]:
     """Extract parameters from an agent state with an actor train state."""
-    if not isinstance(state, _FinalState) or not isinstance(state.agent_state, _ActorStateAgent):
+    if not isinstance(state, _FinalState):
         raise TypeError(f"expected a final state with an actor state, got {type(state).__name__}")
-    return {"final_policy_params": state.agent_state.actor_state.params}
+    agent_state = state.agent_state
+    if isinstance(agent_state, _ActorStateAgent):
+        actor_state = agent_state.actor_state
+    elif isinstance(agent_state, _AlgorithmStateActorStateAgent) and isinstance(
+        agent_state.algorithm_state, _ActorStateAgent
+    ):
+        actor_state = agent_state.algorithm_state.actor_state
+    else:
+        raise TypeError(f"expected a final state with an actor state, got {type(state).__name__}")
+    return {"final_policy_params": actor_state.params}
 
 
 def _algorithm_metadata(agent_cls: type, config_cls: type, hypers_cls: type) -> _AlgorithmMetadata:

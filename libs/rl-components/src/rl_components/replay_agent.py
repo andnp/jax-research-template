@@ -69,6 +69,7 @@ def replay_agent_step[AlgorithmStateT, ReplayStateT: _CountedReplayState](
         tuple[jax.Array, dict[str, jax.Array]],
     ],
     minimum_replay_size: int = 0,
+    metrics_when_not_learning: dict[str, jax.Array] | None = None,
     after_learn: Callable[[AlgorithmStateT, jax.Array, jax.Array], AlgorithmStateT] | None = None,
 ) -> AgentStep[ReplayAgentState[AlgorithmStateT, ReplayStateT], jax.Array]:
     """Close replay, conditionally learn, apply periodic updates, then act.
@@ -119,13 +120,10 @@ def replay_agent_step[AlgorithmStateT, ReplayStateT: _CountedReplayState](
     def zero_metric(metric: jax.ShapeDtypeStruct) -> jax.Array:
         return jnp.zeros(metric.shape, dtype=metric.dtype)
 
-    metrics_when_not_learning = jax.tree.map(
-        zero_metric,
-        metrics_shape,
-    )
+    skip_metrics = {**jax.tree.map(zero_metric, metrics_shape), **(metrics_when_not_learning or {})}
 
     def skip_train(_: None) -> tuple[AlgorithmStateT, ReplayStateT, dict[str, jax.Array]]:
-        return algorithm_state, replay_state, metrics_when_not_learning
+        return algorithm_state, replay_state, skip_metrics
 
     algorithm_state, replay_state, metrics = jax.lax.cond(can_train, train, skip_train, operand=None)
 
