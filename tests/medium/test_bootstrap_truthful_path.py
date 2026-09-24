@@ -121,6 +121,7 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
             "report_json": "def report_to_json(document): return ''\n",
             "report_markdown": "def render_markdown(document): return ''\n\n\ndef render_summary(document): return ''\n",
             "report_plots": "def write_report_plots(document, output_dir): return document\n",
+            "report_files": "def report_directory(results_root, experiment): return results_root\n\n\ndef write_report_document(document, output_dir): return document\n",
         }
         for module, source in stubs.items():
             (src_dir / f"{module}.py").write_text(source, encoding="utf-8")
