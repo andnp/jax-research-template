@@ -7,11 +7,6 @@ from typing import Any, overload
 
 import numpy as np
 
-from research_analysis._reporting_console import (
-    _present_best_hypers,
-    _present_best_hypers_difference,
-    _present_slice_hypers,
-)
 from research_analysis._reporting_models import (
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
@@ -63,7 +58,6 @@ def best_hypers(
     *,
     difference_between: None = None,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -80,7 +74,6 @@ def best_hypers(
     *,
     difference_between: None = None,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -97,7 +90,6 @@ def best_hypers(
     *,
     difference_between: tuple[Any, Any],
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -113,7 +105,6 @@ def best_hypers(
     *,
     difference_between: tuple[Any, Any] | None = None,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -160,7 +151,6 @@ def best_hypers(
             subtrahend=difference_between[1],
             declared_axes=declared_axes,
             higher_is_better=higher_is_better,
-            verbose=verbose,
             confidence_level=confidence_level,
             n_resamples=n_resamples,
             min_samples=min_samples,
@@ -184,9 +174,6 @@ def best_hypers(
             group_key: _best_hypers_group(
                 group_records,
                 free_axes=free_axes,
-                experiment_slug=dataset.experiment_name,
-                verbose=verbose,
-                group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
                 higher_is_better=higher_is_better,
                 confidence_level=confidence_level,
                 n_resamples=n_resamples,
@@ -200,9 +187,6 @@ def best_hypers(
     return _best_hypers_group(
         records,
         free_axes=free_axes,
-        experiment_slug=dataset.experiment_name,
-        verbose=verbose,
-        group_label=None,
         higher_is_better=higher_is_better,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
@@ -230,9 +214,6 @@ def _best_hypers_group(
     records: list[dict[str, Any]],
     *,
     free_axes: list[str],
-    experiment_slug: str,
-    verbose: bool,
-    group_label: str | None,
     higher_is_better: bool,
     confidence_level: float,
     n_resamples: int,
@@ -287,9 +268,6 @@ def _best_hypers_group(
         measure=measure,
     )
 
-    if verbose:
-        _present_best_hypers(report, experiment_slug, group_label)
-
     return report
 def _best_hypers_difference(
     dataset: ExperimentDataset,
@@ -300,7 +278,6 @@ def _best_hypers_difference(
     subtrahend: Any,
     declared_axes: set[str],
     higher_is_better: bool,
-    verbose: bool,
     confidence_level: float,
     n_resamples: int,
     min_samples: int,
@@ -367,9 +344,6 @@ def _best_hypers_difference(
         measure=measure,
     )
 
-    if verbose:
-        _present_best_hypers_difference(report, dataset.experiment_name)
-
     return report
 
 
@@ -381,7 +355,6 @@ def slice_hypers(
     group_by: None = None,
     *,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -398,7 +371,6 @@ def slice_hypers(
     group_by: list[str],
     *,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -414,7 +386,6 @@ def slice_hypers(
     group_by: list[str] | None = None,
     *,
     higher_is_better: bool = True,
-    verbose: bool = True,
     confidence_level: float = 0.95,
     n_resamples: int = 10_000,
     min_samples: int = 3,
@@ -441,7 +412,6 @@ def slice_hypers(
         metric_name,
         group_by=group_keys,
         higher_is_better=higher_is_better,
-        verbose=False,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
         min_samples=min_samples,
@@ -453,7 +423,6 @@ def slice_hypers(
         metric_name,
         group_by=[*group_keys, vary],
         higher_is_better=higher_is_better,
-        verbose=False,
         confidence_level=confidence_level,
         n_resamples=n_resamples,
         min_samples=min_samples,
@@ -475,9 +444,6 @@ def slice_hypers(
                 vary=vary,
                 champion=champions[group_key],
                 profile_by_value={key[-1]: report for key, report in profiles.items() if key[:-1] == group_key},
-                experiment_slug=dataset.experiment_name,
-                group_label=", ".join(f"{key}={value}" for key, value in zip(group_keys, group_key, strict=True)),
-                verbose=verbose,
             )
             for group_key, group_records in groups.items()
         }
@@ -488,9 +454,6 @@ def slice_hypers(
         vary=vary,
         champion=champions,
         profile_by_value={key[0]: report for key, report in profiles.items()},
-        experiment_slug=dataset.experiment_name,
-        group_label=None,
-        verbose=verbose,
     )
 
 
@@ -500,9 +463,6 @@ def _slice_hypers_group(
     vary: str,
     champion: HyperparameterConfigReport,
     profile_by_value: dict[Any, HyperparameterConfigReport],
-    experiment_slug: str,
-    group_label: str | None,
-    verbose: bool,
 ) -> HyperparameterSliceReport:
     pinned = {key: value for key, value in champion.winning_config.items() if key != vary}
     matching = [record for record in records if all(record["hypers"].get(k) == v for k, v in pinned.items())]
@@ -523,9 +483,6 @@ def _slice_hypers_group(
         best_performance=best_performance,
         slice_performance=slice_performance,
     )
-
-    if verbose:
-        _present_slice_hypers(report, experiment_slug, group_label)
 
     return report
 

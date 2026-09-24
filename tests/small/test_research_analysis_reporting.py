@@ -215,7 +215,7 @@ def test_best_hypers_consumes_declared_sweep_axes(temp_experiment_setup: Experim
             _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, score + seed)
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-    report = best_hypers(dataset, "metric", verbose=False)
+    report = best_hypers(dataset, "metric")
 
     assert isinstance(report, HyperparameterConfigReport)
     assert report.winning_config == {"learning_rate": "high"}
@@ -235,7 +235,7 @@ def test_best_hypers_rejects_undeclared_group_axes(temp_experiment_setup: Experi
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
     with pytest.raises(ValueError, match="declared typed sweep axes"):
-        best_hypers(dataset, "metric", group_by=["task"], verbose=False)
+        best_hypers(dataset, "metric", group_by=["task"])
 
 
 def test_best_hypers_optimizes_jointly_over_multiple_axes(temp_experiment_setup: ExperimentSetup) -> None:
@@ -260,7 +260,7 @@ def test_best_hypers_optimizes_jointly_over_multiple_axes(temp_experiment_setup:
         ),
     )
 
-    report = best_hypers(dataset, "metric", verbose=False)
+    report = best_hypers(dataset, "metric")
 
     assert report.winning_config == {"learning_rate": "high", "eta": 2}
     assert report.raw_mean == pytest.approx(5.0)
@@ -274,7 +274,7 @@ def test_best_hypers_higher_is_better_false_finds_the_minimizer(temp_experiment_
             _add_observation(setup, {"condition_name": "baseline", "learning_rate": learning_rate}, seed, score + seed)
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-    report = best_hypers(dataset, "metric", higher_is_better=False, verbose=False)
+    report = best_hypers(dataset, "metric", higher_is_better=False)
 
     assert report.winning_config == {"learning_rate": "low"}
     assert report.raw_mean == pytest.approx(2.0)
@@ -306,7 +306,7 @@ def test_slice_hypers_pins_champion_config_while_varying_one_axis(
         ),
     )
 
-    report = slice_hypers(dataset, "metric", vary="eta", verbose=False)
+    report = slice_hypers(dataset, "metric", vary="eta")
 
     assert isinstance(report, HyperparameterSliceReport)
     assert report.values == [1, 2]
@@ -340,8 +340,8 @@ def test_slice_hypers_plots_selection_corrected_best_values(temp_experiment_setu
         ),
     )
 
-    report = slice_hypers(dataset, "metric", vary="eta", verbose=False, n_resamples=256)
-    profiles = best_hypers(dataset, "metric", group_by=["eta"], verbose=False, n_resamples=256)
+    report = slice_hypers(dataset, "metric", vary="eta", n_resamples=256)
+    profiles = best_hypers(dataset, "metric", group_by=["eta"], n_resamples=256)
 
     assert report.best_performance == pytest.approx([profiles[(1,)].corrected_mean, profiles[(2,)].corrected_mean])
     assert report.best_performance != pytest.approx([profiles[(1,)].raw_mean, profiles[(2,)].raw_mean])
@@ -363,7 +363,7 @@ def test_slice_hypers_leaves_an_unrun_pinned_value_empty(temp_experiment_setup: 
         ),
     )
 
-    report = slice_hypers(dataset, "metric", vary="eta", verbose=False, n_resamples=64)
+    report = slice_hypers(dataset, "metric", vary="eta", n_resamples=64)
 
     assert report.values == [1, 2]
     assert report.slice_performance == [pytest.approx(10.0), None]
@@ -390,7 +390,7 @@ def test_slice_hypers_rejects_varying_a_grouped_axis(temp_experiment_setup: Expe
     )
 
     with pytest.raises(ValueError, match="cannot be both varied and grouped by"):
-        slice_hypers(dataset, "metric", vary="eta", group_by=["eta"], verbose=False)
+        slice_hypers(dataset, "metric", vary="eta", group_by=["eta"])
 
 
 class TestBoundaryWarning:
@@ -518,7 +518,7 @@ def test_best_hypers_groups_by_the_condition_dimension(temp_experiment_setup: Ex
         ExperimentDimensions(condition="algorithm", sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)),
     )
 
-    reports = best_hypers(dataset, "metric", group_by=["algorithm"], verbose=False)
+    reports = best_hypers(dataset, "metric", group_by=["algorithm"])
 
     assert reports[("shared",)].winning_config == {"learning_rate": "high"}
     assert reports[("shared",)].raw_mean == pytest.approx(3.0)
@@ -542,7 +542,7 @@ def test_best_hypers_difference_pairs_by_seed_across_two_groups(temp_experiment_
         ExperimentDimensions(sweep_axes=(SweepAxis("algorithm", SweepValueType.STRING), SweepAxis("learning_rate", SweepValueType.STRING))),
     )
 
-    report = best_hypers(dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), verbose=False)
+    report = best_hypers(dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"))
 
     assert isinstance(report, HyperparameterDifferenceReport)
     assert report.minuend_config == {"learning_rate": "high"}
@@ -571,7 +571,7 @@ def test_best_hypers_difference_higher_is_better_false_finds_minimizers(
     )
 
     report = best_hypers(
-        dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), higher_is_better=False, verbose=False
+        dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), higher_is_better=False
     )
 
     assert isinstance(report, HyperparameterDifferenceReport)
@@ -604,7 +604,7 @@ def test_best_hypers_difference_requires_a_single_group_axis(temp_experiment_set
     )
 
     with pytest.raises(ValueError, match="difference_between requires group_by to name exactly one axis"):
-        best_hypers(dataset, "metric", group_by=["algorithm", "learning_rate"], difference_between=("a", "b"), verbose=False)
+        best_hypers(dataset, "metric", group_by=["algorithm", "learning_rate"], difference_between=("a", "b"))
 
 
 def test_bakeoff_report_consumes_canonical_environment_dimension(temp_experiment_setup: ExperimentSetup) -> None:
@@ -870,7 +870,7 @@ class TestNonFiniteChampionInputs:
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
         with pytest.raises(NonFiniteValuesError, match="'metric' run scores"):
-            best_hypers(dataset, "metric", verbose=False)
+            best_hypers(dataset, "metric")
 
 
 class TestDuplicateSeedObservations:
@@ -884,7 +884,7 @@ class TestDuplicateSeedObservations:
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
         with pytest.raises(ValueError, match=r"'learning_rate': 'low'\} has more than one run for seed 0"):
-            best_hypers(dataset, "metric", verbose=False)
+            best_hypers(dataset, "metric")
 
 
     def test_bakeoff_rejects_runs_pooled_across_ablations(self, temp_experiment_setup: ExperimentSetup) -> None:
@@ -912,7 +912,7 @@ class TestUnpairedRunReporting:
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
         seed_seven_run = dataset.runs.filter(pl.col("seed") == 7)["run_id"].to_list()
 
-        report = best_hypers(dataset, "metric", verbose=False, n_resamples=64)
+        report = best_hypers(dataset, "metric", n_resamples=64)
 
         assert isinstance(report, HyperparameterConfigReport)
         assert list(report.unpaired_run_ids) == seed_seven_run
@@ -935,7 +935,7 @@ class TestUnpairedRunReporting:
         seed_three_runs = sorted(dataset.runs.filter(pl.col("seed") == 3)["run_id"].to_list())
 
         report = best_hypers(
-            dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), verbose=False, n_resamples=64
+            dataset, "metric", group_by=["algorithm"], difference_between=("a", "b"), n_resamples=64
         )
 
         assert list(report.unpaired_run_ids) == seed_three_runs
@@ -951,7 +951,7 @@ class TestUnpairedRunReporting:
         _add_observation(setup, {"condition_name": "baseline", "learning_rate": "low"}, 7, 100.0)
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
-        report = best_hypers(dataset, "metric", verbose=False, n_resamples=64)
+        report = best_hypers(dataset, "metric", n_resamples=64)
 
         assert report.winning_config == {"learning_rate": "high"}
         assert report.raw_mean == pytest.approx(2.0)
@@ -970,8 +970,8 @@ class TestDeclaredMeasure:
         """The champion depends on the estimand: final value favors the late learner, return rate the early one."""
         dataset = self._early_and_late_learners(temp_experiment_setup)
 
-        final = best_hypers(dataset, "metric", verbose=False, n_resamples=200)
-        rate = best_hypers(dataset, "metric", verbose=False, n_resamples=200, measure=ReturnRate())
+        final = best_hypers(dataset, "metric", n_resamples=200)
+        rate = best_hypers(dataset, "metric", n_resamples=200, measure=ReturnRate())
 
         assert final.winning_config == {"learning_rate": "late"}
         assert rate.winning_config == {"learning_rate": "early"}
@@ -1257,7 +1257,6 @@ class TestChampionComparisons:
             "metric",
             group_by=[dataset.dimensions.condition],
             difference_between=("a", "b"),
-            verbose=False,
             n_resamples=300,
             random_seed=0,
         )
