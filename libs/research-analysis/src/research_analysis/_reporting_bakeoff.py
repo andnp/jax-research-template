@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -78,12 +78,6 @@ def _load_bakeoff_data(
         run_ids[(condition, block_key, seed)] = int(row["run_id"])
         data_by_group.setdefault((condition, block_key), {})[seed] = float(row["value"])
     return data_by_group, run_ids
-
-
-@dataclass(frozen=True)
-class _BakeoffStatistics:
-    omnibus_details: StatisticalTestDetails
-    differences: tuple[PairedDifference, ...]
 
 
 def _paired_differences(
@@ -167,13 +161,13 @@ def _paired_difference(
     )
 
 
-def _compute_bakeoff_statistics(
+def _omnibus_test(
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]],
     conditions: list[str],
     block_keys: list[BlockKey],
     spec: BakeoffSpec,
-    comparison_confidence: float,
-) -> _BakeoffStatistics:
+    rng: np.random.Generator,
+) -> StatisticalTestDetails:
     for block_key in block_keys:
         if not any(data_by_group.get((condition, block_key)) for condition in conditions):
             raise ValueError(f"bakeoff block {_block_label(block_key)!r} has no observed data")
@@ -213,37 +207,30 @@ def _compute_bakeoff_statistics(
     has_missing = bool(np.isnan(matrix).any())
     if has_missing and spec.missingness == "error":
         raise ValueError("bakeoff contains missing cells under missingness='error'")
-    rng = np.random.default_rng(spec.random_seed)
     block_result = block_stratified_permutation_test(
         matrix,
         n_resamples=spec.n_resamples,
         min_blocks=spec.min_samples,
         rng=rng,
     )
-
-    differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, rng)
-
-    return _BakeoffStatistics(
-        omnibus_details=StatisticalTestDetails(
-            test_name="Block-stratified permutation omnibus test",
-            statistic=block_result.statistic,
-            p_value=block_result.p_value,
-            effect_size=None,
-            is_significant=block_result.p_value < spec.alpha,
-            assumptions={
-                "has_missing": has_missing,
-                "n_blocks": block_result.n_blocks,
-                "n_observations": block_result.n_observations,
-                "alpha": spec.alpha,
-                "n_resamples": spec.n_resamples,
-                "min_samples": spec.min_samples,
-                "missingness": spec.missingness,
-                "dropped_singleton_blocks": dropped_singleton_blocks,
-            },
-            justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
-            intermediate_tests={},
-        ),
-        differences=differences,
+    return StatisticalTestDetails(
+        test_name="Block-stratified permutation omnibus test",
+        statistic=block_result.statistic,
+        p_value=block_result.p_value,
+        effect_size=None,
+        is_significant=block_result.p_value < spec.alpha,
+        assumptions={
+            "has_missing": has_missing,
+            "n_blocks": block_result.n_blocks,
+            "n_observations": block_result.n_observations,
+            "alpha": spec.alpha,
+            "n_resamples": spec.n_resamples,
+            "min_samples": spec.min_samples,
+            "missingness": spec.missingness,
+            "dropped_singleton_blocks": dropped_singleton_blocks,
+        },
+        justification="Algorithm labels were permuted within each observed block, retaining incomplete block patterns.",
+        intermediate_tests={},
     )
 
 
@@ -417,9 +404,9 @@ def bakeoff_report(
     data_by_group, run_ids = _load_bakeoff_data(combined, conditions, block_by, metric_name, measure)
     family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
     comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
-    comparison_statistics = _compute_bakeoff_statistics(
-        data_by_group, conditions, block_keys, spec, comparison_confidence
-    )
+    test_rng = np.random.default_rng(spec.random_seed)
+    omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
+    differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, test_rng)
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
     cell_rng = np.random.default_rng(spec.random_seed)
@@ -471,8 +458,8 @@ def bakeoff_report(
         cells=cells,
         champions=champions or None,
         blocks=[_block_label(block_key) for block_key in block_keys],
-        omnibus=comparison_statistics.omnibus_details,
-        differences=comparison_statistics.differences,
+        omnibus=omnibus,
+        differences=differences,
         distribution_plot_paths=_plot_run_distributions(
             {
                 _block_label(block_key): {
