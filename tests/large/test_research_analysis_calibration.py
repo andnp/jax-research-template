@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
-from research_analysis.comparison import Estimand
+from research_analysis.comparison import Estimand, IntervalMethod
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
@@ -86,10 +86,16 @@ def gaussian_percentile_coverage(n: int):
     return float(2.0 * stats.t.cdf(z * math.sqrt((n - 1) / n), df=n - 1) - 1.0)
 
 
-def mean_ci_coverage(distribution: RunDistribution, n: int, replicates: int, rng: np.random.Generator):
+def mean_ci_coverage(
+    distribution: RunDistribution,
+    n: int,
+    replicates: int,
+    rng: np.random.Generator,
+    interval: IntervalMethod = "percentile",
+):
     hits = 0
     for _ in range(replicates):
-        ci = bootstrap_scalar_ci(distribution.sample(rng, n), n_resamples=N_RESAMPLES, rng=rng)
+        ci = bootstrap_scalar_ci(distribution.sample(rng, n), n_resamples=N_RESAMPLES, interval=interval, rng=rng)
         hits += ci.ci_low <= distribution.mean <= ci.ci_high
     return hits / replicates
 
@@ -99,11 +105,19 @@ def paired_samples(distribution: RunDistribution, n: int, shift: float, rng: np.
     return seed_effect + distribution.sample(rng, n) + shift, seed_effect + distribution.sample(rng, n)
 
 
-def difference_ci_coverage(distribution: RunDistribution, n: int, replicates: int, rng: np.random.Generator):
+def difference_ci_coverage(
+    distribution: RunDistribution,
+    n: int,
+    replicates: int,
+    rng: np.random.Generator,
+    interval: IntervalMethod = "percentile",
+):
     shift, hits = 0.5, 0
     for _ in range(replicates):
         values_a, values_b = paired_samples(distribution, n, shift, rng)
-        ci = bootstrap_difference_ci(values_a, values_b, pairing="paired", n_resamples=N_RESAMPLES, rng=rng)
+        ci = bootstrap_difference_ci(
+            values_a, values_b, pairing="paired", n_resamples=N_RESAMPLES, interval=interval, rng=rng
+        )
         hits += ci.ci_low <= shift <= ci.ci_high
     return hits / replicates
 
