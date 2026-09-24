@@ -121,10 +121,15 @@ def status(
             # FAILED must not hide behind "pending": a run with only failed executions is
             # neither satisfied nor merely unrun, and an agent needs to see it separately.
             completed_ids = {r.id for r in all_runs if "COMPLETED" in statuses.get(r.id, frozenset())}
+            # Precedence matches research_analysis.dataset.candidates._run_state: an
+            # in-flight PENDING/RUNNING execution outranks a FAILED one, since the run
+            # may yet complete.
             failed_ids = {
                 r.id
                 for r in all_runs
-                if r.id not in completed_ids and "FAILED" in statuses.get(r.id, frozenset())
+                if r.id not in completed_ids
+                and "FAILED" in statuses.get(r.id, frozenset())
+                and not statuses.get(r.id, frozenset()) & {"PENDING", "RUNNING"}
             }
             total = len(all_runs)
             completed = len(completed_ids)

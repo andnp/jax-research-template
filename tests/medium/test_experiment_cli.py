@@ -163,6 +163,40 @@ def test_experiment_status_separates_failed_from_never_run(tmp_path: Path) -> No
     assert "failure-exp: 2 runs (0 completed, 1 failed, 1 pending)" in result.output
 
 
+def test_experiment_status_a_retried_run_counts_as_pending_not_failed(tmp_path: Path) -> None:
+    """A run with a FAILED execution and a queued retry is in-flight, not failed.
+
+    Precedence must match research_analysis.dataset.candidates._run_state: completed >
+    in-flight pending/running > failed > never run. Covers both the overall count and
+    the per-version-pair breakdown.
+    """
+    db_path = tmp_path / "test.sqlite"
+    with DatabaseManager(db_path) as db:
+        db.initialize()
+        exp_id = db.add_experiment("retry-exp")
+        comp_id = db.add_component("test-algo", "ALGO")
+        ver_id = db.add_component_version(comp_id, "abc123")
+        other_ver_id = db.add_component_version(comp_id, "def456")
+        env_id = db.add_component("test-env", "ENV")
+        env_ver_id = db.add_component_version(env_id, "ghi789")
+        hyper_id = db.add_hyperparam_config({"lr": 0.01})
+
+        retried_run_id = db.add_run(exp_id, ver_id, env_ver_id, hyper_id, seed=0)
+        db.add_run(exp_id, other_ver_id, env_ver_id, hyper_id, seed=0)
+
+        failed_execution = db.add_execution(hostname="n1")
+        db.link_execution_run(failed_execution, retried_run_id)
+        db.update_execution_status(failed_execution, "FAILED")
+        retry_execution = db.add_execution(hostname="n1")
+        db.link_execution_run(retry_execution, retried_run_id)
+
+    result = runner.invoke(app, ["experiment", "status", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "retry-exp: 2 runs (0 completed, 0 failed, 2 pending)" in result.output
+    assert f"algo_version={ver_id} env_version={env_ver_id}: 1 runs (0 completed, 0 failed, 1 pending)" in result.output
+    assert f"algo_version={other_ver_id} env_version={env_ver_id}: 1 runs (0 completed, 0 failed, 1 pending)" in result.output
+
+
 def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
     spec_file = tmp_path / "test_spec.py"
     spec_file.write_text(
