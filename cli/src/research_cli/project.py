@@ -129,7 +129,12 @@ def create(
     if dry_run:
         return
 
-    run_copy(str(template_root), str(projects_root), data={"project_name": name}, defaults=True)
+    run_copy(
+        str(template_root),
+        str(projects_root),
+        data={"project_name": name, "experiment_slug": name.replace("-", "_")},
+        defaults=True,
+    )
 
     if not project_root.is_dir():
         typer.echo(f"Error: project render did not create '{project_root}'.", err=True)

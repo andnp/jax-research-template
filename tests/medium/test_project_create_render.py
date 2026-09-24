@@ -1,9 +1,13 @@
 """Medium integration tests for project creation."""
 
+import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from research_cli.main import app
+from research_runner.registry import registered_specs
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -53,3 +57,54 @@ def test_project_create_from_child_project_repo_renders_under_shell_projects(tmp
     assert (project_root / "pyproject.toml").is_file()
     assert (project_root / "train.py").is_file()
     assert (project_root / ".git").is_dir()
+
+
+def test_project_create_renders_importable_linted_declarative_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Render a declarative starter under the project's normalized slug.
+
+    Its registered spec must import and the generated source must pass Ruff.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = tmp_path.resolve()
+    project_root = workspace_root / "projects" / "demo-project"
+    (workspace_root / "projects").mkdir(parents=True)
+    _write_workspace_config(workspace_root)
+    monkeypatch.chdir(workspace_root)
+
+    result = runner.invoke(app, ["project", "create", "demo-project"])
+
+    assert result.exit_code == 0, result.output
+    experiment_path = project_root / "experiments" / "001_demo_project.py"
+    assert experiment_path.is_file()
+    assert (project_root / "train.py").is_file()
+
+    ruff_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--config",
+            str(repo_root / "pyproject.toml"),
+            str(experiment_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert ruff_result.returncode == 0, f"stdout:\n{ruff_result.stdout}\nstderr:\n{ruff_result.stderr}"
+
+    module_spec = importlib.util.spec_from_file_location("generated_experiment", experiment_path)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    spec_factories = registered_specs(module)
+    assert tuple(spec_factories) == ("demo_project_spec",)
+    generated_spec = spec_factories["demo_project_spec"]()
+    assert generated_spec.experiment.name == "demo-project"
+    assert generated_spec.results_root == project_root / "results"
+    assert generated_spec.parameter_schema is not None
+    assert "learning_rate" in generated_spec.parameter_schema.dynamic_keys

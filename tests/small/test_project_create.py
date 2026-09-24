@@ -220,7 +220,7 @@ def test_project_create_renders_then_initializes_git_without_github_repo(tmp_pat
 
     def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: object) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
-        assert data == {"project_name": "demo"}
+        assert data == {"project_name": "demo", "experiment_slug": "demo"}
         assert kwargs == {"defaults": True}
         project_root.mkdir()
         (project_root / "README.md").write_text("# demo\n", encoding="utf-8")
@@ -253,7 +253,7 @@ def test_project_create_renders_then_initializes_git_then_creates_github_repo(tm
 
     def fake_run_copy(src_path: str, dst_path: str, data: dict[str, str] | None = None, **kwargs: object) -> None:
         calls.append(("copier", Path(src_path), Path(dst_path)))
-        assert data == {"project_name": "demo"}
+        assert data == {"project_name": "demo", "experiment_slug": "demo"}
         assert kwargs == {"defaults": True}
         project_root.mkdir()
         (project_root / "README.md").write_text("# demo\n", encoding="utf-8")

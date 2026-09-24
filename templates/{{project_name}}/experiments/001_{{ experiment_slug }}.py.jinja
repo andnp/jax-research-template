@@ -1,0 +1,46 @@
+"""Declarative starter experiment for {{ project_name }}."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import rl_agents.ppo as ppo_module
+import rl_envs.gymnax_bridge as gymnax_bridge_module
+from experiment_definition.component import Component, ComponentType
+from experiment_definition.experiment import Experiment
+from research_runner.registry import spec
+from research_runner.types import ExperimentSpec
+from rl_agents.batch_registry import make_algorithm_batch_trainer
+from rl_envs.env_registry import gymnax_builder, make_env_factory
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RESULTS_ROOT = PROJECT_ROOT / "results"
+EXPERIMENT_NAME = {{ project_name | tojson }}
+ENV_NAME = {{ env_name | tojson }}
+SEEDS = tuple(range({{ num_seeds }}))
+
+PPO_COMPONENT = Component.from_module("ppo", ppo_module, type=ComponentType.ALGO)
+ENV_COMPONENT = Component.from_module("gymnax", gymnax_bridge_module, type=ComponentType.ENV)
+ENV_FACTORY = make_env_factory({ENV_NAME: gymnax_builder(ENV_NAME, normalized=True)})
+
+
+def build_experiment() -> Experiment:
+    experiment = Experiment(EXPERIMENT_NAME, description={{ description | tojson }})
+    with experiment.for_component(PPO_COMPONENT):
+        experiment.add_parameter("algorithm", ["ppo"])
+        experiment.add_parameter("learning_rate", [2.5e-4])
+    with experiment.for_component(ENV_COMPONENT):
+        experiment.add_parameter("env_name", [ENV_NAME])
+    experiment.add_parameter("seed", list(SEEDS))
+    experiment.add_parameter("total_timesteps", [500_000], is_static=True)
+    experiment.add_metric("returned_episode_returns", frequency="per_update")
+    return experiment
+
+
+@spec
+def {{ experiment_slug }}_spec() -> ExperimentSpec:
+    return ExperimentSpec(
+        experiment=build_experiment(),
+        train_fn=make_algorithm_batch_trainer(ENV_FACTORY, ("ppo",)),
+        results_root=RESULTS_ROOT,
+    )
