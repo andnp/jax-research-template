@@ -9,7 +9,11 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from research_analysis._reporting_hypers import _load_dataset_hyperparameter_records, best_hypers
+from research_analysis._reporting_hypers import (
+    _best_hypers_difference,
+    _load_dataset_hyperparameter_records,
+    best_hypers,
+)
 from research_analysis._reporting_models import (
     BakeoffReport,
     BlockKey,
@@ -91,8 +95,9 @@ def _seeds_by_config(
     condition_axis: str,
     tuned_axes: list[str],
     block_label: str,
+    untuned: Sequence[str],
 ) -> dict[str, list[set[int]]]:
-    """Seeds observed under each tuned configuration of each condition; fails if a condition has nothing to tune."""
+    """Seeds observed under each configuration of each condition; a tuned one needs two, an untuned one exactly one."""
     grouped: dict[str, dict[tuple[Any, ...], set[int]]] = {condition: {} for condition in conditions}
     for record in records:
         condition = record["hypers"][condition_axis]
@@ -100,14 +105,21 @@ def _seeds_by_config(
             config = tuple(record["hypers"][axis] for axis in tuned_axes)
             grouped[condition].setdefault(config, set()).add(record["seed"])
     for condition, configs in grouped.items():
-        if len(configs) < 2:
+        if condition in untuned and len(configs) > 1:
+            raise ValueError(
+                f"condition {condition!r} is declared untuned but has {len(configs)} configurations of "
+                f"{tuned_axes} in block {block_label!r}; an untuned referent has exactly one"
+            )
+        required = 1 if condition in untuned else 2
+        if len(configs) < required:
             raise InsufficientDataError(
                 f"condition {condition!r} in block {block_label!r} has {len(configs)} configuration(s) of "
-                f"{tuned_axes}; a tuned-champion comparison needs at least two to select over",
+                f"{tuned_axes}; a tuned-champion comparison needs at least two to select over, "
+                "unless the condition is declared untuned",
                 cells=(
                     InsufficientDataCell(
                         {"condition": condition, "block": block_label},
-                        "at least 2 configurations",
+                        f"at least {required} configuration(s)",
                         f"{len(configs)} configuration(s)",
                     ),
                 ),
@@ -127,6 +139,7 @@ def _champion_difference(
     random_seed: int,
     higher_is_better: bool,
     measure: PerformanceMeasure,
+    untuned: Sequence[str],
 ) -> PairedDifference:
     shared = set.intersection(*seeds_by_config[minuend], *seeds_by_config[subtrahend])
     skipped = PairedDifference(
@@ -137,26 +150,43 @@ def _champion_difference(
         ci=None,
         confidence=confidence,
         n_paired=len(shared),
-        method=_CHAMPION_METHOD,
+        method=_champion_method((minuend, subtrahend), untuned),
         p_value=None,
         skipped_reason=f"only {len(shared)} seeds shared by every configuration, fewer than min_samples={spec.min_samples}",
     )
     if len(shared) < spec.min_samples:
         return skipped
 
-    difference = best_hypers(
+    condition = block_dataset.dimensions.condition
+    difference = _best_hypers_difference(
         block_dataset,
         metric_name,
-        group_by=[block_dataset.dimensions.condition],
-        difference_between=(minuend, subtrahend),
+        group_axis=condition,
+        minuend=minuend,
+        subtrahend=subtrahend,
+        declared_axes={axis.name for axis in block_dataset.dimensions.sweep_axes},
         higher_is_better=higher_is_better,
         confidence_level=confidence,
         n_resamples=spec.n_resamples,
         min_samples=spec.min_samples,
         random_seed=random_seed,
         measure=measure,
+        untuned=frozenset(untuned),
     )
     return replace(skipped, estimate=difference.mean_diff, ci=difference.estimate_ci, skipped_reason=None)
+
+
+def _champion_method(pair: tuple[str, str], untuned: Sequence[str]) -> str:
+    fixed = [condition for condition in pair if condition in untuned]
+    if not fixed:
+        return _CHAMPION_METHOD
+    if len(fixed) == len(pair):
+        return "untuned referents, no selection: plain paired percentile bootstrap of the mean over their seeds"
+    tuned = next(condition for condition in pair if condition not in untuned)
+    return (
+        f"{_CHAMPION_METHOD} for {tuned}; untuned referent {fixed[0]}, no selection: "
+        "plain paired percentile bootstrap over its seeds"
+    )
 
 
 def _paired_differences(
@@ -457,14 +487,17 @@ def _filter_dataset(dataset: ExperimentDataset, predicate: pl.Expr) -> Experimen
     return replace(dataset, runs=runs, metrics=metrics)
 
 
-def _filter_to_champions(dataset: ExperimentDataset, champions: dict[str, dict[str, Any]]) -> ExperimentDataset:
-    """Restrict runs to each condition's champion hyperparameter combination."""
+def _filter_to_champions(
+    dataset: ExperimentDataset, champions: dict[str, dict[str, Any]], untuned: Sequence[str]
+) -> ExperimentDataset:
+    """Restrict runs to each tuned condition's champion combination, keeping an untuned referent's only one."""
     condition_column = pl.col("condition_name")
     selected = pl.any_horizontal(
+        condition_column.is_in(list(untuned)),
         *[
             condition_column.eq(condition) & pl.all_horizontal(*[pl.col(key).eq_missing(value) for key, value in config.items()])
             for condition, config in champions.items()
-        ]
+        ],
     )
     return _filter_dataset(dataset, selected)
 
@@ -494,6 +527,7 @@ def bakeoff_report(
     measure: PerformanceMeasure = FINAL_VALUE,
     pairs: Sequence[tuple[str, str]] | None = None,
     shared_across: Sequence[str] = (),
+    untuned: Sequence[str] = (),
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
@@ -508,6 +542,11 @@ def bakeoff_report(
     axis-free referent is compared against each block's arms. Its runs are counted once in dataset
     accounting and listed once per block in ``runs``. Reused runs make blocks dependent, so the
     omnibus test is skipped; each paired test stays within one block.
+
+    ``untuned`` declares conditions with a single configuration as fixed referents in a tuned-champion
+    comparison: they have no selection stage, so their draws are the plain bootstrap over their seeds,
+    paired by seed with the tuned arm's hierarchical draws. Any other condition with fewer than two
+    configurations still fails.
     """
     if len(conditions) < 2:
         raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
@@ -524,6 +563,13 @@ def bakeoff_report(
             f"select_champion_over must name exactly the dataset's declared sweep axes "
             f"{sorted(declared_axes)}, got {sorted(select_champion_over)}"
         )
+    if untuned and select_champion_over is None:
+        raise ValueError("untuned names fixed referents in a tuned-champion comparison; give select_champion_over")
+    unknown_untuned = sorted(set(untuned) - set(conditions))
+    if unknown_untuned:
+        raise ValueError(f"untuned names conditions outside {conditions!r}: {unknown_untuned}")
+    if set(conditions) <= set(untuned):
+        raise ValueError("a tuned-champion comparison needs at least one tuned condition; every condition is untuned")
 
     dataset = _filter_dataset(dataset, pl.col("condition_name").is_in(conditions))
 
@@ -563,7 +609,12 @@ def bakeoff_report(
             block_dataset, sorted({dataset.dimensions.condition, *select_champion_over}), metric_name, measure
         )
         seeds_by_config = _seeds_by_config(
-            tuned_records, conditions, dataset.dimensions.condition, sorted(select_champion_over), _block_label(block_key)
+            tuned_records,
+            conditions,
+            dataset.dimensions.condition,
+            sorted(select_champion_over),
+            _block_label(block_key),
+            untuned,
         )
         for minuend, subtrahend in planned_pairs:
             champion_differences.append(
@@ -579,11 +630,12 @@ def bakeoff_report(
                     spec.random_seed + len(champion_differences),
                     higher_is_better,
                     measure,
+                    untuned,
                 )
             )
 
         raw_champions = best_hypers(
-            block_dataset,
+            _filter_dataset(block_dataset, ~pl.col("condition_name").is_in(list(untuned))),
             metric_name,
             group_by=[dataset.dimensions.condition],
             higher_is_better=higher_is_better,
@@ -620,7 +672,7 @@ def bakeoff_report(
                     warnings.append(warning)
 
         champion_dataset = _filter_to_champions(
-            block_dataset, {condition: report.winning_config for condition, report in block_champions.items()}
+            block_dataset, {condition: report.winning_config for condition, report in block_champions.items()}, untuned
         )
         compared_blocks.append((block_key, champion_dataset))
 
@@ -714,6 +766,7 @@ def bakeoff_report(
         tests_skipped_reason=None if select_champion_over is None else _CHAMPION_TESTS_SKIPPED,
         omnibus_skipped_reason=omnibus_skipped_reason,
         shared_across=shared,
+        untuned=tuple(untuned),
         differences=differences,
         family_size=family_size,
         comparison_confidence=comparison_confidence,

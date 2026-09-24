@@ -153,6 +153,8 @@ class BakeoffReport:
     """Why only the omnibus test is absent, e.g. when shared referent runs make blocks dependent."""
     shared_across: dict[str, tuple[str, ...]]
     """Shared block axis -> the conditions it does not apply to, whose runs join every block of that axis."""
+    untuned: tuple[str, ...]
+    """Single-configuration referents in a tuned-champion comparison: no selection stage, and no champion entry."""
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
     family_size: int

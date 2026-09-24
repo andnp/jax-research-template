@@ -220,6 +220,8 @@ class HyperMatrix:
 def _build_hyper_matrix(
     records: list[dict[str, Any]],
     hyperparameter_keys: Sequence[str],
+    *,
+    min_configs: int = 2,
 ) -> HyperMatrix:
     """Pivot loaded run records into a (n_hypers, n_runs) matrix, paired and ordered by seed.
 
@@ -239,10 +241,10 @@ def _build_hyper_matrix(
         run_ids[(key, seed)] = record["run_id"]
         groups.setdefault(key, {})[seed] = record["value"]
 
-    if len(groups) < 2:
+    if len(groups) < min_configs:
         raise InsufficientDataError(
-            f"need at least 2 distinct combinations of {list(hyperparameter_keys)!r} to tune, got {len(groups)}",
-            cells=(InsufficientDataCell({}, "at least 2 distinct combinations", str(len(groups))),),
+            f"need at least {min_configs} distinct combinations of {list(hyperparameter_keys)!r}, got {len(groups)}",
+            cells=(InsufficientDataCell({}, f"at least {min_configs} distinct combinations", str(len(groups))),),
         )
 
     keys_sorted = sorted(groups, key=_sortable_key)

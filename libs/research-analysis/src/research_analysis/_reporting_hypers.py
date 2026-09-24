@@ -161,6 +161,7 @@ def best_hypers(
             min_samples=min_samples,
             random_seed=random_seed,
             measure=measure,
+            untuned=frozenset(),
         )
 
     free_axes = sorted(declared_axes - set(group_keys))
@@ -297,8 +298,12 @@ def _best_hypers_difference(
     min_samples: int,
     random_seed: int,
     measure: PerformanceMeasure,
+    untuned: frozenset[Any],
 ) -> HyperparameterDifferenceReport:
-    """Paired difference between two group_axis values' own bias-corrected champions."""
+    """Paired difference between two group_axis values' own bias-corrected champions.
+
+    A group value in ``untuned`` is a fixed referent with one configuration and no selection stage.
+    """
     if not 0 < confidence_level < 1:
         raise ValueError("confidence_level must be between 0 and 1")
     if n_resamples < 1:
@@ -328,8 +333,8 @@ def _best_hypers_difference(
         records_a = _negate_record_values(records_a)
         records_b = _negate_record_values(records_b)
 
-    hyper_a = _build_hyper_matrix(records_a, free_axes)
-    hyper_b = _build_hyper_matrix(records_b, free_axes)
+    hyper_a = _build_hyper_matrix(records_a, free_axes, min_configs=1 if minuend in untuned else 2)
+    hyper_b = _build_hyper_matrix(records_b, free_axes, min_configs=1 if subtrahend in untuned else 2)
     common_seeds = sorted(set(hyper_a.seeds) & set(hyper_b.seeds))
     if len(common_seeds) < min_samples:
         raise InsufficientDataError(
