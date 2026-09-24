@@ -6,7 +6,7 @@ This roadmap outlines the path to a fully functional, high-performance RL Resear
 Focus on the management layer and the primary relational database.
 - [x] **`research-cli`**: Bootstrap Shell monorepos, manage projects, and provide the entry point for runs.
 - [x] **`experiment-definition`**: Implement the fluent builder API for relational experiment planning.
-- [x] **`libs/research-store`**: Implement atomic artifact management with Local and S3 backends.
+- [x] **`libs/research-store`**: Implement atomic artifact management with a local backend. An S3 backend is not implemented.
 
 ## Phase 2: Runtime & Data (The Heart)
 Develop the JAX-native libraries for execution and data collection.
@@ -21,7 +21,8 @@ Tools for statistical rigor and publication readiness.
 
 ## Phase 4: Scaling & Cluster (The Muscle)
 Optimizing for high-performance computing.
-- [ ] **`research-cluster`**: Implement the Slurm job array mapper and node-local spooling.
+- [x] **`research-cluster`**: Implement the Slurm job array mapper, submission, and CLI integration.
+- [ ] **`research-cluster`**: Implement node-local spooling.
 - [x] **`jax-nn`**: Harvest research-grade layers and initializers from successful projects.
 
 ## Phase 5: Harvesting (The Cycle)
