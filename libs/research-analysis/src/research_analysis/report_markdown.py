@@ -130,7 +130,17 @@ def _diagnostics_section(document: ReportDocument) -> list[str]:
 
 
 def _failure_section(failure: AnalysisFailure) -> list[str]:
-    return ["## Analysis failed", "", f"`{failure.analysis}` raised {failure.error_type}: {failure.message}"]
+    lines = ["## Analysis failed: no results are reported", "", f"`{failure.analysis}` raised {failure.error_type}: {failure.message}"]
+    if failure.non_finite_runs:
+        rows = [[", ".join(f"{key}={value}" for key, value in run.items())] for run in failure.non_finite_runs]
+        lines += ["", *_table(["Diverged run"], rows)]
+    if failure.incomplete_cells:
+        rows = [
+            [cell.condition, cell.block or "—", ", ".join(map(str, cell.missing_seeds)), str(cell.failed), str(cell.pending), str(cell.excluded)]
+            for cell in failure.incomplete_cells
+        ]
+        lines += ["", *_table(["Condition", "Block", "Missing seeds", "Failed", "Pending", "Excluded"], rows)]
+    return lines
 
 
 def _cell_row(condition: str, block: str, cell: CellSummary) -> list[str]:
