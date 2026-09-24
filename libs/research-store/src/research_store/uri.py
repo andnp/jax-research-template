@@ -22,7 +22,7 @@ def parse_uri(uri: str) -> StoreURI:
     """Parse a ``research://`` URI string into a :class:`StoreURI`.
 
     Args:
-        uri: A URI string in the canonical format produced by :func:`format_uri`.
+        uri: A URI string in the canonical format produced by :meth:`StoreURI.__str__`.
 
     Returns:
         The parsed :class:`StoreURI`.
