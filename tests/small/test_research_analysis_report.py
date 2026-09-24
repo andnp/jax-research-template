@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ from research_analysis.report import (
     ReportStatus,
     exploratory_report,
 )
+from research_analysis.report_files import report_directory, write_report_document
 from research_analysis.report_json import plan_fingerprint, report_to_json
 from research_analysis.report_markdown import render_markdown, render_summary
 from research_analysis.report_plots import write_report_plots
@@ -398,3 +400,26 @@ class TestReportPlots:
         assert list(written.plots.values()) == [Path("headline__run_distribution.png")]
         assert all((tmp_path / path).exists() for path in written.plots.values())
         assert "![headline__run_distribution](headline__run_distribution.png)" in render_markdown(written)
+
+
+class TestReportFiles:
+    def test_a_written_report_holds_its_json_markdown_and_figures(self, tmp_path: Path) -> None:
+        """The JSON and markdown on disk describe the same document, including the figures beside them."""
+        dataset = _dataset(_SCORES)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
+        document = exploratory_report(dataset, Path("db"), [BakeoffResult("headline", report)])
+        output_dir = tmp_path / "reports" / "demo" / "now"
+
+        written = write_report_document(document, output_dir)
+
+        assert json.loads((output_dir / "report.json").read_text()) == json.loads(report_to_json(written))
+        assert (output_dir / "report.md").read_text() == render_markdown(written)
+        assert all((output_dir / path).exists() for path in written.plots.values())
+
+    def test_the_default_directory_is_timestamped_under_the_results_root(self, tmp_path: Path) -> None:
+        """Each report gets its own directory under reports/<experiment>, with unsafe characters replaced."""
+        directory = report_directory(tmp_path, "exp 003/lr")
+
+        assert directory.parent == tmp_path / "reports" / "exp_003_lr"
+        assert re.fullmatch(r"\d{8}T\d{6}Z", directory.name)
+
