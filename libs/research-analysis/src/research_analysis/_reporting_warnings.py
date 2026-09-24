@@ -135,7 +135,9 @@ def variance_warning(
     across every condition and cell in the same report).
     """
     array = np.asarray(values, dtype=np.float64)
-    std = float(np.std(array, ddof=1)) if array.size > 1 else 0.0
+    if array.size < 2:
+        return None
+    std = float(np.std(array, ddof=1))
     if std == 0.0:
         return BakeoffWarning(
             code=BakeoffWarningCode.ZERO_VARIANCE,

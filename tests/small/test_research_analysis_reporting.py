@@ -462,6 +462,10 @@ class TestVarianceWarning:
         assert warning is not None
         assert warning.code == BakeoffWarningCode.ZERO_VARIANCE
 
+    def test_no_zero_variance_warning_for_a_single_run(self) -> None:
+        """One run has no spread to measure, so it is not evidence of a fixed seed or saturated metric."""
+        assert variance_warning([1.0], condition="sac") is None
+
     def test_flags_extreme_variance_relative_to_the_metric_range(self) -> None:
         warning = variance_warning([-500.0, 500.0, -500.0, 500.0], reference_range=100.0)
         assert warning is not None
