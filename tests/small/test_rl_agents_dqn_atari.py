@@ -155,7 +155,7 @@ class TestDQNAtariAgent:
         assert state.last_obs.dtype == jnp.uint8
         assert state.last_action.shape == ()
         assert int(state.num_actions) == NUM_ACTIONS
-        assert state.buffer_state.obs.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE)
+        assert state.buffer_state.frame.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE[1:])
 
     def test_init_rejects_a_continuous_action_space(self) -> None:
         config = DQNAtariConfig(REPLAY_CAPACITY=8)
@@ -195,8 +195,8 @@ class TestDQNAtariAgent:
         for key_name in ("loss", "epsilon", "loop/reward", "loop/episode_end"):
             assert metrics[key_name].shape == (steps,), key_name
         buffer_state = final_state.agent_state.buffer_state
-        assert buffer_state.obs.dtype == jnp.uint8
-        assert buffer_state.next_obs.dtype == jnp.uint8
+        assert buffer_state.frame.dtype == jnp.uint8
+        assert buffer_state.next_frame.dtype == jnp.uint8
         assert int(buffer_state.count) == steps - 1, "the final action opens a transition that never closes"
         assert jnp.any(metrics["loss"] != 0.0), "the replay warmup completed, so the learn path must have fired"
         assert jnp.allclose(metrics["epsilon"][0:5], 1.0)

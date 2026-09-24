@@ -29,7 +29,7 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_total_train_env_steps,
 )
 from rl_components.agent_protocol import AgentProtocol, AgentStep
-from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.buffers import FrameReplayBuffer, FrameReplayBufferState
 from rl_components.env_protocol import EnvProtocol, EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 from rl_components.timestep import Timestep
@@ -186,15 +186,16 @@ def _compiled_run[AgentStateT](
     return jax.jit(train_fn)
 
 
-def _fake_replay_buffer_state(capacity: int) -> ReplayBufferState:
-    flat_size = capacity * int(jnp.prod(jnp.asarray(ATARI_OBSERVATION_SHAPE)))
-    obs = jnp.arange(flat_size, dtype=jnp.int32).reshape((capacity, *ATARI_OBSERVATION_SHAPE))
-    return ReplayBufferState(
-        obs=jnp.asarray(obs % 256, dtype=jnp.uint8),
+def _fake_replay_buffer_state(capacity: int) -> FrameReplayBufferState:
+    frame_size = capacity * int(jnp.prod(jnp.asarray(ATARI_OBSERVATION_SHAPE[1:])))
+    frames = jnp.arange(frame_size, dtype=jnp.int32).reshape((capacity, *ATARI_OBSERVATION_SHAPE[1:]))
+    return FrameReplayBufferState(
+        frame=jnp.asarray(frames % 256, dtype=jnp.uint8),
+        next_frame=jnp.asarray((frames + 1) % 256, dtype=jnp.uint8),
         actions=jnp.arange(capacity, dtype=jnp.int32) % ATARI_ACTIONS,
         rewards=jnp.linspace(0.0, 1.0, capacity, dtype=jnp.float32),
-        next_obs=jnp.asarray((obs + 1) % 256, dtype=jnp.uint8),
         discount=0.99 * (1.0 - (jnp.arange(capacity, dtype=jnp.int32) % 7 == 0).astype(jnp.float32)),
+        episode_end=jnp.zeros((capacity,), dtype=jnp.bool_),
         pointer=jnp.asarray(0, dtype=jnp.int32),
         count=jnp.asarray(capacity, dtype=jnp.int32),
     )
@@ -276,7 +277,7 @@ def test_fake_micro_train_replay_and_update_speed(benchmark: object) -> None:
 
 @pytest.mark.benchmark(group="dqn-atari-update-subphases")
 def test_fake_replay_sampling_only_speed(benchmark: object) -> None:
-    buffer = ReplayBuffer(
+    buffer = FrameReplayBuffer(
         LEARNER_REPLAY_CAPACITY,
         ATARI_OBSERVATION_SHAPE,
         (),
@@ -285,7 +286,7 @@ def test_fake_replay_sampling_only_speed(benchmark: object) -> None:
     )
     buffer_state = _fake_replay_buffer_state(LEARNER_REPLAY_CAPACITY)
 
-    def sample_fn(state: ReplayBufferState, key: jax.Array):
+    def sample_fn(state: FrameReplayBufferState, key: jax.Array):
         return buffer.sample(state, key, LEARNER_BATCH_SIZE)
 
     compiled = jax.jit(sample_fn)

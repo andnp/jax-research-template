@@ -41,7 +41,7 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
-from rl_components.buffers import ReplayBuffer, ReplayBufferState
+from rl_components.buffers import FrameReplayBuffer, FrameReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.heads import epsilon_greedy_action
 from rl_components.losses import clip_gradient
@@ -208,7 +208,7 @@ class DQNAtariAgentState:
 
     train_state: TrainState
     target_params: VariableDict
-    buffer_state: ReplayBufferState
+    buffer_state: FrameReplayBufferState
     last_obs: jax.Array
     last_action: jax.Array
     num_actions: jax.Array
@@ -253,6 +253,7 @@ class DQNAtariAgent:
             raise ValueError(f"DQN Atari requires a discrete action space, got spec {spec.id!r} with none")
 
         observation_shape = tuple(spec.observation_shape)
+        self.observation_shape = observation_shape
         observation_dtype = jnp.dtype(spec.observation_dtype)
         action_dtype = jnp.dtype(spec.action_dtype)
         network = NatureQNetwork(
@@ -262,7 +263,7 @@ class DQNAtariAgent:
 
         params_key, carry_key = jax.random.split(key)
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
-        buffer = ReplayBuffer(
+        buffer = FrameReplayBuffer(
             capacity=self.config.REPLAY_CAPACITY,
             obs_shape=observation_shape,
             action_shape=tuple(spec.action_shape),
@@ -308,7 +309,7 @@ class DQNAtariAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        buffer = ReplayBuffer.from_state(state.buffer_state)
+        buffer = FrameReplayBuffer.from_state(state.buffer_state, self.observation_shape[0])
         carry_key, sample_key, action_key = jax.random.split(state.key, 3)
 
         buffer_state = jax.lax.cond(
@@ -320,6 +321,7 @@ class DQNAtariAgent:
                 timestep.reward[None, ...],
                 timestep.bootstrap_observation[None, ...],
                 timestep.discount[None, ...],
+                timestep.episode_end[None, ...],
             ),
             lambda: state.buffer_state,
         )
@@ -374,8 +376,8 @@ class DQNAtariAgent:
         self,
         train_state: TrainState,
         target_params: VariableDict,
-        buffer_state: ReplayBufferState,
-        buffer: ReplayBuffer,
+        buffer_state: FrameReplayBufferState,
+        buffer: FrameReplayBuffer,
         key: chex.PRNGKey,
         hypers: DQNAtariHypers,
     ) -> tuple[TrainState, jax.Array]:

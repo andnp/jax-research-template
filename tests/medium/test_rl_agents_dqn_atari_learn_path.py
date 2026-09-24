@@ -112,8 +112,8 @@ class Run(NamedTuple):
 
     params: list[jax.Array]
     discounts: jax.Array
-    bootstrap_observations: jax.Array
-    observations: jax.Array
+    bootstrap_frames: jax.Array
+    observation_frames: jax.Array
     metrics: dict[str, jax.Array]
     transitions: int
 
@@ -144,8 +144,8 @@ def _run(warmup_fraction: float) -> Run:
     return Run(
         params=jax.tree_util.tree_leaves(agent_state.train_state.params),
         discounts=agent_state.buffer_state.discount[:count],
-        bootstrap_observations=agent_state.buffer_state.next_obs[:count],
-        observations=agent_state.buffer_state.obs[:count],
+        bootstrap_frames=agent_state.buffer_state.next_frame[:count],
+        observation_frames=agent_state.buffer_state.frame[:count],
         metrics=metrics,
         transitions=steps - 1,
     )
@@ -217,8 +217,8 @@ def test_terminal_transitions_store_the_true_final_observation(learning_run: Run
 
     assert bool(jnp.any(terminal)), "no terminal transition was stored to check"
     assert jnp.array_equal(
-        learning_run.bootstrap_observations[terminal],
-        jnp.broadcast_to(TERMINAL_OBSERVATION, (int(jnp.sum(terminal)), *OBSERVATION_SHAPE)),
+        learning_run.bootstrap_frames[terminal],
+        jnp.broadcast_to(TERMINAL_OBSERVATION[-1], (int(jnp.sum(terminal)), *OBSERVATION_SHAPE[1:])),
     ), "dqn_atari stored the post-reset observation at a boundary instead of the true final state"
     assert not jnp.array_equal(TERMINAL_OBSERVATION, EPISODE_START_OBSERVATION), (
         "the toy environment must make the two observations distinguishable"
@@ -235,12 +235,12 @@ def test_the_transition_after_a_boundary_starts_the_new_episode(learning_run: Ru
     a transition that never happened in any episode.
     """
     terminal = jnp.flatnonzero(learning_run.discounts == 0.0)
-    count = learning_run.observations.shape[0]
+    count = learning_run.observation_frames.shape[0]
     following = [int(index) + 1 for index in terminal if int(index) + 1 < count]
 
     assert following, "no transition closed after a boundary to check"
     for index in following:
-        assert jnp.array_equal(learning_run.observations[index], EPISODE_START_OBSERVATION), (
+        assert jnp.array_equal(learning_run.observation_frames[index], EPISODE_START_OBSERVATION[-1]), (
             "dqn_atari acted from the post-reset state but stored the previous episode's "
             f"final state as the observation of transition {index}"
         )
