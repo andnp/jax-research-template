@@ -14,7 +14,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from research_analysis.tuning import hierarchical_bootstrap_ci
+from research_analysis.tuning import hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
 
 REPLICATES = 1000
 N_RESAMPLES = 1000
@@ -43,6 +43,17 @@ def champion_coverage(sample: GridSampler, h: int, n: int, rng: np.random.Genera
     for _ in range(REPLICATES):
         ci = hierarchical_bootstrap_ci(sample(rng, means, n), n, n, n_resamples=N_RESAMPLES, rng=rng)
         hits += ci.ci_low <= 1.0 <= ci.ci_high
+    return hits / REPLICATES
+
+
+def champion_difference_coverage(sample: GridSampler, h: int, n: int, rng: np.random.Generator):
+    means, gap = np.linspace(0.0, 1.0, h), 0.5
+    hits = 0
+    for _ in range(REPLICATES):
+        ci = hierarchical_bootstrap_difference_ci(
+            sample(rng, means, n), sample(rng, means - gap, n), n, n, n_resamples=N_RESAMPLES, rng=rng
+        )
+        hits += ci.ci_low <= gap <= ci.ci_high
     return hits / REPLICATES
 
 
@@ -81,3 +92,33 @@ def test_champion_ci_matches_the_validated_coverage(sample: GridSampler, h: int,
     coverage = champion_coverage(sample, h, n, np.random.default_rng(0))
 
     assert abs(coverage - reference) <= reference_band(reference), (coverage, reference)
+
+
+CHAMPION_CELLS = [(sample, h, n) for sample, h, n, _ in DIARY_COVERAGE]
+
+
+@pytest.mark.parametrize(
+    ("sample", "h", "n"), CHAMPION_CELLS, ids=[f"{sample.__name__}-H{h}-N{n}" for sample, h, n in CHAMPION_CELLS]
+)
+def test_champion_difference_ci_is_calibrated_at_three_configs_and_conservative_at_ten(
+    sample: GridSampler, h: int, n: int
+) -> None:
+    """The difference between two independently tuned champions is covered near nominal at H=3, conservatively at H=10.
+
+    First measured here (seed 0, 1000 replicates), arm B's grid shifted 0.5 below arm A's:
+
+    =================  =====  =====  ======  ======
+    family             H3N10  H3N30  H10N10  H10N30
+    =================  =====  =====  ======  ======
+    bimodal            0.947  0.950  0.990   0.989
+    long_tailed        0.957  0.952  0.996   0.992
+    dominant_nuisance  0.963  0.936  0.998   0.993
+    =================  =====  =====  ======  ======
+
+    The H=10 over-coverage records current behaviour, so a change of method shows up as a deliberate update here.
+    """
+    coverage = champion_difference_coverage(sample, h, n, np.random.default_rng(0))
+
+    band = 3.0 * math.sqrt(0.95 * 0.05 / REPLICATES)
+    expected_low, expected_high = (0.95 - band, 0.95 + band) if h == 3 else (0.975, 1.0)
+    assert expected_low <= coverage <= expected_high, coverage
