@@ -35,7 +35,7 @@ Packages keep empty `__init__.py` files, so import from the submodules.
 | `comparison` | `BakeoffSpec`: estimand, alpha, resamples, `min_samples`, missingness, seed, tolerance settings |
 | `reporting` | compute-only `bakeoff_report`, `best_hypers`, `slice_hypers` and their result records |
 | `plan`, `plan_snapshots`, `plan_report` | `AnalysisPlan` and `@analysis_plan`, the append-only plan history, `run_plan` |
-| `report`, `report_json`, `report_markdown`, `report_plots` | the `ReportDocument` (schema v1), strict JSON and plan fingerprints, markdown and console summary, figures into an explicit directory |
+| `report`, `report_json`, `report_markdown`, `report_plots`, `report_files` | the `ReportDocument` (schema v1), strict JSON and plan fingerprints, markdown and console summary, figures into an explicit directory, and one call writing a whole report directory |
 | `bootstrap`, `permutation`, `repeated_blocks`, `multiplicity` | percentile bootstrap CIs, paired or independent permutation tests, the block-stratified omnibus test, Holm and Bonferroni |
 | `tuning` | the hierarchical per-sample bootstrap for tuned champions |
 | `statistics`, `curves`, `learning_curve`, `trajectory` | tolerance intervals, representative runs, curve summaries, step-weighted returns, trajectory validation |
@@ -54,7 +54,7 @@ from pathlib import Path
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDimensions
 from research_analysis.report import BakeoffResult, exploratory_report
-from research_analysis.report_json import report_to_json
+from research_analysis.report_files import report_directory, write_report_document
 from research_analysis.reporting import bakeoff_report
 
 db = Path("projects/my-project/results/study/experiments.sqlite")
@@ -62,7 +62,7 @@ dataset = load_experiment_dataset(db, "study-slug", dimensions=ExperimentDimensi
 report = bakeoff_report(dataset, "reward", ["baseline", "candidate"])
 difference = report.difference("candidate", "baseline")
 document = exploratory_report(dataset, db, [BakeoffResult("look", report)])
-Path("projects/my-project/results/study/reports/look.json").write_text(report_to_json(document))
+write_report_document(document, report_directory(db.parent, document.provenance.experiment))
 ```
 
 ## 4. Technical Constraints
