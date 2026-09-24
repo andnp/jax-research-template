@@ -57,6 +57,20 @@ def mix(state_a: jax.Array, q_a: jax.Array, state_b: jax.Array, q_b: jax.Array):
     return (state_a * q_a + state_b * q_b) / q_total
 
 
+_ASM2D_PARTICULATE = jnp.array([2, 3, 4, 5, 6, 11, 14, 15, 16])
+
+
+def perfect_clarifier(state: jax.Array, q_in: jax.Array, q_underflow: jax.Array, q_waste: jax.Array):
+    """Ideal clarifier: soluble fractions leave in the overflow, particulates concentrate in the underflow.
+
+    Mirrors ``units/bsm1_plant.perfect_clarifier`` for the 17-component ASM2d vector.
+    """
+    concentration_factor = q_in / jnp.maximum(q_underflow + q_waste, 1.0)
+    effluent = state.at[_ASM2D_PARTICULATE].set(0.0)
+    return_sludge = state.at[_ASM2D_PARTICULATE].multiply(concentration_factor)
+    return effluent, return_sludge
+
+
 def reactor_step(
     state: jax.Array,
     inlet: jax.Array,
@@ -83,26 +97,35 @@ class ASM2dParams:
     # Base ASM1 parameters (for the 13 original states)
     asm1: ASM1Params = ASM1Params(volume=1333.0)
 
-    # PAO kinetics
-    q_pha: float = 3.0  # rate constant for PHA storage (1/d)
-    q_pp: float = 1.5  # rate constant for poly-P storage (1/d)
-    mu_pao: float = 1.0  # max PAO growth rate (1/d)
-    b_pao: float = 0.2  # PAO decay rate (1/d)
-    b_pha: float = 0.2  # PHA lysis rate (1/d)
-    b_pp: float = 0.2  # poly-P lysis rate (1/d)
+    # PAO kinetics. ASM2d (Henze et al. 1999, IWA STR9, Table on p.172) gives these
+    # as d⁻¹, but this reactor and its `dt` operate in hours like ASM1 — divide by 24
+    # so the PAO processes run on the same clock as the ASM1 ones they're added to.
+    q_pha: float = 3.0 / 24.0  # PHA storage rate (3.0 d⁻¹)
+    q_pp: float = 1.5 / 24.0  # poly-P storage rate (1.5 d⁻¹)
+    mu_pao: float = 1.0 / 24.0  # max PAO growth rate (1.0 d⁻¹)
+    b_pao: float = 0.2 / 24.0  # PAO decay rate (0.2 d⁻¹)
+    b_pha: float = 0.2 / 24.0  # PHA lysis rate (0.2 d⁻¹)
+    b_pp: float = 0.2 / 24.0  # poly-P lysis rate (0.2 d⁻¹)
 
     # PAO half-saturation coefficients
-    k_s_pao: float = 20.0  # S_S half-sat for PAO VFA uptake (mg COD/L)
+    # ASM2d's K_A (0.004 kg COD/m³ = 4 mg COD/L) is defined for S_A (fermentable VFA).
+    # This reduced-order model has no separate S_A state, so PAO PHA-storage uptake
+    # (rho_9) uses the combined S_S pool as a proxy and keeps the literature K_A value.
+    k_s_pao: float = 4.0  # S_A half-sat for PAO VFA uptake (mg COD/L), proxied by S_S
     k_o_pao: float = 0.2  # O₂ half-sat for PAO (mg/L)
     k_no_pao: float = 0.5  # NO₃ half-sat for PAO denitrification (mg N/L)
-    k_p: float = 0.01  # PO₄ half-sat for PAO P uptake (mg P/L)
+    k_p: float = 0.01  # K_P: PO₄ half-sat for PAO growth (mg P/L)
+    k_ps: float = 0.2  # K_PS: PO₄ half-sat for poly-P storage (mg P/L)
     k_pha: float = 0.01  # PHA/PAO ratio half-sat for growth
     k_pp: float = 0.01  # PP/PAO ratio half-sat for storage
-    k_max_pp: float = 0.34  # max PP/PAO ratio (mg P/mg COD)
+    k_max_pp: float = 0.34  # K_MAX: max PP/PAO ratio (mg P/mg COD)
+    k_ipp: float = 0.02  # K_IPP: inhibition coefficient in the storage saturation term
 
     # PAO stoichiometry
     y_pao: float = 0.625  # PAO yield (mg COD biomass / mg COD PHA)
+    y_pha: float = 0.2  # PHA required per unit P stored as poly-P (mg COD / mg P)
     i_p_bm: float = 0.02  # P content of biomass (mg P / mg COD)
+    i_n_bm: float = 0.07  # N content of biomass (mg N / mg COD); ASM2d's i_N,BM
     i_p_xi: float = 0.01  # P content of X_I (mg P / mg COD)
     f_pp_per_pha: float = 0.4  # mol P released per mol PHA stored (simplified)
 
@@ -141,7 +164,8 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
 
     p = params.asm1
 
-    dc = jnp.zeros(N_COMPONENTS_ASM2D).at[:13].set(asm1_reaction_rates(state, p))
+    asm1_dc = asm1_reaction_rates(state, p)
+    dc = jnp.zeros(N_COMPONENTS_ASM2D).at[:13].set(asm1_dc)
 
     # ===================== PAO REACTIONS (processes 9-14) =====================
 
@@ -154,8 +178,12 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
     # PAOs take up S_S anaerobically, store as PHA, release P from poly-P
     rho_9 = params.q_pha * _monod(s_s, params.k_s_pao) * _inhibition(s_o, params.k_o_pao) * _inhibition(s_no, params.k_no_pao) * (f_pp / (params.k_pp + f_pp)) * x_pao
 
-    # Process 10: Aerobic poly-P storage (P uptake)
-    rho_10 = params.q_pp * _monod(s_po4, params.k_p) * _monod(s_o, params.k_o_pao) * (f_pha / (params.k_pha + f_pha)) * (params.k_max_pp - f_pp) / (params.k_max_pp + 1e-10) * x_pao
+    # Process 10: Aerobic poly-P storage (P uptake). ASM2d's saturation term is
+    # (K_MAX - f_pp) / (K_IPP + K_MAX - f_pp); clip the numerator at 0 so storage
+    # simply stops (rather than reversing) once X_PP/X_PAO reaches K_MAX.
+    headroom = jnp.maximum(params.k_max_pp - f_pp, 0.0)
+    storage_term = headroom / (params.k_ipp + headroom + 1e-10)
+    rho_10 = params.q_pp * _monod(s_po4, params.k_ps) * _monod(s_o, params.k_o_pao) * (f_pha / (params.k_pha + f_pha)) * storage_term * x_pao
 
     # Process 11: Aerobic growth of PAO on stored PHA
     rho_11 = params.mu_pao * _monod(s_o, params.k_o_pao) * _monod(s_nh, p.k_nh) * _monod(s_po4, params.k_p) * (f_pha / (params.k_pha + f_pha)) * x_pao
@@ -184,31 +212,47 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
     # S_S consumed by anaerobic PHA storage
     dc = dc.at[1].add(-rho_9)
 
-    # X_S receives PAO decay products
-    dc = dc.at[3].add((1.0 - p.f_p) * rho_13 + rho_14)
+    # X_S receives PAO decay products (PHA lysis (rho_14) is soluble storage
+    # polymer, not particulate slowly-biodegradable substrate — it returns to
+    # S_S alongside rho_9's consumption, not X_S)
+    dc = dc.at[3].add((1.0 - p.f_p) * rho_13)
+    dc = dc.at[1].add(rho_14)
 
     # X_P from PAO decay
     dc = dc.at[6].add(p.f_p * rho_13)
 
-    # S_O consumed by aerobic PAO growth and PP storage
-    dc = dc.at[7].add(-(1.0 - params.y_pao) / params.y_pao * rho_11)
+    # S_O consumed by aerobic PAO growth and, since none of the PHA spent
+    # storing poly-P is retained as biomass, by full oxidation of that PHA-COD
+    # (1 g COD ≈ 1 g O₂ once mineralized).
+    dc = dc.at[7].add(-(1.0 - params.y_pao) / params.y_pao * rho_11 - params.y_pha * rho_10)
 
     # S_NO: anoxic PAO denitrifies
     dc = dc.at[8].add(-(1.0 - params.y_pao) / (2.86 * params.y_pao) * rho_12)
 
-    # S_NH consumed by PAO growth
-    dc = dc.at[9].add(-params.i_p_bm * rho_11 - params.i_p_bm * rho_12)
+    # S_NH consumed by PAO growth (biomass N content i_N,BM, not P content)
+    dc = dc.at[9].add(-params.i_n_bm * rho_11 - params.i_n_bm * rho_12)
+
+    # X_ND: N released by PAO decay net of what stays bound in X_P (same
+    # pattern as ASM1's i_xb/i_xp split for heterotroph/autotroph decay)
+    dc = dc.at[11].add((params.i_n_bm - p.f_p * p.i_xp) * rho_13)
 
     # ===================== ASM2d-specific states =====================
 
-    # S_PO4 (index 13): released anaerobically, taken up aerobically
+    # S_PO4 (index 13): released anaerobically, taken up aerobically, plus the
+    # P taken up/released by ASM1's heterotrophs and autotrophs. That net term
+    # is exact given asm1_dc[4]/[5]/[6] (net X_BH+X_BA growth and net X_P
+    # formation): P assimilated tracks net biomass growth at i_p_bm, and P
+    # retained in inert decay products is i_p_xi instead of i_p_bm per unit
+    # of X_P formed, so the correction collapses to this closed form.
     dc = dc.at[13].add(
         rho_9 * params.f_pp_per_pha  # P release from anaerobic PHA storage
         - rho_10  # aerobic poly-P storage (P uptake)
         - params.i_p_bm * rho_11  # P incorporated into PAO biomass
         - params.i_p_bm * rho_12  # P for anoxic growth
-        + params.i_p_bm * rho_13  # P from PAO decay
+        + (params.i_p_bm - p.f_p * params.i_p_xi) * rho_13  # P from PAO decay, net of X_P retention
         + rho_15  # P from PP lysis
+        - params.i_p_bm * (asm1_dc[4] + asm1_dc[5])  # heterotroph + autotroph P uptake/release
+        - params.i_p_xi * asm1_dc[6]  # P retained in inert decay products (X_P)
     )
 
     # X_PAO (index 14)
