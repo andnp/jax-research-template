@@ -11,16 +11,14 @@ the actual :class:`~research_runner.BatchTrainer` from the spec plus the env fac
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
-import jax
-from experiment_definition import ParameterValue
 from research_runner import BatchTrainer, ExecutionContext, ExecutionResult, ParameterSchema
-from rl_components.env_protocol import EnvProtocol
 from rl_components.types import PPOConfig
 
 from rl_agents.batch_trainer import (
     AlgorithmSpec,
+    EnvFactory,
     extract_actor_params,
     extract_train_state_params,
     make_batch_trainer,
@@ -34,11 +32,6 @@ from rl_agents.replay_q_agent import ReplayQHypers
 from rl_agents.sac import SACAgent, SACConfig, SACHypers
 from rl_agents.sac_rc import SACRCAgent, SACRCConfig, SACRCHypers
 from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
-
-EnvFactory = Callable[
-    [Mapping[str, ParameterValue]],
-    tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None],
-]
 
 ALGORITHM_PARAMETER = "algorithm"
 """The parameter naming which algorithm a batch of runs belongs to."""

@@ -15,14 +15,18 @@ from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import BoundaryResetProtocol, EnvProtocol, EnvReset, EnvSpec, EnvStep
 
 
-class _GymnaxState(Protocol):
+class GymnaxState(Protocol):
+    """The state fields required by the Gymnax adapter."""
+
     time: jax.Array
 
 
-class _GymnaxParams(Protocol):
+class GymnaxParams(Protocol):
+    """The parameter fields required by the Gymnax adapter."""
+
     max_steps_in_episode: int
 
-    def replace(self, **changes: object) -> "_GymnaxParams": ...
+    def replace(self, **changes: object) -> "GymnaxParams": ...
 
 
 class _GymnaxObservationSpace(Protocol):
@@ -91,7 +95,7 @@ class _GymnaxEnv[StateT, ParamsT](Protocol):
     ) -> tuple[jax.Array, StateT, jax.Array, jax.Array, dict[str, jax.Array]]: ...
 
 
-class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
+class GymnaxEnv[StateT: GymnaxState, ParamsT: GymnaxParams]:
     """Adapts a raw Gymnax environment to :class:`EnvProtocol`.
 
     Two things separate this from handing the Gymnax environment to a training loop
@@ -204,7 +208,7 @@ class GymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams]:
         )
 
 
-class _BoundaryResetGymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams](GymnaxEnv[StateT, ParamsT]):
+class _BoundaryResetGymnaxEnv[StateT: GymnaxState, ParamsT: GymnaxParams](GymnaxEnv[StateT, ParamsT]):
     def reset_after_episode(
         self,
         key: chex.PRNGKey,
@@ -217,14 +221,14 @@ class _BoundaryResetGymnaxEnv[StateT: _GymnaxState, ParamsT: _GymnaxParams](Gymn
         return self._env.reset_after_episode(key, previous_state, self._deferred_limit(resolved))
 
 
-def make_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](env: object) -> GymnaxEnv[StateT, ParamsT]:
+def make_gymnax_env[StateT: GymnaxState, ParamsT: GymnaxParams](env: object) -> GymnaxEnv[StateT, ParamsT]:
     """Wrap a raw Gymnax environment as an :class:`EnvProtocol` environment."""
     if isinstance(env, BoundaryResetProtocol):
         return _BoundaryResetGymnaxEnv(env)
     return GymnaxEnv(env)
 
 
-def make_normalized_gymnax_env[StateT: _GymnaxState, ParamsT: _GymnaxParams](
+def make_normalized_gymnax_env[StateT: GymnaxState, ParamsT: GymnaxParams](
     env: object,
 ) -> EnvProtocol[jax.Array, StateT, jax.Array, ParamsT]:
     """Wrap a raw Gymnax environment, normalizing a continuous action space to ``[-1, 1]``.

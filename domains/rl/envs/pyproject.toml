@@ -13,6 +13,7 @@ dependencies = [
     "gymnax~=0.0",
     "process-control",
     "rl-components",
+    "research-runner",
 ]
 
 [project.optional-dependencies]
@@ -30,3 +31,4 @@ where = ["src"]
 [tool.uv.sources]
 rl-components = { workspace = true }
 process-control = { workspace = true }
+research-runner = { workspace = true }

@@ -1,45 +1,66 @@
+from collections.abc import Mapping
+
 import jax
 import jax.numpy as jnp
 import pytest
+from experiment_definition import ParameterValue
+from rl_agents.batch_trainer import EnvFactory
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
-from rl_envs.env_registry import ENV_FAMILIES, make_env_factory, resolve_env
+from rl_envs.env_registry import (
+    ParameterAccessor,
+    environment_builder,
+    gymnax_builder,
+    make_env_factory,
+    process_control_builder,
+)
+from rl_envs.process_control_bridge import make_process_control_env
 
 
-def test_process_control_family_resolves_a_working_env() -> None:
-    """process_control:<name> resolves to a steppable EnvProtocol with no env params."""
-    env, env_params = resolve_env("process_control:chlorine")
+@environment_builder
+def _scrubber_builder(
+    parameters: ParameterAccessor,
+) -> tuple[EnvProtocol[jax.Array, object, jax.Array, object], object | None]:
+    env = make_process_control_env(
+        "h2s_scrubber",
+        ph_sp_min=parameters.get("ph_sp_min", float),
+        ph_sp_max=parameters.get_or("ph_sp_max", float, 10.5),
+    )
+    return env, None
+
+
+def test_registered_builder_reads_per_run_parameters() -> None:
+    """The selected builder receives typed values from this run's config.
+
+    An omitted optional bound uses the builder's declared default.
+    """
+    factory = make_env_factory({"scrubber": _scrubber_builder})
+    env, env_params = factory({"env_name": "scrubber", "ph_sp_min": 8})
 
     assert env_params is None
     spec = env.spec()
-    assert spec.observation_shape == (spec.observation_shape[0],)
-    assert spec.action_shape == (1,)
-
-    reset = env.reset(jax.random.PRNGKey(0))
-    assert reset.observation.shape == spec.observation_shape
-    step = env.step(jax.random.PRNGKey(1), reset.state, jnp.zeros(spec.action_shape, dtype=spec.action_dtype))
-    assert step.observation.shape == spec.observation_shape
+    assert spec.action_low is not None
+    assert float(spec.action_low[0]) == pytest.approx(8.0)
+    assert spec.action_high is not None
+    assert float(spec.action_high[0]) == pytest.approx(10.5)
 
 
-def test_gymnax_family_resolves_a_working_env() -> None:
-    """gymnax:<id> resolves to a steppable EnvProtocol carrying env params."""
-    env, env_params = resolve_env("gymnax:CartPole-v1")
+def test_builder_returns_its_wrapped_environment() -> None:
+    """The factory preserves wrappers applied by a project-owned builder.
 
-    assert env_params is not None
-    spec = env.spec(env_params)
-    assert spec.observation_shape == (4,)
-    assert spec.num_actions == 2
+    The returned environment keeps the normalized action bounds.
+    """
+    factory = make_env_factory(
+        {
+            "chlorine": process_control_builder(
+                "chlorine",
+                wrapper=make_action_normalization_wrapper,
+            ),
+        }
+    )
+    env, env_params = factory({"env_name": "chlorine"})
 
-    reset = env.reset(jax.random.PRNGKey(0), env_params)
-    assert reset.observation.shape == (4,)
-    step = env.step(jax.random.PRNGKey(1), reset.state, jnp.array(0), env_params)
-    assert step.observation.shape == (4,)
-
-
-def test_wrapper_hook_is_applied_to_the_resolved_env() -> None:
-    """The wrapper hook wraps the resolved env before it is returned."""
-    env, _ = resolve_env("process_control:chlorine", wrapper=make_action_normalization_wrapper)
-
+    assert env_params is None
     spec = env.spec()
     assert spec.action_low is not None
     assert spec.action_high is not None
@@ -47,46 +68,80 @@ def test_wrapper_hook_is_applied_to_the_resolved_env() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([1.0], dtype=jnp.float32))
 
 
-def test_overrides_reach_the_process_control_builder() -> None:
-    """Keyword overrides pass through to the named benchmark's config."""
-    env, _ = resolve_env("process_control:h2s_scrubber", ph_sp_min=8.5, ph_sp_max=10.5)
+def test_process_control_builder_passes_configured_values() -> None:
+    """The process-control constructor forwards only selected parameters.
 
-    spec = env.spec()
+    A scenario selected for this run appears in the returned environment identity.
+    """
+    factory = make_env_factory(
+        {
+            "scrubber": process_control_builder(
+                "h2s_scrubber",
+                passthrough_keys=("scenario",),
+            ),
+        }
+    )
+    env, env_params = factory({"env_name": "scrubber", "scenario": "nominal"})
+
+    assert env_params is None
+    assert env.spec().id == "process_control:h2s_scrubber:nominal"
+
+
+def test_factory_accepts_heterogeneous_environment_builders() -> None:
+    """One typed factory dispatches to builders with distinct state types.
+
+    Two Gymnax tasks produce different runtime state types alongside a process-control
+    environment, without casts at the factory call site.
+    """
+    factory: EnvFactory = make_env_factory(
+        {
+            "cartpole": gymnax_builder("CartPole-v1"),
+            "pendulum": gymnax_builder("Pendulum-v1", normalized=True),
+            "chlorine": process_control_builder("chlorine"),
+            "scrubber": _scrubber_builder,
+        }
+    )
+
+    cartpole, cartpole_params = factory({"env_name": "cartpole"})
+    pendulum, pendulum_params = factory({"env_name": "pendulum"})
+    chlorine, chlorine_params = factory({"env_name": "chlorine"})
+    scrubber, scrubber_params = factory({"env_name": "scrubber", "ph_sp_min": 8})
+
+    cartpole_state = cartpole.reset(jax.random.key(0), cartpole_params).state
+    pendulum_state = pendulum.reset(jax.random.key(1), pendulum_params).state
+    assert type(cartpole_state) is not type(pendulum_state)
+
+    assert chlorine_params is None
+    assert chlorine.spec().id == "process_control:chlorine"
+    assert scrubber_params is None
+    scrubber_spec = scrubber.spec()
+    assert scrubber_spec.action_low is not None
+    assert float(scrubber_spec.action_low[0]) == pytest.approx(8.0)
+
+    assert pendulum_params is not None
+    spec = pendulum.spec(pendulum_params)
     assert spec.action_low is not None
-    assert float(spec.action_low[0]) == pytest.approx(8.5)
     assert spec.action_high is not None
-    assert float(spec.action_high[0]) == pytest.approx(10.5)
+    assert jnp.array_equal(spec.action_low, jnp.array([-1.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([1.0], dtype=jnp.float32))
 
 
-def test_unknown_family_raises_value_error_naming_known_families() -> None:
-    with pytest.raises(ValueError, match="process_control"):
-        resolve_env("nonexistent:thing")
+@pytest.mark.parametrize(
+    ("parameters", "error", "message"),
+    [
+        ({}, ValueError, "env_name"),
+        ({"env_name": 1}, TypeError, "env_name"),
+        ({"env_name": "missing"}, ValueError, "chlorine"),
+    ],
+)
+def test_factory_rejects_invalid_environment_config(
+    parameters: Mapping[str, ParameterValue], error: type[Exception], message: str
+) -> None:
+    """Malformed config fails before a project builder is selected.
 
+    Missing names, wrong types, and unknown builder keys have distinct errors.
+    """
+    factory = make_env_factory({"chlorine": process_control_builder("chlorine")})
 
-def test_missing_colon_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="namespaced"):
-        resolve_env("chlorine")
-
-
-def test_env_families_covers_process_control_and_gymnax() -> None:
-    assert set(ENV_FAMILIES) == {"process_control", "gymnax"}
-
-
-class TestMakeEnvFactory:
-    def test_reads_env_name_from_the_config_mapping(self) -> None:
-        """The factory reads ``env_name`` out of the mapping it is handed."""
-        factory = make_env_factory()
-        env, env_params = factory({"env_name": "process_control:chlorine", "seed": 0})
-
-        assert env_params is None
-        assert isinstance(env, EnvProtocol)
-
-    def test_raises_type_error_when_env_name_is_absent(self) -> None:
-        factory = make_env_factory()
-        with pytest.raises(TypeError, match="env_name"):
-            factory({"seed": 0})
-
-    def test_raises_type_error_when_env_name_is_not_a_string(self) -> None:
-        factory = make_env_factory()
-        with pytest.raises(TypeError, match="env_name"):
-            factory({"env_name": 1})
+    with pytest.raises(error, match=message):
+        factory(parameters)

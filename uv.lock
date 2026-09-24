@@ -1813,6 +1813,7 @@ dependencies = [
     { name = "jax" },
     { name = "opencv-python-headless" },
     { name = "process-control" },
+    { name = "research-runner" },
     { name = "rl-components" },
 ]
 
@@ -1832,6 +1833,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.0" },
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.2.0" },
     { name = "process-control", editable = "domains/process-control" },
+    { name = "research-runner", editable = "libs/research-runner" },
     { name = "rl-components", editable = "libs/rl-components" },
 ]
 provides-extras = ["playground"]
