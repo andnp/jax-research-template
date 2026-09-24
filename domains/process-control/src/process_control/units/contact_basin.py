@@ -46,7 +46,15 @@ def step(
     consumption_params = DemandConsumptionParams(tau=params.tau, bulk_decay_rate=params.bulk_decay_rate)
     new_chlorine, new_demand, demand_consumed = compute_consumption(chlorine, demand_col, consumption_params, dt)
 
-    ammonia_consumed = jnp.minimum(demand_consumed / 7.6, ammonia_col)
+    # Only the ammonia-derived share of the demand pool oxidises ammonia; the
+    # rest of demand_consumed is organic/turbidity demand and must not be
+    # charged against ammonia. Breakpoint stoichiometry is 7.6:1 Cl2:NH3-N by
+    # weight in clean water (practical plants target 8-10:1 for side
+    # reactions); see White's Handbook of Chlorination & Alternative
+    # Disinfectants, ch. 4, and EPA/WHO breakpoint chlorination guidance.
+    ammonia_demand = ammonia_col * 7.6
+    ammonia_fraction = jnp.where(demand_col > 0.0, ammonia_demand / demand_col, 0.0)
+    ammonia_consumed = jnp.minimum(demand_consumed * ammonia_fraction / 7.6, ammonia_col)
     new_ammonia = jnp.maximum(ammonia_col - ammonia_consumed, 0.0)
 
     segments = jnp.stack([new_chlorine, new_demand, new_ammonia, turbidity_col, organics_col], axis=1)

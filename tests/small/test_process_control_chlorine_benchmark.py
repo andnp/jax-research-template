@@ -7,7 +7,7 @@ from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_ch
 from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
 from process_control.controllers.pi_controller import step as pi_step
 from process_control.transport import Transport
-from process_control.units.contact_basin import ContactBasinParams
+from process_control.units.contact_basin import ContactBasinParams, ContactBasinState
 from process_control.units.contact_basin import reset as basin_reset
 from process_control.units.contact_basin import step as basin_step
 
@@ -114,6 +114,35 @@ class TestContactBasinAdvection:
             max_outlet = max(max_outlet, float(outlet))
 
         assert max_outlet > 0.1
+
+
+class TestContactBasinAmmoniaAttribution:
+    def test_organic_only_demand_does_not_consume_ammonia(self) -> None:
+        """Chlorine consumed to satisfy organic/turbidity demand must not deplete ammonia."""
+        params = ContactBasinParams(total_volume=100.0, n_segments=1, tau=1.0, bulk_decay_rate=0.0)
+        key = jax.random.PRNGKey(0)
+        # chlorine=5, demand=2 (all organic; ammonia=0), ammonia=0
+        state = ContactBasinState(segments=jnp.array([[5.0, 2.0, 0.0, 0.0, 0.0]]))
+        zero_transport = Transport.create(flow=0.0, chlorine_residual=0.0, demand=0.0)
+
+        state, _ = basin_step(state, zero_transport, params, jnp.array(0.5), key)
+
+        assert float(state.segments[0, 2]) == 0.0
+
+    def test_ammonia_demand_consumes_proportional_ammonia(self) -> None:
+        """When demand is entirely ammonia-derived, all consumption is attributed to ammonia."""
+        params = ContactBasinParams(total_volume=100.0, n_segments=1, tau=1.0, bulk_decay_rate=0.0)
+        key = jax.random.PRNGKey(0)
+        ammonia = 1.0
+        # demand = ammonia * 7.6 (pure ammonia demand, no organics/turbidity)
+        state = ContactBasinState(segments=jnp.array([[10.0, ammonia * 7.6, ammonia, 0.0, 0.0]]))
+        zero_transport = Transport.create(flow=0.0, chlorine_residual=0.0, demand=0.0)
+
+        state, _ = basin_step(state, zero_transport, params, jnp.array(0.5), key)
+
+        consumed = 10.0 - float(state.segments[0, 0])
+        expected_ammonia = ammonia - consumed / 7.6
+        assert jnp.allclose(state.segments[0, 2], expected_ammonia, atol=1e-5)
 
 
 class TestActuatorSaturation:
