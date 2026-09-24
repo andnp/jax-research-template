@@ -327,7 +327,7 @@ def list_runs(conn: sqlite3.Connection, experiment_id: int) -> list[RunRow]:
     return [_record_from_row(RunRow, row) for row in rows]
 
 
-def list_unsatisfied_runs(conn: sqlite3.Connection, experiment_id: int) -> list[RunRow]:
+def list_runs_without_completed_execution(conn: sqlite3.Connection, experiment_id: int) -> list[RunRow]:
     rows = conn.execute(
         "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
         "FROM Runs r LEFT JOIN ("

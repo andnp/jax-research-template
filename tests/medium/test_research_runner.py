@@ -372,7 +372,7 @@ class TestMidSweepCrashRecovery:
             database.initialize()
             experiment_row = database.get_experiment("CrashSweep")
             assert experiment_row is not None
-            assert database.list_unsatisfied_runs(experiment_row.id) == []
+            assert database.list_runs_without_completed_execution(experiment_row.id) == []
 
 
 class TestDynamicArmCoverage:
@@ -436,7 +436,7 @@ class TestDynamicArmCoverage:
             database.initialize()
             experiment_row = database.get_experiment("ArmSweep")
             assert experiment_row is not None
-            assert database.list_unsatisfied_runs(experiment_row.id) == []
+            assert database.list_runs_without_completed_execution(experiment_row.id) == []
 
 
 # ── stale (orphaned) execution reclaim ───────────────────────────────────────
@@ -505,7 +505,7 @@ class TestStaleExecutionReclaim:
             database.initialize()
             experiment_row = database.get_experiment("StaleSweep")
             assert experiment_row is not None
-            assert database.list_unsatisfied_runs(experiment_row.id) != []
+            assert database.list_runs_without_completed_execution(experiment_row.id) != []
 
     def test_reclaim_stale_after_seconds_resumes_orphaned_run(
         self, db_path: Path, executions_root: Path,
@@ -532,4 +532,4 @@ class TestStaleExecutionReclaim:
             database.initialize()
             experiment_row = database.get_experiment("StaleSweep")
             assert experiment_row is not None
-            assert database.list_unsatisfied_runs(experiment_row.id) == []
+            assert database.list_runs_without_completed_execution(experiment_row.id) == []

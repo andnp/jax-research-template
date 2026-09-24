@@ -13,6 +13,13 @@ from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
 from .records import RunRow, _record_from_row
 
+_CLAIMED_RUNS_SQL = (
+    "SELECT DISTINCT er.run_id AS run_id "
+    "FROM ExecutionRuns er "
+    "INNER JOIN Executions e ON e.id = er.execution_id "
+    "WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+)
+
 
 def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
     hyper_params = json.loads(hyper_json)
@@ -47,12 +54,7 @@ def list_unsatisfied_run_batches(
         "       hc.json_blob, hc.vmap_zone_json "
         "FROM Runs r "
         "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
-        "LEFT JOIN ("
-        "    SELECT DISTINCT er.run_id AS run_id "
-        "    FROM ExecutionRuns er "
-        "    INNER JOIN Executions e ON e.id = er.execution_id "
-        "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
-        ") claimed ON claimed.run_id = r.id "
+        "LEFT JOIN (" + _CLAIMED_RUNS_SQL + ") claimed ON claimed.run_id = r.id "
         "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
         "ORDER BY r.hyper_id, r.seed, r.id",
         (experiment_id,),
@@ -108,12 +110,7 @@ def unsatisfied_run_ids(
     rows = conn.execute(
         "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
         "FROM Runs r "
-        "LEFT JOIN ("
-        "    SELECT DISTINCT er.run_id AS run_id "
-        "    FROM ExecutionRuns er "
-        "    INNER JOIN Executions e ON e.id = er.execution_id "
-        "    WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
-        ") claimed ON claimed.run_id = r.id "
+        "LEFT JOIN (" + _CLAIMED_RUNS_SQL + ") claimed ON claimed.run_id = r.id "
         "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
         "ORDER BY r.seed, r.hyper_id, r.id",
         (experiment_id,),

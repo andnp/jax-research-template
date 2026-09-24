@@ -440,7 +440,7 @@ def test_invalidate_by_where_unsatisfies_only_matched_arm(tmp_path: Path) -> Non
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        unsatisfied_ids = {r.id for r in db.list_unsatisfied_runs(exp_id)}
+        unsatisfied_ids = {r.id for r in db.list_runs_without_completed_execution(exp_id)}
     assert changed_run_id in unsatisfied_ids
     assert stable_run_id not in unsatisfied_ids
 
@@ -804,7 +804,7 @@ def test_invalidate_all_unsatisfies_every_arm(tmp_path: Path) -> None:
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        unsatisfied = {run.id for run in db.list_unsatisfied_runs(exp_id)}
+        unsatisfied = {run.id for run in db.list_runs_without_completed_execution(exp_id)}
     assert unsatisfied == {changed_run_id, stable_run_id}
 
 
@@ -834,7 +834,7 @@ def test_invalidate_all_leaves_other_experiments_alone(tmp_path: Path) -> None:
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        assert db.list_unsatisfied_runs(other_exp) == []
+        assert db.list_runs_without_completed_execution(other_exp) == []
 
 
 def test_invalidate_all_requires_an_experiment(tmp_path: Path) -> None:
