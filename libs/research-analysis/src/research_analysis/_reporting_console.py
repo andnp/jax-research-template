@@ -119,7 +119,12 @@ def _format_cell(cell: CellSummary) -> str:
         return "— (n=0)"
     interval = "" if cell.ci is None else f" [{cell.ci[0]:.3g}, {cell.ci[1]:.3g}]"
     spread = "" if cell.sd is None else f" SD {cell.sd:.2g}"
-    return f"{cell.estimate:.3g}{interval}{spread} (n={cell.n})"
+    tolerance = (
+        f" TI [{cell.tolerance[0]:.3g}, {cell.tolerance[1]:.3g}]"
+        if cell.tolerance is not None
+        else f" TI needs n≥{cell.tolerance_min_runs}"
+    )
+    return f"{cell.estimate:.3g}{interval}{spread}{tolerance} (n={cell.n})"
 
 
 def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None:
@@ -128,7 +133,10 @@ def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None
     console.print(Panel(Text(f"🏆 BAKEOFF REPORT: {report.conditions}", style="bold cyan"), subtitle=f"Experiment: {experiment_slug}"))
 
     blocks = sorted({label for per_condition in report.cells.values() for label in per_condition})
-    title = f"Cells ({report.metric_name}: {report.spec.estimand} [{report.spec.confidence_level:.0%} CI], SD)"
+    title = (
+        f"Cells ({report.metric_name}: {report.spec.estimand} [{report.spec.confidence_level:.0%} CI], SD, "
+        f"({report.spec.tolerance_confidence:.0%}, {report.spec.tolerance_coverage:.0%}) tolerance interval)"
+    )
     table = Table(title=title, show_header=True, header_style="bold magenta")
     table.add_column("Condition")
     for label in blocks:

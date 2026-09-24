@@ -65,6 +65,10 @@ class CellSummary:
     ci: tuple[float, float] | None
     confidence: float
     sd: float | None
+    # Distribution-free (spec.tolerance_confidence, spec.tolerance_coverage) interval over runs;
+    # None below tolerance_min_runs.
+    tolerance: tuple[float, float] | None
+    tolerance_min_runs: int
 
 
 @dataclass(frozen=True)

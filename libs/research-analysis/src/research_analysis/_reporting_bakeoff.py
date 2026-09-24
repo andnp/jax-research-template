@@ -45,6 +45,7 @@ from research_analysis.non_finite import require_finite
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
+from research_analysis.statistics import minimum_tolerance_samples, pointwise_tolerance_interval
 
 
 def _block_label(block_key: BlockKey) -> str:
@@ -317,13 +318,29 @@ def _compute_bakeoff_statistics(
 
 
 def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Generator) -> CellSummary:
-    if not values:
-        return CellSummary(n=0, estimate=None, ci=None, confidence=spec.confidence_level, sd=None)
     array = np.asarray(values, dtype=np.float64)
+    min_runs = minimum_tolerance_samples(confidence=spec.tolerance_confidence, coverage=spec.tolerance_coverage)
+    tolerance = None
+    if array.size >= min_runs:
+        interval = pointwise_tolerance_interval(
+            array, confidence=spec.tolerance_confidence, coverage=spec.tolerance_coverage
+        )
+        tolerance = (float(interval.ci_low), float(interval.ci_high))
+    empty = CellSummary(
+        n=int(array.size),
+        estimate=None,
+        ci=None,
+        confidence=spec.confidence_level,
+        sd=None,
+        tolerance=tolerance,
+        tolerance_min_runs=min_runs,
+    )
+    if array.size == 0:
+        return empty
     estimate = float(np.median(array) if spec.estimand == "median" else np.mean(array))
     if array.size < 2:
-        return CellSummary(n=1, estimate=estimate, ci=None, confidence=spec.confidence_level, sd=None)
-    interval = bootstrap_scalar_ci(
+        return replace(empty, estimate=estimate)
+    ci = bootstrap_scalar_ci(
         array,
         estimand=spec.estimand,
         confidence=spec.confidence_level,
@@ -331,13 +348,7 @@ def _summarize_cell(values: list[float], spec: BakeoffSpec, rng: np.random.Gener
         min_samples=2,
         rng=rng,
     )
-    return CellSummary(
-        n=int(array.size),
-        estimate=estimate,
-        ci=(interval.ci_low, interval.ci_high),
-        confidence=spec.confidence_level,
-        sd=float(np.std(array, ddof=1)),
-    )
+    return replace(empty, estimate=estimate, ci=(ci.ci_low, ci.ci_high), sd=float(np.std(array, ddof=1)))
 
 
 def _block_predicate(block_key: BlockKey) -> pl.Expr:
