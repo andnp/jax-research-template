@@ -8,6 +8,8 @@ on:
       - "libs/research-analysis/**"
       - "libs/research-plot/**"
       - "tests/large/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/calibration.yml"
   pull_request:
     branches: [main]
@@ -15,6 +17,8 @@ on:
       - "libs/research-analysis/**"
       - "libs/research-plot/**"
       - "tests/large/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/calibration.yml"
 
 jobs:
