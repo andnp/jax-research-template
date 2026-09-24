@@ -259,6 +259,8 @@ def event_response(
         DataFrame with columns:
         ``condition_name | event_step | pre_event_value | drop | recovery_slope | steps_to_recovery``.
 
+        ``steps_to_recovery`` (from the post-event minimum) and ``recovery_slope`` (value per
+        step) are in units of the ``step`` column, so subsampled logging does not rescale them.
         ``steps_to_recovery`` is ``null`` if the curve did not reach the recovery target
         within the observed window.
 
@@ -304,9 +306,12 @@ def event_response(
                 (i for i, v in enumerate(remaining) if float(v) >= recovery_target),
                 None,
             )
-            steps_to_recovery: int | None = None if recovery_offset is None else recovery_offset
-            denom = len(post_curve) - post_min_offset - 1
-            recovery_slope = float(post_curve[-1] - post_min) / denom if denom > 0 else 0.0
+            post_steps = outcome_steps[outcome_event_idx + post_min_offset :]
+            steps_to_recovery: int | None = (
+                None if recovery_offset is None else post_steps[recovery_offset] - post_steps[0]
+            )
+            span = post_steps[-1] - post_steps[0]
+            recovery_slope = float(post_curve[-1] - post_min) / span if span > 0 else 0.0
         else:
             steps_to_recovery = 0
             recovery_slope = 0.0

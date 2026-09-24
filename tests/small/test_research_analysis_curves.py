@@ -230,6 +230,18 @@ class TestEventResponse:
         result = event_response(df, "mask", "returns")
         assert result["recovery_slope"][0] > 0.0
 
+    def test_recovery_is_measured_in_logged_step_units(self) -> None:
+        """Subsampled logging (every 10th step) must report recovery in steps, not sample positions."""
+        dense = self._make_event_df(event_step_idx=5)
+        sparse = dense.with_columns(pl.col("step") * 10)
+
+        dense_result = event_response(dense, "mask", "returns", recovery_fraction=0.5)
+        sparse_result = event_response(sparse, "mask", "returns", recovery_fraction=0.5)
+
+        assert dense_result["steps_to_recovery"][0] == 10
+        assert sparse_result["steps_to_recovery"][0] == 100
+        assert sparse_result["recovery_slope"][0] == pytest.approx(dense_result["recovery_slope"][0] / 10)
+
     def test_no_event_returns_empty(self) -> None:
         # Event metric never exceeds threshold
         df = _make_df(["A"], [0, 1], [0, 1, 2], "mask", lambda c, s, t: 0.0)
