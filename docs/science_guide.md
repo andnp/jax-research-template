@@ -111,7 +111,9 @@ The remedy is more runs (handbook §2.6), not a cleverer interval.
 
 ### Headline comparison: paired differences, adjusted for multiplicity
 A comparison is a seed-paired difference with its percentile CI: an effect size, not a
-verdict. Across a report's family of planned comparisons (every block × pair, or only
+verdict. The estimand applies to the per-seed differences, so a paired median is
+median(A − B), not median(A) − median(B), and the point estimate, CI, and test all use
+it. Only an independent comparison differences each arm's estimand. Across a report's family of planned comparisons (every block × pair, or only
 the declared `pairs`), the CIs are Bonferroni-adjusted so that they hold jointly at the
 stated confidence, and each one states its own level. Hypothesis tests are secondary.
 They are paired permutation tests with Holm-adjusted p-values, where skipped pairs
