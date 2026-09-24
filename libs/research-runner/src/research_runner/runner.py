@@ -115,9 +115,11 @@ def execute_batch(
     except Exception:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            database.update_execution_status(
-                planned.execution_id, "FAILED", end_time=_utc_now(),
-            )
+            execution = database.get_execution(planned.execution_id)
+            if execution is not None and execution.status in {"PENDING", "RUNNING"}:
+                database.update_execution_status(
+                    planned.execution_id, "FAILED", end_time=_utc_now(),
+                )
         raise
 
     context = ExecutionContext(
@@ -166,9 +168,11 @@ def execute_batch(
     except Exception:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            database.update_execution_status(
-                planned.execution_id, "FAILED", end_time=_utc_now(),
-            )
+            execution = database.get_execution(planned.execution_id)
+            if execution is not None and execution.status in {"PENDING", "RUNNING"}:
+                database.update_execution_status(
+                    planned.execution_id, "FAILED", end_time=_utc_now(),
+                )
         raise
 
     return execution_root

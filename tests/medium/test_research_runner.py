@@ -276,6 +276,26 @@ class TestExecuteBatch:
             assert execution is not None
             assert execution.status == "FAILED"
 
+    def test_failure_preserves_original_error_after_failed_transition(
+        self, db_path: Path, executions_root: Path,
+    ) -> None:
+        """A failed status transition does not replace the completion error."""
+        planned = self._plan_one_batch(db_path, executions_root)
+
+        def _failing_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+            with DatabaseManager(db_path) as database:
+                database.initialize()
+                database.update_execution_status(ctx.execution_id, "FAILED")
+            return ExecutionResult(metadata={"trained": True})
+
+        with pytest.raises(ValueError, match="FAILED -> COMPLETED"):
+            execute_batch(
+                db_path,
+                planned,
+                _failing_train_fn,
+                capture_git=False,
+            )
+
 
 
 
