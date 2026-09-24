@@ -89,12 +89,14 @@ def test_h2s_normalized_extremes_reach_distinct_physical_controls() -> None:
     )
 
 
-def test_unbounded_benchmark_preserves_missing_action_bounds() -> None:
+def test_bsm1_exposes_configured_action_bounds() -> None:
     action_space = make_adapter("bsm1").action_space()
 
     assert action_space.shape == (2,)
-    assert action_space.action_low is None
-    assert action_space.action_high is None
+    assert action_space.action_low is not None
+    assert action_space.action_high is not None
+    assert jnp.array_equal(action_space.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
+    assert jnp.array_equal(action_space.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
 
 
 def test_chlorine_adapter_tracks_configured_action_bounds() -> None:
@@ -156,13 +158,15 @@ def test_spec_reports_registry_shapes_and_native_action_bounds() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([8.0], dtype=jnp.float32))
 
 
-def test_spec_preserves_missing_action_bounds_for_unbounded_benchmark() -> None:
+def test_spec_exposes_bsm1_action_bounds() -> None:
     spec = make_process_control_env("bsm1").spec()
 
     assert spec.observation_shape == (9,)
     assert spec.action_shape == (2,)
-    assert spec.action_low is None
-    assert spec.action_high is None
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
 
 
 def test_spec_tracks_configured_action_bounds() -> None:
