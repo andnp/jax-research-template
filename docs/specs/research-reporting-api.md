@@ -143,6 +143,15 @@ problem naming the offending execution ids:
 - "plan changed after results were recorded", with the fingerprint in force;
 - the start time was not recorded, or has no UTC offset.
 
+`read_plan_snapshots` validates each history entry's `recorded_at` strictly: an
+offset-aware ISO timestamp is converted to UTC, and anything else (naive, or
+malformed by a hand edit) is never guessed at. That snapshot comes back with
+`recorded_at=None` and its `invalid_reason` instead of raising. `run_plan` then
+excludes it from ordering and always labels the report exploratory, with
+"plan history has an unusable snapshot: {invalid_reason}" among the reasons,
+since an untrustworthy timestamp can hide a plan change at an unknown point in
+the history.
+
 `exploratory_report(dataset, experiments_db, results)` wraps results chosen by hand.
 It is always `exploratory`.
 
