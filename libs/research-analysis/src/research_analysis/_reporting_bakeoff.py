@@ -37,6 +37,7 @@ from research_analysis.diagnostics.bakeoff import (
     IncompleteBlocksError,
     IncompleteCell,
 )
+from research_analysis.diagnostics.types import InsufficientDataCell, InsufficientDataError
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
@@ -108,9 +109,16 @@ def _seeds_by_config(
             grouped[condition].setdefault(config, set()).add(record["seed"])
     for condition, configs in grouped.items():
         if len(configs) < 2:
-            raise ValueError(
+            raise InsufficientDataError(
                 f"condition {condition!r} in block {block_label!r} has {len(configs)} configuration(s) of "
-                f"{tuned_axes}; a tuned-champion comparison needs at least two to select over"
+                f"{tuned_axes}; a tuned-champion comparison needs at least two to select over",
+                cells=(
+                    InsufficientDataCell(
+                        {"condition": condition, "block": block_label},
+                        "at least 2 configurations",
+                        f"{len(configs)} configuration(s)",
+                    ),
+                ),
             )
     return {condition: list(configs.values()) for condition, configs in grouped.items()}
 
@@ -249,7 +257,10 @@ def _omnibus_test(
 ) -> StatisticalTestDetails:
     for block_key in block_keys:
         if not any(data_by_group.get((condition, block_key)) for condition in conditions):
-            raise ValueError(f"bakeoff block {_block_label(block_key)!r} has no observed data")
+            raise InsufficientDataError(
+                f"bakeoff block {_block_label(block_key)!r} has no observed data",
+                cells=(InsufficientDataCell({"block": _block_label(block_key)}, "at least one observed condition", "0"),),
+            )
 
     row_keys = []
     for block_key in block_keys:
@@ -276,9 +287,14 @@ def _omnibus_test(
     dropped_singleton_blocks = int(np.sum((observed_counts >= 1) & (observed_counts < required_observations)))
     matrix = matrix[valid_rows]
     if matrix.shape[0] < spec.min_samples:
-        raise ValueError(
+        raise InsufficientDataError(
             f"need at least {spec.min_samples} blocks with at least two observed algorithms; "
-            f"got {matrix.shape[0]}"
+            f"got {matrix.shape[0]}",
+            cells=(
+                InsufficientDataCell(
+                    {}, f"at least {spec.min_samples} blocks with at least two observed algorithms", str(matrix.shape[0])
+                ),
+            ),
         )
     has_missing = bool(np.isnan(matrix).any())
     block_result = block_stratified_permutation_test(
