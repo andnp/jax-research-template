@@ -116,7 +116,6 @@ class StatisticalTestDetails:
 class BenchmarkBakeoffReport:
     algorithms: list[str]
     environments: list[str]
-    normalized_scores: dict[str, dict[str, float]]
     omnibus_details: StatisticalTestDetails
     aggregate_plot_path: Path | None
 

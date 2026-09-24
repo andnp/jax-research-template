@@ -14,7 +14,6 @@ import polars as pl
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
-from research_analysis.aggregates import ReferenceRange
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
@@ -593,7 +592,6 @@ def test_bakeoff_report_consumes_canonical_environment_dimension(temp_experiment
         algorithms,
         block_by=["env_name"],
         verbose=False,
-        references={environment: ReferenceRange(0.0, 10.0) for environment in environments},
     )
 
     assert isinstance(report.comparison, BenchmarkBakeoffReport)
@@ -618,13 +616,12 @@ def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: Exp
         algorithms,
         block_by=["env_name"],
         verbose=False,
-        references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
     assert report.comparison.omnibus_details.assumptions["has_missing"] is True
 
 
-def test_bakeoff_report_normalized_scores_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:
+def test_bakeoff_report_cells_respect_a_median_estimand(temp_experiment_setup: ExperimentSetup) -> None:
     """An outlier seed must not drag the reported score when the spec asks for a median."""
     setup = temp_experiment_setup
     algorithms = ["ppo", "sac", "td3"]
@@ -640,14 +637,10 @@ def test_bakeoff_report_normalized_scores_respect_a_median_estimand(temp_experim
         algorithms,
         block_by=["env_name"],
         verbose=False,
-        references={"cartpole": ReferenceRange(0.0, 200.0)},
         spec=BakeoffSpec(estimand="median", missingness="blockwise"),
     )
 
-    normalized_median = report.comparison.normalized_scores["ppo"]["cartpole"]
-    normalized_mean = (sum(values) / len(values)) / 200.0
-    assert normalized_median == pytest.approx(1.0 / 200.0)
-    assert normalized_median != pytest.approx(normalized_mean)
+    assert report.cells["ppo"]["cartpole"].estimate == pytest.approx(1.0)
 
 
 def test_bakeoff_report_accepts_two_conditions(temp_experiment_setup: ExperimentSetup) -> None:
@@ -665,7 +658,6 @@ def test_bakeoff_report_accepts_two_conditions(temp_experiment_setup: Experiment
         algorithms,
         block_by=["env_name"],
         verbose=False,
-        references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
     assert report.conditions == algorithms
@@ -686,12 +678,10 @@ def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experim
         ["ppo", "sac"],
         block_by=["env_name"],
         verbose=False,
-        references={"cartpole": ReferenceRange(0.0, 10.0)},
     )
 
-    # references=(0, 10) normalizes scores, so the raw +2.0 gap becomes +0.2 here.
-    assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(0.2, abs=0.01)
-    assert report.difference("sac", "ppo", "cartpole").estimate == pytest.approx(-0.2, abs=0.01)
+    assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(2.0)
+    assert report.difference("sac", "ppo", "cartpole").estimate == pytest.approx(-2.0)
     ppo_ci = report.difference("ppo", "sac", "cartpole").ci
     sac_ci = report.difference("sac", "ppo", "cartpole").ci
     assert ppo_ci is not None
@@ -700,34 +690,20 @@ def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experim
     assert sac_ci[1] == pytest.approx(-ppo_ci[0])
 
 
-def test_bakeoff_report_reports_raw_scores_without_references(temp_experiment_setup: ExperimentSetup) -> None:
-    """No references means no normalization: scores stay in raw units."""
+def test_bakeoff_report_compares_environments_block_by_block(temp_experiment_setup: ExperimentSetup) -> None:
+    """Raw scores from different environments are never pooled: each block gets its own difference."""
     setup = temp_experiment_setup
-    algorithms = ["ppo", "sac"]
-    for algorithm in algorithms:
+    for environment, gap in (("cartpole", 5.0), ("mountaincar", -100.0)):
         for seed in range(3):
-            _add_observation(setup, {"algorithm": algorithm, "env_source": "cartpole"}, seed, 42.0)
+            _add_observation(setup, {"algorithm": "ppo", "env_source": environment}, seed, gap + seed * 0.1)
+            _add_observation(setup, {"algorithm": "sac", "env_source": environment}, seed, 0.0)
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = bakeoff_report(dataset, "metric", algorithms, block_by=["env_name"], verbose=False)
+    report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=50), verbose=False)
 
-    assert report.comparison.normalized_scores["ppo"]["cartpole"] == pytest.approx(42.0)
-
-
-def test_bakeoff_report_rejects_pooling_multiple_environments_without_references(
-    temp_experiment_setup: ExperimentSetup,
-) -> None:
-    """Raw scores from different environments cannot be pooled without a fixed anchor."""
-    setup = temp_experiment_setup
-    algorithms = ["ppo", "sac"]
-    for algorithm in algorithms:
-        for environment in ("cartpole", "mountaincar"):
-            for seed in range(3):
-                _add_observation(setup, {"algorithm": algorithm, "env_source": environment}, seed, 1.0)
-    dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
-
-    with pytest.raises(ValueError, match="requires references"):
-        bakeoff_report(dataset, "metric", algorithms, block_by=["env_name"], verbose=False)
+    assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(5.1)
+    assert report.difference("ppo", "sac", "mountaincar").estimate == pytest.approx(-99.9)
+    assert report.family_size == 2
 
 
 class TestBakeoffReport:
@@ -784,7 +760,6 @@ class TestBakeoffReport:
             ["a", "b"],
             select_champion_over=["learning_rate"],
             block_by=["env_name"],
-            references={"e1": ReferenceRange(-20.0, 20.0), "e2": ReferenceRange(-20.0, 20.0)},
             verbose=False,
         )
 

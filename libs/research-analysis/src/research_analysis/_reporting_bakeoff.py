@@ -27,10 +27,6 @@ from research_analysis._reporting_warnings import (
     non_normality_warning,
     variance_warning,
 )
-from research_analysis.aggregates import (
-    ReferenceRange,
-    normalize_scores,
-)
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.curves import flatline_flags
@@ -87,7 +83,6 @@ def _load_bakeoff_data(
 
 @dataclass(frozen=True)
 class _BakeoffStatistics:
-    normalized_scores: dict[str, dict[str, float]]
     omnibus_details: StatisticalTestDetails
     differences: tuple[PairedDifference, ...]
     score_curves: dict[str, tuple[list[float], list[float]]]
@@ -178,44 +173,18 @@ def _compute_bakeoff_statistics(
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]],
     conditions: list[str],
     block_keys: list[BlockKey],
-    references: dict[str, ReferenceRange] | None,
     spec: BakeoffSpec,
     comparison_confidence: float,
 ) -> _BakeoffStatistics:
-    if references is None and len(block_keys) > 1:
-        raise ValueError(
-            "pooling raw (unnormalized) scores across more than one block requires "
-            "references; supply references or narrow block_by to a single block"
-        )
-
-    if references is not None:
-        normalized: dict[tuple[str, BlockKey], dict[int, float]] = {}
-        for (condition, block_key), seed_map in data_by_group.items():
-            label = _block_label(block_key)
-            if label not in references:
-                raise ValueError(f"missing fixed reference for block {label!r}")
-            values = normalize_scores(np.array(list(seed_map.values())), references[label])
-            for seed, value in zip(seed_map, values, strict=True):
-                normalized.setdefault((condition, block_key), {})[seed] = float(value)
-    else:
-        normalized = data_by_group
-
     for block_key in block_keys:
-        if not any(normalized.get((condition, block_key)) for condition in conditions):
+        if not any(data_by_group.get((condition, block_key)) for condition in conditions):
             raise ValueError(f"bakeoff block {_block_label(block_key)!r} has no observed data")
-
-    estimator = np.median if spec.estimand == "median" else np.mean
-    normalized_means: dict[str, dict[str, float]] = {condition: {} for condition in conditions}
-    for condition in conditions:
-        for block_key in block_keys:
-            values = normalized.get((condition, block_key), {}).values()
-            normalized_means[condition][_block_label(block_key)] = float(estimator(list(values))) if values else float("nan")
 
     row_keys = []
     for block_key in block_keys:
         all_seeds_for_block = set()
         for condition in conditions:
-            all_seeds_for_block.update(normalized.get((condition, block_key), {}).keys())
+            all_seeds_for_block.update(data_by_group.get((condition, block_key), {}).keys())
         for seed in sorted(all_seeds_for_block):
             row_keys.append((block_key, seed))
 
@@ -223,7 +192,7 @@ def _compute_bakeoff_statistics(
     for block_key, seed in row_keys:
         row = []
         for condition in conditions:
-            val = normalized.get((condition, block_key), {}).get(seed)
+            val = data_by_group.get((condition, block_key), {}).get(seed)
             row.append(val)
         matrix.append(row)
 
@@ -254,20 +223,19 @@ def _compute_bakeoff_statistics(
         rng=rng,
     )
 
-    differences = _paired_differences(normalized, conditions, block_keys, spec, comparison_confidence, rng)
+    differences = _paired_differences(data_by_group, conditions, block_keys, spec, comparison_confidence, rng)
 
     score_curves = {}
     for condition in conditions:
         all_vals = []
         for block_key in block_keys:
-            all_vals.extend(normalized.get((condition, block_key), {}).values())
+            all_vals.extend(data_by_group.get((condition, block_key), {}).values())
         if all_vals:
             sorted_vals = sorted(all_vals)
             proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
             score_curves[condition] = (sorted_vals, proportions)
 
     return _BakeoffStatistics(
-        normalized_scores=normalized_means,
         omnibus_details=StatisticalTestDetails(
             test_name="Block-stratified permutation omnibus test",
             statistic=block_result.statistic,
@@ -367,7 +335,6 @@ def bakeoff_report(
     *,
     select_champion_over: list[str] | None = None,
     block_by: list[str] | None = None,
-    references: dict[str, ReferenceRange] | None = None,
     spec: BakeoffSpec | None = None,
     higher_is_better: bool = True,
     min_seeds: int = 5,
@@ -464,7 +431,7 @@ def bakeoff_report(
     family_size = len(block_keys) * len(conditions) * (len(conditions) - 1) // 2
     comparison_confidence = bonferroni_confidence(spec.confidence_level, family_size)
     comparison_statistics = _compute_bakeoff_statistics(
-        data_by_group, conditions, block_keys, references, spec, comparison_confidence
+        data_by_group, conditions, block_keys, spec, comparison_confidence
     )
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
@@ -519,7 +486,6 @@ def bakeoff_report(
         comparison=BenchmarkBakeoffReport(
             algorithms=conditions,
             environments=[_block_label(block_key) for block_key in block_keys],
-            normalized_scores=comparison_statistics.normalized_scores,
             omnibus_details=comparison_statistics.omnibus_details,
             aggregate_plot_path=_plot_bakeoff(comparison_statistics.score_curves, dataset.experiment_name),
         ),
