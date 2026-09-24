@@ -108,8 +108,8 @@ class TestDewateringUnit:
         q_feed = jnp.array(30.0)
         dt = jnp.array(0.05)
 
-        _, dry_lo, filt_lo, _ = dw_step(state, feed_tss, q_feed, jnp.array(0.0), jnp.array(0.5), params, dt)
-        _, dry_hi, filt_hi, _ = dw_step(state, feed_tss, q_feed, jnp.array(10.0), jnp.array(0.5), params, dt)
+        _, dry_lo, filt_lo, _, _ = dw_step(state, feed_tss, q_feed, jnp.array(0.0), jnp.array(0.5), params, dt)
+        _, dry_hi, filt_hi, _, _ = dw_step(state, feed_tss, q_feed, jnp.array(10.0), jnp.array(0.5), params, dt)
 
         assert float(dry_hi) > float(dry_lo)
         assert float(filt_hi) < float(filt_lo)
@@ -117,7 +117,7 @@ class TestDewateringUnit:
     def test_outputs_positive(self) -> None:
         params = DewateringParams()
         state = dw_reset(params, jax.random.PRNGKey(1))
-        state2, dryness, filt_tss, q_filt = dw_step(
+        state2, dryness, filt_tss, q_filt, _ = dw_step(
             state, jnp.array(10000.0), jnp.array(30.0), jnp.array(5.0), jnp.array(0.5), params, jnp.array(0.05),
         )
         assert float(dryness) > 0.0
@@ -127,7 +127,7 @@ class TestDewateringUnit:
     def test_cumulative_cake_increases(self) -> None:
         params = DewateringParams()
         state = dw_reset(params, jax.random.PRNGKey(2))
-        state2, _, _, _ = dw_step(
+        state2, _, _, _, _ = dw_step(
             state, jnp.array(10000.0), jnp.array(30.0), jnp.array(5.0), jnp.array(0.5), params, jnp.array(0.05),
         )
         assert float(state2.cake_produced) > 0.0
@@ -139,7 +139,7 @@ class TestDewateringUnit:
             return dw_step(s, jnp.array(10000.0), jnp.array(30.0), jnp.array(5.0), jnp.array(0.5), params, jnp.array(0.05))
 
         jit_step = jax.jit(step_fn)
-        s2, dry, filt, q = jit_step(state)
+        s2, dry, filt, q, _ = jit_step(state)
         assert jnp.isfinite(dry)
 
     def test_water_and_solids_mass_balance(self) -> None:
@@ -153,7 +153,7 @@ class TestDewateringUnit:
         belt_speed = jnp.array(0.8)
         dt = jnp.array(0.05)
 
-        new_state, dryness, filtrate_tss, q_filtrate = dw_step(
+        new_state, dryness, filtrate_tss, q_filtrate, _ = dw_step(
             state, feed_tss, q_feed, jnp.array(5.0), belt_speed, params, dt,
         )
 

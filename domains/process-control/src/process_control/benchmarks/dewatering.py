@@ -142,7 +142,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
         belt_speed = jnp.clip(action[1], 0.0, 1.0)
 
         # 3. Dewatering step
-        new_dw, dryness, filtrate_tss, q_filtrate = dewatering_step(
+        new_dw, dryness, filtrate_tss, q_filtrate, bypass_flow = dewatering_step(
             state.dewatering_state,
             feed_tss,
             q_feed,
@@ -185,6 +185,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
             "feed_tss": feed_tss,
             "throughput": throughput,
             "q_filtrate": q_filtrate,
+            "bypass_flow": bypass_flow,
         }
         done = jnp.array(False)
         return new_state, obs, reward, done, info
