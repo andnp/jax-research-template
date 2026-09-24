@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from research_analysis.statistics import (
     ToleranceInterval,
+    minimum_tolerance_samples,
     pointwise_tolerance_interval,
     select_median_run_index,
     select_quantile_run_index,
@@ -78,6 +79,23 @@ class TestToleranceInterval:
         assert isinstance(ti.ci_low, np.float64)
         assert isinstance(ti.ci_high, np.float64)
         assert ti.ci_low <= ti.ci_high
+
+
+class TestMinimumToleranceSamples:
+    @pytest.mark.parametrize(("coverage", "expected"), [(0.9, 46), (0.8, 22), (0.7, 14)])
+    def test_matches_the_first_sample_size_that_forms_an_interval(self, coverage: float, expected: int) -> None:
+        """The reported minimum is exactly where interval construction starts to succeed."""
+        assert minimum_tolerance_samples(confidence=0.95, coverage=coverage) == expected
+        tolerance_interval_order_indices(expected, confidence=0.95, coverage=coverage)
+        with pytest.raises(ValueError, match="Insufficient samples"):
+            tolerance_interval_order_indices(expected - 1, confidence=0.95, coverage=coverage)
+
+    def test_rejects_levels_outside_the_unit_interval(self) -> None:
+        """Invalid levels fail instead of looping forever."""
+        with pytest.raises(ValueError, match="coverage"):
+            minimum_tolerance_samples(coverage=1.0)
+        with pytest.raises(ValueError, match="confidence"):
+            minimum_tolerance_samples(confidence=0.0)
 
 
 class TestSelectMedianRunIndex:
