@@ -305,6 +305,13 @@ class TestFlatlineFlags:
         row = result.filter(pl.col("condition_name") == "plateaus")
         assert row["flatlined"][0] is True
 
+    def test_never_flags_a_metric_logged_at_a_single_step(self) -> None:
+        """A scalar metric (one logged point per run, e.g. an AUC) has no curve that could flatline."""
+        df = _make_df(["scalar"], [0, 1, 2], [0], "r", lambda c, s, t: float(s))
+        result = flatline_flags(df, "r")
+        row = result.filter(pl.col("condition_name") == "scalar")
+        assert row["flatlined"][0] is False
+
     def test_returns_empty_frame_for_no_matching_conditions(self) -> None:
         df = _make_df(["A"], [0], [0, 1], "other", lambda c, s, t: 0.0)
         result = flatline_flags(df, "r")

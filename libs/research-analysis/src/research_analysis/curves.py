@@ -345,20 +345,21 @@ def flatline_flags(
     range means the tail carries almost no additional information relative to the
     rest of the run -- consistent with either early convergence or a stalled run.
     This check cannot tell those two apart; it only flags that the tail is worth a
-    look, same as a caller would get from eyeballing the curve.
+    look, same as a caller would get from eyeballing the curve. A metric logged at
+    fewer than two steps is a scalar, not a curve, and is never flagged.
 
     Returns a DataFrame with columns: ``condition_name | flatlined | tail_range |
     whole_range``.
     """
     rows: list[dict[str, object]] = []
     for condition in _conditions_with_metric(df, metric):
-        _, array = _condition_curve_array(df, metric, condition)
+        steps, array = _condition_curve_array(df, metric, condition)
         curve = np.mean(array, axis=0)
         whole_range = float(np.max(curve) - np.min(curve))
         cutoff = int(len(curve) * (1.0 - tail_fraction))
         tail = curve[cutoff:]
         tail_range = float(np.max(tail) - np.min(tail)) if len(tail) else 0.0
-        flatlined = whole_range == 0.0 or (tail_range / whole_range) < relative_tolerance
+        flatlined = len(steps) >= 2 and (whole_range == 0.0 or (tail_range / whole_range) < relative_tolerance)
         rows.append(
             {
                 "condition_name": condition,
