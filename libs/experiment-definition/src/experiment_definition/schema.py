@@ -120,6 +120,9 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cv_component_id ON ComponentVersions(component_id);",
     "CREATE INDEX IF NOT EXISTS idx_cv_hash         ON ComponentVersions(code_snapshot_hash);",
     "CREATE INDEX IF NOT EXISTS idx_runs_experiment  ON Runs(experiment_id);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_identity ON Runs("
+    "experiment_id, IFNULL(algo_version_id, -1), IFNULL(env_version_id, -1), "
+    "hyper_id, seed, IFNULL(ablation, ''));",
     "CREATE INDEX IF NOT EXISTS idx_execruns_run    ON ExecutionRuns(run_id);",
     "CREATE INDEX IF NOT EXISTS idx_execruns_exec   ON ExecutionRuns(execution_id);",
 ]

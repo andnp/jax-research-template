@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -258,6 +259,27 @@ class TestComponentProvenance:
 
 
 class TestSyncedRunIdentity:
+    def test_baseline_sync_deduplicates_nullable_identity(self, tmp_path: Path) -> None:
+        """Baseline runs with NULL component and ablation values remain unique."""
+        db_path = tmp_path / "experiments.sqlite"
+        exp = Experiment("Baseline")
+        exp.add_parameter("seed", [0])
+
+        exp.sync(db_path)
+        exp.sync(db_path)
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            experiment_row = database.get_experiment("Baseline")
+            assert experiment_row is not None
+            run = database.list_runs(experiment_row.id)[0]
+            with pytest.raises(sqlite3.IntegrityError):
+                database.conn.execute(
+                    "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (run.experiment_id, run.algo_version_id, run.env_version_id, run.hyper_id, run.seed, None),
+                )
+
     def _experiment(self, name: str, learning_rates: list[float]) -> Experiment:
         algo = Component(name="PPO", path=Path("/nonexistent/ppo.py"), type=ComponentType.ALGO)
         env = Component(name="Env", path=Path("/nonexistent/env.py"), type=ComponentType.ENV)
