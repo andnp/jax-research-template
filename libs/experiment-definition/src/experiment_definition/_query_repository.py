@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from ._types import PlannedExecution
-from .records import ExecutionArtifactRow, ExecutionRow, RunRow, _record_from_row
+from .records import ExecutionRow, RunRow, _record_from_row
 
 
 def list_execution_runs(conn: sqlite3.Connection, execution_id: int) -> list[RunRow]:
@@ -54,16 +54,6 @@ def list_run_execution_statuses(conn: sqlite3.Connection, experiment_id: int) ->
         if status is not None:
             run_statuses.add(str(status))
     return {run_id: frozenset(values) for run_id, values in statuses.items()}
-
-
-def get_latest_completed_artifacts_for_run(
-    conn: sqlite3.Connection,
-    run_id: int,
-) -> ExecutionArtifactRow | None:
-    latest_execution = get_latest_completed_execution_for_run(conn, run_id)
-    if latest_execution is None:
-        return None
-    return _execution.get_execution_artifacts(conn, latest_execution.id)
 
 
 def invalidate_execution(conn: sqlite3.Connection, execution_id: int) -> bool:

@@ -13,7 +13,6 @@ from .parameter import ParameterValue
 from .records import (
     ComponentRow,
     ComponentVersionProvenanceRow,
-    ComponentVersionRow,
     ExperimentRow,
     HyperparamConfigRow,
     RunRow,
@@ -208,14 +207,6 @@ def add_component_version(
         raise RuntimeError("Insert failed: no component version ID returned.")
     return int(cur.lastrowid)
 
-
-def get_latest_version(conn: sqlite3.Connection, component_id: int) -> ComponentVersionRow | None:
-    row = conn.execute(
-        "SELECT id, component_id, version_number, created_at, code_snapshot_hash, notes "
-        "FROM ComponentLatestVersions WHERE component_id = ?",
-        (component_id,),
-    ).fetchone()
-    return _record_from_row(ComponentVersionRow, row) if row else None
 
 
 def get_component_version_provenance(

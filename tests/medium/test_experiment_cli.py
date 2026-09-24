@@ -716,11 +716,17 @@ def _orphan_run(db_path: Path) -> int:
         algo = db.get_component("test-algo")
         env = db.get_component("test-env")
         assert algo is not None and env is not None
-        algo_ver = db.get_latest_version(algo.id)
-        env_ver = db.get_latest_version(env.id)
+        algo_ver = db.conn.execute(
+            "SELECT id FROM ComponentVersions WHERE component_id = ? ORDER BY version_number DESC LIMIT 1",
+            (algo.id,),
+        ).fetchone()
+        env_ver = db.conn.execute(
+            "SELECT id FROM ComponentVersions WHERE component_id = ? ORDER BY version_number DESC LIMIT 1",
+            (env.id,),
+        ).fetchone()
         assert algo_ver is not None and env_ver is not None
         hyper_id = db.add_hyperparam_config({"learning_rate": 0.99})
-        return db.add_run(exp_row.id, algo_ver.id, env_ver.id, hyper_id, seed=0)
+        return db.add_run(exp_row.id, algo_ver[0], env_ver[0], hyper_id, seed=0)
 
 
 def _run_count(db_path: Path) -> int:
@@ -818,10 +824,16 @@ def test_invalidate_all_leaves_other_experiments_alone(tmp_path: Path) -> None:
         algo = db.get_component("algo")
         env = db.get_component("env")
         assert algo is not None and env is not None
-        algo_ver = db.get_latest_version(algo.id)
-        env_ver = db.get_latest_version(env.id)
+        algo_ver = db.conn.execute(
+            "SELECT id FROM ComponentVersions WHERE component_id = ? ORDER BY version_number DESC LIMIT 1",
+            (algo.id,),
+        ).fetchone()
+        env_ver = db.conn.execute(
+            "SELECT id FROM ComponentVersions WHERE component_id = ? ORDER BY version_number DESC LIMIT 1",
+            (env.id,),
+        ).fetchone()
         assert algo_ver is not None and env_ver is not None
-        other_run = db.add_run(other_exp, algo_ver.id, env_ver.id, db.add_hyperparam_config({"algorithm": "other"}), seed=0)
+        other_run = db.add_run(other_exp, algo_ver[0], env_ver[0], db.add_hyperparam_config({"algorithm": "other"}), seed=0)
         other_execution = db.add_execution(hostname="n3")
         db.link_execution_run(other_execution, other_run)
         db.update_execution_status(other_execution, "COMPLETED")

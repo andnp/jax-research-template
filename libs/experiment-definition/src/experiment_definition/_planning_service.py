@@ -137,17 +137,6 @@ def _plan_execution(
     return execution_id
 
 
-def plan_execution(
-    conn: sqlite3.Connection,
-    run_ids: list[int],
-    hostname: str | None,
-    git_commit: str | None,
-    git_diff_blob: str | None,
-    jax_config: Mapping[str, ParameterValue] | None,
-) -> int:
-    return _plan_execution(conn, run_ids, hostname, git_commit, git_diff_blob, jax_config)
-
-
 def plan_batch_with_artifacts(
     conn: sqlite3.Connection,
     batch: RunBatch,

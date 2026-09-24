@@ -132,39 +132,6 @@ def test_version_numbers_are_per_component(db: DatabaseManager) -> None:
     assert row[0] == 1, "Second component's first version should be 1, not 3"
 
 
-def test_get_latest_version_returns_highest(db: DatabaseManager) -> None:
-    cid = db.add_component("PPO2", "ALGO")
-    db.add_component_version(cid, "hash_a", notes="initial")
-    db.add_component_version(cid, "hash_b", notes="bug fix")
-    db.add_component_version(cid, "hash_c", notes="optimisation")
-    latest = db.get_latest_version(cid)
-    assert latest is not None
-    assert latest.version_number == 3
-    assert latest.notes == "optimisation"
-
-
-def test_get_latest_version_no_versions_returns_none(db: DatabaseManager) -> None:
-    cid = db.add_component("EmptyAlgo", "ALGO")
-    assert db.get_latest_version(cid) is None
-
-
-def test_hash_changed_true_when_no_versions(db: DatabaseManager) -> None:
-    cid = db.add_component("NewAlgo", "ALGO")
-    assert db.hash_changed(cid, "any_hash") is True
-
-
-def test_hash_changed_false_when_same(db: DatabaseManager) -> None:
-    cid = db.add_component("StableAlgo", "ALGO")
-    db.add_component_version(cid, "stable_hash")
-    assert db.hash_changed(cid, "stable_hash") is False
-
-
-def test_hash_changed_true_when_different(db: DatabaseManager) -> None:
-    cid = db.add_component("ChangedAlgo", "ALGO")
-    db.add_component_version(cid, "old_hash")
-    assert db.hash_changed(cid, "new_hash") is True
-
-
 # ---------------------------------------------------------------------------
 # HyperparamConfigs — content-addressed, vmap-zone metadata
 # ---------------------------------------------------------------------------
@@ -256,13 +223,6 @@ def test_add_run_duplicate_raises(populated_db: Populated) -> None:
     db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1, ablation="base")
     with pytest.raises(sqlite3.IntegrityError):
         db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1, ablation="base")
-
-
-def test_ensure_experiment_reuses_existing_id(db: DatabaseManager) -> None:
-    first_id = db.ensure_experiment("Declarative Sweep", "first")
-    second_id = db.ensure_experiment("Declarative Sweep", "second")
-
-    assert first_id == second_id
 
 
 def test_list_runs_returns_all_runs_for_experiment(populated_db: Populated) -> None:
@@ -451,83 +411,34 @@ def test_one_execution_covers_multiple_runs(populated_db: Populated) -> None:
     assert count == 5
 
 
-def test_plan_execution_creates_pending_execution_and_links_runs(populated_db: Populated) -> None:
+def test_canonical_batch_planner_rolls_back_failed_link(populated_db: Populated) -> None:
+    """A link failure leaves no partially inserted execution behind."""
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
-    run_ids = [
-        db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=seed)
-        for seed in (0, 1)
-    ]
+    db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
+    db.conn.execute(
+        "CREATE TRIGGER fail_execution_link BEFORE INSERT ON ExecutionRuns "
+        "BEGIN SELECT RAISE(ABORT, 'forced link failure'); END;",
+    )
 
-    execution_id = db.plan_execution(run_ids, hostname="planner-node")
-
-    execution = db.get_execution(execution_id)
-    linked_runs = db.list_execution_runs(execution_id)
-
-    assert execution is not None
-    assert execution.status == "PENDING"
-    assert execution.hostname == "planner-node"
-    assert [run.id for run in linked_runs] == run_ids
-
-
-def test_plan_execution_requires_non_empty_run_ids(db: DatabaseManager) -> None:
-    with pytest.raises(ValueError, match="run_ids must not be empty"):
-        db.plan_execution([])
-
-
-def test_plan_execution_rolls_back_when_linking_a_run_fails(populated_db: Populated) -> None:
-    """A failed run link must not leave behind the execution inserted before it."""
-    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
-    valid_run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
-
-    with pytest.raises(sqlite3.IntegrityError):
-        db.plan_execution([valid_run_id, 999999])
+    with pytest.raises(sqlite3.IntegrityError, match="forced link failure"):
+        db.plan_experiment_execution_batches(exp_id, "/tmp/executions")
 
     assert db.list_executions() == []
 
 
-def test_plan_unsatisfied_execution_selects_only_unsatisfied_runs(populated_db: Populated) -> None:
+def test_canonical_batch_planner_skips_claimed_runs(populated_db: Populated) -> None:
+    """Completed or pending claims are excluded from later canonical planning."""
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
     completed_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
-    failed_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1)
-    fresh_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=2)
-
-    completed_execution = db.add_execution(hostname="node-complete")
-    db.link_execution_run(completed_execution, completed_run)
-    db.update_execution_status(completed_execution, "COMPLETED", end_time="2026-03-30T00:00:00Z")
-
-    failed_execution = db.add_execution(hostname="node-fail")
-    db.link_execution_run(failed_execution, failed_run)
-    db.update_execution_status(failed_execution, "FAILED", end_time="2026-03-30T00:01:00Z")
-
-    planned_execution = db.plan_unsatisfied_execution(exp_id, hostname="planner")
-
-    assert planned_execution is not None
-    linked_runs = db.list_execution_runs(planned_execution)
-    assert [run.id for run in linked_runs] == [failed_run, fresh_run]
-
-
-def test_plan_unsatisfied_execution_respects_limit(populated_db: Populated) -> None:
-    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
-    for seed in range(3):
-        db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=seed)
-
-    planned_execution = db.plan_unsatisfied_execution(exp_id, limit=2)
-
-    assert planned_execution is not None
-    linked_runs = db.list_execution_runs(planned_execution)
-    assert len(linked_runs) == 2
-    assert [run.seed for run in linked_runs] == [0, 1]
-
-
-def test_plan_unsatisfied_execution_returns_none_when_all_runs_satisfied(populated_db: Populated) -> None:
-    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
-    run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
-
-    execution_id = db.add_execution(hostname="node04")
-    db.link_execution_run(execution_id, run_id)
+    fresh_run = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1)
+    execution_id = db.add_execution()
+    db.link_execution_run(execution_id, completed_run)
     db.update_execution_status(execution_id, "COMPLETED")
 
-    assert db.plan_unsatisfied_execution(exp_id) is None
+    planned = db.plan_experiment_execution_batches(exp_id, "/tmp/executions")
+
+    assert len(planned) == 1
+    assert [run.id for run in db.list_execution_runs(planned[0].execution_id)] == [fresh_run]
 
 
 def test_get_latest_completed_execution_for_run_returns_latest(populated_db: Populated) -> None:
@@ -562,27 +473,6 @@ def test_list_run_execution_statuses_reports_every_attempt(populated_db: Populat
 
     assert statuses[retried_run] == frozenset({"FAILED", "COMPLETED"})
     assert statuses[unexecuted_run] == frozenset()
-
-
-def test_get_latest_completed_artifacts_for_run_returns_artifacts_for_latest_execution(populated_db: Populated) -> None:
-    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
-    run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=11)
-
-    older_execution = db.add_execution(hostname="node-old")
-    db.link_execution_run(older_execution, run_id)
-    db.update_execution_status(older_execution, "COMPLETED", end_time="2026-03-30T00:00:00Z")
-    db.record_execution_artifacts(older_execution, "/tmp/executions/old")
-
-    newer_execution = db.add_execution(hostname="node-new")
-    db.link_execution_run(newer_execution, run_id)
-    db.update_execution_status(newer_execution, "COMPLETED", end_time="2026-03-30T00:05:00Z")
-    db.record_execution_artifacts(newer_execution, "/tmp/executions/new")
-
-    artifact = db.get_latest_completed_artifacts_for_run(run_id)
-
-    assert artifact is not None
-    assert artifact.execution_id == newer_execution
-    assert artifact.root_path == "/tmp/executions/new"
 
 
 def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseManager) -> None:
@@ -741,7 +631,7 @@ def test_list_unsatisfied_run_batches_chunks_do_not_interleave_hyper_configs(db:
     assert {run_id for run_id in batches[1].run_ids} == set(hyper_b_run_ids)
 
 
-def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: DatabaseManager) -> None:
+def test_plan_experiment_execution_batches_creates_one_execution_per_batch(db: DatabaseManager) -> None:
     algo_id = db.add_component("PlannerAlgo", "ALGO")
     env_id = db.add_component("PlannerEnv", "ENV")
     algo_ver = db.add_component_version(algo_id, "algo-hash")
@@ -755,7 +645,12 @@ def test_plan_unsatisfied_execution_batches_creates_one_execution_per_batch(db: 
     db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=1)
     db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=2)
 
-    execution_ids = db.plan_unsatisfied_execution_batches(exp_id, hostname="batch-planner")
+    execution_ids = [
+        planned.execution_id
+        for planned in db.plan_experiment_execution_batches(
+            exp_id, "/tmp/executions", hostname="batch-planner",
+        )
+    ]
 
     assert len(execution_ids) == 2
     first_batch_runs = db.list_execution_runs(execution_ids[0])
@@ -782,7 +677,12 @@ def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
     def plan() -> list[int]:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            return database.plan_unsatisfied_execution_batches(exp_id, hostname="planner")
+            return [
+                planned.execution_id
+                for planned in database.plan_experiment_execution_batches(
+                    exp_id, tmp_path / "executions", hostname="planner",
+                )
+            ]
 
     def run_plan(_: int):
         return plan()

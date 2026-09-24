@@ -26,7 +26,6 @@ from .parameter import ParameterValue
 from .records import (
     ComponentRow,
     ComponentVersionProvenanceRow,
-    ComponentVersionRow,
     ExecutionArtifactRow,
     ExecutionRow,
     ExperimentRow,
@@ -267,36 +266,9 @@ class DatabaseManager:
         with self.conn:
             return _definition.add_component_version(self.conn, component_id, code_snapshot_hash, notes)
 
-    def get_latest_version(self, component_id: int) -> ComponentVersionRow | None:
-        """Resolve the "latest" virtual pointer for a component.
-
-        Returns the ``ComponentVersions`` row with the highest
-        ``version_number`` for the given component.  Returns ``None`` if no
-        versions exist yet.
-
-        Args:
-            component_id: FK into ``Components``.
-        """
-        return _definition.get_latest_version(self.conn, component_id)
-
     def get_component_version_provenance(self, version_id: int) -> ComponentVersionProvenanceRow | None:
         """Fetch component identity and provenance for one version."""
         return _definition.get_component_version_provenance(self.conn, version_id)
-
-    def hash_changed(self, component_id: int, new_hash: str) -> bool:
-        """Return ``True`` if ``new_hash`` differs from the latest stored hash.
-
-        Used by the CLI to decide whether to prompt the researcher for a new
-        version (ADR 008 §2 Automatic Versioning & Researcher Intent).
-
-        Args:
-            component_id: FK into ``Components``.
-            new_hash: SHA-256 hex digest of the current source on disk.
-        """
-        latest = self.get_latest_version(component_id)
-        if latest is None:
-            return True
-        return latest.code_snapshot_hash != new_hash
 
     # ------------------------------------------------------------------
     # HyperparamConfigs
@@ -339,17 +311,6 @@ class DatabaseManager:
         """Insert a new experiment and return its id."""
         with self.conn:
             return _definition.add_experiment(self.conn, name, description)
-
-    def ensure_experiment(self, name: str, description: str | None = None) -> int:
-        """Return the existing experiment id for ``name`` or create it.
-
-        This is the additive-registration primitive needed for declarative
-        experiment expansion. Repeated calls with the same name are idempotent.
-        """
-        existing = _definition.get_experiment(self.conn, name)
-        if existing is not None:
-            return existing.id
-        return self.add_experiment(name, description)
 
     def get_experiment(self, name: str) -> ExperimentRow | None:
         """Fetch an experiment by name."""
@@ -533,84 +494,6 @@ class DatabaseManager:
         """
         return _execution.reclaim_stale_executions(self.conn, experiment_id, stale_after_seconds)
 
-    def plan_execution(
-        self,
-        run_ids: list[int],
-        *,
-        hostname: str | None = None,
-        git_commit: str | None = None,
-        git_diff_blob: str | None = None,
-        jax_config: Mapping[str, ParameterValue] | None = None,
-    ) -> int:
-        """Create a pending execution and link it to the supplied runs."""
-        if not run_ids:
-            raise ValueError("run_ids must not be empty.")
-
-        with self.conn:
-            return _planning.plan_execution(
-                self.conn,
-                run_ids,
-                hostname,
-                git_commit,
-                git_diff_blob,
-                jax_config,
-            )
-
-    def plan_unsatisfied_execution(
-        self,
-        experiment_id: int,
-        *,
-        limit: int | None = None,
-        hostname: str | None = None,
-        git_commit: str | None = None,
-        git_diff_blob: str | None = None,
-        jax_config: Mapping[str, ParameterValue] | None = None,
-    ) -> int | None:
-        """Create a pending execution covering unsatisfied runs for an experiment."""
-        run_ids = _planning.unsatisfied_run_ids(self.conn, experiment_id, limit)
-        if run_ids is None:
-            return None
-        return self.plan_execution(
-            run_ids,
-            hostname=hostname,
-            git_commit=git_commit,
-            git_diff_blob=git_diff_blob,
-            jax_config=jax_config,
-        )
-
-    def plan_unsatisfied_execution_batches(
-        self,
-        experiment_id: int,
-        *,
-        max_runs_per_batch: int | None = None,
-        hostname: str | None = None,
-        git_commit: str | None = None,
-        git_diff_blob: str | None = None,
-        jax_config: Mapping[str, ParameterValue] | None = None,
-    ) -> list[int]:
-        """Create one pending execution per unsatisfied static-config batch."""
-        self.conn.execute("BEGIN IMMEDIATE")
-        try:
-            execution_ids: list[int] = []
-            for batch in _planning.list_unsatisfied_run_batches(
-                self.conn, experiment_id, max_runs_per_batch, None
-            ):
-                execution_ids.append(
-                    _planning._plan_execution(
-                        self.conn,
-                        batch.run_ids,
-                        hostname,
-                        git_commit,
-                        git_diff_blob,
-                        jax_config,
-                    )
-                )
-            self.conn.commit()
-            return execution_ids
-        except Exception:
-            self.conn.rollback()
-            raise
-
     def plan_experiment_execution_batches(
         self,
         experiment_id: int,
@@ -703,10 +586,6 @@ class DatabaseManager:
     def list_run_execution_statuses(self, experiment_id: int) -> dict[int, frozenset[str]]:
         """Return every execution status linked to each of an experiment's runs, empty when never executed."""
         return _query.list_run_execution_statuses(self.conn, experiment_id)
-
-    def get_latest_completed_artifacts_for_run(self, run_id: int) -> ExecutionArtifactRow | None:
-        """Resolve artifact linkage for the latest completed execution of a run."""
-        return _query.get_latest_completed_artifacts_for_run(self.conn, run_id)
 
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""
