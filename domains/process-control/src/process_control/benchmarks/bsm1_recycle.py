@@ -186,9 +186,11 @@ def make_bsm1_recycle_benchmark(
     )
 
     influent = asm1_reset(bsm1.initial_states.influent, jax.random.PRNGKey(0))
+    q_w_fixed = jnp.array(bsm1.q_w_fixed)
 
-    # Initial recycle ratios (BSM1 defaults)
-    init_q_rs_ratio = jnp.array(bsm1.return_sludge_ratio)
+    # Initial recycle ratios (BSM1 defaults, actuator seed only — Q_a/Q_rs are actions here)
+    init_q_a_ratio = 3.0
+    init_q_rs_ratio = jnp.array(1.0)
 
     def _observe(
         nh4e: jax.Array,
@@ -211,7 +213,7 @@ def make_bsm1_recycle_benchmark(
         r5 = asm1_reset(bsm1.initial_states.r5, jax.random.PRNGKey(0))
 
         # Q_a DosingSystem initialised at BSM1 default ratio, sensor at R2 NO3
-        q_a_state = dosing_reset(bsm1.initial_states.r2.s_no, float(bsm1.internal_recycle_ratio), k2)
+        q_a_state = dosing_reset(bsm1.initial_states.r2.s_no, init_q_a_ratio, k2)
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1RecycleObsSensors(
@@ -279,7 +281,7 @@ def make_bsm1_recycle_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 5. Clarifier
-        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 6. R1: influent + return sludge + internal recycle
         new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
@@ -289,7 +291,7 @@ def make_bsm1_recycle_benchmark(
         )
 
         # 10. Effluent
-        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 11. Standalone observation sensors
         new_do5, do5_reading = do_step(state.sensors.do_r5, new_r5.s_o, do_params, k_do5)

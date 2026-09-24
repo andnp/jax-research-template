@@ -155,8 +155,9 @@ def make_bsm1_lt_benchmark(
 
     dt = jnp.array(c.dt)
     mean_flow = jnp.array(c.mean_flow)
-    internal_recycle_ratio = jnp.array(c.internal_recycle_ratio)
-    return_sludge_ratio = jnp.array(c.return_sludge_ratio)
+    q_a_fixed = jnp.array(c.q_a_fixed)
+    q_r_fixed = jnp.array(c.q_r_fixed)
+    q_w_fixed = jnp.array(c.q_w_fixed)
     steps_per_day = jnp.array(c.steps_per_day, dtype=jnp.float32)
     days_per_year = jnp.array(config.days_per_year)
     t_mean = jnp.array(config.t_mean)
@@ -281,13 +282,13 @@ def make_bsm1_lt_benchmark(
             k_kla5,
         )
 
-        # 3. Flows
-        q_a = q_in * internal_recycle_ratio
-        q_rs = q_in * return_sludge_ratio
+        # 3. Flows (BSM1 recycle/waste flows are fixed process constants)
+        q_a = q_a_fixed
+        q_rs = q_r_fixed
         q_to_clarifier = q_in + q_rs
 
         # 4. Clarifier
-        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 5. Reactor chain (corrected params)
         new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
@@ -296,7 +297,7 @@ def make_bsm1_lt_benchmark(
         )
 
         # 6. Effluent
-        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * c.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 7. Observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)

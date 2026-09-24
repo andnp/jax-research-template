@@ -272,9 +272,11 @@ def make_bsm1_combined_benchmark(
     power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
     influent = asm1_reset(config.bsm1.initial_states.influent, jax.random.PRNGKey(0))
+    q_w_fixed = jnp.array(bsm1.q_w_fixed)
 
-    # Initial recycle ratios (BSM1 defaults)
-    init_q_rs_ratio = jnp.array(bsm1.return_sludge_ratio)
+    # Initial recycle ratios (BSM1 defaults, actuator seed only — Q_a/Q_rs are actions here)
+    init_q_a_ratio = 3.0
+    init_q_rs_ratio = jnp.array(1.0)
 
     def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
         return (kla_34 * (bsm1.v3 + bsm1.v4) + kla_5 * bsm1.v5) / power_max
@@ -323,7 +325,7 @@ def make_bsm1_combined_benchmark(
         kla_5_state = dosing_reset(config.bsm1.initial_states.r5.s_o, 0.0, k3)
 
         # Q_a DosingSystem initialised at BSM1 default ratio, sensor at R2 NO3
-        q_a_state = dosing_reset(config.bsm1.initial_states.r2.s_no, bsm1.internal_recycle_ratio, k4)
+        q_a_state = dosing_reset(config.bsm1.initial_states.r2.s_no, init_q_a_ratio, k4)
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1CombinedObsSensors(
@@ -414,7 +416,7 @@ def make_bsm1_combined_benchmark(
         q_to_clarifier = q_in + q_rs
 
         # 6. Clarifier: return sludge from previous R5
-        _, return_sludge = perfect_clarifier(state.reactors.r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactors.r5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 7. R1: influent + return sludge + internal recycle (R5)
         new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
@@ -423,7 +425,7 @@ def make_bsm1_combined_benchmark(
         )
 
         # 11. Effluent quality from clarifier
-        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * bsm1.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 12. Standalone observation sensors
         new_nh4e, nh4e_reading = ra_step(

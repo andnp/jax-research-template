@@ -152,8 +152,13 @@ class BSM1BenchmarkConfig:
     Follows the BSM1 specification (Copp et al., 2002):
       5 reactors in series: 2 anoxic (1000 m³ each) + 3 aerobic (1333 m³ each).
       Flow: 18 446 m³/day dry-weather mean ≈ 769 m³/h.
-      Internal recycle: Q_a (from reactor 5 to reactor 1), default = 3 × Q_in.
-      External recycle: Q_r (return sludge from clarifier to reactor 1), = 1 × Q_in.
+      Internal recycle: Q_a (from reactor 5 to reactor 1), fixed at 55 338 m³/d.
+      External recycle: Q_r (return sludge from clarifier to reactor 1), fixed
+        at 18 446 m³/d — a constant, not a ratio of the instantaneous Q_in.
+
+    The influent here is a sinusoidal-flow, fixed-composition synthetic signal,
+    not the BSM1 dry/rain/storm weather files (Alex et al., 2008, §2.4);
+    absolute dynamics under real weather input are not reproduced.
 
     Control actions (2D):
       action[0]: kla for aerobic reactors 3 and 4 (h⁻¹)
@@ -203,10 +208,12 @@ class BSM1BenchmarkConfig:
     do_base_setpoint: float = 2.0  # mg/L DO target for FEEDFORWARD
     do_max_integral: float = 20.0
 
-    # Fixed flow fractions (ratios of Q_in)
-    internal_recycle_ratio: float = 3.0  # Q_a = ratio × Q_in
-    return_sludge_ratio: float = 1.0  # Q_r = ratio × Q_in
-    waste_sludge_ratio: float = 385.0 / 18446.0  # BSM1 Q_w = 385 m³/d
+    # BSM1 recycle/waste flows are process constants, not proportional to the
+    # instantaneous influent flow (Alex et al. 2008, §2.3.1 and Table 8):
+    # https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
+    q_a_fixed: float = 55338.0 / 24.0  # m³/h internal recycle (R5 → R1)
+    q_r_fixed: float = 18446.0 / 24.0  # m³/h external recycle (= Q0,stab)
+    q_w_fixed: float = 385.0 / 24.0  # m³/h waste flow
 
     # Influent flow variation
     mean_flow: float = 769.0
@@ -315,8 +322,9 @@ def make_bsm1_benchmark(
 
     dt = jnp.array(config.dt)
     mean_flow = jnp.array(config.mean_flow)
-    internal_recycle_ratio = jnp.array(config.internal_recycle_ratio)
-    return_sludge_ratio = jnp.array(config.return_sludge_ratio)
+    q_a_fixed = jnp.array(config.q_a_fixed)
+    q_r_fixed = jnp.array(config.q_r_fixed)
+    q_w_fixed = jnp.array(config.q_w_fixed)
 
     # Standalone observation sensor params
     analyzer_params = LaggedSensorParams(
@@ -429,12 +437,12 @@ def make_bsm1_benchmark(
         )
 
         # 3. Derived flows
-        q_a = q_in * internal_recycle_ratio  # internal recycle (R5 → R1)
-        q_rs = q_in * return_sludge_ratio  # external recycle (clarifier → R1)
+        q_a = q_a_fixed  # internal recycle (R5 → R1), BSM1 constant
+        q_rs = q_r_fixed  # external recycle (clarifier → R1), BSM1 constant
         q_to_clarifier = q_in + q_rs  # flow from R5 into clarifier
 
         # 4. Clarifier: return sludge from previous R5
-        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_in * config.waste_sludge_ratio)
+        _, return_sludge = perfect_clarifier(state.reactor5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 5. R1 inlet: influent + return sludge + internal recycle (R5)
         new_r1, new_r2, new_r3, new_r4, new_r5 = reactor_train(
@@ -443,7 +451,7 @@ def make_bsm1_benchmark(
         )
 
         # 9. Effluent quality from clarifier
-        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_in * config.waste_sludge_ratio)
+        effluent, _ = perfect_clarifier(new_r5, q_to_clarifier, q_rs, q_w_fixed)
 
         # 10. Standalone observation sensors
         new_nh4e, nh4e_reading = ra_step(state.sensors.nh4_eff, effluent.s_nh, analyzer_params, k_nh4e)

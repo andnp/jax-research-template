@@ -239,8 +239,8 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
     influent = asm1_reset(c.initial_states.influent, jax.random.PRNGKey(0))
     dt = jnp.array(c.dt)
     mean_flow = jnp.array(c.mean_flow)
-    return_sludge_ratio = jnp.array(c.return_sludge_ratio)
-    internal_recycle_ratio = jnp.array(c.internal_recycle_ratio)
+    q_a_fixed = jnp.array(c.q_a_fixed)
+    q_r_fixed = jnp.array(c.q_r_fixed)
     power_max = c.kla_34_max * (c.v3 + c.v4) + c.kla_5_max * c.v5
     settler_depth = jnp.array(config.settler.depth)
     eff_tss_limit = jnp.array(config.eff_tss_limit)
@@ -373,9 +373,9 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         # 3. Waste pump
         new_waste, q_w = pump_step(state.waste_pump, action[2], waste_pump_params, dt)
 
-        # 4. Flows
-        q_a = q_in * internal_recycle_ratio
-        q_rs = q_in * return_sludge_ratio
+        # 4. Flows (BSM1 recycle flows are fixed process constants)
+        q_a = q_a_fixed
+        q_rs = q_r_fixed
         q_to_clarifier = q_in + q_rs
         q_underflow = q_rs + q_w  # total underflow = return sludge + waste
 
