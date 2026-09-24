@@ -1,5 +1,3 @@
-import math
-
 import jax
 import jax.numpy as jnp
 import optax
@@ -12,11 +10,9 @@ from rl_agents.dqn_atari import (
     dqn_atari_runtime_from_dqn_zoo,
     dqn_atari_td_loss,
     dqn_zoo_atari_exploration_decay_env_steps,
-    dqn_zoo_atari_exploration_epsilon,
     dqn_zoo_atari_frames_to_env_steps,
     dqn_zoo_atari_learn_period_env_steps,
     dqn_zoo_atari_min_replay_capacity,
-    dqn_zoo_atari_should_learn,
     dqn_zoo_atari_target_update_period_env_steps,
     dqn_zoo_atari_total_train_env_steps,
     dqn_zoo_atari_total_train_frames,
@@ -143,38 +139,6 @@ class TestDQNAtariEnvStepConversions:
         assert dqn_zoo_atari_min_replay_capacity(DQNAtariConfig()) == 50_000
 
 
-class TestDQNAtariExplorationSchedule:
-    def test_epsilon_stays_at_begin_during_replay_warmup(self) -> None:
-        config = DQNAtariConfig()
-        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
-        warmup_last_step = dqn_zoo_atari_min_replay_capacity(config)
-
-        assert dqn_zoo_atari_exploration_epsilon(0, config, runtime_config) == 1.0
-        assert dqn_zoo_atari_exploration_epsilon(warmup_last_step, config, runtime_config) == 1.0
-
-    def test_epsilon_decays_linearly_after_warmup_and_clamps_at_end(self) -> None:
-        config = DQNAtariConfig()
-        runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
-        warmup = dqn_zoo_atari_min_replay_capacity(config)
-        decay = dqn_zoo_atari_exploration_decay_env_steps(config, runtime_config)
-
-        midpoint = warmup + decay // 2
-        assert math.isclose(dqn_zoo_atari_exploration_epsilon(midpoint, config, runtime_config), 0.55)
-        assert dqn_zoo_atari_exploration_epsilon(warmup + decay, config, runtime_config) == 0.1
-        assert dqn_zoo_atari_exploration_epsilon(warmup + decay + 123, config, runtime_config) == 0.1
-
-
-class TestDQNAtariLearnGating:
-    def test_should_learn_requires_warmup_and_env_step_period(self) -> None:
-        config = DQNAtariConfig()
-        min_replay = dqn_zoo_atari_min_replay_capacity(config)
-
-        assert dqn_zoo_atari_should_learn(49_996, min_replay - 1, config) is False
-        assert dqn_zoo_atari_should_learn(50_000, min_replay, config) is True
-        assert dqn_zoo_atari_should_learn(50_001, min_replay, config) is False
-        assert dqn_zoo_atari_should_learn(50_004, min_replay, config) is True
-
-
 class TestDQNAtariAgent:
     def test_init_derives_the_network_and_buffer_from_the_spec_alone(self) -> None:
         config = DQNAtariConfig(REPLAY_CAPACITY=8)
@@ -211,13 +175,14 @@ class TestDQNAtariAgent:
             REPLAY_CAPACITY=16,
             MIN_REPLAY_CAPACITY_FRACTION=0.25,
             BATCH_SIZE=4,
-            LEARN_PERIOD_FRAMES=4,
-            TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+            LEARN_PERIOD_FRAMES=16,
+            TARGET_NETWORK_UPDATE_PERIOD_FRAMES=32,
+            EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.5,
         )
         runtime_config = dqn_atari_runtime_from_dqn_zoo(
             config,
             num_iterations=1,
-            num_train_frames_per_iteration=32,
+            num_train_frames_per_iteration=64,
         )
         steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
         agent = DQNAtariAgent(config, runtime_config)
@@ -234,3 +199,9 @@ class TestDQNAtariAgent:
         assert buffer_state.next_obs.dtype == jnp.uint8
         assert int(buffer_state.count) == steps - 1, "the final action opens a transition that never closes"
         assert jnp.any(metrics["loss"] != 0.0), "the replay warmup completed, so the learn path must have fired"
+        assert jnp.allclose(metrics["epsilon"][0:5], 1.0)
+        assert jnp.allclose(metrics["epsilon"][8], 0.55, atol=1e-6)
+        assert jnp.allclose(metrics["epsilon"][12:], 0.1)
+        assert metrics["loss"][3] == 0.0
+        assert metrics["loss"][4] != 0.0
+        assert metrics["loss"][5] == 0.0

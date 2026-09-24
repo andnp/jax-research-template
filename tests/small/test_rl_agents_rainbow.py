@@ -5,8 +5,6 @@ import pytest
 from rl_agents.dqn_atari import (
     DQNAtariConfig,
     build_dqn_zoo_atari_rmsprop,
-    dqn_zoo_atari_frames_to_env_steps,
-    dqn_zoo_atari_should_learn,
 )
 from rl_agents.rainbow import (
     RainbowAgent,
@@ -22,18 +20,14 @@ from rl_agents.rainbow import (
     categorical_losses,
     categorical_target_probabilities,
     categorical_target_support,
-    rainbow_atari_runtime_from_dqn_zoo,
     rainbow_expected_q_values,
     rainbow_importance_sampling_exponent,
     rainbow_probabilities,
     rainbow_select_actions,
     rainbow_support,
-    rainbow_zoo_atari_frames_to_env_steps,
-    rainbow_zoo_atari_should_learn,
-    rainbow_zoo_atari_should_update_target,
-    rainbow_zoo_atari_total_train_env_steps,
 )
 from rl_components.env_protocol import EnvSpec
+from rl_components.timestep import Timestep
 
 
 def _assert_allclose_leaf(left: jax.Array, right: jax.Array):
@@ -71,67 +65,6 @@ class TestRainbowConfig:
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(50), config, 100), 0.7)
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(100), config, 100), 1.0)
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(200), config, 100), 1.0)
-
-    def test_runtime_helper_preserves_dqn_zoo_budget(self) -> None:
-        config = RainbowConfig()
-        runtime_config = rainbow_atari_runtime_from_dqn_zoo(config)
-
-        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
-        assert rainbow_zoo_atari_total_train_env_steps(runtime_config) == 50_000_000
-
-    def test_schedule_helpers_match_dqn_atari_frame_conversion(self) -> None:
-        rainbow_config = RainbowConfig()
-        dqn_config = DQNAtariConfig()
-
-        assert rainbow_zoo_atari_frames_to_env_steps(
-            rainbow_config.LEARN_PERIOD_FRAMES,
-            rainbow_config.NUM_ACTION_REPEATS,
-        ) == dqn_zoo_atari_frames_to_env_steps(
-            dqn_config.LEARN_PERIOD_FRAMES,
-            dqn_config.NUM_ACTION_REPEATS,
-        )
-        assert rainbow_zoo_atari_frames_to_env_steps(
-            rainbow_config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES,
-            rainbow_config.NUM_ACTION_REPEATS,
-        ) == dqn_zoo_atari_frames_to_env_steps(
-            dqn_config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES,
-            dqn_config.NUM_ACTION_REPEATS,
-        )
-
-    @pytest.mark.parametrize(
-        ("env_step", "replay_size"),
-        [
-            (0, 0),
-            (3, 50_000),
-            (4, 49_999),
-            (4, 50_000),
-            (8, 50_000),
-        ],
-    )
-    def test_should_learn_matches_dqn_atari_warmup_and_cadence(self, env_step: int, replay_size: int) -> None:
-        rainbow_config = RainbowConfig()
-        dqn_config = DQNAtariConfig()
-
-        assert rainbow_zoo_atari_should_learn(env_step, replay_size, rainbow_config) is dqn_zoo_atari_should_learn(
-            env_step,
-            replay_size,
-            dqn_config,
-        )
-
-    @pytest.mark.parametrize(
-        ("env_step", "expected"),
-        [
-            (0, True),
-            (9_999, False),
-            (10_000, True),
-            (10_001, False),
-        ],
-    )
-    def test_should_update_target_uses_env_step_cadence(self, env_step: int, expected: bool) -> None:
-        config = RainbowConfig()
-
-        assert rainbow_zoo_atari_should_update_target(env_step, config) is expected
-
 
 class TestRainbowNetworkAndLoss:
     def test_nature_network_emits_action_atom_logits(self) -> None:
@@ -401,6 +334,29 @@ class TestRainbowOptimizerParity:
 
 
 class TestRainbowAgentInit:
+    def test_step_metrics_and_target_schedule_follow_real_path(self) -> None:
+        """Learning and target synchronization follow step-index cadence."""
+        config = RainbowConfig(REPLAY_CAPACITY=4, BATCH_SIZE=1, N_STEP=1, LEARN_PERIOD_FRAMES=16, TARGET_NETWORK_UPDATE_PERIOD_FRAMES=32)
+        agent = RainbowAgent(config)
+        state = agent.init(jax.random.key(0), _toy_atari_spec())
+        timestep = Timestep(
+            reward=jnp.asarray(1.0),
+            discount=jnp.asarray(0.99),
+            bootstrap_observation=jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8),
+            episode_end=jnp.asarray(False),
+            observation=jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8),
+        )
+        losses = []
+        targets = []
+        for step_index in range(9):
+            result = agent.step(state, timestep, jnp.asarray(step_index, dtype=jnp.int32))
+            state = result.state
+            losses.append(result.metrics["loss"])
+            targets.append(state.target_params)
+        assert losses[3] == 0.0
+        assert losses[4] != 0.0
+        assert losses[5] == 0.0
+        assert all(jnp.array_equal(left, right) for left, right in zip(jax.tree.leaves(targets[7]), jax.tree.leaves(targets[8]), strict=True)) is False
     def test_init_uses_per_buffer_with_logical_capacity(self) -> None:
         agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=17))
 
