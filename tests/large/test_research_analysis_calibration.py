@@ -60,6 +60,9 @@ def reflected_lognormal(name: str, sigma: float):
 NORMAL = normal_mixture("normal", ((1.0, 0.0, 1.0),))
 MILD_SKEW = reflected_lognormal("mild_skew", 0.25)
 BIMODAL = normal_mixture("bimodal", ((0.3, 0.0, 0.1), (0.7, 1.0, 0.1)))
+HEAVY_SKEW = reflected_lognormal("heavy_skew", 0.8)
+CATASTROPHE_RATE = 0.05
+CATASTROPHIC = normal_mixture("catastrophic", ((1.0 - CATASTROPHE_RATE, 1.0, 0.1), (CATASTROPHE_RATE, -10.0, 1.0)))
 
 
 def mc_band(reference: float, replicates: int):
@@ -96,3 +99,41 @@ def test_mean_ci_covers_near_nominal_at_thirty_runs(distribution: RunDistributio
 
     band = mc_band(CONFIDENCE, replicates)
     assert gaussian_percentile_coverage(30) - 0.015 - band <= coverage <= CONFIDENCE + band, coverage
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, MILD_SKEW, BIMODAL], ids=lambda d: d.name)
+def test_mean_ci_under_covers_at_ten_runs(distribution: RunDistribution) -> None:
+    """At n=10 the mean CI under-covers by several points even for well-behaved runs.
+
+    Records current behaviour, so a change of interval method shows up as a deliberate update here.
+    """
+    replicates = 4000
+    coverage = mean_ci_coverage(distribution, 10, replicates, np.random.default_rng(0))
+
+    assert 0.85 <= coverage <= gaussian_percentile_coverage(10) + mc_band(CONFIDENCE, replicates), coverage
+
+
+@pytest.mark.parametrize("n", [10, 30])
+def test_mean_ci_under_covers_heavily_skewed_runs(n: int) -> None:
+    """A heavily skewed run distribution costs coverage beyond the Gaussian shortfall.
+
+    Records current behaviour, so a change of interval method shows up as a deliberate update here.
+    """
+    replicates = 4000
+    coverage = mean_ci_coverage(HEAVY_SKEW, n, replicates, np.random.default_rng(0))
+
+    assert coverage < gaussian_percentile_coverage(n) - mc_band(CONFIDENCE, replicates), coverage
+
+
+@pytest.mark.parametrize("n", [10, 30])
+def test_mean_ci_misses_rare_catastrophes_in_small_samples(n: int) -> None:
+    """With 5% catastrophic runs, a sample with none cannot cover the mean (handbook 2.6, PuddleWorld).
+
+    Coverage is therefore capped by the chance of seeing a catastrophe, 1 - 0.95**n.
+    Records current behaviour, so a change of interval method shows up as a deliberate update here.
+    """
+    replicates = 4000
+    coverage = mean_ci_coverage(CATASTROPHIC, n, replicates, np.random.default_rng(0))
+
+    cap = 1.0 - (1.0 - CATASTROPHE_RATE) ** n
+    assert coverage <= cap + mc_band(cap, replicates), coverage
