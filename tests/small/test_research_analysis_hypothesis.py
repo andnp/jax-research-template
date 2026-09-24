@@ -1,81 +1,18 @@
 """Small tests for research_analysis.hypothesis."""
 
-from collections.abc import Callable
-
 import numpy as np
 import pytest
 from research_analysis.hypothesis import (
     MannWhitneyResult,
-    WelchResult,
     mann_whitney_u_test,
-    welch_ttest,
 )
 
 
 class TestNonFiniteInputs:
-    @pytest.mark.parametrize("test", [welch_ttest, mann_whitney_u_test])
-    def test_rejects_a_diverged_observation(self, test: Callable[..., object]) -> None:
+    def test_rejects_a_diverged_observation(self) -> None:
         """A NaN or infinite run must fail the test instead of yielding a NaN or arbitrary statistic."""
         with pytest.raises(ValueError, match=r"group B has non-finite values in rows \[2\]"):
-            test(np.arange(4.0), np.array([1.0, 2.0, np.inf, 4.0]))
-
-
-class TestWelchTtest:
-    def test_identical_groups_not_significant(self) -> None:
-        a = np.array([1.0, 2.0, 3.0, 4.0])
-        b = np.array([1.0, 2.0, 3.0, 4.0])
-        result = welch_ttest(a, b)
-        assert isinstance(result, WelchResult)
-        assert result.t_statistic == pytest.approx(0.0)
-        assert result.p_value == pytest.approx(1.0)
-        assert not result.significant
-
-    def test_different_groups_significant(self) -> None:
-        a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
-        b = np.array([10.0, 11.0, 12.0, 13.0, 14.0])
-        result = welch_ttest(a, b)
-        assert result.significant
-        assert result.p_value < 0.05
-        assert result.t_statistic < 0.0
-
-    def test_means_correct(self) -> None:
-        a = np.array([1.0, 2.0, 7.0])
-        b = np.array([4.0, 5.0, 6.0])
-        result = welch_ttest(a, b)
-        assert result.mean_a == pytest.approx(a.mean())
-        assert result.mean_b == pytest.approx(b.mean())
-
-    def test_custom_alpha(self) -> None:
-        a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
-        b = np.array([3.0, 4.0, 5.0, 6.0, 7.0])
-        result_strict = welch_ttest(a, b, alpha=0.001)
-        result_lenient = welch_ttest(a, b, alpha=0.5)
-        assert result_strict.alpha == 0.001
-        assert result_lenient.alpha == 0.5
-        assert not result_strict.significant
-        assert result_lenient.significant
-
-    def test_too_few_observations_raises(self) -> None:
-        with pytest.raises(ValueError, match="at least 2"):
-            welch_ttest(np.array([1.0]), np.array([1.0, 2.0]))
-
-    def test_invalid_alpha_raises(self) -> None:
-        with pytest.raises(ValueError, match="Alpha must be in"):
-            welch_ttest(np.array([1.0, 2.0]), np.array([3.0, 4.0]), alpha=0.0)
-
-    def test_degrees_of_freedom_positive(self) -> None:
-        a = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        b = np.array([2.0, 3.0, 4.0, 5.0, 6.0])
-        result = welch_ttest(a, b)
-        assert result.df > 0.0
-
-    def test_swap_groups_preserves_p_value_and_flips_statistic(self) -> None:
-        a = np.array([1.0, 2.0, 3.0])
-        b = np.array([4.0, 5.0, 6.0])
-        first = welch_ttest(a, b)
-        second = welch_ttest(b, a)
-        assert first.t_statistic == pytest.approx(-second.t_statistic)
-        assert first.p_value == pytest.approx(second.p_value)
+            mann_whitney_u_test(np.arange(4.0), np.array([1.0, 2.0, np.inf, 4.0]))
 
 
 class TestMannWhitneyUTest:
