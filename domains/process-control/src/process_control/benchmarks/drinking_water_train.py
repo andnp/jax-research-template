@@ -3,7 +3,8 @@
 Multi-stage cascade: coagulation → membrane filtration → chlorine disinfection.
 Upstream decisions affect downstream performance:
   - Underdosing coagulant → higher particle load on membrane → faster fouling
-  - Underdosing coagulant → higher organic load → more chlorine demand
+  - Underdosing coagulant → less DOC/NOM removed → UF passes DOC through
+    unchanged (it only rejects particulates) → more chlorine demand
   - Overdosing coagulant → wasted chemical, possible re-stabilisation
   - Backwash timing affects throughput and downstream chlorine demand
 
