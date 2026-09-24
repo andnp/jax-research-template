@@ -50,6 +50,29 @@ from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
 N_COMPONENTS_ASM2D = 17
 
 
+def mix(state_a: jax.Array, q_a: jax.Array, state_b: jax.Array, q_b: jax.Array):
+    """Flow-weight two ASM2d states."""
+    q_total = q_a + q_b + 1e-10
+    return (state_a * q_a + state_b * q_b) / q_total
+
+
+def reactor_step(
+    state: jax.Array,
+    inlet: jax.Array,
+    q_total: jax.Array,
+    volume: float,
+    kla: jax.Array,
+    s_o_sat: float,
+    params: "ASM2dParams",
+    dt: jax.Array,
+):
+    """Advance one ASM2d reactor with the current Euler derivative."""
+    dilution = q_total / volume
+    derivative = reactions_asm2d(state, params) + dilution * (inlet - state)
+    derivative = derivative.at[7].add(kla * (s_o_sat - state[7]))
+    return jnp.maximum(state + derivative * dt, 0.0)
+
+
 @dataclass(frozen=True)
 class ASM2dParams:
     """Parameters for the PAO extension on top of ASM1."""
