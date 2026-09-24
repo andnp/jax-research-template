@@ -383,6 +383,7 @@ class TestADM1CODConservation:
         feed_cod = jnp.array(30000.0)
         temperature = jnp.array(35.0)
 
+        ph_baseline = jnp.array(7.0)
         for _ in range(24 * 10):
             state, _, _, ph_baseline = adm1_step(state, feed_cod, jnp.array(125.0), temperature, params, dt)
 
