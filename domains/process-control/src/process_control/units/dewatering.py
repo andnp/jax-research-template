@@ -20,11 +20,19 @@ from process_control._jax_dataclass import jax_dataclass
 class DewateringParams:
     max_throughput: float = 50.0  # m³/h max sludge feed rate
     base_capture: float = 0.85  # capture rate at zero polymer
-    max_capture: float = 0.98  # capture rate at saturating polymer
-    k_polymer_capture: float = 3.0  # half-sat polymer for capture (mg/L)
+    max_capture: float = 0.98  # capture rate at optimum polymer dose
+    # Dose practice is per unit dry solids, not per unit sludge volume: belt
+    # presses run ~2-10 kg polymer/tonne DS, centrifuges ~8-15 kg/tonne DS
+    # (WEF MOP 8; https://www.wef.org/globalassets/assets-wef/2-pubs--news/magazines/wet/wet-november-2018/wet_p38_p40_operator_essentials.pdf).
+    k_polymer_capture: float = 3.0  # half-sat dose ratio for capture (kg/tonne DS)
+    # Overdosed polymer restabilises floc / blinds the media, reducing
+    # capture past an optimum — a Haldane-type (substrate-inhibition) response.
+    # ki_polymer_capture sets that optimum (~sqrt(k*ki) kg/tonne DS); reduced-order,
+    # numeric value unverified against sludge-specific overdose literature.
+    ki_polymer_capture: float = 30.0  # overdose inhibition scale (kg/tonne DS)
     base_dryness: float = 0.18  # cake dry solids fraction at zero polymer
     max_dryness: float = 0.30  # cake dry solids fraction at saturating polymer
-    k_polymer_dryness: float = 5.0  # half-sat polymer for dryness (mg/L)
+    k_polymer_dryness: float = 4.0  # half-sat dose ratio for dryness (kg/tonne DS)
     speed_penalty: float = 0.15  # capture loss per unit normalised speed above 0.5
 
 
@@ -65,9 +73,19 @@ def step(
     # Actual throughput limited by belt speed
     q_actual = jnp.minimum(q_feed, belt_speed * params.max_throughput)
 
-    # Polymer-dependent capture and dryness (Monod saturation)
-    capture = params.base_capture + (params.max_capture - params.base_capture) * (polymer_dose / (params.k_polymer_capture + polymer_dose))
-    dryness = params.base_dryness + (params.max_dryness - params.base_dryness) * (polymer_dose / (params.k_polymer_dryness + polymer_dose))
+    # Dose ratio (kg polymer / tonne dry solids): polymer_dose and feed_tss
+    # are both mass concentrations (mg/L == g/m³), so their ratio times 1000
+    # converts directly to the practice-standard kg/tonne-DS unit — it does
+    # not depend on q_actual, since both dose and solids scale with flow.
+    dose_ratio = 1000.0 * polymer_dose / (feed_tss + 1e-10)
+
+    # Capture: Haldane-type saturation-then-inhibition (overdose restabilises
+    # floc / blinds the media past an optimum dose ratio).
+    capture = params.base_capture + (params.max_capture - params.base_capture) * dose_ratio / (
+        params.k_polymer_capture + dose_ratio + dose_ratio**2 / params.ki_polymer_capture
+    )
+    # Dryness keeps a plain Monod saturation — no reported overdose penalty on dryness.
+    dryness = params.base_dryness + (params.max_dryness - params.base_dryness) * (dose_ratio / (params.k_polymer_dryness + dose_ratio))
 
     # Speed penalty: running faster reduces capture
     speed_penalty = params.speed_penalty * jnp.maximum(belt_speed - 0.5, 0.0)

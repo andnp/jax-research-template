@@ -54,8 +54,9 @@ class DewateringConfig:
     # Feed flow (constant)
     q_feed: float = 30.0  # m³/h
 
-    # Polymer
-    dose_max: float = 15.0  # mg/L max polymer dose
+    # Polymer: mg/L dose that, at feed_tss_mean, gives ~15 kg/tonne DS — the
+    # top of the centrifuge practice range (see units/dewatering.py).
+    dose_max: float = 150.0  # mg/L max polymer dose
 
     # Sensor
     filtrate_noise_std: float = 10.0
