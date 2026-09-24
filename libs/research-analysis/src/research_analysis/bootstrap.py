@@ -189,6 +189,8 @@ def bootstrap_difference_ci(
     b = np.ascontiguousarray(np.asarray(values_b, dtype=np.float64).ravel())
     if estimand not in ("mean", "median"):
         raise ValueError(f"estimand must be 'mean' or 'median', got {estimand!r}")
+    if pairing not in ("paired", "independent"):
+        raise ValueError(f"pairing must be 'paired' or 'independent', got {pairing!r}")
     if not 0.0 < confidence < 1.0:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
     if n_resamples < 1:

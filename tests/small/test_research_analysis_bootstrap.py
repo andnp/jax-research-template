@@ -1,5 +1,7 @@
 """Small tests for research_analysis.bootstrap — CI computation."""
 
+from typing import Literal, cast
+
 import numpy as np
 import pytest
 from research_analysis.bootstrap import (
@@ -243,6 +245,18 @@ def test_difference_bootstrap_rejects_invalid_inputs() -> None:
         bootstrap_difference_ci(
             np.array([1.0, np.nan, 3.0]),
             np.array([0.0, 1.0, 2.0]),
+            rng=np.random.default_rng(0),
+        )
+
+
+def test_difference_bootstrap_rejects_an_unknown_pairing_value() -> None:
+    """Any pairing value other than 'paired' or 'independent' must fail loudly, not
+    silently fall through to independent resampling."""
+    with pytest.raises(ValueError, match="pairing must be 'paired' or 'independent'"):
+        bootstrap_difference_ci(
+            np.array([1.0, 2.0, 3.0]),
+            np.array([0.0, 1.0, 2.0]),
+            pairing=cast(Literal["paired", "independent"], "Paired"),
             rng=np.random.default_rng(0),
         )
 
