@@ -10,6 +10,7 @@ from rl_agents.dqn_atari import (
     DQNAtariRuntimeConfig,
     build_dqn_zoo_atari_rmsprop,
     dqn_atari_runtime_from_dqn_zoo,
+    dqn_atari_td_loss,
     dqn_zoo_atari_exploration_decay_env_steps,
     dqn_zoo_atari_exploration_epsilon,
     dqn_zoo_atari_frames_to_env_steps,
@@ -86,6 +87,20 @@ class TestDQNAtariConfig:
         assert config.EXPLORATION_EPSILON_BEGIN == 1.0
         assert config.EXPLORATION_EPSILON_END == 0.1
         assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
+        assert config.GRAD_ERROR_BOUND == 1 / 32
+
+    def test_td_loss_gradient_is_bounded_per_sample(self) -> None:
+        """Match DQN Zoo's clipped TD-error gradient after mean reduction."""
+        q_action = jnp.array([-3.0, 0.01, 4.0])
+        targets = jnp.zeros(3)
+        bound = 1 / 32
+
+        def loss(q: jax.Array) -> jax.Array:
+            return dqn_atari_td_loss(q, targets, bound)
+
+        gradient = jax.grad(loss)(q_action)
+        expected = jnp.clip((q_action - targets) / q_action.size, -bound, bound)
+        assert jnp.allclose(gradient, expected)
 
     def test_runtime_defaults_preserve_previous_training_budget(self) -> None:
         runtime_config = DQNAtariRuntimeConfig()

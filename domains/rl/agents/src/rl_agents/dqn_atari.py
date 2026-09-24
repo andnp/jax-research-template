@@ -44,6 +44,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.heads import epsilon_greedy_action
+from rl_components.losses import clip_gradient
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
@@ -64,6 +65,7 @@ class DQNAtariConfig:
     EXPLORATION_EPSILON_BEGIN: float = 1.0
     EXPLORATION_EPSILON_END: float = 0.1
     EXPLORATION_EPSILON_DECAY_FRAME_FRACTION: float = 0.02
+    GRAD_ERROR_BOUND: float = 1 / 32
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -181,6 +183,12 @@ def dqn_zoo_atari_should_learn(env_step: int, replay_size: int, config: DQNAtari
     if replay_size < dqn_zoo_atari_min_replay_capacity(config):
         return False
     return env_step % dqn_zoo_atari_learn_period_env_steps(config) == 0
+
+
+def dqn_atari_td_loss(q_action: jax.Array, targets: jax.Array, grad_error_bound: float) -> jax.Array:
+    """Compute DQN's squared TD loss with a bounded TD-error gradient."""
+    td_error = q_action - jax.lax.stop_gradient(targets)
+    return jnp.mean(0.5 * clip_gradient(td_error, -grad_error_bound, grad_error_bound) ** 2)
 
 
 @chex_struct(frozen=True)
@@ -430,7 +438,7 @@ class DQNAtariAgent:
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
             next_q_max = jnp.max(jnp.asarray(train_state.apply_fn(target_params, next_obs)), axis=-1)
             targets = rewards + discounts * next_q_max
-            return jnp.mean(jnp.square(q_action - jax.lax.stop_gradient(targets)))
+            return dqn_atari_td_loss(q_action, targets, self.config.GRAD_ERROR_BOUND)
 
         loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
         return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)

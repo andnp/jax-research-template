@@ -2,7 +2,7 @@
 
 import jax
 import jax.numpy as jnp
-from rl_components.losses import qrc_loss
+from rl_components.losses import clip_gradient, qrc_loss
 
 
 def _apply_fn(params: dict, states: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -46,3 +46,18 @@ class TestQrcLoss:
 
         loss = jax.jit(_loss)(params)
         assert bool(jnp.isfinite(loss))
+
+
+def test_clip_gradient_preserves_values_and_clips_derivatives() -> None:
+    """Keep forward values while clipping only oversized reverse cotangents."""
+    values = jnp.array([-2.0, 0.25, 2.0])
+    cotangents = jnp.array([2.0, 0.25, -3.0])
+
+    def weighted_clip(value: jax.Array) -> jax.Array:
+        return jnp.sum(clip_gradient(value, -0.5, 0.5) * cotangents)
+
+    assert jnp.array_equal(clip_gradient(values, -0.5, 0.5), values)
+    assert jnp.array_equal(
+        jax.grad(weighted_clip)(values),
+        jnp.array([0.5, 0.25, -0.5]),
+    )

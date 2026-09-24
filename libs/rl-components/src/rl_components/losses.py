@@ -9,6 +9,24 @@ from flax.typing import VariableDict
 ApplyFn = Callable[[VariableDict, jax.Array], tuple[jax.Array, ...]]
 
 
+@jax.custom_vjp
+def clip_gradient(value: jax.Array, lower: float, upper: float) -> jax.Array:
+    """Return ``value`` while clipping its reverse-mode gradient."""
+    return value
+
+
+def _clip_gradient_fwd(value: jax.Array, lower: float, upper: float):
+    return value, (lower, upper)
+
+
+def _clip_gradient_bwd(residual: tuple[float, float], cotangent: jax.Array):
+    lower, upper = residual
+    return (jnp.clip(cotangent, lower, upper), None, None)
+
+
+clip_gradient.defvjp(_clip_gradient_fwd, _clip_gradient_bwd)
+
+
 def qrc_loss(
     params: VariableDict,
     apply_fn: ApplyFn,
