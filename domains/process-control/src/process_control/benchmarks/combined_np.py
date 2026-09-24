@@ -141,6 +141,33 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
     carbon_max = jnp.array(config.carbon_dose_max)
     mean_flow = jnp.array(config.mean_flow)
     influent = make_default_influent_asm2d()
+    zero_kla = jnp.array(0.0)
+    initial_po4, _ = precipitate(influent[13], jnp.array(0.0), config.precip)
+
+    def _observe(
+        sensed_po4: jax.Array,
+        sensed_nh4: jax.Array,
+        sensed_no3: jax.Array,
+        sensed_ana_po4: jax.Array,
+        aerobic_do: jax.Array,
+        pha_pao_ratio: jax.Array,
+        q_in: jax.Array,
+        fe_dose: jax.Array,
+        carbon_dose: jax.Array,
+    ):
+        return jnp.array(
+            [
+                sensed_po4 / 10.0,
+                sensed_nh4 / 35.0,
+                sensed_no3 / 20.0,
+                sensed_ana_po4 / 30.0,
+                aerobic_do / 8.0,
+                pha_pao_ratio,
+                q_in / mean_flow,
+                fe_dose / fe_max,
+                carbon_dose / carbon_max,
+            ]
+        )
 
     def _reactor_step(state: jax.Array, inlet: jax.Array, q_total: jax.Array, volume: float, kla: jax.Array):
         dilution = q_total / volume
@@ -165,13 +192,23 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             anaerobic_state=init_state.at[7].set(0.0),
             anoxic_state=init_state.at[7].set(0.0),
             aerobic_state=init_state.at[7].set(2.0),
-            po4_eff_sensor=analyzer_reset(k2, init_state[13]),
+            po4_eff_sensor=analyzer_reset(k2, initial_po4),
             nh4_eff_sensor=analyzer_reset(k3, init_state[9]),
             no3_eff_sensor=analyzer_reset(k4, init_state[8]),
             po4_ana_sensor=analyzer_reset(k5, init_state[13]),
             last_q_in=jnp.array(config.mean_flow),
         )
-        obs = jnp.zeros(9)
+        obs = _observe(
+            state.po4_eff_sensor.held_value,
+            state.nh4_eff_sensor.held_value,
+            state.no3_eff_sensor.held_value,
+            state.po4_ana_sensor.held_value,
+            state.aerobic_state[7],
+            state.aerobic_state[15] / (state.aerobic_state[14] + 1e-10),
+            mean_flow,
+            jnp.array(0.0),
+            jnp.array(0.0),
+        )
         return state, obs
 
     def step(state: CombinedNPState, action: jax.Array, rng_key: jax.Array):
@@ -199,7 +236,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             anaerobic_inlet,
             q_in + q_recycle,
             config.v_anaerobic,
-            jnp.array(0.0),
+            zero_kla,
         )
 
         # 4. Anoxic zone
@@ -208,7 +245,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             new_anaerobic,
             q_in + q_recycle,
             config.v_anoxic,
-            jnp.array(0.0),
+            zero_kla,
         )
 
         # 5. Aerobic zone (with variable aeration)
@@ -238,19 +275,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         new_po4a_s, sensed_ana_po4 = analyzer_step(state.po4_ana_sensor, ana_po4, po4_analyzer, k5)
 
         # 9. Observation
-        obs = jnp.array(
-            [
-                sensed_po4 / 10.0,
-                sensed_nh4 / 35.0,
-                sensed_no3 / 20.0,
-                sensed_ana_po4 / 30.0,
-                aerobic_do / 8.0,
-                pha_pao_ratio,
-                q_in / mean_flow,
-                fe_dose / fe_max,
-                carbon_dose / carbon_max,
-            ]
-        )
+        obs = _observe(sensed_po4, sensed_nh4, sensed_no3, sensed_ana_po4, aerobic_do, pha_pao_ratio, q_in, fe_dose, carbon_dose)
 
         # 10. Reward
         po4_v = jnp.maximum(sensed_po4 - config.po4_limit, 0.0)
