@@ -104,6 +104,44 @@ class TestHierarchicalBootstrapCI:
         res = hierarchical_bootstrap_ci(data, h_samples=50, e_samples=50, rng=np.random.default_rng(1))
         assert res.ci_low <= res.mean <= res.ci_high
 
+    def test_a_single_run_is_the_minimum_valid_matrix(self) -> None:
+        """A matrix with exactly one run per hyperparameter is valid, not an edge failure."""
+        data = np.array([[1.0], [2.0]])
+        res = hierarchical_bootstrap_ci(data, h_samples=3, e_samples=3, rng=np.random.default_rng(0))
+        assert res.ci_low <= res.mean <= res.ci_high
+
+    def test_rejects_a_matrix_with_no_runs(self) -> None:
+        with pytest.raises(ValueError, match="need at least 1 run"):
+            hierarchical_bootstrap_ci(np.ones((2, 0)), h_samples=3, e_samples=5, rng=np.random.default_rng(0))
+
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True])
+    def test_rejects_non_positive_or_non_int_h_samples(self, bad_value: int) -> None:
+        data = np.ones((2, 5))
+        with pytest.raises(ValueError, match="h_samples must be a positive int"):
+            hierarchical_bootstrap_ci(data, h_samples=bad_value, e_samples=3, rng=np.random.default_rng(0))
+
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True])
+    def test_rejects_non_positive_or_non_int_e_samples(self, bad_value: int) -> None:
+        data = np.ones((2, 5))
+        with pytest.raises(ValueError, match="e_samples must be a positive int"):
+            hierarchical_bootstrap_ci(data, h_samples=3, e_samples=bad_value, rng=np.random.default_rng(0))
+
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True])
+    def test_rejects_non_positive_or_non_int_n_resamples(self, bad_value: int) -> None:
+        data = np.ones((2, 5))
+        with pytest.raises(ValueError, match="n_resamples must be a positive int"):
+            hierarchical_bootstrap_ci(
+                data, h_samples=3, e_samples=3, n_resamples=bad_value, rng=np.random.default_rng(0)
+            )
+
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True])
+    def test_rejects_non_positive_or_non_int_selection_trials(self, bad_value: int) -> None:
+        data = np.ones((2, 5))
+        with pytest.raises(ValueError, match="selection_trials must be a positive int"):
+            hierarchical_bootstrap_ci(
+                data, h_samples=3, e_samples=3, selection_trials=bad_value, rng=np.random.default_rng(0)
+            )
+
 
 class TestHierarchicalBootstrapDifferenceCI:
     def test_clear_winner_excludes_zero(self) -> None:
@@ -137,3 +175,18 @@ class TestHierarchicalBootstrapDifferenceCI:
         data_b = np.ones((2, 8))
         with pytest.raises(ValueError, match="same number of paired runs"):
             hierarchical_bootstrap_difference_ci(data_a, data_b, h_samples=3, e_samples=5, rng=np.random.default_rng(0))
+
+    def test_rejects_a_matrix_with_no_runs(self) -> None:
+        with pytest.raises(ValueError, match="need at least 1 run"):
+            hierarchical_bootstrap_difference_ci(
+                np.ones((2, 0)), np.ones((2, 0)), h_samples=3, e_samples=5, rng=np.random.default_rng(0)
+            )
+
+    @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True])
+    def test_rejects_non_positive_or_non_int_h_samples(self, bad_value: int) -> None:
+        data_a = np.ones((2, 10))
+        data_b = np.ones((2, 10))
+        with pytest.raises(ValueError, match="h_samples must be a positive int"):
+            hierarchical_bootstrap_difference_ci(
+                data_a, data_b, h_samples=bad_value, e_samples=5, rng=np.random.default_rng(0)
+            )

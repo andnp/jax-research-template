@@ -26,12 +26,19 @@ class HierarchicalBootstrapCI:
     selection_entropy: float
 
 
+def _validate_positive_int(value: int, name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive int, got {value!r}")
+
+
 def _validate_hyper_matrix(arr: NDArray[np.float64], confidence: float) -> None:
     if arr.ndim != 2:
         raise ValueError(f"data must be 2D array of shape (n_hypers, n_runs), got {arr.shape}")
-    n_hypers, _n_runs = arr.shape
+    n_hypers, n_runs = arr.shape
     if n_hypers < 2:
         raise ValueError(f"need at least 2 hyperparameters to tune, got {n_hypers}")
+    if n_runs < 1:
+        raise ValueError(f"need at least 1 run, got {n_runs}")
     if not 0.0 < confidence < 1.0:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
     require_finite_array(arr, "hyperparameter matrix")
@@ -96,6 +103,10 @@ def hierarchical_bootstrap_ci(
     """
     arr = np.asarray(data, dtype=np.float64)
     _validate_hyper_matrix(arr, confidence)
+    _validate_positive_int(h_samples, "h_samples")
+    _validate_positive_int(e_samples, "e_samples")
+    _validate_positive_int(n_resamples, "n_resamples")
+    _validate_positive_int(selection_trials, "selection_trials")
 
     probs, entropy = _selection_distribution(arr, h_samples, selection_trials, rng)
     boot_means = np.concatenate(
@@ -153,6 +164,10 @@ def hierarchical_bootstrap_difference_ci(
     arr_b = np.asarray(data_b, dtype=np.float64)
     _validate_hyper_matrix(arr_a, confidence)
     _validate_hyper_matrix(arr_b, confidence)
+    _validate_positive_int(h_samples, "h_samples")
+    _validate_positive_int(e_samples, "e_samples")
+    _validate_positive_int(n_resamples, "n_resamples")
+    _validate_positive_int(selection_trials, "selection_trials")
     if arr_a.shape[1] != arr_b.shape[1]:
         raise ValueError(
             f"data_a and data_b must have the same number of paired runs, got {arr_a.shape[1]} and {arr_b.shape[1]}"
