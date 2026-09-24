@@ -56,6 +56,18 @@ def tolerance_interval_order_indices(num_samples: int, *, confidence: float = 0.
     raise ValueError(f"Insufficient samples ({num_samples}) to form a tolerance interval with confidence={confidence} and coverage={coverage}.")
 
 
+def minimum_tolerance_samples(*, confidence: float = 0.95, coverage: float = 0.90) -> int:
+    """Smallest number of runs whose min-to-max span forms a tolerance interval at these levels."""
+    if not 0 < confidence < 1:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}.")
+    if not 0 < coverage < 1:
+        raise ValueError(f"coverage must be in (0, 1), got {coverage}.")
+    num_samples = 2
+    while tolerance_interval_confidence(num_samples, coverage=coverage, rank_span=num_samples - 1) < confidence:
+        num_samples += 1
+    return num_samples
+
+
 def pointwise_tolerance_interval(
     data: NDArray[np.floating],
     *,
