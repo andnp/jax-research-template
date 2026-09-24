@@ -334,6 +334,7 @@ def test_scalar_bootstrap_accepts_two_runs_only_when_declared() -> None:
 
     assert 1.0 <= result.ci_low <= result.ci_high <= 3.0
 
+
 # ── Expanded percentile interval (Hesterberg 2015, section 5.3) ─────────────
 
 
@@ -344,3 +345,41 @@ def test_expanded_percentile_tails_match_hesterberg_table(n: int, tail: float) -
 
     assert (1.0 - confidence) / 2.0 == pytest.approx(tail, abs=5e-5)
 
+
+def test_expanded_scalar_interval_takes_percentiles_at_the_widened_level() -> None:
+    """An expanded interval reads the same resamples at wider quantiles, so it contains the percentile one."""
+    values = np.array([1.0, 2.0, 4.0, 7.0, 9.0, 3.0, 5.0, 6.0, 2.0, 8.0])
+    expanded = bootstrap_scalar_ci(values, interval="expanded_percentile", n_resamples=256, rng=np.random.default_rng(1))
+    plain = bootstrap_scalar_ci(values, n_resamples=256, rng=np.random.default_rng(1))
+    tail = (1.0 - expanded_percentile_confidence(0.95, values.size)) / 2.0
+    replicates = values[np.random.default_rng(1).integers(0, values.size, size=(256, values.size))].mean(axis=1)
+
+    assert expanded.interval == "expanded_percentile"
+    assert plain.interval == "percentile"
+    assert expanded.ci_low == pytest.approx(np.quantile(replicates, tail))
+    assert expanded.ci_high == pytest.approx(np.quantile(replicates, 1.0 - tail))
+    assert expanded.ci_low <= plain.ci_low <= plain.ci_high <= expanded.ci_high
+
+
+def test_expanded_independent_difference_expands_for_the_smaller_arm() -> None:
+    """Two arms of different sizes are expanded as if both had the smaller arm's runs."""
+    a = np.array([1.0, 2.0, 4.0, 7.0, 9.0, 3.0])
+    b = np.array([0.0, 1.0, 2.0])
+    result = bootstrap_difference_ci(a, b, interval="expanded_percentile", n_resamples=64, rng=np.random.default_rng(3))
+    rng = np.random.default_rng(3)
+    replicates = a[rng.integers(0, 6, size=(64, 6))].mean(axis=1) - b[rng.integers(0, 3, size=(64, 3))].mean(axis=1)
+    tail = (1.0 - expanded_percentile_confidence(0.95, 3)) / 2.0
+
+    assert result.interval == "expanded_percentile"
+    assert result.ci_low == pytest.approx(np.quantile(replicates, tail))
+    assert result.ci_high == pytest.approx(np.quantile(replicates, 1.0 - tail))
+
+
+def test_bootstrap_rejects_an_unknown_interval_method() -> None:
+    """An undeclared interval method fails loudly rather than falling back to the percentile interval."""
+    with pytest.raises(ValueError, match="interval must be"):
+        bootstrap_scalar_ci(
+            np.array([1.0, 2.0, 3.0]),
+            interval=cast(Literal["percentile", "expanded_percentile"], "bca"),
+            rng=np.random.default_rng(0),
+        )
