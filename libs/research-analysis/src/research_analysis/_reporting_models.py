@@ -149,6 +149,10 @@ class BakeoffReport:
     omnibus: StatisticalTestDetails | None
     tests_skipped_reason: str | None
     """Why the omnibus test and p-values are absent, e.g. for tuned-champion comparisons."""
+    omnibus_skipped_reason: str | None
+    """Why only the omnibus test is absent, e.g. when shared referent runs make blocks dependent."""
+    shared_across: dict[str, tuple[str, ...]]
+    """Shared block axis -> the conditions it does not apply to, whose runs join every block of that axis."""
     differences: tuple[PairedDifference, ...]
     """Every planned (block, pair) comparison, including pairs skipped for too few paired runs."""
     family_size: int

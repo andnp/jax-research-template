@@ -76,6 +76,10 @@ def _load_bakeoff_data(
 
 _ORDERED_VALUE_TYPES = frozenset({SweepValueType.INTEGER, SweepValueType.FLOAT})
 _CHAMPION_METHOD = "hierarchical per-sample bootstrap, selection included"
+_REUSED_RUNS_OMNIBUS_SKIPPED = (
+    "shared referent runs appear in several blocks, so the blocks are not independent; "
+    "each paired test stays within one block"
+)
 _CHAMPION_TESTS_SKIPPED = (
     "no permutation tests on tuned champions: the seeds that selected each champion would be reused to test it"
 )
@@ -318,6 +322,7 @@ def _incomplete_cells(
     conditions: list[str],
     block_keys: list[BlockKey],
     accounting: RunAccounting,
+    shared: dict[str, tuple[str, ...]],
 ) -> tuple[IncompleteCell, ...]:
     incomplete: list[IncompleteCell] = []
     for block_key in block_keys:
@@ -327,7 +332,9 @@ def _incomplete_cells(
             missing = sorted(observed - seeds[condition])
             if not missing:
                 continue
-            coordinates = {"condition_name": condition, **dict(block_key)}
+            # A shared referent's accounting cell has no value on the axes it is shared across.
+            own_axes = {axis: value for axis, value in block_key if condition not in shared.get(axis, ())}
+            coordinates = {"condition_name": condition, **own_axes}
             planned = [
                 item for item in accounting.cells if all(dict(item.cell).get(k) == v for k, v in coordinates.items())
             ]
@@ -391,11 +398,57 @@ def _summarize_cell(
     return replace(summary, ci=(ci.ci_low, ci.ci_high))
 
 
-def _block_predicate(block_key: BlockKey) -> pl.Expr:
+def _block_predicate(block_key: BlockKey, shared_across: Sequence[str]) -> pl.Expr:
     predicate = pl.lit(True)
     for column, value in block_key:
-        predicate = predicate & pl.col(column).eq_missing(value)
+        matches = pl.col(column).eq_missing(value)
+        if column in shared_across:
+            matches = matches | pl.col(column).is_null()
+        predicate = predicate & matches
     return predicate
+
+
+def _block_keys(runs: pl.DataFrame, block_by: list[str], shared_across: Sequence[str]) -> list[BlockKey]:
+    """Every observed block; a shared axis's blocks come only from the runs it applies to."""
+    if not block_by:
+        return [()]
+    if shared_across:
+        runs = runs.filter(pl.all_horizontal(*(pl.col(axis).is_not_null() for axis in shared_across)))
+    rows = runs.select(block_by).unique().sort(block_by).iter_rows(named=True)
+    return [tuple((column, row[column]) for column in block_by) for row in rows]
+
+
+def _shared_conditions(
+    dataset: ExperimentDataset, block_by: list[str], shared_across: Sequence[str]
+) -> dict[str, tuple[str, ...]]:
+    """Each shared axis mapped to the conditions it does not apply to, whose runs join every one of its blocks."""
+    conditional_axes = {axis.name for axis in dataset.dimensions.sweep_axes if axis.when is not None}
+    invalid = sorted(axis for axis in shared_across if axis not in block_by or axis not in conditional_axes)
+    if invalid:
+        raise ValueError(f"shared_across must name block_by axes declared with a `when` rule, got {invalid}")
+
+    shared: dict[str, tuple[str, ...]] = {}
+    for axis in shared_across:
+        by_condition = dataset.runs.group_by("condition_name").agg(
+            pl.col(axis).is_null().all().alias("free"), pl.col(axis).is_null().any().alias("partly")
+        )
+        mixed = sorted(by_condition.filter(pl.col("partly") & ~pl.col("free"))["condition_name"].to_list())
+        if mixed:
+            raise ValueError(f"conditions {mixed} lack {axis!r} on only some runs; a shared referent must lack it on all")
+        shared[axis] = tuple(sorted(by_condition.filter(pl.col("free"))["condition_name"].to_list()))
+    return shared
+
+
+def _require_every_run_placed(dataset: ExperimentDataset, blocks: list[tuple[BlockKey, ExperimentDataset]]) -> None:
+    placed = {run_id for _key, block_dataset in blocks for run_id in block_dataset.runs["run_id"].to_list()}
+    unplaced = dataset.runs.filter(~pl.col("run_id").is_in(sorted(placed)))
+    if unplaced.is_empty():
+        return
+    counts = unplaced.group_by("condition_name").len().sort("condition_name").iter_rows()
+    raise InsufficientDataError(
+        f"{unplaced.height} run(s) match no block: a shared referent needs a block of the conditions that have the axis",
+        cells=tuple(InsufficientDataCell({"condition": str(name)}, "a block to join", f"{count} unplaced run(s)") for name, count in counts),
+    )
 
 
 def _filter_dataset(dataset: ExperimentDataset, predicate: pl.Expr) -> ExperimentDataset:
@@ -409,7 +462,7 @@ def _filter_to_champions(dataset: ExperimentDataset, champions: dict[str, dict[s
     condition_column = pl.col("condition_name")
     selected = pl.any_horizontal(
         *[
-            condition_column.eq(condition) & pl.all_horizontal(*[pl.col(key) == value for key, value in config.items()])
+            condition_column.eq(condition) & pl.all_horizontal(*[pl.col(key).eq_missing(value) for key, value in config.items()])
             for condition, config in champions.items()
         ]
     )
@@ -440,6 +493,7 @@ def bakeoff_report(
     min_seeds: int = 5,
     measure: PerformanceMeasure = FINAL_VALUE,
     pairs: Sequence[tuple[str, str]] | None = None,
+    shared_across: Sequence[str] = (),
 ) -> BakeoffReport:
     """Champion selection, comparison, and statistical caveats, in one repeatable call.
 
@@ -448,6 +502,12 @@ def bakeoff_report(
     and Holm-adjusted permutation p-values are secondary. With ``select_champion_over``, the
     differences come from the hierarchical per-sample bootstrap over each arm's grid, so they
     include selection uncertainty, and no tests are run on the selecting seeds.
+
+    ``shared_across`` names ``block_by`` axes declared with a ``when`` rule. A condition the axis
+    does not apply to has no block of its own on it; its runs join every block of that axis, so one
+    axis-free referent is compared against each block's arms. Its runs are counted once in dataset
+    accounting and listed once per block in ``runs``. Reused runs make blocks dependent, so the
+    omnibus test is skipped; each paired test stays within one block.
     """
     if len(conditions) < 2:
         raise ValueError(f"bakeoff_report requires at least 2 conditions, got {len(conditions)} ({conditions!r})")
@@ -474,11 +534,11 @@ def bakeoff_report(
         if axis.name in (select_champion_over or ()) and axis.value_type in _ORDERED_VALUE_TYPES
     ]
 
-    block_keys: list[BlockKey] = (
-        [tuple((column, row[column]) for column in block_by) for row in dataset.runs.select(block_by).unique().sort(block_by).iter_rows(named=True)]
-        if block_by
-        else [()]
-    )
+    shared = _shared_conditions(dataset, block_by, shared_across)
+    block_keys = _block_keys(dataset.runs, block_by, shared_across)
+    blocks = [(block_key, _filter_dataset(dataset, _block_predicate(block_key, shared_across))) for block_key in block_keys]
+    _require_every_run_placed(dataset, blocks)
+    reuses_runs = sum(block_dataset.runs.height for _key, block_dataset in blocks) > dataset.runs.height
 
     if select_champion_over is not None and spec.estimand != "mean":
         raise ValueError("tuned-champion comparisons estimate a mean; spec.estimand must be 'mean'")
@@ -492,8 +552,7 @@ def bakeoff_report(
     champion_differences: list[PairedDifference] = []
     compared_blocks: list[tuple[BlockKey, ExperimentDataset]] = []
 
-    for block_key in block_keys:
-        block_dataset = _filter_dataset(dataset, _block_predicate(block_key)) if block_key else dataset
+    for block_key, block_dataset in blocks:
         cell = block_key
 
         if select_champion_over is None:
@@ -567,14 +626,18 @@ def bakeoff_report(
 
     data_by_group, run_ids = _load_bakeoff_data(compared_blocks, metric_name, measure)
     omnibus: StatisticalTestDetails | None = None
+    omnibus_skipped_reason = None
     differences = tuple(champion_differences)
     if select_champion_over is None and spec.missingness == "error":
-        incomplete = _incomplete_cells(data_by_group, conditions, block_keys, dataset.accounting)
+        incomplete = _incomplete_cells(data_by_group, conditions, block_keys, dataset.accounting, shared)
         if incomplete:
             raise IncompleteBlocksError(incomplete)
     if select_champion_over is None:
         test_rng = np.random.default_rng(spec.random_seed)
-        omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
+        if reuses_runs:
+            omnibus_skipped_reason = _REUSED_RUNS_OMNIBUS_SKIPPED
+        else:
+            omnibus = _omnibus_test(data_by_group, conditions, block_keys, spec, test_rng)
         differences = _paired_differences(data_by_group, planned_pairs, block_keys, spec, comparison_confidence, test_rng)
 
     cells: dict[str, dict[str, CellSummary]] = {condition: {} for condition in conditions}
@@ -649,6 +712,8 @@ def bakeoff_report(
         blocks=[_block_label(block_key) for block_key in block_keys],
         omnibus=omnibus,
         tests_skipped_reason=None if select_champion_over is None else _CHAMPION_TESTS_SKIPPED,
+        omnibus_skipped_reason=omnibus_skipped_reason,
+        shared_across=shared,
         differences=differences,
         family_size=family_size,
         comparison_confidence=comparison_confidence,
