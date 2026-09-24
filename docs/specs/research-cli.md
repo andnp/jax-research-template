@@ -72,7 +72,7 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Core-owned trainers publish which fields are dynamically batchable. Project experiment definitions declare parameter values normally; they do not mark axes static or call `jax.vmap`.
     - Records each execution as `RUNNING`, then `COMPLETED` or `FAILED`. A `FAILED` execution is retried on the next run.
 - `research experiment status <db_path> [--experiment <slug>]`:
-    - Reports total, completed and pending logical runs per experiment.
+    - Reports total, completed, failed and pending logical runs per experiment.
 - `research experiment list <db_path>`:
     - Lists the experiments recorded in a database.
 - `research experiment executions <db_path> [--experiment <slug>] [--status <status>] [--git-commit <sha>]`:
@@ -81,10 +81,15 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Marks executions `INVALID` so their runs become plannable again. This is also how a run killed mid-execution — left claimed as `RUNNING` — is released.
 - `research experiment execute-batch <db_path> --execution-id <id> --spec-file <file> --spec <name>`:
     - Executes a single already-planned execution. This is the entry point a scheduler invokes.
-- `research experiment submit <spec_file> [slurm options] [--dry-run]`:
+- `research experiment submit <spec_file> [--slurm-config <file.json>] [slurm options] [--dry-run]`:
     - Plans every outstanding batch up front, writes a Slurm array script, and submits it. The planned executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` must never re-plan them.
+    - `--slurm-config` loads a JSON `SlurmConfig`; explicit flags override its values.
+- `research experiment report <spec_file> [--output-dir <path>] [--json]`:
+    - Runs the spec's declared `@analysis_plan` and writes `report.json`, `report.md`, and figures to `--output-dir`, defaulting to `<results_root>/reports/<experiment>/<UTC time>/`.
+    - Prints a short summary, or with `--json` only the report document.
+    - Exits 0 with results, 1 when the spec has no declared plan or no database, 2 when loading has fatal diagnostics, and 3 when an analysis fails (for example a diverged run or an incomplete block). Failed reports are still written, with their diagnostics and no results.
 
-Analysis is deliberately not a CLI concern: `research-analysis` reads the metrics database produced by a run.
+`run` and `submit` (but not `submit --dry-run`) append the spec's declared plan to `<results_root>/analysis-plans.jsonl` before any execution starts. `report` labels its document exploratory unless that history shows the same plan was in force when the first included execution started. Statistics live in `research-analysis`; the CLI only wires a spec's declared plan to it. See the [reporting API](research-reporting-api.md).
 
 ### 2.5 Diagnostics
 - `research doctor`:
