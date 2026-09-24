@@ -68,6 +68,7 @@ class DewateringConfig:
     reward_w_dryness: float = 1.0
     reward_w_cost: float = 0.05
     reward_w_filtrate: float = 0.3
+    reward_w_throughput: float = 0.5  # penalty for feed bypassing the unit untreated
     filtrate_limit: float = 200.0  # g/m³
 
 
@@ -167,8 +168,12 @@ def make_dewatering_benchmark(config: DewateringConfig):
         # 6. Reward
         dryness_gap = jnp.maximum(target_dryness - dryness, 0.0)
         filtrate_violation = jnp.maximum(sensed_filtrate - filtrate_limit, 0.0)
+        bypass_fraction = bypass_flow / (q_feed + 1e-10)
         reward = -(
-            config.reward_w_dryness * dryness_gap**2 + config.reward_w_cost * (polymer_dose / dose_max) + config.reward_w_filtrate * (filtrate_violation / filtrate_limit) ** 2
+            config.reward_w_dryness * dryness_gap**2
+            + config.reward_w_cost * (polymer_dose / dose_max)
+            + config.reward_w_filtrate * (filtrate_violation / filtrate_limit) ** 2
+            + config.reward_w_throughput * bypass_fraction**2
         )
 
         new_state = DewateringBenchState(
