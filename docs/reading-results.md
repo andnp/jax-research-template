@@ -43,6 +43,30 @@ def ablation_plan() -> AnalysisPlan:
     )
 ```
 
+### Arms that lack an axis
+
+When an axis exists on only some arms, declare it once for all of them and say how
+the arm without it takes part. For example, two iterated arms sweep `num_heads` and
+`qrc` has no heads:
+
+```python
+heads = SweepAxis("num_heads", SweepValueType.INTEGER, when={"algorithm": ("gi_qrc", "gi_qrc_anchored")})
+BakeoffAnalysis(
+    "per_k",
+    conditions=("gi_qrc", "gi_qrc_anchored", "qrc"),
+    pairs=against_baseline(("gi_qrc", "gi_qrc_anchored", "qrc"), "qrc"),
+    block_by=("env_name", "num_heads"),
+    shared_across=("num_heads",),  # the same qrc runs are the referent at every K
+    select_champion_over=("learning_rate", "num_heads"),
+)
+```
+
+`num_heads` is null on `qrc` runs. `shared_across` makes those runs join every
+`num_heads` block. The report names the reused condition, and run accounting still
+counts each run once. A single-configuration arm compared with tuned champions is
+declared `untuned=("shared",)`: it has no selection stage, and its difference's
+`method` says so.
+
 `research experiment run` and `submit` append the plan to
 `<results_root>/analysis-plans.jsonl` before any execution starts. `research
 experiment report` then runs the plan exactly as written. It writes `report.json`,
@@ -75,7 +99,8 @@ never carries partial results.
 | Sensitivity to one swept axis | `slice_hypers(dataset, metric, vary, group_by=...)` |
 | Per-run scalar scores | `research_analysis.performance.run_scores(frame, metric, measure)` |
 | A report document from hand-picked results | `research_analysis.report.exploratory_report(dataset, experiments_db, results)` |
-| JSON, markdown, figures | `report_json.report_to_json`, `report_markdown.render_markdown`, `report_plots.write_report_plots(document, output_dir)` |
+| A report directory: JSON, markdown, and figures | `report_files.write_report_document(document, report_files.report_directory(results_root, experiment))` |
+| JSON, markdown, figures one at a time | `report_json.report_to_json`, `report_markdown.render_markdown`, `report_plots.write_report_plots(document, output_dir)` |
 | A direct array comparison | `run_permutation_test(...)`, `bootstrap_difference_ci(...)` |
 
 `research_analysis.dataset/__init__.py` is empty. Import from the submodules:
@@ -179,7 +204,8 @@ seeds. There is no cross-fitting.
 
 `bakeoff_report(..., select_champion_over=[...])` compares tuned arms by the same
 hierarchical bootstrap. It runs no hypothesis tests on the seeds that selected
-the champions. See [the science guide](science_guide.md) for why this method is
+the champions. A fixed arm with one configuration joins the comparison only when
+declared in `untuned`; any other arm with fewer than two configurations fails. See [the science guide](science_guide.md) for why this method is
 used rather than the handbook's two-stage bootstrap.
 
 For experiment definition and rerun mechanics, see

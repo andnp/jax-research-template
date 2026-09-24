@@ -64,7 +64,9 @@ command is what keeps the loop honest.
 - **Tuned champions carry selection uncertainty.** Compare tuned arms with
   `select_champion_over`. It uses the hierarchical per-sample bootstrap, and no
   tests are run on the selecting seeds. Never compare raw argmax champions on the
-  same seeds that picked them.
+  same seeds that picked them. A fixed single-configuration referent is declared
+  `untuned`, and a referent without a blocking axis is declared `shared_across` that
+  axis; neither is ever inferred.
 - **Small n under-covers.** The percentile bootstrap's intervals are narrower than
   stated when there are few runs. In the calibration pilots, a single mean CI at 10
   runs covered about 0.88 for normal data. A Bonferroni family of 6 paired CIs
