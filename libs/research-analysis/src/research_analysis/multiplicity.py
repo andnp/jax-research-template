@@ -21,3 +21,12 @@ def holm_step_down(p_values: Sequence[float]) -> list[float]:
         running_max = max(running_max, min(1.0, (count - rank) * p_value))
         adjusted[index] = running_max
     return adjusted
+
+
+def bonferroni_confidence(family_confidence: float, family_size: int) -> float:
+    """Per-comparison confidence that keeps ``family_size`` intervals jointly at ``family_confidence``."""
+    if not 0.0 < family_confidence < 1.0:
+        raise ValueError(f"family_confidence must be in (0, 1), got {family_confidence}")
+    if family_size < 1:
+        raise ValueError(f"family_size must be positive, got {family_size}")
+    return 1.0 - (1.0 - family_confidence) / family_size
