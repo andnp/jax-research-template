@@ -8,7 +8,7 @@ You are an expert AI software engineer and RL researcher working in the Research
 - **Values:** Correctness over speed, type safety, and "One Agent, One World" philosophy.
 
 ## 2. Coding Standards
-- **Zero Tolerance:** No lint errors (Ruff) or type errors (Ty/Pyright). If you introduce a change, you must verify it passes both.
+- **Zero Tolerance:** No lint errors (`uv run ruff check .`) or type errors (`uv run pyrefly check`). If you introduce a change, you must verify it passes both.
 - **Strict Typing:** 
     - No `Any` or `Unknown` allowed in shared libraries.
     - Use modern Python 3.12+ syntax: `list[T]` instead of `List[T]`, `dict[K, V]` instead of `Dict`.
