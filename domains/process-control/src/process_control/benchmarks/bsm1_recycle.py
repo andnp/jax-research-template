@@ -188,8 +188,17 @@ def make_bsm1_recycle_benchmark(
     influent = asm1_reset(bsm1.initial_states.influent, jax.random.PRNGKey(0))
 
     # Initial recycle ratios (BSM1 defaults)
-    init_q_a_ratio = jnp.array(bsm1.internal_recycle_ratio)
     init_q_rs_ratio = jnp.array(bsm1.return_sludge_ratio)
+
+    def _observe(
+        nh4e: jax.Array,
+        no3e: jax.Array,
+        no3r2: jax.Array,
+        do5: jax.Array,
+        q_in: jax.Array,
+        q_a_ratio: jax.Array,
+    ):
+        return jnp.array([nh4e / 35.0, no3e / 20.0, no3r2 / 20.0, do5 / 8.0, q_in / mean_flow, q_a_ratio / q_a_ratio_max])
 
     def reset(rng_key: jax.Array) -> tuple[BSM1RecyclePlantState, jax.Array]:
         k1, k2, k3 = jax.random.split(rng_key, 3)
@@ -225,16 +234,13 @@ def make_bsm1_recycle_benchmark(
             sensors=sensors,
         )
 
-        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * init_q_rs_ratio, mean_flow * bsm1.waste_sludge_ratio)
-        obs = jnp.array(
-            [
-                effluent.s_nh / 35.0,
-                effluent.s_no / 20.0,
-                r2.s_no / 20.0,
-                r5.s_o / 8.0,
-                mean_flow / mean_flow,
-                init_q_a_ratio / q_a_ratio_max,
-            ]
+        obs = _observe(
+            sensors.nh4_eff.held_value,
+            sensors.no3_eff.held_value,
+            q_a_state.sensor_value,
+            sensors.do_r5.held_value,
+            mean_flow,
+            q_a_state.pump_output,
         )
         return plant_state, obs
 
@@ -307,16 +313,7 @@ def make_bsm1_recycle_benchmark(
         )
 
         # 12. Observation (NO3_R2 comes from Q_a DosingSystem's sensor)
-        obs = jnp.array(
-            [
-                nh4e_reading / 35.0,
-                no3e_reading / 20.0,
-                no3r2_reading / 20.0,
-                do5_reading / 8.0,
-                q_in / mean_flow,
-                q_a_ratio / q_a_ratio_max,
-            ]
-        )
+        obs = _observe(nh4e_reading, no3e_reading, no3r2_reading, do5_reading, q_in, q_a_ratio)
 
         # 13. Reward: effluent quality (from sensors) + pumping energy penalty
         reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2 + config.reward_w_energy * (q_a_ratio + q_rs_ratio))
