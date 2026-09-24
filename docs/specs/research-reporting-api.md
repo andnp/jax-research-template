@@ -125,7 +125,7 @@ ReportDocument
   status                ok | load_failed | analysis_failed
   plan_status           declared | exploratory
   exploratory_reasons   why the plan could not be shown to predate the results
-  plan, plan_fingerprint  the AnalysisPlan and its sha256 over canonical JSON
+  plan, plan_fingerprint  the full resolved AnalysisPlan, and a sha256 over its declared fields
   provenance            experiment, experiments_db, generated_at,
                         component_versions, executions (commit, dirty, host, times),
                         toolchain (research-analysis package_version, git_commit, dirty)
@@ -156,8 +156,7 @@ An `AnalysisPlan` fixes:
 - the metric and the measure. Any analysis may declare its own `measure`, which replaces the plan's
   for that analysis alone, so a secondary measure is fixed before results exist rather than chosen
   after. The analysis's report records the measure it used, and the markdown plan section names
-  every override. An analysis without an override omits the field from the plan's JSON, so its
-  fingerprint is unchanged;
+  every override;
 - the dimensions, version selection, and cohort;
 - the analyses (`BakeoffAnalysis`, `BestHypersAnalysis`, `HypersDifferenceAnalysis`,
   `SliceHypersAnalysis`); a `BakeoffAnalysis` carries its `pairs`, `block_by`,
@@ -180,6 +179,23 @@ problem naming the offending execution ids:
 - "no plan snapshot before execution";
 - "plan changed after results were recorded", with the fingerprint in force;
 - the start time was not recorded, or has no UTC offset.
+
+The fingerprint hashes only what the researcher declared, in `research_analysis.declared_plan`.
+It is a sha256 over canonical JSON of the plan with every field at its default
+left out, recursively through every dataclass in the plan. A field is at its
+default when its declared form equals that of the dataclass field's `default` or
+`default_factory()`. Kind tags stay, so union members remain distinct. Adding an
+optional field with a default therefore never changes an existing plan's
+fingerprint, and a changed default is recorded in `provenance.toolchain` instead
+of in `plan_status`. The report JSON keeps the full resolved plan.
+
+Each history entry stores its fingerprint and the full plan JSON. The stored
+fingerprint is informational: `read_plan_snapshots` recomputes it from the stored
+plan with the current schema, so entries fingerprinted under the earlier
+full-form hash still match an unchanged plan. A field the entry omits takes its
+default. An entry with an unknown field or kind, a missing required field, or a
+value the schema does not accept is never guessed at. It comes back with
+`fingerprint=None` and an `invalid_reason`, and the report is exploratory.
 
 `read_plan_snapshots` validates each history entry's `recorded_at` strictly: an
 offset-aware ISO timestamp is converted to UTC, and anything else (naive, or

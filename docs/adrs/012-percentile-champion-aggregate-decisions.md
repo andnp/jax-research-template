@@ -34,6 +34,18 @@ Design in Reinforcement Learning" (JMLR 2024). Recommendations from Agarwal et a
 - **Reports come from a declared plan.** A report is labelled declared only when a
   pre-recorded plan was run verbatim. Everything else is exploratory.
 
+### 2026-09-24: plan fingerprints hash declared fields only
+
+A plan's fingerprint now covers only the fields the researcher declared. Fields
+at their dataclass defaults are left out, recursively. Before, the whole resolved
+plan was hashed, so adding an optional field to any plan dataclass would have
+relabelled every existing declared report exploratory without anyone changing
+a plan. History entries recorded under the old hash are re-read with the current
+schema and compared by their declared fields. An entry the schema cannot read
+makes the report exploratory. A changed default is not a plan change. It surfaces
+through the report's toolchain provenance (the `research-analysis` version and
+commit), not through `plan_status`.
+
 ## Consequences
 
 - Small-sample intervals under-cover. The calibration suite
