@@ -45,6 +45,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control.integration import rk4_step
 from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
 
 N_COMPONENTS_ASM2D = 17
@@ -66,11 +67,13 @@ def reactor_step(
     params: "ASM2dParams",
     dt: jax.Array,
 ):
-    """Advance one ASM2d reactor with the current Euler derivative."""
-    dilution = q_total / volume
-    derivative = reactions_asm2d(state, params) + dilution * (inlet - state)
-    derivative = derivative.at[7].add(kla * (s_o_sat - state[7]))
-    return jnp.maximum(state + derivative * dt, 0.0)
+    """Advance one ASM2d reactor with a fourth-order Runge–Kutta step."""
+    def derivative(current_state: jax.Array) -> jax.Array:
+        dilution = q_total / volume
+        result = reactions_asm2d(current_state, params) + dilution * (inlet - current_state)
+        return result.at[7].add(kla * (s_o_sat - current_state[7]))
+
+    return jnp.maximum(rk4_step(derivative, state, dt), 0.0)
 
 
 @dataclass(frozen=True)
