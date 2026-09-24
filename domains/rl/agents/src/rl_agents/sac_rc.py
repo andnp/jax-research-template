@@ -50,10 +50,12 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from ml_components.regularization import l2_regularizer
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
+from rl_components.losses import qrc_terms
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -154,14 +156,8 @@ def sac_rc_loss(
     off-policy bootstrapping bias that a target network is normally used to
     paper over.
     """
-    target = jax.lax.stop_gradient(reward + discount * (next_q_min - alpha * next_log_prob))
-    delta = target - q
-    delta_hat = h
-
-    v_loss = 0.5 * delta**2 + discount * jax.lax.stop_gradient(delta_hat) * (next_q_min - alpha * next_log_prob)
-    h_loss = 0.5 * (jax.lax.stop_gradient(delta) - delta_hat) ** 2
-
-    return v_loss, h_loss, delta
+    bootstrap = next_q_min - alpha * next_log_prob
+    return qrc_terms(q, h, reward, discount, bootstrap)
 
 
 def sac_rc_loss_batch(
@@ -199,8 +195,7 @@ def sac_rc_loss_batch(
         v_loss, h_loss, _ = jax.vmap(sac_rc_loss, in_axes=(0, 0, 0, 0, 0, 0, None))(
             q, h, rewards, discounts, next_q_min, next_log_probs, alpha
         )
-        h_reg = sum(jnp.sum(jnp.square(p)) for p in jax.tree.leaves(params["params"]["h_head"]))
-        return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * h_reg
+        return jnp.mean(v_loss) + jnp.mean(h_loss) + beta * l2_regularizer(params, "h_head")
 
     return jnp.mean(jax.vmap(_single_critic_loss)(critic_params))
 
@@ -544,4 +539,3 @@ class SACRCAgent:
             actor_loss.astype(jnp.float32),
             alpha_loss.astype(jnp.float32),
         )
-
