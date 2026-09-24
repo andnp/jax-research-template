@@ -19,7 +19,6 @@ from functools import partial
 from typing import cast
 
 import chex
-import distrax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -31,6 +30,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
+from rl_components.networks import TanhNormalDiag
 from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
@@ -94,17 +94,8 @@ class Actor(nn.Module):
 
     def sample(self, params: VariableDict, x: jax.Array, rng: jax.Array) -> tuple[jax.Array, jax.Array]:
         mean, log_std = _actor_apply(self, params, x)
-        std = jnp.exp(log_std)
-        normal = distrax.Normal(mean, std)
-        x_t = normal.sample(seed=rng)
-        y_t = jnp.tanh(x_t)
-        action = y_t
-
-        # Log prob adjustment for Tanh
-        log_prob = normal.log_prob(x_t)
-        log_prob -= jnp.log(1.0 - y_t**2 + 1e-6)
-        log_prob = jnp.sum(log_prob, axis=-1)
-        return action, log_prob
+        action, log_prob = TanhNormalDiag(mean=mean, log_std=log_std).sample_and_log_prob(rng)
+        return action, jnp.sum(log_prob, axis=-1)
 
 
 def _critic_apply(module: Critic, variables: VariableDict, x: jax.Array, a: jax.Array) -> jax.Array:

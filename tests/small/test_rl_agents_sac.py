@@ -81,6 +81,28 @@ class TestActor:
         assert jnp.all(action <= 1.0)
         assert log_prob.shape == ()
 
+    def test_sample_returns_one_log_prob_per_observation(self) -> None:
+        """SAC sampling reduces per-dimension log-probabilities per observation."""
+        actor = Actor(action_dim=2)
+        params = actor.init(jax.random.key(0), jnp.zeros((4,)))
+        _, log_prob = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
+            params, jnp.ones((3, 4)), jax.random.split(jax.random.key(1), 3)
+        )
+        assert log_prob.shape == (3,)
+
+    def test_sample_log_prob_matches_previous_formula(self) -> None:
+        """Actor sampling matches the old fixed-key tanh Gaussian formula."""
+        actor = Actor(action_dim=2)
+        observation = jnp.ones((4,))
+        params = actor.init(jax.random.key(0), observation)
+        key = jax.random.key(1)
+        mean, log_std = cast(tuple[jax.Array, jax.Array], actor.apply(params, observation))
+        raw = distrax.Normal(mean, jnp.exp(log_std)).sample(seed=key)
+        action = jnp.tanh(raw)
+        expected = jnp.sum(distrax.Normal(mean, jnp.exp(log_std)).log_prob(raw) - jnp.log(1.0 - action**2 + 1e-6))
+        _, actual = actor.sample(params, observation, key)
+        assert jnp.allclose(actual, expected, atol=1e-6)
+
     def test_distribution_sample_log_prob_preserves_saturated_raw_value(self) -> None:
         """The helper uses the sampled pre-tanh value for saturated actions."""
         distribution = TanhNormalDiag(mean=jnp.array([12.0, -0.3]), log_std=jnp.full(2, -20.0))
