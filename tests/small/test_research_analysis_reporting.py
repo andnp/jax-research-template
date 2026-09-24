@@ -1094,3 +1094,18 @@ class TestPairedDifferences:
         assert report.comparison_confidence == pytest.approx(1 - 0.05 / 3)
         assert [item.confidence for item in report.differences] == [pytest.approx(1 - 0.05 / 3)] * 3
         assert report.cells["a"][""].confidence == pytest.approx(0.95)
+
+    def test_skipped_pairs_still_count_in_the_holm_family(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """One tested pair among three planned is adjusted as one of three, not as the only hypothesis."""
+        setup = temp_experiment_setup
+        for condition, seeds in (("a", range(4)), ("b", range(4)), ("c", range(2))):
+            for seed in seeds:
+                value = float(seed) * (2.0 if condition == "a" else 1.0) + (1.0 if condition == "a" else 0.0)
+                _add_observation(setup, {"condition_name": condition}, seed, value)
+
+        report = bakeoff_report(
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=100), verbose=False
+        )
+
+        # Four all-positive paired differences give an exact two-sided sign-flip p of 2/16.
+        assert report.difference("a", "b").p_value == pytest.approx(3 * 2 / 16)

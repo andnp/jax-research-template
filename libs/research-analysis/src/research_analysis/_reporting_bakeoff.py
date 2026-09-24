@@ -108,8 +108,12 @@ def _paired_differences(
             for subtrahend in conditions[index + 1 :]:
                 planned.append(_paired_difference(scores, minuend, subtrahend, block_key, spec, confidence, rng))
 
-    adjusted = iter(holm_step_down([item.p_value for item in planned if item.p_value is not None]))
-    return tuple(item if item.p_value is None else replace(item, p_value=next(adjusted)) for item in planned)
+    # A skipped pair still belongs to the family: counting it as p=1 keeps Holm's divisor honest.
+    adjusted = holm_step_down([1.0 if item.p_value is None else item.p_value for item in planned])
+    return tuple(
+        item if item.p_value is None else replace(item, p_value=p_value)
+        for item, p_value in zip(planned, adjusted, strict=True)
+    )
 
 
 def _paired_difference(
