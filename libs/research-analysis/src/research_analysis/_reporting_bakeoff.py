@@ -33,7 +33,6 @@ from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.diagnostics.bakeoff import BakeoffWarning, BakeoffWarningCode
 from research_analysis.duplicates import duplicate_seed_error
 from research_analysis.multiplicity import bonferroni_confidence, holm_step_down
-from research_analysis.non_finite import require_finite
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
@@ -65,7 +64,6 @@ def _load_bakeoff_data(
         on="run_id",
         how="inner",
     ).filter(pl.col("condition_name").is_in(conditions))
-    require_finite(joined, f"{metric_name!r} run scores")
 
     data_by_group: dict[tuple[str, BlockKey], dict[int, float]] = {}
     run_ids: dict[tuple[str, BlockKey, int], int] = {}

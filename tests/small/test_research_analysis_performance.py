@@ -4,6 +4,7 @@ import math
 
 import polars as pl
 import pytest
+from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import FinalValue, ReturnRate, TailMean, run_scores
 
 
@@ -30,14 +31,14 @@ class TestFinalValue:
 
         assert _values(run_scores(frame, "return", FinalValue())) == {0: 9.0}
 
-    def test_keeps_a_diverged_final_value_visible(self) -> None:
-        """A run that ends non-finite scores NaN rather than silently disappearing."""
+    def test_rejects_a_diverged_final_value(self) -> None:
+        """A run that ends non-finite fails loudly, naming the run, instead of feeding NaN into statistics."""
         frame = _curves([(0, 0, 1.0), (0, 1, math.nan), (1, 0, 2.0), (1, 1, 3.0)])
 
-        scores = _values(run_scores(frame, "return", FinalValue()))
+        with pytest.raises(NonFiniteValuesError) as raised:
+            run_scores(frame, "return", FinalValue())
 
-        assert math.isnan(scores[0])
-        assert scores[1] == 3.0
+        assert raised.value.offenders["seed"].to_list() == [0]
 
     def test_rejects_two_runs_pooled_under_one_seed(self) -> None:
         """Without a run id, a repeated step for one seed means runs were pooled, not one curve."""
