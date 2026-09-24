@@ -29,6 +29,7 @@ from research_analysis.report import (
     ReportDocument,
     SliceHypersResult,
 )
+from research_analysis.toolchain import AnalysisToolchain
 
 _LISTED_MESSAGES = 10
 
@@ -126,6 +127,11 @@ def _plan_section(plan: AnalysisPlan) -> list[str]:
     ]
 
 
+def _describe_toolchain(toolchain: AnalysisToolchain) -> str:
+    changes = {True: " with uncommitted changes", False: "", None: ", uncommitted changes unknown"}[toolchain.dirty]
+    return f"research-analysis {toolchain.package_version} at commit {toolchain.git_commit}{changes}"
+
+
 def _provenance_section(document: ReportDocument) -> list[str]:
     provenance = document.provenance
     commits = sorted({item.git_commit or "unrecorded" for item in provenance.executions})
@@ -136,6 +142,7 @@ def _provenance_section(document: ReportDocument) -> list[str]:
         f"- Experiments database: `{provenance.experiments_db}`",
         f"- Generated: {provenance.generated_at} (report schema v{document.schema_version})",
         f"- Executions: {len(provenance.executions)}; git commits: {', '.join(commits) or 'none'}",
+        f"- Analysis code: {_describe_toolchain(provenance.toolchain)}",
     ]
     if dirty:
         lines.append(f"- **{dirty} execution(s) ran with uncommitted changes**; their commit alone does not reproduce them.")

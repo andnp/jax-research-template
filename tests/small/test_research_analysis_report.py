@@ -6,6 +6,7 @@ import json
 import math
 import re
 from dataclasses import replace
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -127,6 +128,15 @@ class TestReportJson:
         assert document["provenance"]["executions"] == [
             {"execution_id": 0, "git_commit": "abc123", "dirty": True, "hostname": "node-1", "start_time": None, "end_time": None}
         ]
+
+    def test_the_analysis_code_that_produced_the_report_is_recorded(self) -> None:
+        """A changed default never changes a plan's status, so the report names the analysis version and commit."""
+        document = _bakeoff_document(_dataset(_SCORES))
+
+        toolchain = document["provenance"]["toolchain"]
+        assert toolchain["package_version"] == version("research-analysis")
+        assert re.fullmatch(r"[0-9a-f]{40}", toolchain["git_commit"])
+        assert isinstance(toolchain["dirty"], bool)
 
     def test_results_carry_their_kind_measure_and_every_run(self) -> None:
         """A reader can tell which analysis and measure produced the numbers, and recheck them run by run."""
@@ -297,6 +307,15 @@ class TestReportMarkdown:
         assert "mean with its 95% CI" in text
         assert f"each CI at {report.comparison_confidence * 100:.4g}%" in text
         assert "Holm-adjusted" in text
+
+    def test_the_provenance_names_the_analysis_code(self) -> None:
+        """The audit copy alone tells which research-analysis release and commit computed the numbers."""
+        dataset = _dataset(_SCORES)
+
+        text = _markdown(dataset, [])
+
+        provenance = text[text.index("## Provenance") :]
+        assert re.search(rf"- Analysis code: research-analysis {re.escape(version('research-analysis'))} at commit [0-9a-f]{{40}}", provenance)
 
     def test_the_interval_method_is_named_in_the_bakeoff_section(self) -> None:
         """A reader of the markdown alone can tell an expanded percentile CI from a plain percentile one."""

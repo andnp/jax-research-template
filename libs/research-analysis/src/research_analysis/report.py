@@ -24,6 +24,7 @@ from research_analysis.dataset.types import (
 from research_analysis.diagnostics.bakeoff import IncompleteCell
 from research_analysis.diagnostics.types import FATAL_DIAGNOSTIC_CODES, DatasetDiagnostic, InsufficientDataCell
 from research_analysis.plan import AnalysisPlan
+from research_analysis.toolchain import AnalysisToolchain, analysis_toolchain
 
 REPORT_SCHEMA_VERSION = 1
 
@@ -45,13 +46,14 @@ class PlanStatus(StrEnum):
 
 @dataclass(frozen=True)
 class ReportProvenance:
-    """Which experiment, database, component versions, and executions the results came from."""
+    """Which experiment, database, component versions, and executions the results came from, and which analysis code."""
 
     experiment: str
     experiments_db: Path
     generated_at: str
     component_versions: tuple[ComponentVersionProvenance, ...]
     executions: tuple[ExecutionProvenance, ...]
+    toolchain: AnalysisToolchain
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,7 @@ def _document(
             generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
             component_versions=dataset.provenance,
             executions=dataset.executions,
+            toolchain=analysis_toolchain(),
         ),
         accounting=dataset.accounting,
         fatal_diagnostics=fatal,

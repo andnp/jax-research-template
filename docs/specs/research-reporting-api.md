@@ -127,7 +127,8 @@ ReportDocument
   exploratory_reasons   why the plan could not be shown to predate the results
   plan, plan_fingerprint  the AnalysisPlan and its sha256 over canonical JSON
   provenance            experiment, experiments_db, generated_at,
-                        component_versions, executions (commit, dirty, host, times)
+                        component_versions, executions (commit, dirty, host, times),
+                        toolchain (research-analysis package_version, git_commit, dirty)
   accounting            per-cell planned/completed/failed/pending/diverged/excluded, unassigned
   fatal_diagnostics, non_fatal_diagnostics
   analyses              [{kind: bakeoff|best_hypers|hypers_difference|slice_hypers, name, [group], report}]
@@ -141,6 +142,11 @@ ReportDocument
 - In JSON, union members carry a `kind` tag. Measures appear as, for example,
   `{"kind": "tail_mean", "fraction": 0.1}`. Cell keys are objects keyed by axis.
 - Serialization is strict: a NaN anywhere raises instead of writing invalid JSON.
+- `provenance.toolchain` names the analysis code that produced the document: the
+  installed `research-analysis` version, the commit of the repository holding its
+  source, and whether that package's source had uncommitted changes. The commit is
+  `"unknown"` and `dirty` is null when git cannot tell, as for an installed copy.
+  A changed default statistic shows up here, not in `plan_status`.
 - A breaking change to this shape increments `schema_version`.
 
 ## 5. Declared plans and the exploratory label
