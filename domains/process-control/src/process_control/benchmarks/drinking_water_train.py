@@ -87,8 +87,20 @@ class DrinkingWaterTrainConfig:
     # Chlorine disinfection (simplified contact basin)
     cl2_dose_max: float = 5.0  # mg/L
     cl2_decay_rate: float = 0.3  # 1/h (first-order in-basin decay)
-    contact_time: float = 0.5  # hours (basin HRT)
+    # HRT = volume/flow (not a fixed constant): sized so mean_flow gives the
+    # same 0.5 h HRT the old fixed contact_time used.
+    contact_basin_volume: float = 100.0  # m³
     cl2_demand_per_tss: float = 0.02  # mg Cl2 / mg/L TSS demand
+
+    # DOC/NOM: raw DOC in the 2-10 mg/L range is typical for surface water
+    # (USGS/AWWA source-water surveys); coagulation removes a fraction of it
+    # per Edwards, JAWWA 89:5:78, 1997, saturating with dose. UF passes DOC
+    # unchanged (it only rejects particulates), so it reaches the chlorine
+    # stage regardless of membrane performance.
+    raw_doc: float = 4.0  # mg/L
+    doc_removal_max: float = 0.4  # fractional DOC removal at saturating dose
+    doc_removal_half_dose: float = 15.0  # mg/L coag dose at half-max removal
+    cl2_demand_per_doc: float = 0.8  # mg Cl2 demand / mg DOC, reduced-order
 
     # Sensors
     tmp_noise_std: float = 500.0
@@ -144,7 +156,11 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
     dose_max = jnp.array(config.coag_dose_max)
     cl2_max = jnp.array(config.cl2_dose_max)
     flux_max = jnp.array(config.flux_max)
+    # NTU->TSS is water-specific; typical reported ratios run ~1-2.5 mg/L per
+    # NTU. 2.5 sits at the high end (unverified for this benchmark's water).
     raw_tss_per_turbidity = jnp.array(2.5)
+    basin_volume = jnp.array(config.contact_basin_volume)
+    raw_doc = jnp.array(config.raw_doc)
     operating_flux = flux_max * 0.7
     max_tmp = jnp.array(config.membrane.max_tmp)
     mean_flow = jnp.array(config.mean_flow)
@@ -247,13 +263,20 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
 
         # 5. Chlorine disinfection
         cl2_dose = jnp.clip(action[2], 0.0, 1.0) * cl2_max
-        # Chlorine demand depends on permeate quality
-        cl2_demand = permeate_tss * config.cl2_demand_per_tss
-        # Simple contact basin: exponential decay with demand
+        # Coagulation removes a saturating fraction of DOC with dose (Edwards
+        # 1997); UF passes whatever DOC remains straight through, unlike TSS.
+        doc_removal = config.doc_removal_max * coag_dose / (coag_dose + config.doc_removal_half_dose)
+        permeate_doc = raw_doc * (1.0 - doc_removal)
+        # Chlorine demand depends on permeate quality: residual particulate
+        # (TSS, now tiny post-membrane) plus dissolved organics (DOC, which
+        # the membrane does not reject).
+        cl2_demand = permeate_tss * config.cl2_demand_per_tss + permeate_doc * config.cl2_demand_per_doc
+        # Contact time is basin HRT = volume/flow, not a fixed constant.
+        contact_time = basin_volume / jnp.maximum(q_permeate, 1e-6)
         applied_cl2 = cl2_dose - cl2_demand
         new_cl2_residual = jnp.maximum(
             0.0,
-            applied_cl2 * jnp.exp(-config.cl2_decay_rate * config.contact_time),
+            applied_cl2 * jnp.exp(-config.cl2_decay_rate * contact_time),
         )
 
         # 6. Sensors
@@ -296,6 +319,8 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             "q_permeate": q_permeate,
             "coag_dose": coag_dose,
             "cl2_dose": cl2_dose,
+            "permeate_doc": permeate_doc,
+            "contact_time": contact_time,
         }
         done = jnp.array(False)
         return new_state, obs, reward, done, info
