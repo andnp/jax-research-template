@@ -41,22 +41,57 @@ class ScrubberSumpParams:
     nominal_volume: float | jax.Array = 5.0  # m³  – design operating level
 
     # ── Oxidant (bleach) kinetics ─────────────────────────────────
-    bleach_yield: float | jax.Array = 1.0  # mg-oxidant / mL-bleach-pumped
+    # `oxidant` and `sulfide` are both tracked on a mg-NaOCl-equivalent /
+    # mg-H2S-equivalent basis (matching the contactor's sulfide_load, which
+    # is mass-transferred H2S, not elemental S) — no extra 32/34 conversion
+    # is needed between them.
+    bleach_yield: float | jax.Array = 1.0  # mg-oxidant (as NaOCl) / mL-bleach-pumped
     oxidant_decay: float | jax.Array = 0.02  # h⁻¹  – natural decomposition (NaOCl → NaCl + O₂)
-    oxidant_sulfide_rate: float | jax.Array = 2.0  # mg-oxidant consumed / mg-sulfide oxidised
+    # At scrubber pH (~9-10) hypochlorite drives sulfide oxidation mostly to
+    # sulfate rather than elemental S (HS- + 4OCl- -> SO4^2- + 4Cl- + H+ vs.
+    # HS- + OCl- -> S + Cl- + OH- at lower pH/limited oxidant); the sulfate
+    # route needs ~8.7 mg NaOCl per mg H2S (4 x 74.44/34.08), not ~2.2:
+    # https://fklaz.com/h2s-removal-from-water-with-sodium-hypochlorite-naocl/
+    oxidant_sulfide_rate: float | jax.Array = 8.7  # mg-oxidant consumed / mg-sulfide oxidised
 
     # ── Alkalinity (caustic) kinetics ─────────────────────────────
-    caustic_yield: float | jax.Array = 0.5  # meq/L per mL-caustic-pumped per m³
-    alkalinity_consumption: float | jax.Array = 0.1  # meq consumed per mg-sulfide absorbed
+    # meq/L per mL-caustic-pumped per m3 == Normality(eq/L) / 1000 (the m3->L
+    # and mL->L factors of 1000 cancel — see _derivatives' caustic_addition).
+    # 50% NaOH: density 1.515 g/mL (https://www.laboratorynotes.com/molarity-of-50-percent-sodium-hydroxide-naoh/),
+    # NaOH MW 40.00 g/mol, 1 eq/mol -> N = 1.515*1000*0.50/40 ~= 18.9 eq/L.
+    caustic_yield: float | jax.Array = 0.019  # meq/L per mL-caustic-pumped per m³ (50% NaOH)
+    # H2S + OH- -> HS- + H2O consumes 1 eq per mol H2S absorbed (MW 34.08
+    # g/mol) -> 1/34.08 = 0.0293 meq/mg; the further acid released by
+    # oxidation to sulfate is charged separately via
+    # oxidation_alkalinity_consumption below, not here.
+    alkalinity_consumption: float | jax.Array = 0.0293  # meq consumed per mg-sulfide absorbed
+    # HS- + 4OCl- -> SO4^2- + 4Cl- + H+ releases 1 eq of acid per mol S
+    # oxidized to sulfate (same 1/34.08 mol-to-mass factor as absorption
+    # above), neutralized by alkalinity rather than by more caustic dosing.
+    oxidation_alkalinity_consumption: float | jax.Array = 0.0293  # meq consumed per mg-sulfide oxidised
 
     # ── Sulfide kinetics ──────────────────────────────────────────
     oxidation_rate: float | jax.Array = 5.0  # mg-sulfide/h per (mg/L oxidant) — first-order-ish
-    stripping_rate: float | jax.Array = 0.5  # h⁻¹  – dissolved sulfide re-stripped to gas
+    stripping_rate: float | jax.Array = 0.5  # h⁻¹  – dissolved H2S(aq) re-stripped to gas
+    # Only un-ionized H2S(aq), not HS-, has a gas-phase vapor pressure to
+    # strip against; see contactor's f_ph (same Henderson-Hasselbalch split).
+    h2s_pka1: float | jax.Array = 7.0  # aqueous pKa1, NIST/EPA IRIS range 6.97-7.06 at 25°C
+    ph_amplitude: float | jax.Array = 3.0  # must match H2SScrubberConfig.sump_ph_amplitude
 
     # ── Temperature ───────────────────────────────────────────────
     ambient_temp: float | jax.Array = 25.0  # °C
     temp_exchange_rate: float | jax.Array = 0.1  # h⁻¹  – heat loss to ambient
-    reaction_heat: float | jax.Array = 0.02  # °C per mg-sulfide oxidised (exothermic)
+    # H2S(g) + 4ClO-(aq) -> SO4^2-(aq) + 4Cl-(aq) + 2H+(aq), Hess's law from
+    # standard formation enthalpies (H2S(g) -20.6, SO4^2-(aq) -909.34,
+    # Cl-(aq) -167.08 kJ/mol: https://www.mrbigler.com/misc/energy-of-formation.PDF;
+    # ClO-(aq) -107.1 kJ/mol, commonly tabulated general-chemistry value,
+    # cross-checked but not from a single primary source) gives
+    # ~-1129 kJ/mol H2S, i.e. 33.1 J/mg; divided by 1 L water's heat capacity
+    # (4.184 J/g/°C * 1000 g/L = 4184 J/(L*°C)) that is ~0.0079 °C per mg/L
+    # oxidised — using H2S(g) rather than H2S(aq) formation enthalpy (not
+    # tabulated in the source above) makes this an approximate, not exact,
+    # figure, but it corrects the prior value's ~2.5x overshoot.
+    reaction_heat: float | jax.Array = 0.008  # °C per mg-sulfide oxidised (exothermic)
 
     # ── Temperature effect on kinetics ────────────────────────────
     temp_reference: float | jax.Array = 25.0  # °C  – reference for Arrhenius-like scaling
@@ -170,12 +205,21 @@ def _derivatives(
     # H2S(g) + OH- -> HS- + H2O: absorbing H2S directly neutralizes caustic,
     # independent of whether bleach later oxidises the dissolved sulfide.
     alk_consumed = params.alkalinity_consumption * sulfide_addition
+    # The oxidation step to sulfate releases its own acid (see
+    # oxidation_alkalinity_consumption above), a second, independent draw on
+    # alkalinity keyed to how much sulfide is actually oxidised, not absorbed.
+    alk_consumed_by_oxidation = params.oxidation_alkalinity_consumption * oxidation
     dilution_alk = makeup_m3_h / vol * state.alkalinity
-    d_alkalinity = caustic_addition - alk_consumed - dilution_alk
+    d_alkalinity = caustic_addition - alk_consumed - alk_consumed_by_oxidation - dilution_alk
 
     # ── Sulfide balance ───────────────────────────────────────────
+    # Only un-ionized H2S(aq) has a vapor pressure to strip against; HS-
+    # stays in solution (Henderson-Hasselbalch, same form as the contactor's
+    # f_ph — see module docstring there).
+    ph = compute_ph(state, params.ph_amplitude)
+    h2s_aq_fraction = 1.0 / (1.0 + jnp.power(10.0, ph - params.h2s_pka1))
     sulfide_oxidised = oxidation
-    sulfide_stripped = params.stripping_rate * state.sulfide
+    sulfide_stripped = params.stripping_rate * state.sulfide * h2s_aq_fraction
     dilution_sulfide = makeup_m3_h / vol * state.sulfide
     d_sulfide = sulfide_addition - sulfide_oxidised - sulfide_stripped - dilution_sulfide
 
@@ -270,8 +314,8 @@ def compute_orp(
     Typical scrubber ORP range: 200–800 mV.
 
     For a real hypochlorite system the Nernst relation also carries a pH
-    term (E = E0 - (RT/2F) ln([ClO-][OH-]^2), i.e. ORP falls as pH rises
-    for fixed oxidant) — see Emerson, "ORP Measurement Fundamentals",
+    term (OCl- + H2O + 2e- -> Cl- + 2OH-, so E = E0 - (RT/2F) ln([Cl-][OH-]^2/[ClO-]),
+    i.e. ORP falls as pH rises for fixed oxidant) — see Emerson, "ORP Measurement Fundamentals",
     https://www.emerson.co.jp/is/content/emerson/en/measurement-instrumentation/technical/products/unaudited/documents/dl-rmt-00800-0100-4044.pdf
     """
     # Nernst-like: ORP ∝ log(oxidant / sulfide)

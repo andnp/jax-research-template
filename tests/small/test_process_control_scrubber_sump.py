@@ -1,5 +1,7 @@
 """Tests for the scrubber sump chemistry model."""
 
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -122,6 +124,49 @@ def test_sulfide_load_increases_sulfide(params: ScrubberSumpParams, rng: jax.Arr
     assert state.sulfide > 0.1, "Sulfide load should increase dissolved sulfide"
 
 
+def test_stripping_throttled_at_high_ph(params: ScrubberSumpParams, rng: jax.Array):
+    """Only un-ionized H2S(aq) strips; at high pH almost all sulfide is HS-, so stripping stalls."""
+    no_oxidation = replace(params, oxidation_rate=0.0)
+    dt = jnp.array(1.0 / 12.0)
+    zero = SumpInputs(
+        bleach_flow=jnp.array(0.0),
+        caustic_flow=jnp.array(0.0),
+        makeup_flow=jnp.array(0.0),
+        sulfide_load=jnp.array(0.0),
+    )
+
+    low_ph_state = ScrubberSumpState.create(sulfide=5.0, alkalinity=0.0, oxidant=0.0)
+    high_ph_state = ScrubberSumpState.create(sulfide=5.0, alkalinity=50.0, oxidant=0.0)
+    for _ in range(20):
+        low_ph_state, _ = step(low_ph_state, zero, no_oxidation, dt)
+        high_ph_state, _ = step(high_ph_state, zero, no_oxidation, dt)
+
+    assert low_ph_state.sulfide < high_ph_state.sulfide, (
+        "Low-pH (more un-ionized H2S) sulfide should strip out faster than high-pH sulfide"
+    )
+
+
+def test_oxidation_consumes_alkalinity_independent_of_absorption(params: ScrubberSumpParams, rng: jax.Array):
+    """Oxidizing sulfide to sulfate releases acid that must draw down alkalinity too."""
+    dt = jnp.array(1.0 / 12.0)
+    zero_load = SumpInputs(
+        bleach_flow=jnp.array(0.0),
+        caustic_flow=jnp.array(0.0),
+        makeup_flow=jnp.array(0.0),
+        sulfide_load=jnp.array(0.0),
+    )
+
+    oxidizing = ScrubberSumpState.create(oxidant=10.0, sulfide=5.0, alkalinity=10.0)
+    not_oxidizing = ScrubberSumpState.create(oxidant=0.0, sulfide=5.0, alkalinity=10.0)
+    for _ in range(20):
+        oxidizing, _ = step(oxidizing, zero_load, params, dt)
+        not_oxidizing, _ = step(not_oxidizing, zero_load, params, dt)
+
+    assert oxidizing.alkalinity < not_oxidizing.alkalinity, (
+        "Active oxidation must consume more alkalinity than absorption alone"
+    )
+
+
 def test_oxidant_consumes_sulfide(params: ScrubberSumpParams, rng: jax.Array):
     """When both oxidant and sulfide are present, oxidation should consume both."""
     state = ScrubberSumpState.create(oxidant=10.0, sulfide=5.0)
@@ -230,7 +275,10 @@ def test_more_substeps_refines_without_changing_a_well_behaved_answer(
     fine, _ = step(initial, inputs, params, dt, substeps=50)
 
     assert jnp.allclose(coarse.alkalinity, fine.alkalinity, atol=1e-2)
-    assert jnp.allclose(coarse.oxidant, fine.oxidant, atol=1e-1)
+    # oxidant_sulfide_rate's corrected (sulfate-route) value makes oxidant
+    # consumption per unit of oxidation steeper, widening the coarse-vs-fine
+    # gap at substeps=1; still tight relative to the ~2.0 oxidant scale here.
+    assert jnp.allclose(coarse.oxidant, fine.oxidant, atol=0.25)
     assert jnp.allclose(coarse.sulfide, fine.sulfide, atol=0.05)
 
 
