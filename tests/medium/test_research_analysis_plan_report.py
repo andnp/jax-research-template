@@ -11,14 +11,15 @@ from pathlib import Path
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from experiment_definition.parameter import ParameterValue
 from research_analysis.comparison import BakeoffSpec
-from research_analysis.dataset.types import ExperimentDimensions
+from research_analysis.dataset.types import ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import IncompleteCell
-from research_analysis.plan import AnalysisPlan, BakeoffAnalysis
+from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, against_baseline
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import PLAN_HISTORY_FILE, PlanSnapshot, read_plan_snapshots, record_plan_snapshot
-from research_analysis.report import PlanStatus, ReportStatus
-from research_analysis.report_json import plan_fingerprint
+from research_analysis.report import BakeoffResult, PlanStatus, ReportStatus
+from research_analysis.report_json import plan_fingerprint, report_to_json
 
 STARTED = "2026-01-02T00:00:00+00:00"
 BEFORE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -56,9 +57,10 @@ class _Experiment:
         status: str = "COMPLETED",
         artifacts: bool = True,
         started: str = STARTED,
+        hyperparameters: dict[str, ParameterValue] | None = None,
     ) -> int:
         with DatabaseManager(self.db_path) as database:
-            hyper_id = database.add_hyperparam_config({"condition_name": condition, "seed": seed})
+            hyper_id = database.add_hyperparam_config({**(hyperparameters or {}), "condition_name": condition, "seed": seed})
             run_id = database.add_run(self.experiment_id, self.algo, self.env, hyper_id, seed)
             execution_id = database.add_execution(git_commit="abc123")
             database.link_execution_run(execution_id, run_id)
@@ -83,6 +85,47 @@ def _complete(root: Path, seeds: int = 5, started: str = STARTED) -> _Experiment
 
 def _declared_before() -> tuple[PlanSnapshot, ...]:
     return (PlanSnapshot(plan_fingerprint(PLAN), BEFORE, "{}"),)
+
+
+ARMS = ("adversarial", "ortho", "shared")
+PER_ARM_PLAN = AnalysisPlan(
+    "return",
+    (
+        BakeoffAnalysis(
+            "per_eta", ARMS, pairs=against_baseline(ARMS, "shared"), block_by=("eta",), shared_across=("eta",)
+        ),
+        BakeoffAnalysis(
+            "tuned", ARMS, pairs=against_baseline(ARMS, "shared"), select_champion_over=("eta",), untuned=("shared",)
+        ),
+    ),
+    ExperimentDimensions(
+        sweep_axes=(SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial", "ortho")}),)
+    ),
+    stats=BakeoffSpec(n_resamples=100),
+)
+
+
+class TestPerArmAxisPlan:
+    def test_an_axis_on_several_arms_with_a_fixed_referent_is_one_declared_plan(self, tmp_path: Path) -> None:
+        """One dataset, one plan: the referent joins every eta block, then stands untuned beside eta-tuned arms."""
+        experiment = _Experiment(tmp_path)
+        for seed in range(5):
+            experiment.add_run("shared", seed, float(seed))
+            for condition, gain in (("adversarial", 1.0), ("ortho", 2.0)):
+                for eta in (2.0, 5.0):
+                    experiment.add_run(condition, seed, seed + gain * eta, hyperparameters={"eta": eta})
+        snapshots = (PlanSnapshot(plan_fingerprint(PER_ARM_PLAN), BEFORE, "{}"),)
+
+        document = run_plan(experiment.db_path, "demo", PER_ARM_PLAN, snapshots)
+
+        assert (document.status, document.plan_status) == (ReportStatus.OK, PlanStatus.DECLARED)
+        per_eta, tuned = (result.report for result in document.analyses if isinstance(result, BakeoffResult))
+        assert per_eta.shared_across == {"eta": ("shared",)}
+        assert per_eta.difference("ortho", "shared", "5.0").estimate == pytest.approx(10.0)
+        assert tuned.untuned == ("shared",)
+        assert tuned.difference("ortho", "shared").estimate == pytest.approx(10.0, abs=0.5)
+        assert sum(cell.completed for cell in document.accounting.cells) == 25
+        assert json.loads(report_to_json(document))["analyses"][0]["report"]["shared_across"] == {"eta": ["shared"]}
 
 
 class TestPlanStatus:
