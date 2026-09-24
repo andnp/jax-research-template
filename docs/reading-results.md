@@ -167,8 +167,9 @@ final training step.
 
 Reporting the best raw mean on the seeds that selected it overstates
 performance. `best_hypers` returns the raw champion mean, the corrected mean
-from core's hierarchical per-sample bootstrap (the selection is re-run inside
-every resample), the gap between the two (maximization bias), and a CI. That CI
+from core's hierarchical per-sample bootstrap, which draws each resampled run's
+configuration from the bootstrap distribution of which configuration wins, the
+gap between the two (maximization bias), and a CI. That CI
 describes a champion chosen by this procedure. It is not an estimate on held-out
 seeds. There is no cross-fitting.
 

@@ -32,15 +32,21 @@ the performance and the certainty.
 
 ### The method: hierarchical per-sample bootstrap
 `research_analysis.tuning` (behind `best_hypers` and `bakeoff_report(...,
-select_champion_over=...)`) resamples runs and re-runs the champion selection inside
-every resample, so the interval includes the uncertainty in which configuration wins.
+select_champion_over=...)`) puts the uncertainty in which configuration wins into the
+interval, in two levels:
 
 1.  **Collect data:** run the same seeds under every configuration in the grid.
     Configurations are paired by seed, and runs whose seed is missing from some
     configuration are listed as `unpaired_run_ids` and left out.
-2.  **Resample and reselect:** each bootstrap sample resamples seeds, picks that
-    sample's champion, and records its score.
-3.  **Report:** the corrected mean and its percentile interval, the raw champion mean,
+2.  **Selection distribution:** repeatedly resample runs with replacement for every
+    configuration and record which configuration has the best resampled mean. This
+    gives the empirical probability that each configuration would be chosen, and its
+    entropy.
+3.  **Performance under selection:** each bootstrap mean averages resampled runs,
+    drawing the configuration **per sample** from the selection distribution. That
+    averages over the whole selection mixture instead of committing each replicate to
+    a single winner.
+4.  **Report:** the corrected mean and its percentile interval, the raw champion mean,
     their gap (the maximization bias), and the normalized selection entropy (0 when
     one configuration always wins).
 
