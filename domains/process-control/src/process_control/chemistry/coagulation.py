@@ -11,6 +11,15 @@ destabilisation. The dose-response follows a re-stabilisation curve:
 
 This gives a peaked curve with maximum at dose_opt, declining on both sides.
 Influent turbidity and NOM affect the optimal dose.
+
+The peaked exp(1-x)*x^alpha form and dose_opt ~ turbidity^0.5 scaling are
+reduced-order engineering assumptions (qualitatively consistent with
+charge-neutralization dose-response curves reported in coagulation
+literature, e.g. Edwards, "Predicting DOC Removal During Enhanced
+Coagulation", JAWWA 89:5:78, 1997), not fit to a specific plant or water.
+NOM/DOC is not yet a tracked state here, so dose_opt only responds to
+turbidity; a DOC-driven optimal dose would need a DOC signal upstream
+(see benchmarks/drinking_water_train.py for where DOC is tracked).
 """
 
 from dataclasses import dataclass
