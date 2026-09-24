@@ -16,6 +16,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
+from research_analysis.comparison import Estimand
+from research_analysis.permutation import run_permutation_test
 from research_analysis.statistics import (
     pointwise_tolerance_interval,
     tolerance_interval_confidence,
@@ -24,6 +26,7 @@ from research_analysis.statistics import (
 from scipy import stats
 
 CONFIDENCE = 0.95
+ALPHA = 0.05
 N_RESAMPLES = 1000
 
 type Sampler = Callable[[np.random.Generator, int | tuple[int, ...]], NDArray[np.float64]]
@@ -238,3 +241,42 @@ def test_tolerance_interval_contains_proportion_with_stated_confidence(
     exact = tolerance_interval_confidence(n, coverage=proportion, rank_span=upper - lower)
     assert exact >= confidence
     assert abs(achieved - exact) <= mc_band(exact, replicates), (achieved, exact)
+
+
+# ── Type-I error of permutation tests ─────────────────────────────────────
+
+
+def paired_permutation_rejection_rate(
+    distribution: RunDistribution, n: int, estimand: Estimand, replicates: int, rng: np.random.Generator
+):
+    # 2**10 resamples makes the n=10 test exact; larger n uses a randomized test.
+    n_resamples = 2**n if n <= 10 else 999
+    rejections = 0
+    for _ in range(replicates):
+        values_a, values_b = paired_samples(distribution, n, 0.0, rng)
+        result = run_permutation_test(
+            values_a, values_b, estimand=estimand, pairing="paired", n_resamples=n_resamples, rng=rng
+        )
+        rejections += result.p_value < ALPHA
+    return rejections / replicates
+
+
+@pytest.mark.parametrize(
+    ("distribution", "n", "estimand"),
+    [(NORMAL, 10, "mean"), (NORMAL, 30, "mean"), (CATASTROPHIC, 10, "mean"), (CATASTROPHIC, 30, "mean"), (CATASTROPHIC, 10, "median")],
+    ids=lambda value: value.name if isinstance(value, RunDistribution) else str(value),
+)
+def test_paired_permutation_test_holds_its_size(distribution: RunDistribution, n: int, estimand: Estimand) -> None:
+    """Under a true null with a shared seed effect, the paired test rejects at most alpha of the time."""
+    replicates = 1000
+    rate = paired_permutation_rejection_rate(distribution, n, estimand, replicates, np.random.default_rng(0))
+
+    assert rate <= ALPHA + mc_band(ALPHA, replicates), rate
+
+
+def test_paired_permutation_test_is_not_overly_conservative() -> None:
+    """With enough runs for fine p-values, the paired test uses its whole alpha budget, so it keeps power."""
+    replicates = 1000
+    rate = paired_permutation_rejection_rate(NORMAL, 30, "mean", replicates, np.random.default_rng(1))
+
+    assert rate >= ALPHA - mc_band(ALPHA, replicates), rate
