@@ -111,6 +111,19 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
             "from .registry import registered_specs, spec\nfrom .types import ExperimentSpec\n",
             encoding="utf-8",
         )
+    elif import_name == "research_analysis":
+        stubs = {
+            "plan": "def registered_plans(module): return {}\n",
+            "plan_report": "def run_plan(*a): pass\n",
+            "plan_snapshots": "def read_plan_snapshots(root): return ()\n\n\ndef record_plan_snapshot(plan, root): pass\n",
+            "report": "from enum import StrEnum\n\n\nclass ReportStatus(StrEnum):\n"
+            '    OK = "ok"\n    LOAD_FAILED = "load_failed"\n    ANALYSIS_FAILED = "analysis_failed"\n',
+            "report_json": "def report_to_json(document): return ''\n",
+            "report_markdown": "def render_markdown(document): return ''\n\n\ndef render_summary(document): return ''\n",
+            "report_plots": "def write_report_plots(document, output_dir): return document\n",
+        }
+        for module, source in stubs.items():
+            (src_dir / f"{module}.py").write_text(source, encoding="utf-8")
 
 
 def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) -> None:
@@ -127,6 +140,7 @@ def _create_core_fixture(repo_root: Path, core_root: Path, env: dict[str, str]) 
     _write_fake_stub_package(core_root, "experiment-definition", "experiment_definition")
     _write_fake_stub_package(core_root, "research-runner", "research_runner")
     _write_fake_stub_package(core_root, "research-cluster", "research_cluster")
+    _write_fake_stub_package(core_root, "research-analysis", "research_analysis")
     _git(core_root, env, "add", ".")
     _git(core_root, env, "commit", "-m", "fixture core")
 
