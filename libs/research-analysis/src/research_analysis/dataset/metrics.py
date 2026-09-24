@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
+from itertools import batched
 from pathlib import Path
 
 import polars as pl
@@ -45,6 +46,49 @@ def _metric_query_batches(
         for start in range(0, len(pairs), pair_limit):
             queries.append(_metric_query_pairs(pairs[start : start + pair_limit], metric_batch))
     return queries
+
+
+def load_scalar_metric_frames(
+    database_path: Path | str,
+    *,
+    experiment_id: int,
+    run_execution_pairs: list[tuple[int, int]],
+    execution_ids: list[int],
+    metrics: tuple[str, ...] | None,
+) -> list[pl.DataFrame]:
+    """Load scalar rows for selected run and execution identities."""
+    run_execution_pairs = list(dict.fromkeys(run_execution_pairs))
+    execution_ids = list(dict.fromkeys(execution_ids))
+    if (
+        not execution_ids
+        or metrics == ()
+        or load_sqlite_query(database_path, "SELECT 1 FROM sqlite_master WHERE name = 'scalar_metrics'").is_empty()
+    ):
+        return []
+
+    metric_parameters = metrics or ()
+    metric_filter = f" AND metric_name IN ({','.join('?' for _ in metrics)})" if metrics else ""
+    execution_limit = _MAX_SQL_PARAMETERS - 1 - len(metric_parameters)
+    if execution_limit < 1:
+        raise ValueError("metric selection exceeds SQLite's parameter limit")
+
+    frame = pl.concat(
+        load_sqlite_query(
+            database_path,
+            "SELECT scope, metric_name, experiment_id, run_id, seed_id, execution_id, value "
+            f"FROM scalar_metrics WHERE experiment_id = ? AND execution_id IN ({','.join('?' for _ in batch)})"
+            f"{metric_filter}",
+            (experiment_id, *batch, *metric_parameters),
+        )
+        for batch in batched(execution_ids, execution_limit, strict=False)
+    )
+    run_rows = frame.filter(pl.col("scope") == "run").join(
+        pl.DataFrame(run_execution_pairs, schema={"run_id": pl.Int64, "execution_id": pl.Int64}, orient="row"),
+        on=["run_id", "execution_id"],
+        how="inner",
+    )
+    rows = pl.concat([frame.filter(pl.col("scope") == "execution"), run_rows])
+    return [] if rows.is_empty() else [rows]
 
 
 def load_metric_frames(
