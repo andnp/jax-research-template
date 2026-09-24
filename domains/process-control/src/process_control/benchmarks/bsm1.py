@@ -376,6 +376,22 @@ def make_bsm1_benchmark(
 
     influent = asm1_reset(config.initial_states.influent, jax.random.PRNGKey(0))
 
+    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
+        return (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
+
+    def _observe(
+        nh4e: jax.Array,
+        no3e: jax.Array,
+        do3: jax.Array,
+        do5: jax.Array,
+        no3r2: jax.Array,
+        q_in: jax.Array,
+        nh4i: jax.Array,
+        aeration_power: jax.Array,
+        dq_dt: jax.Array,
+    ):
+        return jnp.array([nh4e / 35.0, no3e / 20.0, do3 / 8.0, do5 / 8.0, no3r2 / 20.0, q_in / mean_flow, nh4i / 35.0, aeration_power, dq_dt])
+
     def reset(rng_key: jax.Array) -> tuple[BSM1PlantState, jax.Array]:
         k1, k2, k3 = jax.random.split(rng_key, 3)
 
@@ -410,19 +426,16 @@ def make_bsm1_benchmark(
             sensors=sensors,
         )
 
-        effluent, _ = _clarify_asm1(r5, mean_flow, mean_flow * return_sludge_ratio, mean_flow * config.waste_sludge_ratio)
-        obs = jnp.array(
-            [
-                effluent.s_nh / 35.0,
-                effluent.s_no / 20.0,
-                r3.s_o / 8.0,
-                r5.s_o / 8.0,
-                r2.s_no / 20.0,
-                mean_flow / mean_flow,
-                influent.s_nh / 35.0,
-                0.0,  # aeration power (no action yet)
-                0.0,  # dq/dt
-            ]
+        obs = _observe(
+            sensors.nh4_eff.held_value,
+            sensors.no3_eff.held_value,
+            kla_34_state.sensor_value,
+            kla_5_state.sensor_value,
+            sensors.no3_r2.held_value,
+            mean_flow,
+            sensors.nh4_inf.held_value,
+            _aeration_power(kla_34_state.pump_output, kla_5_state.pump_output),
+            jnp.array(0.0),
         )
         return plant_state, obs
 
@@ -493,7 +506,7 @@ def make_bsm1_benchmark(
         new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
         new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
 
-        aeration_power = (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
+        aeration_power = _aeration_power(kla_34, kla_5)
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
         new_sensors = BSM1ObsSensors(
@@ -504,19 +517,7 @@ def make_bsm1_benchmark(
             last_q_in=q_in,
         )
 
-        obs = jnp.array(
-            [
-                nh4e_reading / 35.0,
-                no3e_reading / 20.0,
-                do3_reading / 8.0,
-                do5_reading / 8.0,
-                no3r2_reading / 20.0,
-                q_in / mean_flow,
-                nh4i_reading / 35.0,
-                aeration_power,
-                dq_dt,
-            ]
-        )
+        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration_power, dq_dt)
 
         reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2)
 
