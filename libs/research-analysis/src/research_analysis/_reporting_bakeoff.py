@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from research_analysis._reporting_console import _present_bakeoff_report
 from research_analysis._reporting_hypers import _load_dataset_hyperparameter_records, best_hypers
 from research_analysis._reporting_models import (
     BakeoffReport,
@@ -434,7 +433,6 @@ def bakeoff_report(
     spec: BakeoffSpec | None = None,
     higher_is_better: bool = True,
     min_seeds: int = 5,
-    verbose: bool = True,
     measure: PerformanceMeasure = FINAL_VALUE,
     pairs: Sequence[tuple[str, str]] | None = None,
 ) -> BakeoffReport:
@@ -655,8 +653,5 @@ def bakeoff_report(
         comparison_confidence=comparison_confidence,
         warnings=tuple(warnings),
     )
-
-    if verbose:
-        _present_bakeoff_report(report, dataset.experiment_name)
 
     return report

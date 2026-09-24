@@ -85,7 +85,7 @@ _SCORES = {"base": [1.0, 2.0, 3.0, 4.0], "new": [2.0, 3.5, 4.0, 6.0]}
 
 def _bakeoff_document(dataset: ExperimentDataset) -> dict[str, Any]:
     report = bakeoff_report(
-        dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False, measure=TailMean(0.5)
+        dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), measure=TailMean(0.5)
     )
     return json.loads(report_to_json(exploratory_report(dataset, Path("experiments.sqlite"), [BakeoffResult("headline", report)])))
 
@@ -137,7 +137,7 @@ class TestReportJson:
     def test_a_non_finite_number_fails_serialization(self) -> None:
         """Strict JSON: a NaN reaching a report is an error, not an unparseable file."""
         dataset = _dataset(_SCORES)
-        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
         broken = replace(report, comparison_confidence=math.nan)
 
         with pytest.raises(ValueError, match="JSON compliant"):
@@ -167,7 +167,7 @@ class TestReportMarkdown:
     def test_every_interval_states_its_confidence_and_no_spread_is_written_as_plus_minus(self) -> None:
         """Honest display: CIs carry their level, family CIs their adjusted level, and nothing reads 'mean ± x'."""
         dataset = _dataset({"a": [1.0, 2.0, 3.0, 4.0], "b": [2.0, 3.0, 3.5, 6.0], "c": [0.0, 1.0, 1.5, 2.0]})
-        report = bakeoff_report(dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+        report = bakeoff_report(dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=50))
 
         text = _markdown(dataset, [BakeoffResult("headline", report)])
 
@@ -180,7 +180,7 @@ class TestReportMarkdown:
         """A cell or pair below min_samples appears with its reason instead of silently vanishing."""
         dataset = _dataset({"a": [1.0, 2.0, 3.0], "b": [2.0, 3.0, 4.0], "c": [5.0, 6.0]})
         report = bakeoff_report(
-            dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+            dataset, "return", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50)
         )
 
         text = _markdown(dataset, [BakeoffResult("headline", report)])
@@ -192,7 +192,7 @@ class TestReportMarkdown:
         """A reader meets failed and pending runs before any number built on the survivors."""
         pending = DatasetDiagnostic(DiagnosticCode.RUN_PENDING, "run 8 has not completed yet", 8)
         dataset = _dataset(_SCORES, (pending,))
-        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
 
         text = _markdown(dataset, [BakeoffResult("headline", report)])
 
@@ -204,7 +204,7 @@ class TestReportMarkdown:
         """With a fatal diagnostic the rendering says no results are reported and shows none."""
         fatal = DatasetDiagnostic(DiagnosticCode.MALFORMED_ARTIFACT, "run 7 has no metrics database", 7)
         dataset = _dataset(_SCORES, (fatal,))
-        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+        report = bakeoff_report(dataset, "return", ["base", "new"], spec=BakeoffSpec(n_resamples=50))
 
         text = _markdown(dataset, [BakeoffResult("headline", report)])
 

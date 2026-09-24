@@ -155,7 +155,7 @@ def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: Experim
         for seed in range(4):
             _add_observation(setup, {"condition_name": condition}, seed, 100.0 + seed + (50.0 if condition == "candidate" else 0.0))
 
-    report = bakeoff_report(_load(setup), "metric", ["baseline", "candidate"], verbose=False)
+    report = bakeoff_report(_load(setup), "metric", ["baseline", "candidate"])
 
     diff = report.difference("baseline", "candidate").estimate
     assert diff is not None
@@ -179,7 +179,7 @@ def test_a_crashed_seed_fails_the_bakeoff_naming_the_cell_and_its_outcome(temp_e
     dataset = load_experiment_dataset(setup["db_path"], "test-exp", partial=True)
 
     with pytest.raises(IncompleteBlocksError, match="complete_case") as raised:
-        bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
+        bakeoff_report(dataset, "metric", ["a", "b"])
 
     assert raised.value.cells == (IncompleteCell("a", "", (4,), failed=1, pending=0, excluded=0),)
 
@@ -192,7 +192,7 @@ def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: Experim
     dataset = _load(setup)
 
     with pytest.raises(IncompleteBlocksError):
-        bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
+        bakeoff_report(dataset, "metric", ["a", "b"])
 
     # complete_case no longer raises -- it pairs down to the shared seeds {0, 1, 2}
     # for the comparison itself, though cells still report each condition's
@@ -201,7 +201,6 @@ def test_bakeoff_report_honors_missingness_policy(temp_experiment_setup: Experim
         dataset,
         "metric",
         ["a", "b"],
-        verbose=False,
         spec=BakeoffSpec(missingness="complete_case", n_resamples=64),
     )
     assert report.cells["a"][""].n == 4
@@ -624,7 +623,6 @@ def test_bakeoff_report_consumes_canonical_environment_dimension(temp_experiment
         "metric",
         algorithms,
         block_by=["env_name"],
-        verbose=False,
     )
 
     assert report.conditions == algorithms
@@ -647,7 +645,6 @@ def test_bakeoff_report_retains_blockwise_missingness(temp_experiment_setup: Exp
         "metric",
         algorithms,
         block_by=["env_name"],
-        verbose=False,
     )
 
     assert report.omnibus is not None
@@ -669,7 +666,6 @@ def test_bakeoff_report_cells_respect_a_median_estimand(temp_experiment_setup: E
         "metric",
         algorithms,
         block_by=["env_name"],
-        verbose=False,
         spec=BakeoffSpec(estimand="median", missingness="blockwise"),
     )
 
@@ -690,7 +686,6 @@ def test_bakeoff_report_accepts_two_conditions(temp_experiment_setup: Experiment
         "metric",
         algorithms,
         block_by=["env_name"],
-        verbose=False,
     )
 
     assert report.conditions == algorithms
@@ -710,7 +705,6 @@ def test_bakeoff_report_reports_a_signed_difference_and_ci_per_pair(temp_experim
         "metric",
         ["ppo", "sac"],
         block_by=["env_name"],
-        verbose=False,
     )
 
     assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(2.0)
@@ -732,7 +726,7 @@ def test_bakeoff_report_compares_environments_block_by_block(temp_experiment_set
             _add_observation(setup, {"algorithm": "sac", "env_source": environment}, seed, 0.0)
     dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-    report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+    report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=50))
 
     assert report.difference("ppo", "sac", "cartpole").estimate == pytest.approx(5.1)
     assert report.difference("ppo", "sac", "mountaincar").estimate == pytest.approx(-99.9)
@@ -748,7 +742,7 @@ class TestBakeoffReport:
         dataset = _load(setup)
 
         with pytest.raises(ValueError, match="at least 2 conditions"):
-            bakeoff_report(dataset, "metric", ["a"], verbose=False)
+            bakeoff_report(dataset, "metric", ["a"])
 
     def test_no_blocking_no_selection_mirrors_a_plain_pairwise_comparison(
         self, temp_experiment_setup: ExperimentSetup
@@ -759,7 +753,7 @@ class TestBakeoffReport:
                 _add_curve_observation(setup, {"condition_name": condition}, seed, [base, base, base])
         dataset = _load(setup)
 
-        report = bakeoff_report(dataset, "metric", ["a", "b"], verbose=False)
+        report = bakeoff_report(dataset, "metric", ["a", "b"])
 
         assert report.champions is None
         assert report.cells["a"][""].n == 6
@@ -793,7 +787,6 @@ class TestBakeoffReport:
             ["a", "b"],
             select_champion_over=["learning_rate"],
             block_by=["env_name"],
-            verbose=False,
         )
 
         assert report.champions is not None
@@ -813,14 +806,14 @@ class TestBakeoffReport:
         dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
         with pytest.raises(ValueError, match="select_champion_over must name exactly"):
-            bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["not_a_real_axis"], verbose=False)
+            bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["not_a_real_axis"])
 
     def test_flags_a_boundary_champion_on_a_coarse_grid(self, temp_experiment_setup: ExperimentSetup) -> None:
         """Only two swept values: whichever wins is necessarily at an edge of the grid."""
         dataset = self._two_value_sweep(temp_experiment_setup, (1e-4, 1e-2), SweepValueType.FLOAT)
 
         report = bakeoff_report(
-            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], verbose=False
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"]
         )
 
         boundary_warnings = [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
@@ -831,7 +824,7 @@ class TestBakeoffReport:
         dataset = self._two_value_sweep(temp_experiment_setup, ("low", "high"), SweepValueType.STRING)
 
         report = bakeoff_report(
-            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], verbose=False
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"]
         )
 
         assert not [w for w in report.warnings if w.code == BakeoffWarningCode.HYPERPARAMETER_AT_BOUNDARY]
@@ -863,7 +856,7 @@ class TestNonFiniteChampionInputs:
                 _add_observation(setup, {"condition_name": condition}, seed, value)
 
         with pytest.raises(NonFiniteValuesError) as error:
-            bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False)
+            bakeoff_report(_load(setup), "metric", ["a", "b"])
 
         assert error.value.offenders.select(["condition_name", "seed"]).to_dicts() == [{"condition_name": "b", "seed": 2}]
 
@@ -903,7 +896,7 @@ class TestDuplicateSeedObservations:
         _add_observation(setup, {"condition_name": "a"}, 1, 9.0, ablation="no_target")
 
         with pytest.raises(ValueError, match="condition 'a' in block '' has more than one run for seed 1"):
-            bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False)
+            bakeoff_report(_load(setup), "metric", ["a", "b"])
 
 
 class TestUnpairedRunReporting:
@@ -992,7 +985,7 @@ class TestDeclaredMeasure:
             _add_curve_observation(setup, {"condition_name": "a"}, seed, [0.0, 2.0, 4.0, 6.0])
             _add_curve_observation(setup, {"condition_name": "b"}, seed, [1.0, 1.0, 1.0, 1.0])
 
-        report = bakeoff_report(_load(setup), "metric", ["a", "b"], verbose=False, measure=TailMean(0.5))
+        report = bakeoff_report(_load(setup), "metric", ["a", "b"], measure=TailMean(0.5))
 
         assert report.measure == TailMean(0.5)
         assert report.cells["a"][""].estimate == pytest.approx(5.0)
@@ -1009,7 +1002,7 @@ class TestBakeoffCells:
             _add_observation(setup, {"condition_name": "b"}, seed, value_b)
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b"], spec=BakeoffSpec(estimand="median", n_resamples=200), verbose=False
+            _load(setup), "metric", ["a", "b"], spec=BakeoffSpec(estimand="median", n_resamples=200)
         )
 
         cell = report.cells["a"][""]
@@ -1027,7 +1020,7 @@ class TestBakeoffCells:
                 _add_observation(setup, {"condition_name": condition, "env_name": "e"}, seed, float(seed))
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50)
         )
 
         cell = report.cells["c"][""]
@@ -1041,7 +1034,7 @@ class TestBakeoffCells:
                 _add_observation(setup, {"condition_name": condition, "env_name": "e"}, seed, float(seed))
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50)
         )
 
         cell = report.cells["c"][""]
@@ -1062,7 +1055,7 @@ class TestBakeoffCells:
             _add_observation(setup, {"condition_name": "c"}, seed, float(seed % 5))
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50)
         )
 
         flagged = {w.condition for w in report.warnings if w.code == BakeoffWarningCode.SMALL_SAMPLE_COVERAGE}
@@ -1078,9 +1071,9 @@ class TestBakeoffCells:
             _add_observation(setup, {"condition_name": "b"}, seed, float(seed % 3))
         spec = BakeoffSpec(n_resamples=50, tolerance_coverage=0.7)
 
-        enough = bakeoff_report(_load(setup), "metric", ["a", "b"], spec=spec, verbose=False).cells["a"][""]
+        enough = bakeoff_report(_load(setup), "metric", ["a", "b"], spec=spec).cells["a"][""]
         strict = bakeoff_report(
-            _load(setup), "metric", ["a", "b"], spec=replace(spec, tolerance_coverage=0.9), verbose=False
+            _load(setup), "metric", ["a", "b"], spec=replace(spec, tolerance_coverage=0.9)
         ).cells["a"][""]
 
         expected = pointwise_tolerance_interval(np.arange(14.0), confidence=0.95, coverage=0.7)
@@ -1098,7 +1091,7 @@ class TestBakeoffCells:
         dataset = _load(setup)
         median_run = dataset.runs.filter((pl.col("condition_name") == "a") & (pl.col("seed") == 0))["run_id"].item()
 
-        report = bakeoff_report(dataset, "metric", ["a", "b"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+        report = bakeoff_report(dataset, "metric", ["a", "b"], spec=BakeoffSpec(n_resamples=50))
 
         assert report.cells["a"][""].median_run_id == median_run
 
@@ -1112,7 +1105,7 @@ class TestBakeoffCells:
         dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
         report = bakeoff_report(
-            dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20), verbose=False
+            dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20)
         )
 
         ppo = sorted((run.seed, run.value) for run in report.runs if run.condition == "ppo")
@@ -1131,7 +1124,7 @@ def test_bakeoff_blocks_by_a_declared_sweep_axis(temp_experiment_setup: Experime
     dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
 
     report = bakeoff_report(
-        dataset, "metric", ["a", "b"], block_by=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+        dataset, "metric", ["a", "b"], block_by=["learning_rate"], spec=BakeoffSpec(n_resamples=50)
     )
 
     assert report.cells["a"]["low"].n == 3
@@ -1149,7 +1142,7 @@ class TestRunDistributionFigures:
                 _add_observation(setup, {"algorithm": "sac", "env_source": environment}, seed, 1.0)
         dataset = _load(setup, ExperimentDimensions(condition="algorithm", environment="env_source"))
 
-        report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20), verbose=False)
+        report = bakeoff_report(dataset, "metric", ["ppo", "sac"], block_by=["env_name"], spec=BakeoffSpec(n_resamples=20))
 
         paths = write_bakeoff_plots(report, tmp_path, "headline")
 
@@ -1166,7 +1159,7 @@ class TestPairedDifferences:
                 _add_observation(setup, {"condition_name": condition}, seed, float(seed) + len(condition))
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50), verbose=False
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=50)
         )
 
         skipped = report.difference("a", "c")
@@ -1183,7 +1176,7 @@ class TestPairedDifferences:
             for seed in range(5):
                 _add_observation(setup, {"condition_name": condition}, seed, offset + seed * 0.1 + (seed % 2))
 
-        report = bakeoff_report(_load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=200), verbose=False)
+        report = bakeoff_report(_load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(n_resamples=200))
 
         assert report.family_size == 3
         assert report.comparison_confidence == pytest.approx(1 - 0.05 / 3)
@@ -1199,7 +1192,7 @@ class TestPairedDifferences:
                 _add_observation(setup, {"condition_name": condition}, seed, value)
 
         report = bakeoff_report(
-            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=100), verbose=False
+            _load(setup), "metric", ["a", "b", "c"], spec=BakeoffSpec(missingness="blockwise", n_resamples=100)
         )
 
         # Four all-positive paired differences give an exact two-sided sign-flip p of 2/16.
@@ -1219,7 +1212,6 @@ class TestPairedDifferences:
             ["base", "a", "b"],
             spec=BakeoffSpec(n_resamples=200),
             pairs=[("a", "base"), ("b", "base")],
-            verbose=False,
         )
 
         assert [(item.minuend, item.subtrahend) for item in report.differences] == [("a", "base"), ("b", "base")]
@@ -1241,7 +1233,7 @@ class TestPairedDifferences:
                 _add_observation(setup, {"condition_name": condition}, seed, float(seed))
 
         with pytest.raises(ValueError, match="pairs"):
-            bakeoff_report(_load(setup), "metric", ["a", "b"], pairs=pairs, verbose=False)
+            bakeoff_report(_load(setup), "metric", ["a", "b"], pairs=pairs)
 
 class TestChampionComparisons:
     @staticmethod
@@ -1259,7 +1251,7 @@ class TestChampionComparisons:
         dataset = self._tuned_arms(temp_experiment_setup)
         spec = BakeoffSpec(n_resamples=300)
 
-        report = bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=spec, verbose=False)
+        report = bakeoff_report(dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=spec)
         expected = best_hypers(
             dataset,
             "metric",
@@ -1281,7 +1273,7 @@ class TestChampionComparisons:
         dataset = self._tuned_arms(temp_experiment_setup)
 
         report = bakeoff_report(
-            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+            dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50)
         )
 
         assert report.omnibus is None
@@ -1294,7 +1286,7 @@ class TestChampionComparisons:
 
         with pytest.raises(ValueError, match="condition 'b' .* 1 configuration"):
             bakeoff_report(
-                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50), verbose=False
+                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(n_resamples=50)
             )
 
     def test_champion_mode_rejects_a_median_estimand(self, temp_experiment_setup: ExperimentSetup) -> None:
@@ -1303,5 +1295,5 @@ class TestChampionComparisons:
 
         with pytest.raises(ValueError, match="estimand must be 'mean'"):
             bakeoff_report(
-                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(estimand="median"), verbose=False
+                dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(estimand="median")
             )

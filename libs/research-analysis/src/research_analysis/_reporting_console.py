@@ -8,8 +8,6 @@ from rich.table import Table
 from rich.text import Text
 
 from research_analysis._reporting_models import (
-    BakeoffReport,
-    CellSummary,
     HyperparameterConfigReport,
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
@@ -105,78 +103,3 @@ def _present_slice_hypers(
     for value, best, slice_val in zip(report.values, report.best_performance, report.slice_performance, strict=True):
         table.add_row(str(value), f"{best:.2f}", "—" if slice_val is None else f"{slice_val:.2f}")
     console.print(table)
-
-
-def _format_cell(cell: CellSummary) -> str:
-    if cell.estimate is None:
-        return "— (n=0)"
-    interval = "" if cell.ci is None else f" [{cell.ci[0]:.3g}, {cell.ci[1]:.3g}]"
-    spread = "" if cell.sd is None else f" SD {cell.sd:.2g}"
-    tolerance = (
-        f" TI [{cell.tolerance[0]:.3g}, {cell.tolerance[1]:.3g}]"
-        if cell.tolerance is not None
-        else f" TI needs n≥{cell.tolerance_min_runs}"
-    )
-    return f"{cell.estimate:.3g}{interval}{spread}{tolerance} (n={cell.n}, median run {cell.median_run_id})"
-
-
-def _present_bakeoff_report(report: BakeoffReport, experiment_slug: str) -> None:
-    console = Console()
-    console.print()
-    console.print(Panel(Text(f"🏆 BAKEOFF REPORT: {report.conditions}", style="bold cyan"), subtitle=f"Experiment: {experiment_slug}"))
-
-    blocks = sorted({label for per_condition in report.cells.values() for label in per_condition})
-    title = (
-        f"Cells ({report.metric_name}: {report.spec.estimand} [{report.spec.confidence_level:.0%} CI], SD, "
-        f"({report.spec.tolerance_confidence:.0%}, {report.spec.tolerance_coverage:.0%}) tolerance interval)"
-    )
-    table = Table(title=title, show_header=True, header_style="bold magenta")
-    table.add_column("Condition")
-    for label in blocks:
-        table.add_column(label or "(no blocking)", justify="right")
-    for condition in report.conditions:
-        table.add_row(condition, *[_format_cell(report.cells[condition][label]) for label in blocks])
-    console.print(table)
-
-    if report.champions is not None:
-        champ_table = Table(title="Champion configurations", show_header=True, header_style="bold magenta")
-        champ_table.add_column("Block")
-        champ_table.add_column("Condition")
-        champ_table.add_column("Config")
-        champ_table.add_column("Corrected mean")
-        for label, per_condition in report.champions.items():
-            for condition, champion in per_condition.items():
-                config_desc = ", ".join(f"{key}={value}" for key, value in champion.winning_config.items())
-                champ_table.add_row(label or "(no blocking)", condition, config_desc, f"{champion.corrected_mean:.3g}")
-        console.print(champ_table)
-
-    if report.warnings:
-        lines = [f"• [{w.code.value}] {w.condition or '(all)'} {dict(w.cell) or ''}: {w.message}" for w in report.warnings]
-        console.print(Panel(Text("\n".join(lines)), title=f"⚠ Warnings ({len(report.warnings)})", style="yellow"))
-    else:
-        console.print(Panel(Text("No warnings."), style="green"))
-
-    confidences = sorted({item.confidence for item in report.differences})
-    title = (
-        f"Paired differences by block ({report.family_size} comparisons, Bonferroni-adjusted to "
-        f"{report.spec.confidence_level:.0%} jointly)"
-    )
-    diff_table = Table(title=title, show_header=True, header_style="bold magenta")
-    diff_table.add_column("Block")
-    diff_table.add_column("A")
-    diff_table.add_column("B")
-    diff_table.add_column("A − B")
-    diff_table.add_column(" / ".join(f"{confidence * 100:.4g}%" for confidence in confidences) + " CI")
-    diff_table.add_column("n")
-    diff_table.add_column("Holm p")
-    diff_table.add_column("Method / note")
-    for item in report.differences:
-        if item.estimate is None or item.ci is None:
-            diff_table.add_row(item.block or "(no blocking)", item.minuend, item.subtrahend, "—", "—", str(item.n_paired), "—", f"skipped: {item.skipped_reason}")
-            continue
-        p_value = "—" if item.p_value is None else f"{item.p_value:.4f}"
-        interval = f"[{item.ci[0]:+.3g}, {item.ci[1]:+.3g}]"
-        diff_table.add_row(item.block or "(no blocking)", item.minuend, item.subtrahend, f"{item.estimate:+.3g}", interval, str(item.n_paired), p_value, item.method)
-    console.print(diff_table)
-    if report.tests_skipped_reason is not None:
-        console.print(Panel(Text(report.tests_skipped_reason), title="Hypothesis tests"))
