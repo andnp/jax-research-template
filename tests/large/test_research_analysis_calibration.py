@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
+from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
 from scipy import stats
 
 CONFIDENCE = 0.95
@@ -151,6 +151,23 @@ def test_mean_ci_misses_rare_catastrophes_in_small_samples(n: int) -> None:
 
     cap = 1.0 - (1.0 - CATASTROPHE_RATE) ** n
     assert coverage <= cap + mc_band(cap, replicates), coverage
+
+
+@pytest.mark.parametrize("distribution", [NORMAL, BIMODAL], ids=lambda d: d.name)
+def test_pointwise_curve_ci_covers_each_step_at_thirty_runs(distribution: RunDistribution) -> None:
+    """Each step of a learning-curve CI is as calibrated as the scalar mean CI.
+
+    Every column is an independent replicate; steps share resample indices as real curves do,
+    which correlates their coverage only weakly because the data are independent.
+    """
+    steps = 4000
+    curves = distribution.sample(np.random.default_rng(0), (30, steps))
+
+    ci = bootstrap_ci(curves, confidence=CONFIDENCE, n_resamples=N_RESAMPLES, rng=np.random.default_rng(1))
+    coverage = float(np.mean((ci.ci_low <= distribution.mean) & (distribution.mean <= ci.ci_high)))
+
+    band = mc_band(CONFIDENCE, steps)
+    assert gaussian_percentile_coverage(30) - 0.015 - band <= coverage <= CONFIDENCE + band, coverage
 
 
 # ── Paired percentile bootstrap CI of a difference ──────────────────────────
