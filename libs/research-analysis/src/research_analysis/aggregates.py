@@ -1,4 +1,9 @@
-"""Reference-based benchmark aggregates."""
+"""Opt-in aggregates for summarizing a collection of environments.
+
+None of these are default report outputs. They summarize across environments after scores are
+normalized against fixed references; within one environment, report per-condition estimates with
+confidence intervals, SDs, and tolerance intervals, and compare conditions by paired differences.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +43,10 @@ def performance_profile(
     thresholds: Sequence[float],
     labels: Sequence[str],
 ) -> dict[str, dict[float, float]]:
-    """Return the fraction of units above each normalized-score threshold."""
+    """Return the fraction of units above each normalized-score threshold.
+
+    Only meaningful on scores normalized against fixed per-environment references.
+    """
     matrix = np.asarray(scores, dtype=np.float64)
     if matrix.ndim != 2 or matrix.shape[1] != len(labels) or matrix.shape[0] < 1:
         raise ValueError("scores must be a non-empty 2-D matrix matching labels")
@@ -57,7 +65,10 @@ def performance_profile(
 
 
 def probability_of_improvement(values_a: NDArray[np.floating], values_b: NDArray[np.floating]) -> float:
-    """Return paired probability that A improves over B, counting ties halfway."""
+    """Return paired probability that A improves over B, counting ties halfway.
+
+    It ignores how large each improvement is; report the paired difference and its CI as the headline.
+    """
     a = np.asarray(values_a, dtype=np.float64).ravel()
     b = np.asarray(values_b, dtype=np.float64).ravel()
     if len(a) != len(b) or len(a) < 1:
@@ -68,7 +79,10 @@ def probability_of_improvement(values_a: NDArray[np.floating], values_b: NDArray
 
 
 def optimality_gap(scores: NDArray[np.floating], reference: float = 1.0) -> float:
-    """Return the mean gap from a fixed normalized reference score."""
+    """Return the mean gap from a fixed normalized reference score.
+
+    Only meaningful on scores normalized against fixed per-environment references.
+    """
     values = np.asarray(scores, dtype=np.float64).ravel()
     if len(values) < 1 or not np.isfinite(values).all() or not np.isfinite(reference):
         raise ValueError("optimality-gap inputs must be finite and non-empty")
@@ -76,7 +90,12 @@ def optimality_gap(scores: NDArray[np.floating], reference: float = 1.0) -> floa
 
 
 def interquartile_mean(scores: NDArray[np.floating], trim_fraction: float = 0.25) -> float:
-    """Return IQM as a supplementary center summary."""
+    """Return the interquartile mean across a collection of environments' normalized scores.
+
+    Use with caution: trimming discards the lowest quarter of runs, which is exactly where
+    catastrophic or diverged runs sit, so within one environment it hides failures that the
+    mean, SD, and tolerance interval expose. It is only sensible for aggregating across environments.
+    """
     values = np.sort(np.asarray(scores, dtype=np.float64).ravel())
     if len(values) < 2 or not np.isfinite(values).all():
         raise ValueError("IQM requires at least two finite scores")
