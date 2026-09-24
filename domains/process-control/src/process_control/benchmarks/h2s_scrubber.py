@@ -463,7 +463,9 @@ def make_h2s_scrubber_benchmark(
             makeup_flow=makeup_pump,
             sulfide_load=contactor_result.sulfide_load,
         )
-        new_sump = sump_step(state.sump, sump_inputs, dynamic.sump, dt)
+        new_sump, sump_overflow = sump_step(
+            state.sump, sump_inputs, dynamic.sump, dt,
+        )
 
         # ── 6. Observation ────────────────────────────────────────
         obs = _build_obs(
@@ -516,6 +518,7 @@ def make_h2s_scrubber_benchmark(
             "caustic_pi": caustic_pi,
             "bleach_pi": bleach_pi,
             "makeup_pi": makeup_pi,
+            "sump_volume_overflow": sump_overflow,
             "opex": opex,
             "eff_penalty": eff_penalty,
         }

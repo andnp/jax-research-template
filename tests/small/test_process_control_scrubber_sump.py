@@ -52,7 +52,7 @@ def test_zero_inputs_oxidant_decays(params: ScrubberSumpParams, rng: jax.Array):
     dt = jnp.array(1.0 / 12.0)  # 5-minute step in hours
 
     for _ in range(100):
-        state = step(
+        state, _ = step(
             state,
             SumpInputs(
                 bleach_flow=jnp.array(0.0),
@@ -81,7 +81,7 @@ def test_bleach_raises_oxidant(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(10):
-        state = step(state, dosing_inputs, params, dt)
+        state, _ = step(state, dosing_inputs, params, dt)
 
     assert state.oxidant > 1.0, "Bleach should raise oxidant"
 
@@ -99,7 +99,7 @@ def test_caustic_raises_alkalinity(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(10):
-        state = step(state, dosing_inputs, params, dt)
+        state, _ = step(state, dosing_inputs, params, dt)
 
     assert state.alkalinity > 1.0, "Caustic should raise alkalinity"
 
@@ -117,7 +117,7 @@ def test_sulfide_load_increases_sulfide(params: ScrubberSumpParams, rng: jax.Arr
     )
 
     for _ in range(10):
-        state = step(state, loading_inputs, params, dt)
+        state, _ = step(state, loading_inputs, params, dt)
 
     assert state.sulfide > 0.1, "Sulfide load should increase dissolved sulfide"
 
@@ -135,7 +135,7 @@ def test_oxidant_consumes_sulfide(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(50):
-        state = step(state, zero, params, dt)
+        state, _ = step(state, zero, params, dt)
 
     assert state.sulfide < 5.0, "Oxidation should consume sulfide"
     assert state.oxidant < 10.0, "Oxidation should consume oxidant"
@@ -154,7 +154,7 @@ def test_makeup_dilutes_concentrations(params: ScrubberSumpParams, rng: jax.Arra
     )
 
     for _ in range(20):
-        state = step(state, makeup_inputs, params, dt)
+        state, _ = step(state, makeup_inputs, params, dt)
 
     # All concentrations should decrease due to dilution
     assert state.oxidant < 10.0, "Makeup should dilute oxidant"
@@ -169,15 +169,28 @@ def test_volume_overflow(params: ScrubberSumpParams, rng: jax.Array):
     high_makeup = SumpInputs(
         bleach_flow=jnp.array(0.0),
         caustic_flow=jnp.array(0.0),
-        makeup_flow=jnp.array(100.0),  # very high makeup
+        makeup_flow=jnp.array(1000.0),  # very high makeup
         sulfide_load=jnp.array(0.0),
     )
 
     for _ in range(50):
-        state = step(state, high_makeup, params, dt)
+        state, _ = step(state, high_makeup, params, dt)
 
     # Volume should stay near max, not grow to infinity
     assert state.volume <= params.volume_max * 1.5 + 0.1
+
+    _, overflow = step(
+        ScrubberSumpState.create(volume=params.volume_max * 1.5), high_makeup, params, dt,
+    )
+    assert overflow > 0.0
+
+    _, no_overflow = step(
+        ScrubberSumpState.create(volume=params.volume_max), SumpInputs(
+            bleach_flow=jnp.array(0.0), caustic_flow=jnp.array(0.0),
+            makeup_flow=jnp.array(0.0), sulfide_load=jnp.array(0.0),
+        ), params, dt,
+    )
+    assert no_overflow == 0.0
 
 
 def test_non_negative_concentrations(params: ScrubberSumpParams, rng: jax.Array):
@@ -193,7 +206,7 @@ def test_non_negative_concentrations(params: ScrubberSumpParams, rng: jax.Array)
     )
 
     for _ in range(200):
-        state = step(state, zero, params, dt)
+        state, _ = step(state, zero, params, dt)
 
     assert state.oxidant >= 0.0
     assert state.alkalinity >= 0.0
@@ -213,8 +226,8 @@ def test_more_substeps_refines_without_changing_a_well_behaved_answer(
     dt = jnp.array(1.0 / 12.0)
     initial = reset(rng, params)
 
-    coarse = step(initial, inputs, params, dt, substeps=1)
-    fine = step(initial, inputs, params, dt, substeps=50)
+    coarse, _ = step(initial, inputs, params, dt, substeps=1)
+    fine, _ = step(initial, inputs, params, dt, substeps=50)
 
     assert jnp.allclose(coarse.alkalinity, fine.alkalinity, atol=1e-2)
     assert jnp.allclose(coarse.oxidant, fine.oxidant, atol=1e-1)
@@ -286,7 +299,7 @@ def test_temperature_relaxes_to_ambient(params: ScrubberSumpParams, rng: jax.Arr
     )
 
     for _ in range(500):
-        state = step(state, zero, params, dt)
+        state, _ = step(state, zero, params, dt)
 
     assert abs(float(state.temperature) - params.ambient_temp) < 1.0
 
@@ -303,7 +316,7 @@ def test_jit_compatible(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     def step_fn(s: ScrubberSumpState):
-        return step(s, inputs, params, dt)
+        return step(s, inputs, params, dt)[0]
 
     jit_step = jax.jit(step_fn)
     result = jit_step(state)

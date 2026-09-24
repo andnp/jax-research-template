@@ -213,7 +213,7 @@ def step(
     params: ScrubberSumpParams,
     dt: jax.Array,
     substeps: int = 10,
-) -> ScrubberSumpState:
+) -> tuple[ScrubberSumpState, jax.Array]:
     """Advance sump state by one timestep using RK4 integration.
 
     Splits `dt` into `substeps` RK4 sub-steps, clamping physical bounds after
@@ -235,9 +235,12 @@ def step(
     sub_dt = dt / substeps
 
     new_state = state
+    total_overflow = jnp.array(0.0)
     for _ in range(substeps):
-        new_state = _clamp(rk4_step(_derivatives, new_state, sub_dt, inputs, params), params)
-    return new_state
+        raw_state = rk4_step(_derivatives, new_state, sub_dt, inputs, params)
+        total_overflow += jnp.maximum(raw_state.volume - params.volume_max * 1.5, 0.0)
+        new_state = _clamp(raw_state, params)
+    return new_state, total_overflow
 
 
 # ── Derived quantities ────────────────────────────────────────────────
