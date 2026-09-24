@@ -295,6 +295,31 @@ def test_paired_permutation_test_is_not_overly_conservative() -> None:
     assert rate >= ALPHA - mc_band(ALPHA, replicates), rate
 
 
+def test_paired_median_test_gains_power_from_pairing() -> None:
+    """The paired median test detects a shift hidden under a large shared seed effect.
+
+    Seed SD 1, within-pair SD 0.3, shift 0.5, n=10: measured rejection 0.886, near the paired mean
+    test's 0.917. Differencing medians instead of taking the median of differences rejected about a
+    third of the time, because the seed effect it fails to cancel swamps the shift. The floor is the
+    measured rate less its Monte-Carlo band.
+    """
+    replicates, n, shift = 1000, 10, 0.5
+    rng = np.random.default_rng(0)
+
+    rejections = 0
+    for _ in range(replicates):
+        seed_effect = rng.standard_normal(n)
+        values_a = seed_effect + rng.normal(0.0, 0.3, n) + shift
+        values_b = seed_effect + rng.normal(0.0, 0.3, n)
+        result = run_permutation_test(
+            values_a, values_b, estimand="median", pairing="paired", n_resamples=2**n, rng=rng
+        )
+        rejections += result.p_value < ALPHA
+
+    rate = rejections / replicates
+    assert rate >= 0.886 - mc_band(0.886, replicates), rate
+
+
 @pytest.mark.parametrize(
     ("distribution", "missing_cells"), [(NORMAL, 0), (CATASTROPHIC, 3)], ids=["complete-normal", "missing-catastrophic"]
 )
