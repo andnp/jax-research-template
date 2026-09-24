@@ -44,6 +44,13 @@ pairs=None)` compares two or more conditions:
   raises `IncompleteBlocksError`. The error carries every `IncompleteCell` (condition,
   block, missing seeds, and the failed, pending, and excluded counts from the dataset
   accounting).
+- Too little data to compute a statistic (fewer blocks, seeds, or tuned configurations
+  than the spec's `min_samples` requires) raises `InsufficientDataError`, carrying the
+  affected `InsufficientDataCell`s (coordinates, what was required, what was observed).
+  `best_hypers`, `slice_hypers`, and the tuning and repeated-blocks internals raise the
+  same error for their own data-dependent preconditions. A plain `ValueError` is kept
+  only for programmer errors: bad argument types, unknown axis names, out-of-range
+  statistical parameters.
 - With `select_champion_over`, the differences come from the hierarchical per-sample
   bootstrap over each arm's grid, and no tests are run.
 
@@ -97,7 +104,8 @@ ReportDocument
   accounting            per-cell planned/completed/failed/pending/diverged/excluded, unassigned
   fatal_diagnostics, non_fatal_diagnostics
   analyses              [{kind: bakeoff|best_hypers|hypers_difference|slice_hypers, name, [group], report}]
-  failure               {analysis, error_type, message, non_finite_runs, incomplete_cells} | null
+  failure               {analysis, error_type, message, non_finite_runs, incomplete_cells,
+                        insufficient_data} | null
   plots                 {figure name: path relative to the report directory}
 ```
 
