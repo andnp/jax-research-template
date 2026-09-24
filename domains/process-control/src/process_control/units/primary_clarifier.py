@@ -70,16 +70,21 @@ def step(
     tss_removed = eta * feed_tss
     effluent_tss = feed_tss - tss_removed
 
-    # Sludge mass balance
+    # Sludge mass balance. mass_out is capped by what's actually in the
+    # settler (mass_in included), so wasting more than is available can't
+    # manufacture mass; overflow beyond capacity stays in the mass balance
+    # by being routed into the effluent instead of deleted.
     mass_in = tss_removed * q_feed * dt  # g deposited
     underflow_tss = jnp.maximum(
         state.sludge_mass / (params.area * params.depth) * 2.0,
         params.min_underflow_tss,
     )
-    mass_out = underflow_tss * q_waste * dt  # g removed
-    raw_mass = state.sludge_mass + mass_in - mass_out
+    available_mass = state.sludge_mass + mass_in
+    mass_out = jnp.minimum(underflow_tss * q_waste * dt, available_mass)
+    raw_mass = available_mass - mass_out
     overflow = jnp.maximum(raw_mass - params.max_sludge_mass, 0.0)
-    new_mass = jnp.clip(raw_mass, 0.0, params.max_sludge_mass)
+    new_mass = raw_mass - overflow
+    effluent_tss = effluent_tss + overflow / (q_feed * dt + 1e-10)
 
     new_state = PrimaryClarifierState(sludge_mass=new_mass)
     return new_state, effluent_tss, underflow_tss, overflow

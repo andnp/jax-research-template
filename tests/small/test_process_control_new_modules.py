@@ -96,6 +96,30 @@ class TestPrimaryClarifierUnit:
         assert jnp.isfinite(eff)
         assert jnp.isfinite(und)
 
+    def test_wastage_never_exceeds_available_mass(self) -> None:
+        """A huge waste rate can't drive sludge_mass negative (no manufactured mass)."""
+        params = PrimaryClarifierParams()
+        state = PrimaryClarifierState(sludge_mass=jnp.array(100.0))
+        state2, _, _, _ = pc_step(
+            state, jnp.array(0.0), jnp.array(600.0), jnp.array(1e6), params, jnp.array(1.0),
+        )
+        assert float(state2.sludge_mass) >= 0.0
+
+    def test_overflow_routes_to_effluent_not_deleted(self) -> None:
+        """Overflow beyond capacity raises effluent TSS instead of vanishing."""
+        capped_params = PrimaryClarifierParams(max_sludge_mass=1.0)
+        uncapped_params = PrimaryClarifierParams(max_sludge_mass=1e12)
+        state = PrimaryClarifierState(sludge_mass=jnp.array(0.9))
+        _, eff_tss_capped, _, overflow = pc_step(
+            state, jnp.array(250.0), jnp.array(500.0), jnp.array(0.0), capped_params, jnp.array(1.0),
+        )
+        _, eff_tss_uncapped, _, no_overflow = pc_step(
+            state, jnp.array(250.0), jnp.array(500.0), jnp.array(0.0), uncapped_params, jnp.array(1.0),
+        )
+        assert float(overflow) > 0.0
+        assert float(no_overflow) == 0.0
+        assert float(eff_tss_capped) > float(eff_tss_uncapped)
+
 
 # ---------------------------------------------------------------------------
 # Unit model: Dewatering
