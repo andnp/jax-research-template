@@ -26,3 +26,11 @@ data fails explicitly.
 - Robust centers cannot conceal instability or safety failures.
 - Missing observations do not silently change the analysis population.
 - Reports carry their estimand, pairing, uncertainty, and missingness decisions.
+
+## Update (2026-09-23)
+
+Superseded in part by [ADR 012](012-percentile-champion-aggregate-decisions.md).
+IQM and the other aggregates are no longer part of any default report. They are
+opt-in for collections of environments only, because IQM trims away exactly the
+catastrophic runs a comparison must show. The decision above on the
+block-stratified omnibus test and on fixed-reference normalization stands.
