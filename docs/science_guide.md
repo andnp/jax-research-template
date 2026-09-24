@@ -149,8 +149,11 @@ appear beside the per-environment distributions it summarizes.
 
 ## 6. Plotting Philosophy
 
-- **Data Lineage:** Every figure must be traceable to specific `ExecutionIDs`.
-- **Intelligent Subsampling:** If plotting more than 30 lines (e.g., all seeds), prune to show only the top 5, bottom 5, and median 5 to maintain visual clarity while showing the full spread.
+- **Data Lineage:** A report's figures are drawn from its results: run-distribution
+  figures from the bakeoff's `runs`, each of which carries its run id, and sensitivity
+  figures from the slice result's values. The PNG embeds no ids. The `report.json` in
+  the same directory, which names every figure under `plots`, is the lineage record.
+- **Show every run:** Distribution figures draw every run; nothing is subsampled.
 - **Minimalist Aesthetics:**
     - No top/right spines.
     - No legend frames.
