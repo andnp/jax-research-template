@@ -35,6 +35,45 @@ PLAN = AnalysisPlan(
 )
 
 
+# A verbatim line of reversible-rank-rl exp006's history, fingerprinted under the full-form canonical JSON.
+EXP006_SNAPSHOT = (
+    '{"fingerprint": "sha256:69af6dcf56d32725403d34092c21f438ee1627e6e2f8a1bf0350c04de2fe9559", "plan": {'
+    '"analyses": [{"block_by": ["env_name", "refit_batch"], "conditions": ["ortho_refit", "shared_refit"]'
+    ', "kind": "bakeoff", "min_seeds": 5, "name": "gate", "pairs": [["ortho_refit", "shared_refit"]], "se'
+    'lect_champion_over": null, "shared_across": [], "untuned": []}], "cohort": null, "dimensions": {"con'
+    'dition": "condition_name", "environment": "env_name", "sweep_axes": [{"name": "lr_primal", "value_ty'
+    'pe": "float", "when": null}, {"name": "refit_batch", "value_type": "integer", "when": {"condition_na'
+    'me": ["shared_refit", "ortho_refit", "ortho_blend10", "ortho_blend50"]}}]}, "higher_is_better": fals'
+    'e, "measure": {"kind": "final_value"}, "metric": "auc_phase2", "non_finite_worst_case": null, "stats'
+    '": {"alpha": 0.025, "estimand": "mean", "interval": "percentile", "min_samples": 3, "missingness": "'
+    'error", "n_resamples": 10000, "random_seed": 0, "tolerance_confidence": 0.95, "tolerance_coverage": '
+    '0.9}, "version_selection": {"exact_versions": [], "kind": "latest_completed"}}, "recorded_at": "2026'
+    '-09-24T04:53:31.620308+00:00"}'
+)
+REFIT_ARMS = ("shared_refit", "ortho_refit", "ortho_blend10", "ortho_blend50")
+EXP006_PLAN = AnalysisPlan(
+    metric="auc_phase2",
+    higher_is_better=False,
+    dimensions=ExperimentDimensions(
+        condition="condition_name",
+        environment="env_name",
+        sweep_axes=(
+            SweepAxis("lr_primal", SweepValueType.FLOAT),
+            SweepAxis("refit_batch", SweepValueType.INTEGER, when={"condition_name": REFIT_ARMS}),
+        ),
+    ),
+    analyses=(
+        BakeoffAnalysis(
+            "gate",
+            conditions=("ortho_refit", "shared_refit"),
+            pairs=(("ortho_refit", "shared_refit"),),
+            block_by=("env_name", "refit_batch"),
+        ),
+    ),
+    stats=BakeoffSpec(alpha=0.025, random_seed=0),
+)
+
+
 class _Experiment:
     def __init__(self, root: Path) -> None:
         self.db_path = root / "experiments.sqlite"
@@ -378,3 +417,57 @@ class TestPlanHistory:
         [snapshot] = read_plan_snapshots(tmp_path)
 
         assert snapshot.fingerprint == plan_fingerprint(PLAN)
+
+
+class TestFullFormSnapshots:
+    def test_an_unchanged_plan_matches_its_full_form_snapshot(self, tmp_path: Path) -> None:
+        """exp006's history predates declared-only fingerprints; its plan is still the one in force."""
+        (tmp_path / PLAN_HISTORY_FILE).write_text(EXP006_SNAPSHOT + "\n")
+
+        [snapshot] = read_plan_snapshots(tmp_path)
+
+        assert snapshot.invalid_reason is None
+        assert snapshot.fingerprint == plan_fingerprint(EXP006_PLAN)
+        assert json.loads(EXP006_SNAPSHOT)["fingerprint"] != plan_fingerprint(EXP006_PLAN)
+
+    @pytest.mark.parametrize(
+        "changed",
+        [
+            replace(EXP006_PLAN, stats=BakeoffSpec(alpha=0.05)),
+            replace(EXP006_PLAN, analyses=(replace(EXP006_PLAN.analyses[0], measure=ReturnRate()),)),
+        ],
+        ids=["alpha", "analysis-measure"],
+    )
+    def test_a_changed_declaration_no_longer_matches(self, tmp_path: Path, changed: AnalysisPlan) -> None:
+        """Reading old snapshots leniently must not hide a real change to what was declared."""
+        (tmp_path / PLAN_HISTORY_FILE).write_text(EXP006_SNAPSHOT + "\n")
+
+        [snapshot] = read_plan_snapshots(tmp_path)
+
+        assert snapshot.fingerprint != plan_fingerprint(changed)
+
+    def test_recording_an_unchanged_plan_leaves_the_history_alone(self, tmp_path: Path) -> None:
+        """Launching more runs of exp006 must not append a duplicate entry under the new fingerprint."""
+        history = tmp_path / PLAN_HISTORY_FILE
+        history.write_text(EXP006_SNAPSHOT + "\n")
+
+        record_plan_snapshot(EXP006_PLAN, tmp_path)
+
+        assert history.read_text() == EXP006_SNAPSHOT + "\n"
+
+    def test_a_report_on_a_full_form_snapshot_stays_declared_until_the_plan_changes(self, tmp_path: Path) -> None:
+        """End to end: an old-form snapshot vouches for the unchanged plan and flips once alpha is edited."""
+        experiment = _complete(tmp_path)
+        plan_json = json.loads(json.dumps(to_jsonable(PLAN)))
+        for analysis in plan_json["analyses"]:
+            del analysis["measure"]
+        entry = {"fingerprint": "sha256:full-form", "recorded_at": BEFORE.isoformat(), "plan": plan_json}
+        (tmp_path / PLAN_HISTORY_FILE).write_text(json.dumps(entry) + "\n")
+        snapshots = read_plan_snapshots(tmp_path)
+
+        unchanged = run_plan(experiment.db_path, "demo", PLAN, snapshots)
+        edited = run_plan(experiment.db_path, "demo", replace(PLAN, stats=BakeoffSpec(n_resamples=100, alpha=0.01)), snapshots)
+
+        assert (unchanged.plan_status, unchanged.exploratory_reasons) == (PlanStatus.DECLARED, ())
+        assert edited.plan_status is PlanStatus.EXPLORATORY
+        assert edited.exploratory_reasons[0].startswith("plan changed after results were recorded")
