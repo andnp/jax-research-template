@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
 from experiment_definition.db import DatabaseManager
+from research_analysis.plan import registered_plans
+from research_analysis.plan_report import run_plan
+from research_analysis.plan_snapshots import read_plan_snapshots
+from research_analysis.report import ReportStatus
+from research_analysis.report_json import report_to_json
+from research_analysis.report_markdown import render_markdown, render_summary
+from research_analysis.report_plots import write_report_plots
 from research_runner import ExperimentSpec, registered_specs
+from rich.console import Console
+from rich.markdown import Markdown
 
 experiment_app = typer.Typer(help="Manage experiments.")
 
@@ -596,3 +607,49 @@ def submit(
             )
         else:
             typer.echo(f"Spec '{name}': submitted {len(execution_ids)} batch(es) — {job_result}")
+
+
+_REPORT_EXIT_CODES = {ReportStatus.OK: 0, ReportStatus.LOAD_FAILED: 2, ReportStatus.ANALYSIS_FAILED: 3}
+
+
+@experiment_app.command("report")
+def report(
+    spec_file: Path = typer.Argument(..., help="Path to the Python spec file."),
+    spec: str | None = typer.Option(None, "--spec", help="Report the named spec factory."),
+    results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
+    output_dir: Path | None = typer.Option(
+        None, "--output-dir", help="Where to write the report; defaults to <results_root>/reports/<experiment>/<UTC time>/."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the report JSON to stdout instead of a summary."),
+):
+    """Run the spec's declared analysis plan; exit 2 on fatal load diagnostics, 3 on a failed analysis."""
+    module = _load_spec_module(spec_file)
+    specs = _discover_specs(module, spec)
+    if len(specs) != 1:
+        typer.echo(f"Error: name one spec with --spec. Available: {', '.join(sorted(specs))}", err=True)
+        raise typer.Exit(code=1)
+    name, factory = next(iter(specs.items()))
+    plans = registered_plans(module)
+    if name not in plans:
+        typer.echo(f"Error: spec '{name}' has no declared analysis plan; declare one with @analysis_plan({name}).", err=True)
+        raise typer.Exit(code=1)
+
+    experiment_spec = _with_results_root(factory(), results_root)
+    if not experiment_spec.db_path.is_file():
+        typer.echo(f"Error: no experiment database at {experiment_spec.db_path}.", err=True)
+        raise typer.Exit(code=1)
+    slug = experiment_spec.experiment.name
+    document = run_plan(experiment_spec.db_path, slug, plans[name](), read_plan_snapshots(experiment_spec.results_root))
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    directory = output_dir or experiment_spec.results_root / "reports" / re.sub(r"[^A-Za-z0-9._-]+", "_", slug) / stamp
+    directory.mkdir(parents=True, exist_ok=True)
+    document = write_report_plots(document, directory)
+    (directory / "report.json").write_text(report_to_json(document))
+    (directory / "report.md").write_text(render_markdown(document))
+
+    if as_json:
+        typer.echo(report_to_json(document), nl=False)
+    else:
+        Console().print(Markdown(render_summary(document) + f"\n- Report: `{directory}`"))
+    raise typer.Exit(code=_REPORT_EXIT_CODES[document.status])
