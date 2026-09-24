@@ -74,6 +74,17 @@ class CellSummary:
 
 
 @dataclass(frozen=True)
+class RunScore:
+    """One run's score under the report's declared measure, in the cell it was summarized in."""
+
+    condition: str
+    block: str
+    seed: int
+    run_id: int
+    value: float
+
+
+@dataclass(frozen=True)
 class PairedDifference:
     """``minuend`` minus ``subtrahend`` in one block, paired by seed; estimate None when the pair was skipped."""
 
@@ -128,6 +139,8 @@ class BakeoffReport:
     spec: BakeoffSpec
     cells: dict[str, dict[str, CellSummary]]
     """[condition][block label] -> that cell's per-run score summary, under ``spec.estimand``."""
+    runs: tuple[RunScore, ...]
+    """Every run behind ``cells``, so the summaries can be audited and re-plotted."""
     champions: dict[str, dict[str, HyperparameterConfigReport]] | None
     blocks: list[str]
     """Block labels in report order; "" when the report has no blocking axes."""

@@ -17,6 +17,7 @@ from research_analysis._reporting_models import (
     HyperparameterConfigReport,
     HyperparameterSliceReport,
     PairedDifference,
+    RunScore,
     StatisticalTestDetails,
 )
 from research_analysis._reporting_plots import _plot_run_distributions
@@ -572,6 +573,11 @@ def bakeoff_report(
         measure=measure,
         spec=spec,
         cells=cells,
+        runs=tuple(
+            RunScore(condition, _block_label(block_key), seed, run_ids[(condition, block_key, seed)], value)
+            for (condition, block_key), seed_map in data_by_group.items()
+            for seed, value in seed_map.items()
+        ),
         champions=champions or None,
         blocks=[_block_label(block_key) for block_key in block_keys],
         omnibus=omnibus,

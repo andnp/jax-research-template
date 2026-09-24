@@ -16,4 +16,5 @@ from research_analysis._reporting_models import HyperparameterConfigReport as Hy
 from research_analysis._reporting_models import HyperparameterDifferenceReport as HyperparameterDifferenceReport
 from research_analysis._reporting_models import HyperparameterSliceReport as HyperparameterSliceReport
 from research_analysis._reporting_models import PairedDifference as PairedDifference
+from research_analysis._reporting_models import RunScore as RunScore
 from research_analysis._reporting_models import StatisticalTestDetails as StatisticalTestDetails
