@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 
 from research_analysis._reporting_models import BakeoffReport, CellSummary, HyperparameterConfigReport, PairedDifference
 from research_analysis.dataset.types import RunAccounting
+from research_analysis.diagnostics.bakeoff import BakeoffWarning
 from research_analysis.diagnostics.types import DatasetDiagnostic
 from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, TailMean
 from research_analysis.report import (
@@ -171,6 +172,11 @@ def _difference_row(item: PairedDifference) -> list[str]:
     ]
 
 
+def _warning_lines(warnings: tuple[BakeoffWarning, ...]) -> list[str]:
+    lines = [f"- `{item.code}` {item.condition or '(all)'} {dict(item.cell) or ''}: {item.message}" for item in warnings]
+    return ["", f"Warnings ({len(warnings)}):", "", *(lines or ["- none"])]
+
+
 def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
     spec = report.spec
     lines = [
@@ -218,11 +224,7 @@ def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
         ]
         header = ["Block", "Condition", "Champion", "Corrected mean", "CI", "Maximization bias", "Selection entropy"]
         lines += ["", "Champions (their cells above carry selection bias; differences do not):", "", *_table(header, champion_rows)]
-    lines += ["", f"Warnings ({len(report.warnings)}):", ""]
-    lines += [
-        f"- `{item.code}` {item.condition or '(all)'} {dict(item.cell) or ''}: {item.message}" for item in report.warnings
-    ] or ["- none"]
-    return lines
+    return lines + _warning_lines(report.warnings)
 
 
 def _group_label(group: Mapping[str, object]) -> str:
@@ -241,6 +243,7 @@ def _champion_lines(report: HyperparameterConfigReport) -> list[str]:
         f"- Raw champion mean {_number(report.raw_mean)}; maximization bias {_number(report.maximization_bias)}; "
         f"normalized selection entropy {report.normalized_selection_entropy:.2f}",
         f"- Runs outside the shared seeds, left out: {len(report.unpaired_run_ids)}",
+        *_warning_lines(report.warnings),
     ]
 
 

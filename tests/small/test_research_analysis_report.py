@@ -10,6 +10,7 @@ from typing import Any
 
 import polars as pl
 import pytest
+from research_analysis._reporting_warnings import small_sample_coverage_warning
 from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import (
     CellAccounting,
@@ -229,6 +230,26 @@ class TestReportMarkdown:
         assert "Corrected mean 4.2, 95% CI [3.9, 4.6]" in text
         assert "maximization bias 0.8" in text
         assert "left out: 2" in text
+
+    def test_a_champion_warning_is_rendered_and_serialized(self) -> None:
+        """A caveat on a champion interval reaches both the markdown reader and the JSON consumer."""
+        warning = small_sample_coverage_warning(5, "champion")
+        assert warning is not None
+        champion = HyperparameterConfigReport(
+            winning_config={"lr": 0.1},
+            raw_mean=5.0,
+            corrected_mean=4.2,
+            maximization_bias=0.8,
+            estimate_ci=(3.9, 4.6),
+            warnings=(warning,),
+        )
+        results: list[AnalysisResult] = [BestHypersResult("tuned", {}, champion)]
+
+        text = _markdown(_dataset(_SCORES), results)
+        payload = json.loads(report_to_json(exploratory_report(_dataset(_SCORES), Path("db"), results)))
+
+        assert "`small_sample_coverage` (all) : the champion CI rests on 5 runs" in text
+        assert [w["code"] for w in payload["analyses"][0]["report"]["warnings"]] == ["small_sample_coverage"]
 
 
     def test_summary_gives_status_run_outcomes_and_each_headline_difference(self) -> None:

@@ -12,6 +12,7 @@ from research_analysis._reporting_models import (
     HyperparameterDifferenceReport,
     HyperparameterSliceReport,
 )
+from research_analysis._reporting_warnings import small_sample_coverage_warning
 from research_analysis.dataset.types import ExperimentDataset
 from research_analysis.performance import FINAL_VALUE, PerformanceMeasure, run_scores
 from research_analysis.tuning import _build_hyper_matrix, hierarchical_bootstrap_ci, hierarchical_bootstrap_difference_ci
@@ -256,6 +257,7 @@ def _best_hypers_group(
         corrected_mean = -corrected_mean
         interval = (-interval[1], -interval[0])
 
+    coverage = small_sample_coverage_warning(n_runs, "champion")
     report = HyperparameterConfigReport(
         winning_config=winning_config,
         raw_mean=raw_winner_mean,
@@ -266,6 +268,7 @@ def _best_hypers_group(
         normalized_selection_entropy=normalized_entropy,
         unpaired_run_ids=hyper_matrix.run_ids_outside(hyper_matrix.seeds),
         measure=measure,
+        warnings=() if coverage is None else (coverage,),
     )
 
     return report

@@ -1296,3 +1296,21 @@ class TestChampionComparisons:
             bakeoff_report(
                 dataset, "metric", ["a", "b"], select_champion_over=["learning_rate"], spec=BakeoffSpec(estimand="median")
             )
+
+
+class TestSmallSampleCoverageOnChampions:
+    @pytest.mark.parametrize(("n_seeds", "warned"), [(29, True), (30, False)])
+    def test_a_champion_interval_on_fewer_than_thirty_runs_carries_a_coverage_warning(
+        self, temp_experiment_setup: ExperimentSetup, n_seeds: int, warned: bool
+    ) -> None:
+        """The tuned-champion CI under-covers at small n exactly like a cell CI, so it says so below 30 runs."""
+        setup = temp_experiment_setup
+        for learning_rate, offset in (("low", 0.0), ("high", 1.0)):
+            for seed in range(n_seeds):
+                _add_observation(setup, {"condition_name": "a", "learning_rate": learning_rate}, seed, offset + seed % 4)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+
+        report = best_hypers(dataset, "metric", n_resamples=32)
+
+        codes = [w.code for w in report.warnings]
+        assert codes == ([BakeoffWarningCode.SMALL_SAMPLE_COVERAGE] if warned else [])
