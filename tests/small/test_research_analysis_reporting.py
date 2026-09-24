@@ -712,8 +712,6 @@ def test_bakeoff_report_reports_raw_scores_without_references(temp_experiment_se
     report = bakeoff_report(dataset, "metric", algorithms, block_by=["env_name"], verbose=False)
 
     assert report.comparison.normalized_scores["ppo"]["cartpole"] == pytest.approx(42.0)
-    assert report.comparison.performance_profiles == {}
-    assert report.comparison.optimality_gaps == {}
 
 
 def test_bakeoff_report_rejects_pooling_multiple_environments_without_references(

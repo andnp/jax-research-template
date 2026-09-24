@@ -30,8 +30,6 @@ from research_analysis.aggregates import (
     ReferenceRange,
     interquartile_mean,
     normalize_scores,
-    optimality_gap,
-    performance_profile,
     probability_of_improvement,
 )
 from research_analysis.bootstrap import bootstrap_difference_ci, bootstrap_scalar_ci
@@ -91,9 +89,7 @@ def _load_bakeoff_data(
 @dataclass(frozen=True)
 class _BakeoffStatistics:
     normalized_scores: dict[str, dict[str, float]]
-    performance_profiles: dict[str, dict[float, float]]
     probability_of_improvement: dict[str, dict[str, float | None]]
-    optimality_gaps: dict[str, float]
     dispersion: dict[str, float]
     lower_tail: dict[str, float]
     supplementary_iqm: dict[str, float]
@@ -251,9 +247,6 @@ def _compute_bakeoff_statistics(
         difference_ci[condition_a][condition_b] = (ci_low, ci_high)
         difference_ci[condition_b][condition_a] = (-ci_high, -ci_low)
 
-    threshold_values = (0.0, 0.25, 0.5, 0.75, 1.0)
-    profiles: dict[str, dict[float, float]] = {}
-    gaps: dict[str, float] = {}
     dispersions: dict[str, float] = {}
     lower_tails: dict[str, float] = {}
     iqms: dict[str, float] = {}
@@ -266,13 +259,6 @@ def _compute_bakeoff_statistics(
             sorted_vals = sorted(all_vals)
             proportions = [i / len(sorted_vals) for i in range(1, len(sorted_vals) + 1)]
             score_curves[condition] = (sorted_vals, proportions)
-            if references is not None:
-                # performance_profile/optimality_gap assume a normalized [0, 1]-ish
-                # scale; without references there is no anchor to interpret them against.
-                profiles[condition] = performance_profile(
-                    np.array(all_vals)[:, np.newaxis], threshold_values, [condition]
-                )[condition]
-                gaps[condition] = optimality_gap(np.array(all_vals))
             dispersions[condition] = float(np.std(all_vals, ddof=1)) if len(all_vals) > 1 else 0.0
             lower_tails[condition] = float(np.quantile(all_vals, 0.1))
             iqms[condition] = interquartile_mean(np.array(all_vals))
@@ -289,9 +275,7 @@ def _compute_bakeoff_statistics(
 
     return _BakeoffStatistics(
         normalized_scores=normalized_means,
-        performance_profiles=profiles,
         probability_of_improvement=probabilities,
-        optimality_gaps=gaps,
         dispersion=dispersions,
         lower_tail=lower_tails,
         supplementary_iqm=iqms,
@@ -545,9 +529,7 @@ def bakeoff_report(
             algorithms=conditions,
             environments=[_block_label(block_key) for block_key in block_keys],
             normalized_scores=comparison_statistics.normalized_scores,
-            performance_profiles=comparison_statistics.performance_profiles,
             probability_of_improvement=comparison_statistics.probability_of_improvement,
-            optimality_gaps=comparison_statistics.optimality_gaps,
             dispersion=comparison_statistics.dispersion,
             lower_tail=comparison_statistics.lower_tail,
             supplementary_iqm=comparison_statistics.supplementary_iqm,
