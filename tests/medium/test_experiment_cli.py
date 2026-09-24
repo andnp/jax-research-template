@@ -655,6 +655,27 @@ def test_submit_dry_run_does_not_mutate_the_database(tmp_path: Path) -> None:
     assert db_path.read_bytes() == before_bytes
 
 
+def test_submit_dry_run_forwards_results_root_to_job_script(tmp_path: Path) -> None:
+    """A results-root override is included in the generated Slurm command."""
+    results_root = tmp_path / "submit_override"
+    spec_file = _write_spec_file(tmp_path, results_root)
+    script_path = tmp_path / "slurm_submit.sh"
+
+    plan_result = runner.invoke(app, [
+        "experiment", "plan", str(spec_file), "--results-root", str(results_root),
+    ])
+    assert plan_result.exit_code == 0, plan_result.output
+
+    result = runner.invoke(app, [
+        "experiment", "submit", str(spec_file),
+        "--dry-run", "--results-root", str(results_root),
+        "--script-path", str(script_path),
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert f'--results-root "{results_root.resolve()}"' in script_path.read_text()
+
+
 
 def test_submit_reads_slurm_settings_from_a_config_file_with_flags_overriding(tmp_path: Path) -> None:
     """--slurm-config supplies cluster settings; an explicit flag still wins over the file."""

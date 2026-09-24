@@ -610,6 +610,7 @@ def submit(
             spec_file,
             name,
             script_path=script_path,
+            results_root=experiment_spec.results_root,
             dry_run=dry_run,
         )
 
