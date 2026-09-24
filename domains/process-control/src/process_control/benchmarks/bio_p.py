@@ -27,9 +27,9 @@ from process_control._jax_dataclass import jax_dataclass
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.asm2d import ASM2dParams, mix, reactor_step
 
 
@@ -40,9 +40,9 @@ class BioPBenchState:
     anaerobic_state: jax.Array  # (N_COMPONENTS,) anaerobic zone
     anoxic_state: jax.Array  # (N_COMPONENTS,) anoxic zone
     aerobic_state: jax.Array  # (N_COMPONENTS,) aerobic zone
-    po4_eff_sensor: ResidualAnalyzerState
-    nh4_eff_sensor: ResidualAnalyzerState
-    po4_ana_sensor: ResidualAnalyzerState
+    po4_eff_sensor: LaggedSensorState
+    nh4_eff_sensor: LaggedSensorState
+    po4_ana_sensor: LaggedSensorState
     last_q_in: jax.Array
 
 
@@ -103,12 +103,12 @@ def make_bio_p_benchmark(config: BioPConfig):
         drift_scale=config.drift_scale,
         steps_per_day=config.steps_per_day,
     )
-    po4_analyzer = ResidualAnalyzerParams(
+    po4_analyzer = LaggedSensorParams(
         noise_std=config.po4_noise_std,
         lag_coefficient=config.po4_lag,
         sample_period=config.sensor_sample_period,
     )
-    nh4_analyzer = ResidualAnalyzerParams(
+    nh4_analyzer = LaggedSensorParams(
         noise_std=config.nh4_noise_std,
         lag_coefficient=config.nh4_lag,
         sample_period=config.sensor_sample_period,
@@ -139,9 +139,9 @@ def make_bio_p_benchmark(config: BioPConfig):
             anaerobic_state=init_state.at[7].set(0.0),  # no DO in anaerobic
             anoxic_state=init_state.at[7].set(0.0),
             aerobic_state=init_state.at[7].set(2.0),  # DO ~2 in aerobic
-            po4_eff_sensor=analyzer_reset(k2, init_state[13]),
-            nh4_eff_sensor=analyzer_reset(k3, init_state[9]),
-            po4_ana_sensor=analyzer_reset(k4, init_state[13]),
+            po4_eff_sensor=analyzer_reset(init_state[13], k2),
+            nh4_eff_sensor=analyzer_reset(init_state[9], k3),
+            po4_ana_sensor=analyzer_reset(init_state[13], k4),
             last_q_in=jnp.array(config.mean_flow),
         )
         obs = jnp.array(

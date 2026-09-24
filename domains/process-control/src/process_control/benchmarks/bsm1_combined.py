@@ -25,8 +25,8 @@ from process_control.scenarios.diurnal_source import (
 from process_control.scenarios.diurnal_source import (
     step as source_step,
 )
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
@@ -99,9 +99,9 @@ class BSM1CombinedConfig:
 class BSM1CombinedObsSensors:
     """Standalone observation sensors (not part of any DosingSystem loop)."""
 
-    nh4_eff: ResidualAnalyzerState
-    no3_eff: ResidualAnalyzerState
-    nh4_inf: ResidualAnalyzerState
+    nh4_eff: LaggedSensorState
+    no3_eff: LaggedSensorState
+    nh4_inf: LaggedSensorState
     last_q_in: jax.Array
 
 
@@ -261,7 +261,7 @@ def make_bsm1_combined_benchmark(
     q_rs_ratio_max = jnp.array(recycle.q_rs_ratio_max)
 
     # Standalone observation sensor params
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=bsm1.analyzer_noise_std,
         lag_coefficient=bsm1.analyzer_lag,
         sample_period=bsm1.analyzer_sample_period,
@@ -327,9 +327,9 @@ def make_bsm1_combined_benchmark(
         q_rs_state = RampLimitedActuatorState(current_output=init_q_rs_ratio)
 
         sensors = BSM1CombinedObsSensors(
-            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
-            no3_eff=ResidualAnalyzerState.create(r5.s_no),
-            nh4_inf=ResidualAnalyzerState.create(bsm1.initial_states.influent.s_nh),
+            nh4_eff=LaggedSensorState.create(r5.s_nh),
+            no3_eff=LaggedSensorState.create(r5.s_no),
+            nh4_inf=LaggedSensorState.create(bsm1.initial_states.influent.s_nh),
             last_q_in=jnp.array(bsm1.mean_flow),
         )
 

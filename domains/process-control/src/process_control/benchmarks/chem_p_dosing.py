@@ -29,9 +29,9 @@ from process_control.scenarios.diurnal_source import DiurnalSourceParams, Diurna
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 
 # ── State ──────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ class ChemPDosingState:
     source_state: DiurnalSourceState
     po4_drift: jax.Array  # drift for influent PO₄ channel
     dosing_loop: DosingSystemState
-    po4_inf_sensor: ResidualAnalyzerState
+    po4_inf_sensor: LaggedSensorState
     last_po4_eff: jax.Array  # true effluent PO₄ (for sensor input)
     last_q_in: jax.Array
 
@@ -154,7 +154,7 @@ def make_chem_p_dosing_benchmark(
         p_min=config.p_min,
     )
 
-    inf_analyzer_params = ResidualAnalyzerParams(
+    inf_analyzer_params = LaggedSensorParams(
         noise_std=config.inf_sensor_noise_std,
         lag_coefficient=config.inf_sensor_lag,
         sample_period=config.inf_sensor_sample_period,
@@ -174,7 +174,7 @@ def make_chem_p_dosing_benchmark(
         src_state = source_reset(k1)
         ds_state = dosing_reset(config.po4_mean, config.pi_ff, k2)
         initial_po4 = po4_channel_params.mean
-        inf_sensor = analyzer_reset(k3, initial_po4)
+        inf_sensor = analyzer_reset(initial_po4, k3)
 
         state = ChemPDosingState(
             step_count=jnp.array(0, dtype=jnp.int32),

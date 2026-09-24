@@ -38,8 +38,8 @@ from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import reactor_train
@@ -112,13 +112,13 @@ def _effluent_from_tss(
 
 @jax_dataclass
 class BSM1TakacsSensors:
-    nh4_eff: ResidualAnalyzerState
-    no3_eff: ResidualAnalyzerState
-    no3_r2: ResidualAnalyzerState
-    nh4_inf: ResidualAnalyzerState
-    blanket: ResidualAnalyzerState
-    eff_tss: ResidualAnalyzerState
-    und_tss: ResidualAnalyzerState
+    nh4_eff: LaggedSensorState
+    no3_eff: LaggedSensorState
+    no3_r2: LaggedSensorState
+    nh4_inf: LaggedSensorState
+    blanket: LaggedSensorState
+    eff_tss: LaggedSensorState
+    und_tss: LaggedSensorState
     last_q_in: jax.Array
 
 
@@ -220,17 +220,17 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         steps_per_day=c.steps_per_day,
     )
 
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=c.analyzer_noise_std,
         lag_coefficient=c.analyzer_lag,
         sample_period=c.analyzer_sample_period,
     )
-    blanket_analyzer = ResidualAnalyzerParams(
+    blanket_analyzer = LaggedSensorParams(
         noise_std=config.blanket_noise_std,
         lag_coefficient=config.blanket_lag,
         sample_period=config.blanket_sample_period,
     )
-    tss_analyzer = ResidualAnalyzerParams(
+    tss_analyzer = LaggedSensorParams(
         noise_std=config.tss_noise_std,
         lag_coefficient=config.tss_lag,
         sample_period=config.tss_sample_period,
@@ -300,13 +300,13 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         waste = pump_reset(k5)
 
         sensors = BSM1TakacsSensors(
-            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
-            no3_eff=ResidualAnalyzerState.create(r5.s_no),
-            no3_r2=ResidualAnalyzerState.create(r2.s_no),
-            nh4_inf=ResidualAnalyzerState.create(c.initial_states.influent.s_nh),
-            blanket=ResidualAnalyzerState.create(compute_blanket_height(settler, config.settler, config.blanket_threshold)),
-            eff_tss=ResidualAnalyzerState.create(get_effluent_tss(settler)),
-            und_tss=ResidualAnalyzerState.create(get_underflow_tss(settler)),
+            nh4_eff=LaggedSensorState.create(r5.s_nh),
+            no3_eff=LaggedSensorState.create(r5.s_no),
+            no3_r2=LaggedSensorState.create(r2.s_no),
+            nh4_inf=LaggedSensorState.create(c.initial_states.influent.s_nh),
+            blanket=LaggedSensorState.create(compute_blanket_height(settler, config.settler, config.blanket_threshold)),
+            eff_tss=LaggedSensorState.create(get_effluent_tss(settler)),
+            und_tss=LaggedSensorState.create(get_underflow_tss(settler)),
             last_q_in=jnp.array(c.mean_flow),
         )
 

@@ -29,9 +29,9 @@ from process_control.chemistry.precipitation import PrecipitationParams, precipi
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.asm2d import ASM2dParams, make_default_influent_asm2d, mix, reactor_step
 
 
@@ -42,10 +42,10 @@ class CombinedNPState:
     anaerobic_state: jax.Array
     anoxic_state: jax.Array
     aerobic_state: jax.Array
-    po4_eff_sensor: ResidualAnalyzerState
-    nh4_eff_sensor: ResidualAnalyzerState
-    no3_eff_sensor: ResidualAnalyzerState
-    po4_ana_sensor: ResidualAnalyzerState
+    po4_eff_sensor: LaggedSensorState
+    nh4_eff_sensor: LaggedSensorState
+    no3_eff_sensor: LaggedSensorState
+    po4_ana_sensor: LaggedSensorState
     last_q_in: jax.Array
 
 
@@ -114,17 +114,17 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         drift_scale=config.drift_scale,
         steps_per_day=config.steps_per_day,
     )
-    po4_analyzer = ResidualAnalyzerParams(
+    po4_analyzer = LaggedSensorParams(
         noise_std=config.po4_noise_std,
         lag_coefficient=config.sensor_lag,
         sample_period=config.sensor_sample_period,
     )
-    nh4_analyzer = ResidualAnalyzerParams(
+    nh4_analyzer = LaggedSensorParams(
         noise_std=config.nh4_noise_std,
         lag_coefficient=config.sensor_lag,
         sample_period=config.sensor_sample_period,
     )
-    no3_analyzer = ResidualAnalyzerParams(
+    no3_analyzer = LaggedSensorParams(
         noise_std=config.no3_noise_std,
         lag_coefficient=config.sensor_lag,
         sample_period=config.sensor_sample_period,
@@ -177,10 +177,10 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             anaerobic_state=init_state.at[7].set(0.0),
             anoxic_state=init_state.at[7].set(0.0),
             aerobic_state=init_state.at[7].set(2.0),
-            po4_eff_sensor=analyzer_reset(k2, initial_po4),
-            nh4_eff_sensor=analyzer_reset(k3, init_state[9]),
-            no3_eff_sensor=analyzer_reset(k4, init_state[8]),
-            po4_ana_sensor=analyzer_reset(k5, init_state[13]),
+            po4_eff_sensor=analyzer_reset(initial_po4, k2),
+            nh4_eff_sensor=analyzer_reset(init_state[9], k3),
+            no3_eff_sensor=analyzer_reset(init_state[8], k4),
+            po4_ana_sensor=analyzer_reset(init_state[13], k5),
             last_q_in=jnp.array(config.mean_flow),
         )
         obs = _observe(

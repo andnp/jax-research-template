@@ -32,8 +32,8 @@ from process_control.benchmarks.bsm1 import (
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as ra_step
 from process_control.units.asm1 import ArrheniusCoeffs, ASM1Params, ASM1State, apply_arrhenius
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
@@ -146,7 +146,7 @@ def make_bsm1_lt_benchmark(
         steps_per_day=c.steps_per_day,
     )
 
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=c.analyzer_noise_std,
         lag_coefficient=c.analyzer_lag,
         sample_period=c.analyzer_sample_period,
@@ -203,10 +203,10 @@ def make_bsm1_lt_benchmark(
         kla_5_state = dosing_reset(c.initial_states.r5.s_o, 0.0, k3)
 
         sensors = BSM1ObsSensors(
-            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
-            no3_eff=ResidualAnalyzerState.create(r5.s_no),
-            no3_r2=ResidualAnalyzerState.create(r2.s_no),
-            nh4_inf=ResidualAnalyzerState.create(c.initial_states.influent.s_nh),
+            nh4_eff=LaggedSensorState.create(r5.s_nh),
+            no3_eff=LaggedSensorState.create(r5.s_no),
+            no3_r2=LaggedSensorState.create(r2.s_no),
+            nh4_inf=LaggedSensorState.create(c.initial_states.influent.s_nh),
             last_q_in=jnp.array(c.mean_flow),
         )
 

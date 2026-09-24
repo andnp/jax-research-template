@@ -19,9 +19,9 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.dewatering import DewateringParams, DewateringState
 from process_control.units.dewatering import reset as dewatering_reset
 from process_control.units.dewatering import step as dewatering_step
@@ -32,7 +32,7 @@ class DewateringBenchState:
     step_count: jax.Array
     dewatering_state: DewateringState
     tss_drift: jax.Array
-    filtrate_sensor: ResidualAnalyzerState
+    filtrate_sensor: LaggedSensorState
     last_feed_tss: jax.Array
 
 
@@ -79,7 +79,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
         drift_scale=config.feed_tss_drift_scale,
         drift_clip=config.feed_tss_amplitude,
     )
-    filtrate_analyzer_params = ResidualAnalyzerParams(
+    filtrate_analyzer_params = LaggedSensorParams(
         noise_std=config.filtrate_noise_std,
         lag_coefficient=config.filtrate_lag,
         sample_period=config.filtrate_sample_period,
@@ -111,7 +111,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         dw = dewatering_reset(config.dewatering, k1)
-        filt_sensor = analyzer_reset(k2, 0.0)
+        filt_sensor = analyzer_reset(0.0, k2)
         state = DewateringBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             dewatering_state=dw,

@@ -20,14 +20,18 @@ class LaggedSensorState:
     steps_since_sample: jax.Array
     drift_bias: jax.Array
 
+    @staticmethod
+    def create(initial_value: float | jax.Array) -> "LaggedSensorState":
+        return LaggedSensorState(
+            held_value=jnp.asarray(initial_value),
+            steps_since_sample=jnp.array(0, dtype=jnp.int32),
+            drift_bias=jnp.array(0.0),
+        )
+
 
 def reset(initial_value: float | jax.Array, rng_key: jax.Array) -> LaggedSensorState:
     del rng_key
-    return LaggedSensorState(
-        held_value=jnp.asarray(initial_value),
-        steps_since_sample=jnp.array(0, dtype=jnp.int32),
-        drift_bias=jnp.array(0.0),
-    )
+    return LaggedSensorState.create(initial_value)
 
 
 def step(

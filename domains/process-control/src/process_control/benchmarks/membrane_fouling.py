@@ -20,9 +20,9 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as membrane_reset
 from process_control.units.membrane import step as membrane_step
@@ -33,7 +33,7 @@ class MembraneFoulingBenchState:
     step_count: jax.Array
     membrane_state: MembraneState
     tss_drift: jax.Array
-    tmp_sensor: ResidualAnalyzerState
+    tmp_sensor: LaggedSensorState
     last_feed_tss: jax.Array
 
 
@@ -78,7 +78,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         drift_scale=config.feed_tss_drift_scale,
         drift_clip=config.feed_tss_amplitude,
     )
-    tmp_analyzer_params = ResidualAnalyzerParams(
+    tmp_analyzer_params = LaggedSensorParams(
         noise_std=config.tmp_noise_std,
         lag_coefficient=config.tmp_lag,
         sample_period=config.tmp_sample_period,
@@ -112,7 +112,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
         mem = membrane_reset(config.membrane, k1)
-        tmp_sensor = analyzer_reset(k2, compute_tmp(jnp.array(0.0), mem, config.membrane))
+        tmp_sensor = analyzer_reset(compute_tmp(jnp.array(0.0), mem, config.membrane), k2)
         state = MembraneFoulingBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
             membrane_state=mem,

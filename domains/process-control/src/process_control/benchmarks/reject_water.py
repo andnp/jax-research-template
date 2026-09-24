@@ -28,9 +28,9 @@ from process_control._jax_dataclass import jax_dataclass
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 
 
 @jax_dataclass
@@ -39,8 +39,8 @@ class RejectWaterBenchState:
     source_state: DiurnalSourceState
     main_nh4: jax.Array  # main plant NH₄ (simplified model)
     reject_tank_volume: jax.Array  # reject water stored (m³)
-    main_nh4_sensor: ResidualAnalyzerState
-    reject_nh4_sensor: ResidualAnalyzerState
+    main_nh4_sensor: LaggedSensorState
+    reject_nh4_sensor: LaggedSensorState
     last_q_main: jax.Array
 
 
@@ -91,7 +91,7 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         drift_scale=config.drift_scale,
         steps_per_day=config.steps_per_day,
     )
-    nh4_analyzer = ResidualAnalyzerParams(
+    nh4_analyzer = LaggedSensorParams(
         noise_std=config.nh4_noise_std,
         lag_coefficient=config.nh4_lag,
         sample_period=config.nh4_sample_period,
@@ -112,8 +112,8 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
             source_state=src,
             main_nh4=initial_main_nh4,
             reject_tank_volume=jnp.array(config.reject_tank_max * 0.5),
-            main_nh4_sensor=analyzer_reset(k2, initial_main_nh4),
-            reject_nh4_sensor=analyzer_reset(k3, initial_reject_nh4),
+            main_nh4_sensor=analyzer_reset(initial_main_nh4, k2),
+            reject_nh4_sensor=analyzer_reset(initial_reject_nh4, k3),
             last_q_main=jnp.array(config.mean_flow),
         )
         obs = jnp.array(

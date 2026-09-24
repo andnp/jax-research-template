@@ -25,8 +25,8 @@ from process_control.scenarios.diurnal_source import DiurnalSourceParams, Diurna
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.primary_clarifier import PrimaryClarifierParams, PrimaryClarifierState
 from process_control.units.primary_clarifier import reset as clarifier_reset
 from process_control.units.primary_clarifier import step as clarifier_step
@@ -34,8 +34,8 @@ from process_control.units.primary_clarifier import step as clarifier_step
 
 @jax_dataclass
 class PrimaryClarifierSensorState:
-    eff_tss: ResidualAnalyzerState
-    und_tss: ResidualAnalyzerState
+    eff_tss: LaggedSensorState
+    und_tss: LaggedSensorState
 
 
 @jax_dataclass
@@ -113,7 +113,7 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         min_output=config.q_w_min,
         max_ramp_rate=config.q_w_ramp_rate,
     )
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=config.analyzer_noise_std,
         lag_coefficient=config.analyzer_lag,
         sample_period=config.analyzer_sample_period,
@@ -131,11 +131,11 @@ def make_primary_clarifier_benchmark(config: PrimaryClarifierConfig):
         clar = clarifier_reset(config.clarifier, k2)
         pump = actuator_reset(k3)
         sensors = PrimaryClarifierSensorState(
-            eff_tss=ResidualAnalyzerState.create(
+            eff_tss=LaggedSensorState.create(
                 config.tss_mean
                 * (1.0 - config.clarifier.eta_max * config.clarifier.k_slr / (config.clarifier.k_slr + config.mean_flow / config.clarifier.area))
             ),
-            und_tss=ResidualAnalyzerState.create(
+            und_tss=LaggedSensorState.create(
                 jnp.maximum(
                     clar.sludge_mass / (config.clarifier.area * config.clarifier.depth) * 2.0,
                     config.clarifier.min_underflow_tss,

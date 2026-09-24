@@ -17,8 +17,8 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as ra_step
 from process_control.units.asm1 import ASM1Params, ASM1State
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
@@ -236,10 +236,10 @@ class BSM1BenchmarkConfig:
 class BSM1ObsSensors:
     """Standalone observation-only sensors (not part of any control loop)."""
 
-    nh4_eff: ResidualAnalyzerState
-    no3_eff: ResidualAnalyzerState
-    no3_r2: ResidualAnalyzerState
-    nh4_inf: ResidualAnalyzerState
+    nh4_eff: LaggedSensorState
+    no3_eff: LaggedSensorState
+    no3_r2: LaggedSensorState
+    nh4_inf: LaggedSensorState
     last_q_in: jax.Array
 @jax_dataclass
 class BSM1PlantState:
@@ -319,7 +319,7 @@ def make_bsm1_benchmark(
     return_sludge_ratio = jnp.array(config.return_sludge_ratio)
 
     # Standalone observation sensor params
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=config.analyzer_noise_std,
         lag_coefficient=config.analyzer_lag,
         sample_period=config.analyzer_sample_period,
@@ -361,10 +361,10 @@ def make_bsm1_benchmark(
         kla_5_state = dosing_reset(config.initial_states.r5.s_o, 0.0, k3)
 
         sensors = BSM1ObsSensors(
-            nh4_eff=ResidualAnalyzerState.create(r5.s_nh),
-            no3_eff=ResidualAnalyzerState.create(r5.s_no),
-            no3_r2=ResidualAnalyzerState.create(r2.s_no),
-            nh4_inf=ResidualAnalyzerState.create(config.initial_states.influent.s_nh),
+            nh4_eff=LaggedSensorState.create(r5.s_nh),
+            no3_eff=LaggedSensorState.create(r5.s_no),
+            no3_r2=LaggedSensorState.create(r2.s_no),
+            nh4_inf=LaggedSensorState.create(config.initial_states.influent.s_nh),
             last_q_in=jnp.array(config.mean_flow),
         )
 

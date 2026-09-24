@@ -40,3 +40,14 @@ def test_drift_updates_bias_before_measurement() -> None:
 
     assert new_state.drift_bias != 0.0
     assert reading == new_state.drift_bias
+
+
+def test_sampled_sensor_reports_initial_value_before_first_sample() -> None:
+    """A sampled sensor holds its initial measured value until sampling begins."""
+    initial_value = jnp.array(4.5)
+    params = LaggedSensorParams(noise_std=1.0, lag_coefficient=0.5, sample_period=2)
+    state = reset(initial_value, jax.random.key(0))
+
+    _, reading = step(state, jnp.array(9.0), params, jax.random.key(1))
+
+    assert jnp.allclose(reading, initial_value)

@@ -32,8 +32,8 @@ from process_control.actuators.ramp_limited import step as actuator_step
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import step as ra_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import step as ra_step
 from process_control.units.takacs_settler import TakacsSettlerParams, TakacsSettlerState, compute_blanket_height, get_effluent_tss, get_underflow_tss
 from process_control.units.takacs_settler import reset as settler_reset
 from process_control.units.takacs_settler import step as settler_step
@@ -83,9 +83,9 @@ class SludgeBlanketConfig:
 
 @jax_dataclass
 class SludgeBlanketSensorState:
-    blanket_height: ResidualAnalyzerState
-    eff_tss: ResidualAnalyzerState
-    und_tss: ResidualAnalyzerState
+    blanket_height: LaggedSensorState
+    eff_tss: LaggedSensorState
+    und_tss: LaggedSensorState
 
 
 @jax_dataclass
@@ -131,7 +131,7 @@ def make_sludge_blanket_benchmark(
     blanket_threshold = config.blanket_threshold
     eff_tss_limit = jnp.array(config.eff_tss_limit)
 
-    analyzer_params = ResidualAnalyzerParams(
+    analyzer_params = LaggedSensorParams(
         noise_std=config.analyzer_noise_std,
         lag_coefficient=config.analyzer_lag,
         sample_period=config.analyzer_sample_period,
@@ -145,9 +145,9 @@ def make_sludge_blanket_benchmark(
         pump = actuator_reset(k3)
 
         sensors = SludgeBlanketSensorState(
-            blanket_height=ResidualAnalyzerState.create(compute_blanket_height(settler, settler_params, blanket_threshold)),
-            eff_tss=ResidualAnalyzerState.create(get_effluent_tss(settler)),
-            und_tss=ResidualAnalyzerState.create(get_underflow_tss(settler)),
+            blanket_height=LaggedSensorState.create(compute_blanket_height(settler, settler_params, blanket_threshold)),
+            eff_tss=LaggedSensorState.create(get_effluent_tss(settler)),
+            und_tss=LaggedSensorState.create(get_underflow_tss(settler)),
         )
 
         plant_state = SludgeBlanketPlantState(

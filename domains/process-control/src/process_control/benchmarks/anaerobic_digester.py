@@ -22,9 +22,9 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _estimate_ph
 from process_control.units.anaerobic_digester import reset as digester_reset
 from process_control.units.anaerobic_digester import step as digester_step
@@ -35,9 +35,9 @@ class AnaerobicDigesterBenchState:
     step_count: jax.Array
     digester_state: ADM1State
     cod_drift: jax.Array
-    vfa_sensor: ResidualAnalyzerState
-    ph_sensor: ResidualAnalyzerState
-    biogas_sensor: ResidualAnalyzerState
+    vfa_sensor: LaggedSensorState
+    ph_sensor: LaggedSensorState
+    biogas_sensor: LaggedSensorState
     temperature: jax.Array
     last_q_feed: jax.Array
 
@@ -95,17 +95,17 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         drift_scale=config.feed_cod_drift_scale,
         drift_clip=config.feed_cod_amplitude,
     )
-    vfa_analyzer = ResidualAnalyzerParams(
+    vfa_analyzer = LaggedSensorParams(
         noise_std=config.vfa_noise_std,
         lag_coefficient=config.vfa_lag,
         sample_period=config.sensor_sample_period,
     )
-    ph_analyzer = ResidualAnalyzerParams(
+    ph_analyzer = LaggedSensorParams(
         noise_std=config.ph_noise_std,
         lag_coefficient=config.ph_lag,
         sample_period=config.sensor_sample_period,
     )
-    biogas_analyzer = ResidualAnalyzerParams(
+    biogas_analyzer = LaggedSensorParams(
         noise_std=config.biogas_noise_std,
         lag_coefficient=config.biogas_lag,
         sample_period=config.sensor_sample_period,
@@ -125,9 +125,9 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             step_count=jnp.array(0, dtype=jnp.int32),
             digester_state=dig,
             cod_drift=jnp.array(0.0),
-            vfa_sensor=analyzer_reset(k2, dig.s_vfa),
-            ph_sensor=analyzer_reset(k3, _estimate_ph(dig.s_co2, config.digester.alkalinity)),
-            biogas_sensor=analyzer_reset(k4, dig.q_gas),
+            vfa_sensor=analyzer_reset(dig.s_vfa, k2),
+            ph_sensor=analyzer_reset(_estimate_ph(dig.s_co2, config.digester.alkalinity), k3),
+            biogas_sensor=analyzer_reset(dig.q_gas, k4),
             temperature=jnp.array(35.0),
             last_q_feed=jnp.array(config.q_feed_max * 0.5),
         )

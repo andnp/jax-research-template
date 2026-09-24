@@ -30,9 +30,9 @@ from process_control.scenarios.diurnal_source import DiurnalSourceParams, Diurna
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.residual_analyzer import ResidualAnalyzerParams, ResidualAnalyzerState
-from process_control.sensors.residual_analyzer import reset as analyzer_reset
-from process_control.sensors.residual_analyzer import step as analyzer_step
+from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
+from process_control.sensors.lagged import reset as analyzer_reset
+from process_control.sensors.lagged import step as analyzer_step
 from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as membrane_reset
 from process_control.units.membrane import step as membrane_step
@@ -45,8 +45,8 @@ class DrinkingWaterTrainState:
     turbidity_drift: jax.Array
     membrane_state: MembraneState
     cl2_residual: jax.Array  # chlorine residual at basin outlet (mg/L)
-    tmp_sensor: ResidualAnalyzerState
-    cl2_sensor: ResidualAnalyzerState
+    tmp_sensor: LaggedSensorState
+    cl2_sensor: LaggedSensorState
     last_q_in: jax.Array
 
 
@@ -127,12 +127,12 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         drift_scale=config.turb_drift_scale,
         drift_clip=config.turb_amplitude * 2.0,
     )
-    tmp_analyzer = ResidualAnalyzerParams(
+    tmp_analyzer = LaggedSensorParams(
         noise_std=config.tmp_noise_std,
         lag_coefficient=config.tmp_lag,
         sample_period=config.sensor_sample_period,
     )
-    cl2_analyzer = ResidualAnalyzerParams(
+    cl2_analyzer = LaggedSensorParams(
         noise_std=config.cl2_noise_std,
         lag_coefficient=config.cl2_lag,
         sample_period=config.sensor_sample_period,
@@ -182,8 +182,8 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             turbidity_drift=jnp.array(0.0),
             membrane_state=mem,
             cl2_residual=initial_cl2_residual,
-            tmp_sensor=analyzer_reset(k3, compute_tmp(operating_flux, mem, config.membrane)),
-            cl2_sensor=analyzer_reset(k4, initial_cl2_residual),
+            tmp_sensor=analyzer_reset(compute_tmp(operating_flux, mem, config.membrane), k3),
+            cl2_sensor=analyzer_reset(initial_cl2_residual, k4),
             last_q_in=jnp.array(config.mean_flow),
         )
         raw_turbidity = jnp.array(source_params.base_turbidity)
