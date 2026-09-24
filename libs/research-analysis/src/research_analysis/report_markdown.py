@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
-from research_analysis._reporting_models import BakeoffReport, CellSummary, PairedDifference
+from research_analysis._reporting_models import BakeoffReport, CellSummary, HyperparameterConfigReport, PairedDifference
 from research_analysis.dataset.types import RunAccounting
 from research_analysis.diagnostics.types import DatasetDiagnostic
 from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, TailMean
-from research_analysis.report import AnalysisFailure, AnalysisResult, BakeoffResult, PlanStatus, ReportDocument
+from research_analysis.report import (
+    AnalysisFailure,
+    AnalysisResult,
+    BakeoffResult,
+    BestHypersResult,
+    HypersDifferenceResult,
+    PlanStatus,
+    ReportDocument,
+    SliceHypersResult,
+)
 
 _LISTED_MESSAGES = 10
 
@@ -206,11 +215,51 @@ def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
     return lines
 
 
+def _group_label(group: Mapping[str, object]) -> str:
+    return ", ".join(f"{axis}={value}" for axis, value in group.items()) or "whole grid"
+
+
+def _config(config: Mapping[str, object]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in config.items())
+
+
+def _champion_lines(report: HyperparameterConfigReport) -> list[str]:
+    return [
+        f"- Champion: {_config(report.winning_config)}, scored per run by {_describe_measure(report.measure)}",
+        f"- Corrected mean {_number(report.corrected_mean)}, {_percent(report.confidence_level)} CI "
+        f"{_interval(report.estimate_ci)} (hierarchical bootstrap, selection re-run in every resample)",
+        f"- Raw champion mean {_number(report.raw_mean)}; maximization bias {_number(report.maximization_bias)}; "
+        f"normalized selection entropy {report.normalized_selection_entropy:.2f}",
+        f"- Runs outside the shared seeds, left out: {len(report.unpaired_run_ids)}",
+    ]
+
+
 def _analysis_section(result: AnalysisResult) -> list[str]:
     match result:
         case BakeoffResult(name=name, report=report):
             return _bakeoff_section(name, report)
-    return []
+        case BestHypersResult(name=name, group=group, report=report):
+            return [f"## {name}: champion for {_group_label(group)}", "", *_champion_lines(report)]
+        case HypersDifferenceResult(name=name, report=report):
+            return [
+                f"## {name}: champion difference",
+                "",
+                f"- {_config(report.minuend_config)} minus {_config(report.subtrahend_config)}",
+                f"- Estimate {_number(report.mean_diff)}, {_percent(report.confidence_level)} CI "
+                f"{_interval(report.estimate_ci)} (hierarchical bootstrap, selection included)",
+                f"- Runs outside the shared seeds, left out: {len(report.unpaired_run_ids)}",
+            ]
+        case SliceHypersResult(name=name, group=group, report=report):
+            rows = [
+                [str(value), _number(best), "not run" if pinned is None else _number(pinned)]
+                for value, best, pinned in zip(report.values, report.best_performance, report.slice_performance, strict=True)
+            ]
+            header = [report.vary, "Best achievable (selection-corrected)", "Champion-pinned slice (raw mean)"]
+            return [f"## {name}: sensitivity to {report.vary} for {_group_label(group)}", "", *_table(header, rows)]
+
+
+def _figures_section(document: ReportDocument) -> list[str]:
+    return ["## Figures", "", *(f"- {name}: ![{name}]({path})" for name, path in document.plots.items())]
 
 
 def render_markdown(document: ReportDocument) -> str:
@@ -224,4 +273,6 @@ def render_markdown(document: ReportDocument) -> str:
     if document.failure is not None:
         sections.append(_failure_section(document.failure))
     sections.extend(_analysis_section(result) for result in document.analyses)
+    if document.plots:
+        sections.append(_figures_section(document))
     return "\n\n".join("\n".join(section) for section in sections) + "\n"
