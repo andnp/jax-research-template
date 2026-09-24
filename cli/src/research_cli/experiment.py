@@ -8,12 +8,13 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
 
 import typer
 from experiment_definition.db import DatabaseManager
 from research_analysis.plan import registered_plans
 from research_analysis.plan_report import run_plan
-from research_analysis.plan_snapshots import read_plan_snapshots
+from research_analysis.plan_snapshots import read_plan_snapshots, record_plan_snapshot
 from research_analysis.report import ReportStatus
 from research_analysis.report_json import report_to_json
 from research_analysis.report_markdown import render_markdown, render_summary
@@ -74,6 +75,13 @@ def _with_results_root(experiment_spec: ExperimentSpec, results_root: str | None
     if results_root is None:
         return experiment_spec
     return replace(experiment_spec, results_root=Path(results_root).resolve())
+
+
+def _record_declared_plan(module: ModuleType, name: str, experiment_spec: ExperimentSpec) -> None:
+    """Snapshot the spec's declared plan before its runs start, so reports can show it predates the results."""
+    plan_factory = registered_plans(module).get(name)
+    if plan_factory is not None:
+        record_plan_snapshot(plan_factory(), experiment_spec.results_root)
 
 
 def _render_version(version_id: int | None) -> str:
@@ -331,6 +339,7 @@ def run(
         experiment_spec = _with_results_root(factory(), results_root)
         max_runs_per_batch = max_runs if max_runs is not None else experiment_spec.max_runs_per_batch
 
+        _record_declared_plan(module, name, experiment_spec)
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
             experiment_spec.db_path,
@@ -565,6 +574,7 @@ def submit(
         else:
             db_path.parent.mkdir(parents=True, exist_ok=True)
             experiment_spec.sync(db_path)
+            _record_declared_plan(module, name, experiment_spec)
 
             with DatabaseManager(db_path) as database:
                 database.initialize()
