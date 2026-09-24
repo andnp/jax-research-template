@@ -33,7 +33,7 @@ All shared components must have tests in `tests/` categorized by duration:
 ## 4. Documentation Policy
 - **Spec-Driven Development:** Before implementing a new library or complex feature, create a PRD/Spec in `docs/specs/`.
 - **ADRs:** Record significant architectural decisions in `docs/adrs/`.
-- **Docstrings:** Use Google-style docstrings with clear math references where applicable.
+- **Docstrings:** Keep them concise and do not restate parameter or return types in `Args:`/`Returns:` sections; add a short paragraph or math reference only when the signature does not carry the context.
 
 ## 5. Workflow
 - **Repo Layout:** The bare control root is `/home/andy/Projects/research/jax-research-template`. The default editable worktree is `/home/andy/Projects/research/jax-research-template/main`. Do not edit files in the bare root.
