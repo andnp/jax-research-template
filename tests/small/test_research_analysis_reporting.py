@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 from typing import TypedDict
 
@@ -33,6 +34,7 @@ from research_analysis.reporting import (
     slice_hypers,
     variance_warning,
 )
+from research_analysis.statistics import pointwise_tolerance_interval
 
 
 class ExperimentSetup(TypedDict):
@@ -1000,3 +1002,37 @@ class TestBakeoffCells:
         assert cell.sd == pytest.approx(np.std([1.0, 2.0, 4.0, 8.0], ddof=1))
         assert cell.confidence == pytest.approx(0.95)
         assert cell.ci is not None and 1.0 <= cell.ci[0] <= cell.ci[1] <= 8.0
+
+    def test_cells_report_a_tolerance_interval_only_with_enough_runs(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """With enough runs the interval is the distribution-free one; below that it states the runs needed."""
+        setup = temp_experiment_setup
+        for seed in range(14):
+            _add_observation(setup, {"condition_name": "a"}, seed, float(seed))
+            _add_observation(setup, {"condition_name": "b"}, seed, float(seed % 3))
+        spec = BakeoffSpec(n_resamples=50, tolerance_coverage=0.7)
+
+        enough = bakeoff_report(_load(setup), "metric", ["a", "b"], spec=spec, verbose=False).cells["a"][""]
+        strict = bakeoff_report(
+            _load(setup), "metric", ["a", "b"], spec=replace(spec, tolerance_coverage=0.9), verbose=False
+        ).cells["a"][""]
+
+        expected = pointwise_tolerance_interval(np.arange(14.0), confidence=0.95, coverage=0.7)
+        assert enough.tolerance == (pytest.approx(expected.ci_low), pytest.approx(expected.ci_high))
+        assert enough.tolerance_min_runs == 14
+        assert strict.tolerance is None
+        assert strict.tolerance_min_runs == 46
+
+    def test_cells_name_the_run_closest_to_the_median(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """The representative run is the one whose score sits at the cell median."""
+        setup = temp_experiment_setup
+        for seed, value in enumerate([5.0, 100.0, 1.0]):
+            _add_observation(setup, {"condition_name": "a"}, seed, value)
+            _add_observation(setup, {"condition_name": "b"}, seed, 0.0)
+        dataset = _load(setup)
+        median_run = dataset.runs.filter((pl.col("condition_name") == "a") & (pl.col("seed") == 0))["run_id"].item()
+
+        report = bakeoff_report(dataset, "metric", ["a", "b"], spec=BakeoffSpec(n_resamples=50), verbose=False)
+
+        assert report.cells["a"][""].median_run_id == median_run
