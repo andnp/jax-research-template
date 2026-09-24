@@ -54,6 +54,7 @@ from rl_components.continuous_actions import continuous_action_dim, uniform_expl
 from rl_components.env_protocol import EnvSpec
 from rl_components.losses import qrc_terms
 from rl_components.networks import TanhNormalDiag
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -530,20 +531,6 @@ def gac_hypers(config: GACConfig) -> GACHypers:
     )
 
 
-def _inject_learning_rate(train_state: TrainState, learning_rate: jax.Array) -> TrainState:
-    """Push a traced rate into the optimizer state each learn step.
-
-    ``tx`` (an ``optax.chain`` of clip-by-global-norm and ``inject_hyperparams(adamw)``) is
-    a static field on ``TrainState``; a traced value closed over it would leak silently,
-    training every arm at one arm's rate. ``inject_hyperparams`` is the last transform in
-    the chain, so its state is the last element of the ``opt_state`` tuple.
-    """
-    opt_state = train_state.opt_state
-    inject_state = opt_state[-1]
-    updated = inject_state._replace(hyperparams={**inject_state.hyperparams, "learning_rate": learning_rate})
-    return train_state.replace(opt_state=(*opt_state[:-1], updated))
-
-
 def _networks(action_dim: int, hidden_size: int) -> tuple[GACActor, GACCritic]:
     """Build the two Flax modules from the two static facts that shape them.
 
@@ -784,7 +771,7 @@ class GACAgent:
             actor=actor,
         )
 
-        critic_state = _inject_learning_rate(state.critic_state, hypers.LEARNING_RATE)
+        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
 
         def _critic_loss_fn(params: VariableDict) -> jax.Array:
             loss, _ = gac_critic_loss(
@@ -817,7 +804,7 @@ class GACAgent:
             actor=actor,
         )
 
-        actor_state = _inject_learning_rate(state.actor_state, hypers.ACTOR_LEARNING_RATE)
+        actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.ACTOR_LEARNING_RATE)
 
         def actor_loss_fn(params: VariableDict) -> jax.Array:
             return gac_actor_loss(

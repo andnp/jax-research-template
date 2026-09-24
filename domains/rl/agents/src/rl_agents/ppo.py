@@ -38,6 +38,7 @@ from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
 from rl_components.continuous_actions import continuous_action_dim
 from rl_components.env_protocol import EnvSpec
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_components.types import PPOConfig
@@ -662,15 +663,10 @@ class PPOAgent:
             )
             # The transformation is a static field and cannot hold a traced value, so the
             # swept rate and clip norm are pushed into the optimizer state each step.
-            opt_state = train_state.opt_state
-            train_state = train_state.replace(
-                opt_state=opt_state._replace(
-                    hyperparams={
-                        **opt_state.hyperparams,
-                        "learning_rate": hypers.LEARNING_RATE,
-                        "max_grad_norm": hypers.MAX_GRAD_NORM,
-                    }
-                ),
+            train_state = with_hyperparams(
+                train_state,
+                learning_rate=hypers.LEARNING_RATE,
+                max_grad_norm=hypers.MAX_GRAD_NORM,
             )
             return train_state.apply_gradients(grads=grads), (loss, value_loss, policy_loss, entropy)
 
@@ -698,4 +694,3 @@ class PPOAgent:
             jnp.mean(policy_loss).astype(jnp.float32),
             jnp.mean(entropy).astype(jnp.float32),
         )
-

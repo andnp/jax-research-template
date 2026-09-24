@@ -57,6 +57,7 @@ from rl_components.distributional import (
 )
 from rl_components.env_protocol import EnvSpec
 from rl_components.layers import NoisyLinear
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
@@ -828,16 +829,11 @@ class RainbowAgent:
             prototype=_replay_prototype_from_state(buffer_state),
         )
 
-        opt_state = train_state.opt_state
-        train_state = train_state.replace(
-            opt_state=opt_state._replace(
-                hyperparams={
-                    **opt_state.hyperparams,
-                    "learning_rate": hypers.LEARNING_RATE,
-                    "decay": hypers.RMSPROP_DECAY,
-                    "eps": hypers.OPTIMIZER_EPSILON,
-                }
-            )
+        train_state = with_hyperparams(
+            train_state,
+            learning_rate=hypers.LEARNING_RATE,
+            decay=hypers.RMSPROP_DECAY,
+            eps=hypers.OPTIMIZER_EPSILON,
         )
 
         def _loss_with_priorities(params: VariableDict) -> tuple[jax.Array, jax.Array]:
