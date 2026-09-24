@@ -43,8 +43,21 @@ from process_control.units.takacs_settler import step as settler_step
 class SludgeBlanketConfig:
     dt: float = 0.02  # hours (~1.2 min)
 
-    # Feed: constant MLSS from activated sludge process
+    # Feed: initial MLSS from activated sludge process; the running MLSS
+    # value tracks the aeration-tank mass balance below, so it can shift
+    # with the RAS rate rather than staying pinned at this constant.
     feed_tss: float = 3500.0  # g/m³ (typical MLSS)
+
+    # Well-mixed aeration tank upstream of the clarifier (state-point
+    # analysis: MLSS should respond to RAS/wastage rather than being fixed;
+    # see e.g. Wahlberg & Keinath (1988), "Development of settling flux
+    # curves using SVI", J. WPCF 60(12), pp. 2095-2100). Volume defaults to
+    # BSM1's combined bioreactor volume (Alex et al. 2008, Sec. 2.1: 1000 +
+    # 1000 + 1333 + 1333 + 1333 = 5999 m³). No wasting is modeled here (the
+    # single action is total underflow, all of it returned as RAS), so this
+    # tracks how MLSS redistributes with recycle rate, not long-run washout.
+    aeration_volume: float = 5999.0  # m³
+    influent_tss: float = 250.0  # g/m³ raw influent TSS (typical range for municipal wastewater; approximate, unverified precise source)
 
     # Flow variation
     mean_flow: float = 769.0
@@ -94,6 +107,7 @@ class SludgeBlanketPlantState:
     source_state: DiurnalSourceState
     settler_state: TakacsSettlerState
     underflow_actuator: RampLimitedActuatorState
+    aeration_tss: jax.Array
     sensors: SludgeBlanketSensorState
 
 
@@ -125,8 +139,9 @@ def make_sludge_blanket_benchmark(
 
     dt = jnp.array(config.dt)
     mean_flow = jnp.array(config.mean_flow)
-    feed_tss = jnp.array(config.feed_tss)
     q_u_max = jnp.array(config.q_u_max)
+    aeration_volume = jnp.array(config.aeration_volume)
+    influent_tss = jnp.array(config.influent_tss)
     depth = jnp.array(config.settler.depth)
     blanket_threshold = config.blanket_threshold
     eff_tss_limit = jnp.array(config.eff_tss_limit)
@@ -155,6 +170,7 @@ def make_sludge_blanket_benchmark(
             source_state=src,
             settler_state=settler,
             underflow_actuator=pump,
+            aeration_tss=jnp.array(config.feed_tss),
             sensors=sensors,
         )
 
@@ -199,12 +215,18 @@ def make_sludge_blanket_benchmark(
         q_feed = q_in + q_u
         new_settler = settler_step(
             state.settler_state,
-            feed_tss,
+            state.aeration_tss,
             q_feed,
             q_u,
             settler_params,
             dt,
         )
+
+        # 3b. Aeration-tank MLSS: well-mixed mass balance so MLSS responds to
+        # the RAS rate instead of staying fixed at a constant feed_tss.
+        ras_tss = get_underflow_tss(state.settler_state)
+        d_aeration_tss = (q_in * influent_tss + q_u * ras_tss - q_feed * state.aeration_tss) / aeration_volume
+        new_aeration_tss = jnp.maximum(0.0, state.aeration_tss + d_aeration_tss * dt)
 
         # 4. True measurements
         blanket_h = compute_blanket_height(new_settler, settler_params, blanket_threshold)
@@ -247,6 +269,7 @@ def make_sludge_blanket_benchmark(
             source_state=new_source,
             settler_state=new_settler,
             underflow_actuator=new_pump,
+            aeration_tss=new_aeration_tss,
             sensors=new_sensors,
         )
 
@@ -257,6 +280,7 @@ def make_sludge_blanket_benchmark(
             "q_underflow": q_u,
             "q_in": q_in,
             "q_feed": q_feed,
+            "aeration_tss": state.aeration_tss,
         }
 
         done = jnp.array(False)

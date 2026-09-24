@@ -296,6 +296,28 @@ class TestSludgeBlanketBenchmark:
                 state, _, _, _, info = step_fn(state, jnp.array([q_u_action]), k_step)
                 assert float(info["q_feed"]) - float(info["q_underflow"]) >= 0.0
 
+    def test_mlss_responds_to_recycle_rate(self) -> None:
+        """Aeration-tank MLSS should diverge under sustained low vs. high
+        underflow (RAS) rate rather than staying pinned at a constant value."""
+        config = SludgeBlanketConfig()
+        reset_fn, step_fn = make_sludge_blanket_benchmark(config)
+
+        key = jax.random.PRNGKey(50)
+        k1, key = jax.random.split(key)
+        state_low, _ = reset_fn(k1)
+        for _ in range(300):
+            k_step, key = jax.random.split(key)
+            state_low, _, _, _, info_low = step_fn(state_low, jnp.array([config.q_u_min]), k_step)
+
+        key = jax.random.PRNGKey(50)
+        k1, key = jax.random.split(key)
+        state_high, _ = reset_fn(k1)
+        for _ in range(300):
+            k_step, key = jax.random.split(key)
+            state_high, _, _, _, info_high = step_fn(state_high, jnp.array([config.q_u_max]), k_step)
+
+        assert abs(float(info_low["aeration_tss"]) - float(info_high["aeration_tss"])) > 1.0
+
     def test_reward_is_negative(self) -> None:
         config = SludgeBlanketConfig()
         reset_fn, step_fn = make_sludge_blanket_benchmark(config)
