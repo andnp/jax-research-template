@@ -17,6 +17,7 @@ import pytest
 from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import Estimand
+from research_analysis.multiplicity import holm_step_down
 from research_analysis.permutation import run_permutation_test
 from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.statistics import (
@@ -302,4 +303,30 @@ def test_block_stratified_permutation_test_holds_its_size(distribution: RunDistr
         rejections += block_stratified_permutation_test(scores, n_resamples=99, rng=rng).p_value < ALPHA
 
     rate = rejections / replicates
+    assert rate <= ALPHA + mc_band(ALPHA, replicates), rate
+
+
+# ── Multiplicity across a bakeoff comparison family ─────────────────────────
+
+
+def test_holm_controls_family_wise_error_over_dependent_pairs() -> None:
+    """Holm-adjusted p-values over every pair of four null arms reject anything at most alpha of the time.
+
+    The six paired tests share arms and seeds, so their p-values are dependent, as in a bakeoff.
+    """
+    replicates, n, arms = 1000, 10, 4
+    rng = np.random.default_rng(0)
+
+    family_errors = 0
+    for _ in range(replicates):
+        seed_effect = rng.standard_normal(n)
+        values = [seed_effect + NORMAL.sample(rng, n) for _ in range(arms)]
+        p_values = [
+            run_permutation_test(values[i], values[j], pairing="paired", n_resamples=2**n, rng=rng).p_value
+            for i in range(arms)
+            for j in range(i + 1, arms)
+        ]
+        family_errors += min(holm_step_down(p_values)) < ALPHA
+
+    rate = family_errors / replicates
     assert rate <= ALPHA + mc_band(ALPHA, replicates), rate
