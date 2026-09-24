@@ -24,6 +24,7 @@ from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.loading import load_experiment_dataset
 from research_analysis.dataset.types import ExperimentDataset, ExperimentDimensions, SweepAxis, SweepValueType
 from research_analysis.diagnostics.bakeoff import BakeoffWarningCode, IncompleteBlocksError, IncompleteCell
+from research_analysis.diagnostics.types import InsufficientDataError
 from research_analysis.non_finite import NonFiniteValuesError
 from research_analysis.performance import ReturnRate, TailMean
 from research_analysis.report_plots import write_bakeoff_plots, write_slice_plot
@@ -1151,6 +1152,172 @@ def test_bakeoff_keeps_runs_without_a_blocking_axis_in_their_own_block(temp_expe
     assert report.blocks == ["None", "5.0"]
     assert report.cells["shared"]["None"].n == 3
     assert report.cells["adversarial"]["5.0"].n == 3
+
+
+class TestSharedReferent:
+    ETA = SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial", "ortho")})
+
+    def _per_eta_arms(self, setup: ExperimentSetup, shared_seeds: int = 4) -> ExperimentDataset:
+        for seed in range(shared_seeds):
+            _add_observation(setup, {"condition_name": "shared"}, seed, float(seed))
+        for condition, offset in (("adversarial", 1.0), ("ortho", 3.0)):
+            for eta in (2.0, 5.0):
+                for seed in range(4):
+                    _add_observation(setup, {"condition_name": condition, "eta": eta}, seed, seed + offset * eta)
+        return load_experiment_dataset(setup["db_path"], "test-exp", dimensions=ExperimentDimensions(sweep_axes=(self.ETA,)), partial=True)
+
+    def _per_eta_report(self, dataset: ExperimentDataset):
+        return bakeoff_report(
+            dataset,
+            "metric",
+            ["adversarial", "ortho", "shared"],
+            block_by=["eta"],
+            shared_across=["eta"],
+            spec=BakeoffSpec(n_resamples=50),
+            pairs=[("adversarial", "shared"), ("ortho", "shared")],
+        )
+
+    def test_an_axis_free_referent_is_compared_in_every_block_of_the_axis(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """The same referent runs are subtracted from each eta block's arms, and nothing forms a null block."""
+        report = self._per_eta_report(self._per_eta_arms(temp_experiment_setup))
+
+        assert report.blocks == ["2.0", "5.0"]
+        assert report.shared_across == {"eta": ("shared",)}
+        assert report.family_size == 4
+        assert report.difference("adversarial", "shared", "2.0").estimate == pytest.approx(2.0)
+        assert report.difference("ortho", "shared", "5.0").estimate == pytest.approx(15.0)
+        assert all(item.p_value is not None for item in report.differences)
+
+    def test_a_reused_run_is_listed_once_per_block_but_counted_once(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Report runs show where each referent run was used; dataset accounting still counts it once."""
+        dataset = self._per_eta_arms(temp_experiment_setup)
+
+        report = self._per_eta_report(dataset)
+
+        shared_runs = [run for run in report.runs if run.condition == "shared"]
+        assert sorted({run.block for run in shared_runs}) == ["2.0", "5.0"]
+        assert len(shared_runs) == 8
+        assert len({run.run_id for run in shared_runs}) == 4
+        shared_accounting = [cell for cell in dataset.accounting.cells if dict(cell.cell)["condition_name"] == "shared"]
+        assert [(dict(cell.cell)["eta"], cell.completed) for cell in shared_accounting] == [(None, 4)]
+
+    def test_reused_runs_skip_only_the_omnibus_test(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """Blocks sharing runs are dependent, so the omnibus is skipped with a reason while paired tests remain."""
+        report = self._per_eta_report(self._per_eta_arms(temp_experiment_setup))
+
+        assert report.omnibus is None
+        assert report.omnibus_skipped_reason is not None and "not independent" in report.omnibus_skipped_reason
+        assert report.tests_skipped_reason is None
+
+    def test_a_referent_missing_seed_is_traced_to_its_own_accounting_cell(
+        self, temp_experiment_setup: ExperimentSetup
+    ) -> None:
+        """The referent's accounting cell has no eta, so its failed run is still found for every eta block."""
+        setup = temp_experiment_setup
+        with DatabaseManager(setup["db_path"]) as database:
+            hyper_id = database.add_hyperparam_config({"condition_name": "shared", "seed": 3})
+            run_id = database.add_run(setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, 3)
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.update_execution_status(execution_id, "FAILED")
+        dataset = self._per_eta_arms(setup, shared_seeds=3)
+
+        with pytest.raises(IncompleteBlocksError) as raised:
+            self._per_eta_report(dataset)
+
+        assert raised.value.cells == (
+            IncompleteCell("shared", "2.0", (3,), failed=1, pending=0, excluded=0),
+            IncompleteCell("shared", "5.0", (3,), failed=1, pending=0, excluded=0),
+        )
+
+    def test_a_tuned_referent_is_selected_separately_in_each_block(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """In champion mode the axis-free referent is tuned within each block it joins, against that block's arms."""
+        setup = temp_experiment_setup
+        noise = np.random.default_rng(3)
+        for learning_rate, gain in (("low", 0.0), ("high", 1.0)):
+            for seed in range(6):
+                _add_observation(setup, {"condition_name": "qrc", "learning_rate": learning_rate}, seed, gain + noise.normal())
+                for num_heads in (5, 50):
+                    value = 2.0 + gain + num_heads / 50 + noise.normal()
+                    metadata: dict[str, ParameterValue] = {
+                        "condition_name": "gi_qrc",
+                        "learning_rate": learning_rate,
+                        "num_heads": num_heads,
+                    }
+                    _add_observation(setup, metadata, seed, value)
+        heads = SweepAxis("num_heads", SweepValueType.INTEGER, when={"condition_name": ("gi_qrc",)})
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING), heads)))
+
+        report = bakeoff_report(
+            dataset,
+            "metric",
+            ["gi_qrc", "qrc"],
+            select_champion_over=["learning_rate", "num_heads"],
+            block_by=["num_heads"],
+            shared_across=["num_heads"],
+            spec=BakeoffSpec(n_resamples=100),
+        )
+
+        assert report.blocks == ["5", "50"]
+        assert report.champions is not None
+        assert {block: champions["qrc"].winning_config["num_heads"] for block, champions in report.champions.items()} == {
+            "5": None,
+            "50": None,
+        }
+        assert all(item.estimate is not None and item.n_paired == 6 for item in report.differences)
+
+    @pytest.mark.parametrize(
+        ("block_by", "shared_across", "message"),
+        [
+            (["eta"], ["learning_rate"], "block_by axes declared with a `when` rule"),
+            (["learning_rate"], ["eta"], "block_by axes declared with a `when` rule"),
+            (["learning_rate"], ["learning_rate"], "block_by axes declared with a `when` rule"),
+        ],
+        ids=["not-blocked", "not-in-block-by", "unconditional-axis"],
+    )
+    def test_rejects_a_shared_axis_that_is_not_a_conditional_block_axis(
+        self, temp_experiment_setup: ExperimentSetup, block_by: list[str], shared_across: list[str], message: str
+    ) -> None:
+        """Sharing is only meaningful for a blocking axis that some arms lack by declaration."""
+        setup = temp_experiment_setup
+        for seed in range(3):
+            _add_observation(setup, {"condition_name": "shared", "learning_rate": "low"}, seed, 0.0)
+            _add_observation(setup, {"condition_name": "adversarial", "learning_rate": "low", "eta": 2.0}, seed, 1.0)
+        axes = (SweepAxis("learning_rate", SweepValueType.STRING), self.ETA)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=axes))
+
+        with pytest.raises(ValueError, match=message):
+            bakeoff_report(dataset, "metric", ["adversarial", "shared"], block_by=block_by, shared_across=shared_across)
+
+    def test_rejects_a_condition_that_lacks_the_axis_on_only_some_runs(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A referent must lack the axis on every run; otherwise which of its runs to reuse is ambiguous."""
+        setup = temp_experiment_setup
+        for seed in range(3):
+            _add_observation(setup, {"condition_name": "a", "variant": "x", "eta": 2.0}, seed, 0.0)
+            _add_observation(setup, {"condition_name": "a", "variant": "y"}, seed + 10, 0.0)
+            _add_observation(setup, {"condition_name": "b", "variant": "x", "eta": 2.0}, seed, 1.0)
+        eta = SweepAxis("eta", SweepValueType.FLOAT, when={"variant": ("x",)})
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=(eta,)))
+
+        with pytest.raises(ValueError, match=r"\['a'\] lack 'eta' on only some runs"):
+            bakeoff_report(dataset, "metric", ["a", "b"], block_by=["eta"], shared_across=["eta"])
+
+    def test_a_referent_run_with_no_block_to_join_fails_loudly(self, temp_experiment_setup: ExperimentSetup) -> None:
+        """A referent run whose other coordinates match no block would otherwise silently vanish."""
+        setup = temp_experiment_setup
+        for seed in range(3):
+            for task in ("t1", "t2"):
+                _add_observation(setup, {"condition_name": "shared", "task": task}, seed, 0.0)
+            _add_observation(setup, {"condition_name": "adversarial", "task": "t1", "eta": 2.0}, seed, 1.0)
+        axes = (SweepAxis("task", SweepValueType.STRING), self.ETA)
+        dataset = _load(setup, ExperimentDimensions(sweep_axes=axes))
+
+        with pytest.raises(InsufficientDataError, match="3 run\\(s\\) match no block") as raised:
+            bakeoff_report(dataset, "metric", ["adversarial", "shared"], block_by=["task", "eta"], shared_across=["eta"])
+
+        assert [cell.coordinates for cell in raised.value.cells] == [{"condition": "shared"}]
 
 
 class TestRunDistributionFigures:
