@@ -53,7 +53,7 @@ from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layo
 
 @chex_struct(frozen=True, kw_only=True)
 class DQNAtariConfig:
-    REPLAY_CAPACITY: int = 1_000_000
+    REPLAY_CAPACITY: int = 1_000_000  # ~14 GB at 1M: two uint8 84x84 frames per slot.
     MIN_REPLAY_CAPACITY_FRACTION: float = 0.05
     BATCH_SIZE: int = 32
     NUM_ACTION_REPEATS: int = 4
