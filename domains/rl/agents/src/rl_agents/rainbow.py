@@ -86,6 +86,9 @@ class RainbowConfig:
     NUM_ATOMS: int = 51
     V_MIN: float = -10.0
     V_MAX: float = 10.0
+    PRIORITY_EXPONENT: float = 0.5
+    IMPORTANCE_SAMPLING_EXPONENT_BEGIN: float = 0.4
+    IMPORTANCE_SAMPLING_EXPONENT_END: float = 1.0
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -259,6 +262,18 @@ def rainbow_zoo_atari_should_update_target(env_step: int, config: RainbowConfig)
     if env_step < 0:
         raise ValueError("env_step must be non-negative.")
     return env_step % rainbow_zoo_atari_target_update_period_env_steps(config) == 0
+
+
+def rainbow_importance_sampling_exponent(
+    env_step: jax.Array,
+    config: RainbowConfig,
+    anneal_steps: int,
+) -> jax.Array:
+    """Linearly anneal the importance-sampling exponent over training."""
+    progress = jnp.clip(env_step / anneal_steps, 0.0, 1.0)
+    return config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN + progress * (
+        config.IMPORTANCE_SAMPLING_EXPONENT_END - config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN
+    )
 
 
 def _rainbow_zoo_atari_should_learn_array(
@@ -544,12 +559,13 @@ def _per_add_batched_transitions(
     buffer_state: PERBufferState,
     transitions: RainbowTransition,
     insert_mask: jax.Array,
+    alpha: float,
 ) -> PERBufferState:
     def _add_one(state: PERBufferState, xs: tuple[RainbowTransition, jax.Array]) -> tuple[PERBufferState, None]:
         transition, should_add = xs
 
         def add(args: tuple[PERBufferState, RainbowTransition]) -> PERBufferState:
-            return per_add(args[0], args[1])
+            return per_add(args[0], args[1], alpha=alpha)
 
         def skip(args: tuple[PERBufferState, RainbowTransition]) -> PERBufferState:
             return args[0]
@@ -608,7 +624,7 @@ class RainbowAgentState:
 class RainbowAgent:
     """Rainbow: distributional double-Q learning over prioritised n-step replay."""
 
-    def __init__(self, config: RainbowConfig) -> None:
+    def __init__(self, config: RainbowConfig, runtime_config: RainbowRuntimeConfig | None = None) -> None:
         """Bind the configuration. The object is static under ``jit``.
 
         Args:
@@ -616,6 +632,9 @@ class RainbowAgent:
                 Python scalar.
         """
         self.config = config
+        self.importance_sampling_anneal_steps = (
+            runtime_config or RainbowRuntimeConfig()
+        ).TOTAL_TRAIN_ENV_STEPS
 
     def init(self, key: chex.PRNGKey, spec: EnvSpec) -> RainbowAgentState:
         """Build parameters, optimizer, replay, the n-step window and the pending slots.
@@ -700,6 +719,11 @@ class RainbowAgent:
         """
         hypers = state.hypers
         support = _rainbow_support_from_hypers(hypers, self.config.NUM_ATOMS)
+        beta = rainbow_importance_sampling_exponent(
+            step_index,
+            self.config,
+            self.importance_sampling_anneal_steps,
+        )
         carry_key, sample_key, learn_key, action_noise_key = jax.random.split(state.key, 4)
 
         n_step, buffer_state = jax.lax.cond(
@@ -719,6 +743,7 @@ class RainbowAgent:
                 learn_key,
                 hypers,
                 support,
+                beta,
             ),
             lambda: (state.train_state, buffer_state, jnp.zeros((), jnp.float32)),
         )
@@ -772,7 +797,9 @@ class RainbowAgent:
             timestep.discount,
             timestep.episode_end,
         )
-        return n_step, _per_add_batched_transitions(state.buffer_state, transitions, insert_mask)
+        return n_step, _per_add_batched_transitions(
+            state.buffer_state, transitions, insert_mask, self.config.PRIORITY_EXPONENT
+        )
 
     def _learn(
         self,
@@ -783,6 +810,7 @@ class RainbowAgent:
         noise_key: chex.PRNGKey,
         hypers: RainbowHypers,
         support: jax.Array,
+        beta: jax.Array,
     ) -> tuple[TrainState, PERBufferState, jax.Array]:
         """Take one gradient step on a prioritised minibatch, then reprioritise it.
 
@@ -796,7 +824,7 @@ class RainbowAgent:
             buffer_state,
             sample_key,
             batch_size=self.config.BATCH_SIZE,
-            beta=1.0,
+            beta=beta,
             prototype=_replay_prototype_from_state(buffer_state),
         )
 
@@ -828,5 +856,10 @@ class RainbowAgent:
             )
 
         (loss, per_example_loss), grads = jax.value_and_grad(_loss_with_priorities, has_aux=True)(train_state.params)
-        buffer_state = per_update_priorities(buffer_state, batch_indices, per_example_loss)
+        buffer_state = per_update_priorities(
+            buffer_state,
+            batch_indices,
+            per_example_loss,
+            alpha=self.config.PRIORITY_EXPONENT,
+        )
         return train_state.apply_gradients(grads=grads), buffer_state, loss.astype(jnp.float32)

@@ -24,6 +24,7 @@ from rl_agents.rainbow import (
     categorical_target_support,
     rainbow_atari_runtime_from_dqn_zoo,
     rainbow_expected_q_values,
+    rainbow_importance_sampling_exponent,
     rainbow_probabilities,
     rainbow_select_actions,
     rainbow_support,
@@ -61,6 +62,15 @@ class TestRainbowConfig:
         assert config.V_MAX == 10.0
         assert config.N_STEP == 3
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
+
+    def test_priority_exponents_match_dqn_zoo_schedule(self) -> None:
+        """Expose Rainbow's configured priority alpha and beta schedule."""
+        config = RainbowConfig()
+        assert config.PRIORITY_EXPONENT == 0.5
+        assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(0), config, 100), 0.4)
+        assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(50), config, 100), 0.7)
+        assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(100), config, 100), 1.0)
+        assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(200), config, 100), 1.0)
 
     def test_runtime_helper_preserves_dqn_zoo_budget(self) -> None:
         config = RainbowConfig()

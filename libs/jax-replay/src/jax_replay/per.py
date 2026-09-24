@@ -67,7 +67,7 @@ def per_sample[T](
     state: PERBufferState,
     key: jax.Array,
     batch_size: int,
-    beta: float,
+    beta: float | jax.Array,
     prototype: T,
 ) -> tuple[T, jax.Array, jax.Array]:
     storage_capacity = state.tree.shape[0] // 2
