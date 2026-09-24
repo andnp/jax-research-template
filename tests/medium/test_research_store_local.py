@@ -64,6 +64,20 @@ class TestPicklePutGet:
         assert uri1.version == 1
         assert uri2.version == 2
 
+    def test_existing_final_path_is_not_overwritten(
+        self, store: Store, run_id: uuid.UUID, tmp_path: Path,
+    ) -> None:
+        """Version allocation skips an existing artifact path."""
+        parent = tmp_path / "test_experiment" / str(run_id)
+        parent.mkdir(parents=True)
+        path = parent / "log_v1.pkl"
+        path.write_bytes(b"sentinel")
+
+        uri = store.put("new", name="log", execution_id=run_id)
+
+        assert uri.version == 2
+        assert path.read_bytes() == b"sentinel"
+
     def test_get_missing_uri_raises(self, store: Store, run_id: uuid.UUID) -> None:
         from research_store.types import StoreURI
 

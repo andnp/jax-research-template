@@ -92,11 +92,14 @@ class LocalBackend:
         )
         parent = _artifact_dir(self._root, uri)
         parent.mkdir(parents=True, exist_ok=True)
-
-        if kind is ArtifactKind.ORBAX:
-            self._put_orbax(blob, parent, uri)
-        else:
-            self._put_pickle(blob, parent, uri)
+        claim = parent / f".claim_{artifact_name}_v{version}"
+        try:
+            if kind is ArtifactKind.ORBAX:
+                self._put_orbax(blob, parent, uri)
+            else:
+                self._put_pickle(blob, parent, uri)
+        finally:
+            claim.rmdir()
 
         return uri
 
@@ -127,8 +130,7 @@ class LocalBackend:
     def _next_version(self, experiment_id: str, execution_id: uuid.UUID, artifact_name: str, kind: ArtifactKind) -> int:
         """Return the next available version number (1-based) for an artifact."""
         parent = self._root / experiment_id / str(execution_id)
-        if not parent.exists():
-            return 1
+        parent.mkdir(parents=True, exist_ok=True)
         stem_prefix = f"{artifact_name}_v"
         suffix = "" if kind is ArtifactKind.ORBAX else ".pkl"
         existing: list[int] = []
@@ -140,7 +142,15 @@ class LocalBackend:
                     tail = tail.removesuffix(suffix)
                 if tail.isdigit():
                     existing.append(int(tail))
-        return max(existing, default=0) + 1
+        version = max(existing, default=0) + 1
+        while True:
+            claim = parent / f".claim_{artifact_name}_v{version}"
+            try:
+                claim.mkdir()
+            except FileExistsError:
+                version += 1
+            else:
+                return version
 
     # ------------------------------------------------------------------
     # Serialization: Orbax
