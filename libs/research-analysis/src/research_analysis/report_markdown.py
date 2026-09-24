@@ -238,6 +238,20 @@ def _warning_lines(warnings: tuple[BakeoffWarning, ...]) -> list[str]:
     return ["", f"Warnings ({len(warnings)}):", "", *(lines or ["- none"])]
 
 
+def _reuse_lines(report: BakeoffReport) -> list[str]:
+    lines: list[str] = []
+    for axis, conditions in report.shared_across.items():
+        reused = [run for run in report.runs if run.condition in conditions]
+        lines.append(
+            f"- Shared across `{axis}`: {', '.join(conditions) or 'no condition'} lack `{axis}`, so their "
+            f"{len({run.run_id for run in reused})} runs are reused in every `{axis}` block ({len(reused)} cell entries); "
+            "run accounting counts each once"
+        )
+    if report.untuned:
+        lines.append(f"- Untuned referents (one configuration, no selection stage): {', '.join(report.untuned)}")
+    return lines
+
+
 def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
     spec = report.spec
     lines = [
@@ -246,6 +260,7 @@ def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
         f"- Metric: `{report.metric_name}`, per run: {_describe_measure(report.measure)}; estimand: {spec.estimand}",
         f"- {_describe_interval(spec).capitalize()}, {spec.n_resamples} resamples, seed {spec.random_seed}; "
         f"missingness: {spec.missingness}",
+        *_reuse_lines(report),
         "",
         f"Cells: {spec.estimand} with its {_percent(spec.confidence_level)} CI; SD and the "
         f"({_percent(spec.tolerance_confidence)} confidence, {_percent(spec.tolerance_coverage)} coverage) "
@@ -268,6 +283,8 @@ def _bakeoff_section(name: str, report: BakeoffReport) -> list[str]:
     ]
     if report.omnibus is not None:
         lines += ["", f"Omnibus: {report.omnibus.test_name}, p = {report.omnibus.p_value:.4g}."]
+    if report.omnibus_skipped_reason is not None:
+        lines += ["", f"No omnibus test: {report.omnibus_skipped_reason}."]
     if report.tests_skipped_reason is not None:
         lines += ["", f"No hypothesis tests: {report.tests_skipped_reason}."]
     if report.champions is not None:

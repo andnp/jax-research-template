@@ -219,6 +219,32 @@ class TestReportMarkdown:
         assert "- Expanded percentile bootstrap, 50 resamples, seed 0" in text
         assert "paired expanded percentile bootstrap" in text
 
+    def test_a_shared_referent_is_shown_as_reused_across_its_axis(self) -> None:
+        """The markdown says which runs were reused in several blocks, and why the omnibus test is absent."""
+        runs = pl.DataFrame(
+            {
+                "condition_name": ["shared"] * 4 + ["adversarial"] * 8,
+                "seed": [*range(4), *range(4), *range(4)],
+                "run_id": list(range(12)),
+                "execution_id": list(range(12)),
+                "ablation": pl.Series([None] * 12, dtype=pl.String),
+                "eta": pl.Series([None] * 4 + [2.0] * 4 + [5.0] * 4, dtype=pl.Float64),
+            }
+        )
+        metrics = runs.select("condition_name", "seed", "run_id", "execution_id").with_columns(
+            step=pl.lit(0), metric=pl.lit("return"), value=pl.Series([float(index % 5) for index in range(12)])
+        )
+        eta = SweepAxis("eta", SweepValueType.FLOAT, when={"condition_name": ("adversarial",)})
+        dataset = ExperimentDataset("demo", ExperimentDimensions(sweep_axes=(eta,)), runs, metrics, ())
+        report = bakeoff_report(
+            dataset, "return", ["adversarial", "shared"], block_by=["eta"], shared_across=["eta"], spec=BakeoffSpec(n_resamples=50)
+        )
+
+        text = _markdown(dataset, [BakeoffResult("headline", report)])
+
+        assert "Shared across `eta`: shared lack `eta`, so their 4 runs are reused in every `eta` block (8 cell entries)" in text
+        assert "No omnibus test: shared referent runs appear in several blocks" in text
+
     def test_skipped_cells_and_pairs_state_why(self) -> None:
         """A cell or pair below min_samples appears with its reason instead of silently vanishing."""
         dataset = _dataset({"a": [1.0, 2.0, 3.0], "b": [2.0, 3.0, 4.0], "c": [5.0, 6.0]})
