@@ -29,6 +29,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim, uniform_exploration_action
 from rl_components.env_protocol import EnvSpec
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -434,13 +435,7 @@ class TD3Agent:
         sample_key, critic_key = jax.random.split(key)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
 
-        def _with_lr(train_state: TrainState) -> TrainState:
-            opt_state = train_state.opt_state
-            return train_state.replace(
-                opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": hypers.LEARNING_RATE})
-            )
-
-        critic_state = _with_lr(state.critic_state)
+        critic_state = with_hyperparams(state.critic_state, learning_rate=hypers.LEARNING_RATE)
         critic_loss, critic_grads = jax.value_and_grad(partial(td3_critic_loss, actor=actor, critic=critic))(
             critic_state.params,
             state.actor_target_params,
@@ -457,7 +452,7 @@ class TD3Agent:
         critic_state = critic_state.apply_gradients(grads=critic_grads)
 
         def _update_actor() -> tuple[TrainState, VariableDict, VariableDict, jax.Array]:
-            actor_state = _with_lr(state.actor_state)
+            actor_state = with_hyperparams(state.actor_state, learning_rate=hypers.LEARNING_RATE)
             actor_loss, actor_grads = jax.value_and_grad(partial(td3_actor_loss, actor=actor, critic=critic))(
                 actor_state.params, critic_state.params, obs
             )

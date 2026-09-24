@@ -45,6 +45,7 @@ from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.heads import epsilon_greedy_action
 from rl_components.losses import clip_gradient
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
@@ -420,16 +421,11 @@ class DQNAtariAgent:
         because the transformation itself is a static field and cannot hold a
         traced value.
         """
-        opt_state = train_state.opt_state
-        train_state = train_state.replace(
-            opt_state=opt_state._replace(
-                hyperparams={
-                    **opt_state.hyperparams,
-                    "learning_rate": hypers.LEARNING_RATE,
-                    "decay": hypers.RMSPROP_DECAY,
-                    "eps": hypers.OPTIMIZER_EPSILON,
-                }
-            ),
+        train_state = with_hyperparams(
+            train_state,
+            learning_rate=hypers.LEARNING_RATE,
+            decay=hypers.RMSPROP_DECAY,
+            eps=hypers.OPTIMIZER_EPSILON,
         )
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 

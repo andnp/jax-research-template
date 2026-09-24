@@ -56,6 +56,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.exploration import linear_epsilon_schedule
+from rl_components.optim import with_hyperparams
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -373,10 +374,7 @@ class ReplayQAgent:
         The rate is pushed into the optimizer state each step because the
         transformation itself is a static field and cannot hold a traced value.
         """
-        opt_state = train_state.opt_state
-        train_state = train_state.replace(
-            opt_state=opt_state._replace(hyperparams={**opt_state.hyperparams, "learning_rate": learning_rate}),
-        )
+        train_state = with_hyperparams(train_state, learning_rate=learning_rate)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
 
         def loss_fn(params: VariableDict) -> jax.Array:
