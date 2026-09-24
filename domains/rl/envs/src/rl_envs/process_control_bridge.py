@@ -23,7 +23,7 @@ from typing import Any
 import chex
 import jax
 import jax.numpy as jnp
-from process_control.benchmarks.registry import BenchmarkEntry, get_action_bounds, get_benchmark_entry
+from process_control.benchmarks.registry import BenchmarkEntry, get_action_bounds, get_benchmark_entry, get_observation_dim
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 
@@ -238,7 +238,7 @@ def make_process_control_env(name: str, **config_overrides: Any) -> ProcessContr
     return ProcessControlEnv(
         reset_fn=reset_fn,
         step_fn=step_fn,
-        obs_dim=entry.obs_dim,
+        obs_dim=get_observation_dim(reset_fn),
         action_dim=entry.action_dim,
         env_id=env_id,
         scalar_action=entry.scalar_action,
@@ -262,7 +262,7 @@ def make_adapter(name: str, **config_overrides: Any) -> ProcessControlAdapter:
     return ProcessControlAdapter(
         reset_fn=reset_fn,
         step_fn=step_fn,
-        obs_dim=entry.obs_dim,
+        obs_dim=get_observation_dim(reset_fn),
         action_dim=entry.action_dim,
         env_id=f"process_control:{entry.name}",
         scalar_action=entry.scalar_action,

@@ -7,6 +7,7 @@ from process_control.benchmarks.registry import (
     BENCHMARK_REGISTRY,
     BenchmarkEntry,
     get_action_bounds,
+    get_observation_dim,
 )
 
 
@@ -37,8 +38,9 @@ def test_registry_resets_are_jit_traceable(entry: BenchmarkEntry):
     state, obs = jax.jit(reset)(keys[0])
     batched_states, batched_obs = jax.vmap(reset)(keys)
 
-    assert obs.shape == (entry.obs_dim,)
-    assert batched_obs.shape == (2, entry.obs_dim)
+    obs_dim = get_observation_dim(reset)
+    assert obs.shape == (obs_dim,)
+    assert batched_obs.shape == (2, obs_dim)
     assert jax.tree.leaves(state)
     assert jax.tree.leaves(batched_states)
 
@@ -77,7 +79,7 @@ def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
 
     (_, _), (obs, reward) = jax.jit(rollout)(state)
 
-    assert obs.shape == (200, entry.obs_dim)
+    assert obs.shape == (200, get_observation_dim(reset))
     assert jnp.all(jnp.isfinite(obs))
     assert jnp.all(jnp.isfinite(reward))
 

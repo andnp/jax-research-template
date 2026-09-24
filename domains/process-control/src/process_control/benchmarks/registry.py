@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+
+import jax
 
 from process_control.actuators.dosing_system import DIRECT
 
@@ -16,7 +19,6 @@ class BenchmarkEntry:
     module: str
     config_cls: str
     make_fn: str
-    obs_dim: int
     action_dim: int
     description: str
     scalar_action: bool = False
@@ -34,7 +36,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.chlorine",
         "ChlorineBenchmarkConfig",
         "make_chlorine_benchmark",
-        4,
         1,
         "Chlorine residual control",
         scalar_action=True,
@@ -50,7 +51,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.chlorine_two_stage",
         "ChlorineTwoStageBenchmarkConfig",
         "make_chlorine_two_stage_benchmark",
-        4,
         1,
         "Two-stage chlorine",
         scalar_action=True,
@@ -62,7 +62,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.ph_neutralization",
         "PhNeutralizationBenchmarkConfig",
         "make_ph_neutralization_benchmark",
-        4,
         1,
         "pH neutralisation",
         scalar_action=True,
@@ -74,7 +73,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.equalization_tank",
         "EqualizationTankBenchmarkConfig",
         "make_equalization_tank_benchmark",
-        4,
         1,
         "Equalization tank level control",
         scalar_action=True,
@@ -86,7 +84,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bsm1",
         "BSM1BenchmarkConfig",
         "make_bsm1_benchmark",
-        9,
         2,
         "BSM1 DO control (ASM1)",
         action_low_config=("kla_34_min", "kla_5_min"),
@@ -97,7 +94,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bsm1_recycle",
         "BSM1RecycleConfig",
         "make_bsm1_recycle_benchmark",
-        6,
         2,
         "BSM1 nitrate recycle",
         action_low_config=("q_a_ratio_min", "q_rs_ratio_min"),
@@ -108,7 +104,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bsm1_combined",
         "BSM1CombinedConfig",
         "make_bsm1_combined_benchmark",
-        11,
         4,
         "BSM1 combined control",
         action_low_config=("do.kla_34_min", "do.kla_5_min", "recycle.q_a_ratio_min", "recycle.q_rs_ratio_min"),
@@ -119,7 +114,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bsm1_lt",
         "BSM1LTConfig",
         "make_bsm1_lt_benchmark",
-        10,
         2,
         "BSM1-LT seasonal dynamics",
         action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min"),
@@ -130,7 +124,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bsm1_takacs",
         "BSM1TakacsConfig",
         "make_bsm1_takacs_benchmark",
-        12,
         3,
         "BSM1 + Takács settler",
         action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min", "q_w_min"),
@@ -141,7 +134,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.h2s_scrubber",
         "H2SScrubberConfig",
         "make_h2s_scrubber_benchmark",
-        12,
         3,
         "H₂S scrubber control",
         action_low=(8.0, 400.0, 10.0),
@@ -154,7 +146,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.sludge_blanket",
         "SludgeBlanketConfig",
         "make_sludge_blanket_benchmark",
-        4,
         1,
         "Sludge blanket control",
         action_low=0.0,
@@ -165,7 +156,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.chem_p_dosing",
         "ChemPDosingConfig",
         "make_chem_p_dosing_benchmark",
-        5,
         1,
         "Chemical P dosing",
         action_low_config="dose_min",
@@ -176,7 +166,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.primary_clarifier",
         "PrimaryClarifierConfig",
         "make_primary_clarifier_benchmark",
-        5,
         1,
         "Primary clarifier",
         action_low=0.0,
@@ -187,7 +176,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.dewatering",
         "DewateringConfig",
         "make_dewatering_benchmark",
-        5,
         2,
         "Sludge dewatering",
         action_low=(0.0, 0.0),
@@ -198,7 +186,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.membrane_fouling",
         "MembraneFoulingConfig",
         "make_membrane_fouling_benchmark",
-        6,
         3,
         "Membrane fouling control",
         action_low=(0.0, 0.0, 0.0),
@@ -209,7 +196,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.anaerobic_digester",
         "AnaerobicDigesterConfig",
         "make_anaerobic_digester_benchmark",
-        7,
         2,
         "Anaerobic digester",
         action_low=(0.0, 0.0),
@@ -220,7 +206,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.reject_water",
         "RejectWaterConfig",
         "make_reject_water_benchmark",
-        6,
         2,
         "Reject water management",
         action_low=(0.0, 0.0),
@@ -231,7 +216,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.drinking_water_train",
         "DrinkingWaterTrainConfig",
         "make_drinking_water_train_benchmark",
-        8,
         3,
         "Drinking water treatment train",
         action_low=(0.0, 0.0, 0.0),
@@ -242,7 +226,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.bio_p",
         "BioPConfig",
         "make_bio_p_benchmark",
-        7,
         2,
         "Biological P removal (ASM2d)",
         action_low=(0.0, 0.0),
@@ -253,7 +236,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.combined_np",
         "CombinedNPConfig",
         "make_combined_np_benchmark",
-        9,
         4,
         "Combined N+P control",
         action_low=(0.0, 0.0, 0.0, 0.0),
@@ -268,6 +250,12 @@ def get_benchmark_entry(name: str) -> BenchmarkEntry:
             return entry
     available = [entry.name for entry in BENCHMARK_REGISTRY]
     raise ValueError(f"Unknown benchmark '{name}'. Available: {available}")
+
+
+def get_observation_dim(reset_fn: Callable[[jax.Array], tuple[object, jax.Array]]) -> int:
+    """Derive the flattened observation width from a benchmark reset function."""
+    shape = jax.eval_shape(reset_fn, jax.random.key(0))[1]
+    return shape.shape[0]
 
 
 def get_action_bounds(

@@ -12,7 +12,6 @@ def test_get_benchmark_entry_returns_known_metadata() -> None:
 
     assert entry.name == "chlorine"
     assert entry.module == "process_control.benchmarks.chlorine"
-    assert entry.obs_dim == 4
     assert entry.action_dim == 1
 
 
