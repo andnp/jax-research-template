@@ -12,6 +12,7 @@ observation as its bootstrap sees ``0.0`` where it should see the cutoff value.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from typing import cast, override
 
@@ -25,6 +26,7 @@ from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep, TruncationPol
 from rl_components.loop import run
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
+from rl_components.timestep_pipeline import PreprocessedAgent
 
 GAMMA = 0.9
 NEVER = -1
@@ -472,6 +474,45 @@ class TestEpisodeStatistics:
         np.testing.assert_array_equal(_metric(metrics, "loop/episode_end"), [False] * 4)
         np.testing.assert_allclose(_metric(metrics, "loop/episode_return"), [0, 0, 0, 0], rtol=1e-6)
         np.testing.assert_array_equal(_metric(metrics, "loop/episode_length"), [0, 0, 0, 0])
+
+
+class TestTimestepPipeline:
+    def test_transforms_apply_in_declared_order(self) -> None:
+        """The wrapped agent sees each transform's output in sequence."""
+
+        def add_one(timestep: Timestep[jax.Array]) -> Timestep[jax.Array]:
+            return dataclasses.replace(timestep, reward=timestep.reward + 1)
+
+        def double_reward(timestep: Timestep[jax.Array]) -> Timestep[jax.Array]:
+            return dataclasses.replace(timestep, reward=timestep.reward * 2)
+
+        agent = PreprocessedAgent(RecordAgent(), (add_one, double_reward))
+        timestep = Timestep(
+            reward=jnp.asarray(2.0),
+            discount=jnp.asarray(0.9),
+            bootstrap_observation=jnp.zeros((1,), jnp.float32),
+            episode_end=jnp.asarray(False),
+            observation=jnp.zeros((1,), jnp.float32),
+        )
+        step = agent.step(agent.init(jax.random.key(0), ToyEnv().spec()), timestep, jnp.asarray(1))
+
+        assert float(step.metrics["seen/reward"]) == 6.0
+
+    def test_loop_episode_return_stays_raw_under_jit(self) -> None:
+        """The agent receives transformed rewards while the loop records raw returns."""
+        def multiply_reward(timestep: Timestep[jax.Array]) -> Timestep[jax.Array]:
+            return dataclasses.replace(timestep, reward=timestep.reward * 10)
+
+        agent = PreprocessedAgent(RecordAgent(), (multiply_reward,))
+        env = ToyEnv(terminate_at=2, reward_of=lambda counter: counter.astype(jnp.float32))
+
+        def train_fn(key: jax.Array):
+            return run(agent, env, key, steps=3, gamma=GAMMA)
+
+        _, metrics = jax.jit(train_fn)(jax.random.key(0))
+
+        np.testing.assert_allclose(_metric(metrics, "loop/episode_return"), [0.0, 3.0, 0.0], rtol=1e-6)
+        np.testing.assert_allclose(_metric(metrics, "seen/reward"), [0.0, 10.0, 20.0], rtol=1e-6)
 
 
 class TestValidation:
