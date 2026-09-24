@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 from research_analysis.bootstrap import bootstrap_ci, bootstrap_difference_ci, bootstrap_scalar_ci
 from research_analysis.comparison import Estimand
 from research_analysis.permutation import run_permutation_test
+from research_analysis.repeated_blocks import block_stratified_permutation_test
 from research_analysis.statistics import (
     pointwise_tolerance_interval,
     tolerance_interval_confidence,
@@ -280,3 +281,25 @@ def test_paired_permutation_test_is_not_overly_conservative() -> None:
     rate = paired_permutation_rejection_rate(NORMAL, 30, "mean", replicates, np.random.default_rng(1))
 
     assert rate >= ALPHA - mc_band(ALPHA, replicates), rate
+
+
+@pytest.mark.parametrize(
+    ("distribution", "missing_cells"), [(NORMAL, 0), (CATASTROPHIC, 3)], ids=["complete-normal", "missing-catastrophic"]
+)
+def test_block_stratified_permutation_test_holds_its_size(distribution: RunDistribution, missing_cells: int) -> None:
+    """Under a true null with strong block effects, the omnibus test rejects at most alpha of the time.
+
+    Missing cells land in distinct blocks so each keeps two observed conditions, the shape the bakeoff
+    passes under blockwise missingness.
+    """
+    replicates, blocks, conditions = 1000, 10, 3
+    rng = np.random.default_rng(0)
+
+    rejections = 0
+    for _ in range(replicates):
+        scores = 3.0 * rng.standard_normal((blocks, 1)) + distribution.sample(rng, (blocks, conditions))
+        scores[rng.choice(blocks, size=missing_cells, replace=False), rng.integers(0, conditions, missing_cells)] = np.nan
+        rejections += block_stratified_permutation_test(scores, n_resamples=99, rng=rng).p_value < ALPHA
+
+    rate = rejections / replicates
+    assert rate <= ALPHA + mc_band(ALPHA, replicates), rate
