@@ -633,7 +633,7 @@ def report(
     spec: str | None = typer.Option(None, "--spec", help="Report the named spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     output_dir: Path | None = typer.Option(
-        None, "--output-dir", help="Where to write the report; defaults to <results_root>/reports/<experiment>/<UTC time>/."
+        None, "--output-dir", help="Where under the results root to write the report; defaults to <results_root>/reports/<experiment>/<UTC time>/."
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the report JSON to stdout instead of a summary."),
 ):
@@ -652,6 +652,9 @@ def report(
     experiment_spec = _with_results_root(factory(), results_root)
     if not experiment_spec.db_path.is_file():
         typer.echo(f"Error: no experiment database at {experiment_spec.db_path}.", err=True)
+        raise typer.Exit(code=1)
+    if output_dir is not None and not output_dir.resolve().is_relative_to(experiment_spec.results_root.resolve()):
+        typer.echo(f"Error: --output-dir {output_dir} is outside the results root {experiment_spec.results_root}.", err=True)
         raise typer.Exit(code=1)
     slug = experiment_spec.experiment.name
     document = run_plan(experiment_spec.db_path, slug, plans[name](), read_plan_snapshots(experiment_spec.results_root))

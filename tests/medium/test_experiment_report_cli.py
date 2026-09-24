@@ -6,6 +6,7 @@ import json
 import textwrap
 from pathlib import Path
 
+import pytest
 from research_cli.main import app
 from typer.testing import CliRunner
 
@@ -97,12 +98,12 @@ def test_json_flag_prints_only_the_document(tmp_path: Path) -> None:
     spec_file = _write_spec(tmp_path)
     _run(spec_file)
 
-    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "out")])
+    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "results" / "out")])
 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert document["schema_version"] == 1
-    assert (tmp_path / "out" / "report.json").exists()
+    assert (tmp_path / "results" / "out" / "report.json").exists()
 
 
 def test_a_report_without_a_launch_snapshot_is_exploratory(tmp_path: Path) -> None:
@@ -110,7 +111,7 @@ def test_a_report_without_a_launch_snapshot_is_exploratory(tmp_path: Path) -> No
     _run(_write_spec(tmp_path, declare_plan=False))
     spec_file = _write_spec(tmp_path)
 
-    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "out")])
+    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "results" / "out")])
 
     document = json.loads(result.stdout)
     assert document["plan_status"] == "exploratory"
@@ -122,7 +123,7 @@ def test_a_diverged_seed_exits_non_zero_with_the_run_named(tmp_path: Path) -> No
     spec_file = _write_spec(tmp_path, diverge=True)
     _run(spec_file)
 
-    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "out")])
+    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--json", "--output-dir", str(tmp_path / "results" / "out")])
 
     assert result.exit_code == 3
     document = json.loads(result.stdout)
@@ -139,3 +140,21 @@ def test_a_spec_without_a_plan_is_refused(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "no declared analysis plan" in result.output
+
+
+@pytest.mark.parametrize(
+    "outside",
+    ["scratch", ".", "results/../escaped"],
+    ids=["sibling-scratch-dir", "parent-working-dir", "dot-dot-escape"],
+)
+def test_an_output_dir_outside_the_results_root_is_refused(tmp_path: Path, outside: str) -> None:
+    """A report written outside the results root would not be durable with its results, so nothing is written."""
+    spec_file = _write_spec(tmp_path)
+    _run(spec_file)
+
+    result = runner.invoke(app, ["experiment", "report", str(spec_file), "--output-dir", str(tmp_path / outside)])
+
+    assert result.exit_code == 1
+    assert "outside the results root" in result.output
+    assert not (tmp_path / outside / "report.json").exists()
+    assert not (tmp_path / "results" / "reports").exists()

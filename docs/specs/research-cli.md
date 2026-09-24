@@ -85,7 +85,7 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Plans every outstanding batch up front, writes a Slurm array script, and submits it. The planned executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` must never re-plan them.
     - `--slurm-config` loads a JSON `SlurmConfig`; explicit flags override its values.
 - `research experiment report <spec_file> [--output-dir <path>] [--json]`:
-    - Runs the spec's declared `@analysis_plan` and writes `report.json`, `report.md`, and figures to `--output-dir`, defaulting to `<results_root>/reports/<experiment>/<UTC time>/`.
+    - Runs the spec's declared `@analysis_plan` and writes `report.json`, `report.md`, and figures to `--output-dir`, defaulting to `<results_root>/reports/<experiment>/<UTC time>/`. An `--output-dir` outside the results root is refused (exit 1) so the report stays with its results.
     - Prints a short summary, or with `--json` only the report document.
     - Exits 0 with results, 1 when the spec has no declared plan or no database, 2 when loading has fatal diagnostics, and 3 when an analysis fails (for example a diverged run or an incomplete block). Failed reports are still written, with their diagnostics and no results.
 
