@@ -28,6 +28,24 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 """
 
+_CREATE_SCALAR_METRICS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS scalar_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric_name TEXT NOT NULL,
+    value REAL,
+    scope TEXT NOT NULL CHECK(scope IN ('run', 'execution')),
+    experiment_id INTEGER NOT NULL,
+    run_id INTEGER,
+    seed_id INTEGER,
+    execution_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+        (scope = 'run' AND run_id IS NOT NULL AND seed_id IS NOT NULL)
+        OR (scope = 'execution' AND run_id IS NULL AND seed_id IS NULL)
+    )
+);
+"""
+
 _CREATE_INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_metrics_metric_name ON metrics (metric_name);
 CREATE INDEX IF NOT EXISTS idx_metrics_step ON metrics (global_step);
@@ -35,6 +53,20 @@ CREATE INDEX IF NOT EXISTS idx_metrics_metric_name_seed ON metrics (metric_name,
 CREATE INDEX IF NOT EXISTS idx_metrics_experiment_metric_name_step ON metrics (experiment_id, metric_name, global_step);
 CREATE INDEX IF NOT EXISTS idx_metrics_run_metric_name_step ON metrics (run_id, metric_name, global_step);
 CREATE INDEX IF NOT EXISTS idx_metrics_execution_metric_name_step ON metrics (execution_id, metric_name, global_step);
+"""
+
+_CREATE_SCALAR_METRICS_INDEXES_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scalar_metrics_run_identity
+    ON scalar_metrics (experiment_id, execution_id, metric_name, run_id)
+    WHERE scope = 'run';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scalar_metrics_execution_identity
+    ON scalar_metrics (experiment_id, execution_id, metric_name)
+    WHERE scope = 'execution';
+CREATE INDEX IF NOT EXISTS idx_scalar_metrics_experiment_metric
+    ON scalar_metrics (experiment_id, metric_name, execution_id);
+CREATE INDEX IF NOT EXISTS idx_scalar_metrics_run_metric
+    ON scalar_metrics (run_id, metric_name, execution_id)
+    WHERE run_id IS NOT NULL;
 """
 
 _STRICT_COLUMN_NAMES = {
@@ -95,7 +127,9 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
     elif not _has_strict_metrics_schema(existing_columns):
         _migrate_metrics_table(conn, existing_columns)
 
+    conn.execute(_CREATE_SCALAR_METRICS_TABLE_SQL)
     conn.executescript(_CREATE_INDEXES_SQL)
+    conn.executescript(_CREATE_SCALAR_METRICS_INDEXES_SQL)
     conn.commit()
 
 

@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 from research_instrument.collector import MetricFrame, subsample_frames
+from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve
 from research_instrument.sqlite_backend import SQLiteBackend, open_metrics_connection
 
@@ -537,6 +538,82 @@ class TestWriteSeedBatchCurve:
                 seed_ids=[7],
             )
             assert db_path.exists()
+
+
+class TestScalarMetricWriters:
+    def test_writes_both_scopes_alongside_existing_curves(self, tmp_path: Path) -> None:
+        """
+        Verify scalar scopes persist with the right identities while curve rows remain intact.
+        """
+        db_path = tmp_path / "metrics.sqlite"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "CREATE TABLE metrics ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, metric_name TEXT NOT NULL, value REAL, "
+                "global_step INTEGER NOT NULL, seed_id INTEGER NOT NULL, experiment_id INTEGER NOT NULL, "
+                "run_id INTEGER NOT NULL, execution_id INTEGER NOT NULL, "
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            connection.execute(
+                "INSERT INTO metrics (metric_name, value, global_step, seed_id, experiment_id, "
+                "run_id, execution_id) "
+                "VALUES ('legacy_curve', 4.0, 0, 1, 10, 201, 1001)"
+            )
+
+        write_seed_batch_scalars(
+            db_path,
+            {"score": (1.0, math.nan)},
+            experiment_id=10,
+            execution_id=1001,
+            run_ids=(201, 202),
+            seed_ids=(1, 2),
+        )
+        write_execution_scalars(
+            db_path,
+            {"batch_score": 1.5},
+            experiment_id=10,
+            execution_id=1001,
+        )
+
+        with sqlite3.connect(db_path) as connection:
+            curve_rows = connection.execute(
+                "SELECT metric_name, value, global_step, run_id FROM metrics"
+            ).fetchall()
+            scalar_rows = connection.execute(
+                "SELECT scope, metric_name, value, run_id, seed_id, execution_id "
+                "FROM scalar_metrics ORDER BY scope, run_id"
+            ).fetchall()
+
+        assert curve_rows == [("legacy_curve", 4.0, 0, 201)]
+        assert scalar_rows == [
+            ("execution", "batch_score", 1.5, None, None, 1001),
+            ("run", "score", 1.0, 201, 1, 1001),
+            ("run", "score", None, 202, 2, 1001),
+        ]
+
+    def test_run_scalars_require_matching_run_and_seed_ids(self, tmp_path: Path) -> None:
+        """
+        Reject scalar batches that cannot preserve the run-to-seed identity mapping.
+        """
+        with pytest.raises(ValueError, match="same length"):
+            write_seed_batch_scalars(
+                tmp_path / "metrics.sqlite",
+                {"score": (1.0,)},
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=(201, 202),
+                seed_ids=(1,),
+            )
+
+        with pytest.raises(ValueError, match="metric 'score' must have one value per run"):
+            write_seed_batch_scalars(
+                tmp_path / "metrics.sqlite",
+                {"score": (1.0,)},
+                experiment_id=10,
+                execution_id=1001,
+                run_ids=(201, 202),
+                seed_ids=(1, 2),
+            )
 
 
 class TestSubsampleFrames:
