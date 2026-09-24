@@ -103,6 +103,15 @@ def test_build_job_script_with_modules() -> None:
     assert "module load cuda/12" in script
 
 
+def test_build_job_script_forwards_results_root(tmp_path: Path) -> None:
+    """A configured results root reaches the batch execution command."""
+    script = build_job_script(
+        SlurmConfig(), [1], Path("/db.sqlite"), Path("/spec.py"), "spec",
+        results_root=tmp_path / "results",
+    )
+    assert f'--results-root "{tmp_path / "results"}"' in script
+
+
 def test_build_job_script_empty_ids_raises() -> None:
     config = SlurmConfig()
     with pytest.raises(ValueError, match="must not be empty"):

@@ -28,6 +28,7 @@ def build_job_script(
     spec_name: str,
     *,
     working_dir: Path | None = None,
+    results_root: Path | None = None,
 ) -> str:
     if not execution_ids:
         raise ValueError("execution_ids must not be empty.")
@@ -55,6 +56,16 @@ def build_job_script(
         lines.append("# Setup")
         lines.extend(config.setup_commands)
 
+    command_args = [
+        f'    "{db_path}"',
+        '    --execution-id "$EXECUTION_ID"',
+        f'    --spec-file "{spec_file}"',
+        f'    --spec "{spec_name}"',
+    ]
+    if results_root is not None:
+        command_args.append(f'    --results-root "{results_root}"')
+    command = "uv run research experiment execute-batch \\\n" + " \\\n".join(command_args)
+
     lines.extend([
         "",
         "# Map array index to execution ID",
@@ -63,11 +74,7 @@ def build_job_script(
         "",
         'echo "Array task $SLURM_ARRAY_TASK_ID -> Execution $EXECUTION_ID"',
         "",
-        "uv run research experiment execute-batch \\",
-        f'    "{db_path}" \\',
-        '    --execution-id "$EXECUTION_ID" \\',
-        f'    --spec-file "{spec_file}" \\',
-        f'    --spec "{spec_name}"',
+        command,
         "",
     ])
 

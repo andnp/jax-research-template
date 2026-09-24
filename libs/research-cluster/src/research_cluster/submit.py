@@ -18,6 +18,7 @@ def submit_experiment(
     *,
     working_dir: Path | None = None,
     script_path: Path | None = None,
+    results_root: Path | None = None,
     dry_run: bool = False,
 ) -> str | None:
     script = build_job_script(
@@ -27,6 +28,7 @@ def submit_experiment(
         spec_file,
         spec_name,
         working_dir=working_dir,
+        results_root=results_root,
     )
 
     out_path = script_path or Path("slurm_submit.sh")
