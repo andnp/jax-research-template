@@ -10,7 +10,7 @@ from research_analysis.comparison import BakeoffSpec
 from research_analysis.dataset.types import RunAccounting
 from research_analysis.diagnostics.bakeoff import BakeoffWarning
 from research_analysis.diagnostics.types import DatasetDiagnostic
-from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, TailMean
+from research_analysis.performance import FinalValue, PerformanceMeasure, ReturnRate, StoredValue, TailMean
 from research_analysis.plan import (
     Analysis,
     AnalysisPlan,
@@ -63,6 +63,8 @@ def _describe_measure(measure: PerformanceMeasure) -> str:
             return f"mean over the final {fraction:.0%} of logged steps"
         case ReturnRate():
             return "return rate (mean over every logged point)"
+        case StoredValue():
+            return "stored per-run scalar"
 
 
 def _status_section(document: ReportDocument) -> list[str]:
