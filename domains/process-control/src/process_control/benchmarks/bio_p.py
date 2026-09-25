@@ -62,11 +62,9 @@ class BioPConfig:
     # BOD+nitrification O₂ demand once PAOs/nitrifiers were retained (SRT
     # ~12 d), holding aerobic DO near zero and starving nitrification via
     # the K_OA monod term even though SRT alone was more than adequate.
-    # 9.0 h⁻¹ (just under the BSM1 value) keeps this single combined-CSTR
-    # aerobic zone's O₂ balance in the stable regime for this benchmark's
-    # fixed dt=0.02 h RK4 step at typical actions; 10.0 h⁻¹ triggers a
-    # transient DO/NH4 blow-up at some seeds under mid-range recycle.
-    kla_aerobic: float = 9.0  # h⁻¹ (fixed, not action-controlled for simplicity)
+    # units/asm2d.reactor_step now sub-steps the RK4 integration, so the
+    # BSM1 value no longer needs a workaround for integration stability.
+    kla_aerobic: float = 10.0  # h⁻¹ (fixed, not action-controlled for simplicity)
     s_o_sat: float = 8.0  # mg O₂/L
 
     # Flow
