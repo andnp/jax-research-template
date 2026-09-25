@@ -71,6 +71,18 @@ def perfect_clarifier(state: jax.Array, q_in: jax.Array, q_underflow: jax.Array,
     return effluent, return_sludge
 
 
+# The heterotrophic/autotrophic O2-Monod terms (K_OH=0.2, K_OA=0.4 mg/L,
+# ASM1.py) make d(dO2-consumption)/dS_O ~ mu*X_biomass/K_O near S_O=0 — at
+# BSM1's X_BH~2500 mg COD/L this Jacobian entry is ~1.1e3 h^-1 (measured via
+# jax.jacfwd on the combined dilution+kla+reaction derivative at S_O=0,
+# kla=10), and grows further with the concentrated RAS biomass this
+# benchmark's clarifier can return under high recycle actions. A single RK4
+# step over dt=0.02 h gives |dt*lambda| ~20+, far outside RK4's real-axis
+# stability limit (~2.785), so DO can spuriously overshoot s_o_sat by 10x+
+# instead of staying inside its Monod-saturated physical range.
+_REACTOR_SUBSTEPS = 10
+
+
 def reactor_step(
     state: jax.Array,
     inlet: jax.Array,
@@ -81,13 +93,23 @@ def reactor_step(
     params: "ASM2dParams",
     dt: jax.Array,
 ):
-    """Advance one ASM2d reactor with a fourth-order Runge–Kutta step."""
+    """Advance one ASM2d reactor with fourth-order Runge–Kutta sub-stepping.
+
+    Splits `dt` into `_REACTOR_SUBSTEPS` RK4 sub-steps with physical-bound
+    clamping after each one (same pattern as units/scrubber_sump.step), which
+    keeps the O2-Monod stiffness described above inside RK4's stability
+    region without shrinking the external step.
+    """
     def derivative(current_state: jax.Array) -> jax.Array:
         dilution = q_total / volume
         result = reactions_asm2d(current_state, params) + dilution * (inlet - current_state)
         return result.at[7].add(kla * (s_o_sat - current_state[7]))
 
-    return jnp.maximum(rk4_step(derivative, state, dt), 0.0)
+    sub_dt = dt / _REACTOR_SUBSTEPS
+    new_state = state
+    for _ in range(_REACTOR_SUBSTEPS):
+        new_state = jnp.maximum(rk4_step(derivative, new_state, sub_dt), 0.0)
+    return new_state
 
 
 @dataclass(frozen=True)
