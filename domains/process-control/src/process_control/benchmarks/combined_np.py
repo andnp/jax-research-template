@@ -271,7 +271,10 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         bio_po4_eff = new_aerobic[13]
         final_po4, fe_consumed = precipitate(bio_po4_eff, fe_dose, config.precip)
         alk_consumed = config.precip.alk_per_fe * fe_consumed / config.precip.mw_fe
-        new_aerobic = new_aerobic.at[12].add(-alk_consumed)
+        # Sustained max FeCl3 dosing can request more alkalinity than the
+        # reactor holds; clamp at 0 rather than letting S_ALK go negative,
+        # matching reactor_step's own non-negative convention (asm2d.py).
+        new_aerobic = new_aerobic.at[12].set(jnp.maximum(new_aerobic[12] - alk_consumed, 0.0))
 
         # 8. Effluent quality
         eff_nh4 = new_aerobic[9]
