@@ -100,9 +100,33 @@ TD3_SPEC = AlgorithmSpec("td3", TD3Agent, TD3Config, TD3Hypers, artifact_project
 
 
 def test_train_state_artifact_extractor_reads_replay_algorithm_state() -> None:
-    """A replay agent's final policy lives under its algorithm state."""
+    """A replay agent's final policy lives under its algorithm state.
+
+    The DQN learner exposes its train state directly on the algorithm state.
+    """
     spec = EnvSpec(id="dqn-artifact", observation_shape=(2,), action_shape=(), num_actions=2)
     agent_state = DQNAgent(DQNConfig(BUFFER_SIZE=8, BATCH_SIZE=2)).init(jax.random.key(5), spec)
+    expected = agent_state.algorithm_state.train_state.params
+
+    artifacts = extract_train_state_params(SimpleNamespace(agent_state=agent_state))
+
+    actual = artifacts["final_policy_params"]
+    assert jax.tree_util.tree_structure(actual) == jax.tree_util.tree_structure(expected)
+    for actual_leaf, expected_leaf in zip(
+        jax.tree_util.tree_leaves(actual),
+        jax.tree_util.tree_leaves(expected),
+        strict=True,
+    ):
+        assert jnp.array_equal(actual_leaf, expected_leaf)
+
+
+def test_train_state_artifact_extractor_reads_qrc_algorithm_state() -> None:
+    """QRC's final policy remains visible through the shared replay state shape.
+
+    The artifact projector must follow the nested learner state to its parameters.
+    """
+    spec = EnvSpec(id="qrc-artifact", observation_shape=(2,), action_shape=(), num_actions=2)
+    agent_state = QRCAgent(QRCConfig(BUFFER_SIZE=8, BATCH_SIZE=2)).init(jax.random.key(6), spec)
     expected = agent_state.algorithm_state.train_state.params
 
     artifacts = extract_train_state_params(SimpleNamespace(agent_state=agent_state))

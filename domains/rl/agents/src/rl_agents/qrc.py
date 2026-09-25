@@ -34,6 +34,7 @@ configurable on this agent any more. The discount belongs to
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from typing import Literal
 
@@ -52,6 +53,7 @@ from rl_components.env_protocol import EnvSpec
 from rl_components.exploration import linear_epsilon_schedule
 from rl_components.losses import qrc_terms
 from rl_components.optim import with_hyperparams
+from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 
@@ -269,34 +271,11 @@ def qrc_loss_batch(
 
 
 @chex_struct(frozen=True)
-class QRCAgentState:
-    """Everything :class:`QRCAgent` carries between loop iterations.
-
-    There is no ``target_params`` field and no eligibility trace, and both absences are
-    the algorithm: the bootstrap reads the online parameters and the ``h``-head's
-    correction supplies what a target network would damp, while the ``h``-head itself is
-    an ordinary parameter inside ``train_state`` and is meant to persist across episodes.
-
-    Attributes:
-        train_state: Online parameters, optimizer state, and the static ``apply_fn``
-            through which ``step`` reaches the network.
-        buffer_state: Replay contents, and the only record of the buffer's geometry.
-        last_obs: Observation the pending transition started from. Zero-primed at
-            ``init``; never read before the first insertion, which is guarded on
-            ``step_index > 0``.
-        last_action: Action that opened the pending transition, zero-primed likewise.
-        num_actions: Size of the discrete action space, as an int32 leaf so that random
-            exploration can sample against a traced bound.
-        key: PRNG key for sampling minibatches and exploring.
-        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
-    """
+class QRCAlgorithmState:
+    """QRC learner state and swept hyperparameters."""
 
     train_state: TrainState
-    buffer_state: ReplayBufferState
-    last_obs: jax.Array
-    last_action: jax.Array
     num_actions: jax.Array
-    key: chex.PRNGKey
     hypers: QRCHypers
 
 
@@ -316,7 +295,7 @@ class QRCAgent:
         """
         self.config = config
 
-    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> QRCAgentState:
+    def init(self, key: chex.PRNGKey, spec: EnvSpec) -> ReplayAgentState[QRCAlgorithmState, ReplayBufferState]:
         """Build parameters, optimizer, replay buffer and the zero-primed pending slots.
 
         Args:
@@ -359,22 +338,23 @@ class QRCAgent:
             weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
         )
 
-        return QRCAgentState(
-            train_state=TrainState.create(apply_fn=network.apply, params=params, tx=tx),
-            buffer_state=buffer.init(),
-            last_obs=jnp.zeros(observation_shape, dtype=observation_dtype),
-            last_action=jnp.zeros(tuple(spec.action_shape), dtype=action_dtype),
-            num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
-            key=carry_key,
-            hypers=qrc_hypers(self.config),
+        return init_replay_agent_state(
+            QRCAlgorithmState(
+                train_state=TrainState.create(apply_fn=network.apply, params=params, tx=tx),
+                num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),
+                hypers=qrc_hypers(self.config),
+            ),
+            buffer.init(),
+            carry_key,
+            spec,
         )
 
     def step(
         self,
-        state: QRCAgentState,
+        state: ReplayAgentState[QRCAlgorithmState, ReplayBufferState],
         timestep: Timestep[jax.Array],
         step_index: jax.Array,
-    ) -> AgentStep[QRCAgentState, jax.Array]:
+    ) -> AgentStep[ReplayAgentState[QRCAlgorithmState, ReplayBufferState], jax.Array]:
         """Close the pending transition, learn from replay, then act.
 
         The order is normative. Insertion uses ``timestep.bootstrap_observation`` and not
@@ -397,22 +377,10 @@ class QRCAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        hypers = state.hypers
-        buffer = ReplayBuffer.from_state(state.buffer_state)
+        algorithm_state = state.algorithm_state
+        hypers = algorithm_state.hypers
+        buffer = ReplayBuffer.from_state(state.replay_state)
         carry_key, sample_key, explore_key, action_key = jax.random.split(state.key, 4)
-
-        buffer_state = jax.lax.cond(
-            step_index > 0,
-            lambda: buffer.add(
-                state.buffer_state,
-                state.last_obs[None, ...],
-                state.last_action[None, ...],
-                timestep.reward[None, ...],
-                timestep.bootstrap_observation[None, ...],
-                timestep.discount[None, ...],
-            ),
-            lambda: state.buffer_state,
-        )
 
         epsilon = linear_epsilon_schedule(
             step_index,
@@ -422,54 +390,65 @@ class QRCAgent:
             hypers.EPSILON_FRACTION,
         )
 
-        can_train = (step_index > hypers.LEARNING_STARTS) & (step_index % hypers.TRAIN_FREQUENCY == 0)
-        train_state, loss = jax.lax.cond(
-            can_train,
-            lambda: self._learn(state.train_state, buffer_state, buffer, sample_key, epsilon, hypers.LEARNING_RATE, hypers.BETA),
-            lambda: (state.train_state, jnp.zeros((), jnp.float32)),
-        )
+        def close_transition(
+            replay_state: ReplayBufferState,
+            last_obs: jax.Array,
+            last_action: jax.Array,
+            current_timestep: Timestep[jax.Array],
+        ) -> ReplayBufferState:
+            return buffer.add(
+                replay_state,
+                last_obs[None, ...],
+                last_action[None, ...],
+                current_timestep.reward[None, ...],
+                current_timestep.bootstrap_observation[None, ...],
+                current_timestep.discount[None, ...],
+            )
 
-        q_values, _ = train_state.apply_fn(train_state.params, timestep.observation)
-        chose_random = jax.random.uniform(explore_key, ()) < epsilon
-        random_action = jax.random.randint(action_key, (), 0, state.num_actions)
-        action = jnp.where(chose_random, random_action, jnp.argmax(q_values)).astype(state.last_action.dtype)
+        def select_action(
+            learner_state: QRCAlgorithmState,
+            observation: jax.Array,
+            _current_step: jax.Array,
+            keys: tuple[jax.Array, ...],
+        ) -> tuple[jax.Array, dict[str, jax.Array]]:
+            q_values, _ = learner_state.train_state.apply_fn(learner_state.train_state.params, observation)
+            chose_random = jax.random.uniform(keys[0], ()) < epsilon
+            random_action = jax.random.randint(keys[1], (), 0, learner_state.num_actions)
+            action = jnp.where(chose_random, random_action, jnp.argmax(q_values)).astype(state.last_action.dtype)
+            return action, {"epsilon": epsilon, "q_max": jnp.max(q_values).astype(jnp.float32)}
 
-        return AgentStep(
-            state=QRCAgentState(
-                train_state=train_state,
-                buffer_state=buffer_state,
-                last_obs=timestep.observation,
-                last_action=action,
-                num_actions=state.num_actions,
-                key=carry_key,
-                hypers=hypers,
-            ),
-            action=action,
-            metrics={
-                "loss": loss,
-                "epsilon": epsilon,
-                "q_max": jnp.max(q_values).astype(jnp.float32),
-            },
+        return replay_agent_step(
+            state,
+            timestep,
+            step_index,
+            carry_key=carry_key,
+            learn_keys=(sample_key,),
+            action_keys=(explore_key, action_key),
+            learning_starts=hypers.LEARNING_STARTS,
+            train_frequency=hypers.TRAIN_FREQUENCY,
+            warmup_steps=None,
+            close_transition=close_transition,
+            learn=partial(self._learn, buffer=buffer, epsilon=epsilon),
+            select_action=select_action,
         )
 
     def _learn(
         self,
-        train_state: TrainState,
-        buffer_state: ReplayBufferState,
+        algorithm_state: QRCAlgorithmState,
+        replay_state: ReplayBufferState,
+        keys: tuple[jax.Array, ...],
+        *,
         buffer: ReplayBuffer,
-        key: chex.PRNGKey,
         epsilon: jax.Array,
-        learning_rate: jax.Array,
-        weight_decay: jax.Array,
-    ) -> tuple[TrainState, jax.Array]:
-        """Take one gradient step on a replay minibatch.
-
-        The rate and the h-head's weight decay are pushed into the optimizer
-        state each step because the transformation itself is a static field
-        and cannot hold a traced value.
-        """
-        train_state = with_hyperparams(train_state, learning_rate=learning_rate, weight_decay=weight_decay)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, key, self.config.BATCH_SIZE)
+    ) -> tuple[QRCAlgorithmState, ReplayBufferState, dict[str, jax.Array]]:
+        """Take one gradient step on a replay minibatch."""
+        hypers = algorithm_state.hypers
+        train_state = with_hyperparams(
+            algorithm_state.train_state,
+            learning_rate=hypers.LEARNING_RATE,
+            weight_decay=hypers.BETA,
+        )
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.BATCH_SIZE)
 
         def loss_fn(params: VariableDict) -> jax.Array:
             return qrc_loss_batch(
@@ -482,8 +461,9 @@ class QRCAgent:
                 epsilon,
                 apply_fn=train_state.apply_fn,
                 h_regularization=self.config.H_REGULARIZATION,
-                beta=weight_decay,
+                beta=hypers.BETA,
             )
 
         loss, grads = jax.value_and_grad(loss_fn)(train_state.params)
-        return train_state.apply_gradients(grads=grads), loss.astype(jnp.float32)
+        algorithm_state = replace(algorithm_state, train_state=train_state.apply_gradients(grads=grads))
+        return algorithm_state, replay_state, {"loss": loss.astype(jnp.float32)}

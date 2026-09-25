@@ -4,8 +4,10 @@ import dataclasses
 
 import jax
 import jax.numpy as jnp
-from rl_agents.qrc import QRCAgent, QRCAgentState, QRCConfig, QRCHypers, qrc_hypers
+from rl_agents.qrc import QRCAgent, QRCAlgorithmState, QRCConfig, QRCHypers, qrc_hypers
+from rl_components.buffers import ReplayBufferState
 from rl_components.env_protocol import EnvSpec
+from rl_components.replay_agent import ReplayAgentState
 from rl_components.timestep import Timestep
 
 SPEC = EnvSpec(id="toy-discrete", observation_shape=(2,), action_shape=(), num_actions=2)
@@ -13,9 +15,10 @@ SPEC = EnvSpec(id="toy-discrete", observation_shape=(2,), action_shape=(), num_a
 
 def _run_arm(agent: QRCAgent, base_hypers: QRCHypers, learning_rate: jax.Array, key: jax.Array):
     hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
-    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
+    state = agent.init(key, SPEC)
+    state = dataclasses.replace(state, algorithm_state=dataclasses.replace(state.algorithm_state, hypers=hypers))
 
-    def one_step(state: QRCAgentState, step_index: jax.Array):
+    def one_step(state: ReplayAgentState[QRCAlgorithmState, ReplayBufferState], step_index: jax.Array):
         timestep = Timestep(
             observation=jnp.ones((2,), jnp.float32) * (step_index + 1),
             reward=jnp.float32(1.0),
@@ -27,7 +30,7 @@ def _run_arm(agent: QRCAgent, base_hypers: QRCHypers, learning_rate: jax.Array, 
         return out.state, out.metrics["loss"]
 
     state, _ = jax.lax.scan(one_step, state, jnp.arange(8))
-    return state.train_state.params
+    return state.algorithm_state.train_state.params
 
 
 class TestVmapZone:

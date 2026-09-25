@@ -308,7 +308,10 @@ def _run_qrc(learning_starts: int) -> Run:
 
     final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
     return _finish(
-        dict(final_state.agent_state),
+        {
+            **dict(final_state.agent_state.algorithm_state),
+            "buffer_state": final_state.agent_state.replay_state,
+        },
         metrics,
         terminated=metrics["loop/terminated"],
         transitions=TOTAL_TIMESTEPS - 1,
