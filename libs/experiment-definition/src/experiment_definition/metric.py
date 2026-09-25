@@ -25,9 +25,10 @@ class MetricSpec(BaseModel):
     Args:
         name: Identifier used by the collector (e.g. "reward").
         type: Data type of the scalar.
-        frequency: How often the metric is expected to be written.
+        frequency: Optional legacy collection cadence.
     """
 
     name: str
     type: MetricType
-    frequency: MetricFrequency
+    # Remove when all core and project callers stop passing frequency.
+    frequency: MetricFrequency | None = None

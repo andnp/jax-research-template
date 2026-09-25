@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from experiment_definition.ablation import AblationSpec
+from experiment_definition.bridge import metric_whitelist
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
@@ -140,6 +141,13 @@ class TestExperimentBuilder:
         assert m.name == "reward"
         assert m.type == MetricType.FLOAT
         assert m.frequency == MetricFrequency.PER_EPISODE
+
+    def test_add_metric_without_frequency(self) -> None:
+        """Keep metrics without a declared cadence available to the collector."""
+        exp = Experiment("Test")
+        exp.add_metric("reward")
+
+        assert metric_whitelist(exp) == frozenset({"reward"})
 
     def test_add_ablation(self) -> None:
         exp = Experiment("Test")
