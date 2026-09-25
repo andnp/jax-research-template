@@ -59,7 +59,11 @@ class BSM1CombinedRecycleConfig:
     q_a_ki: float = -0.1
     q_a_ff: float = 3.0
     q_a_base_setpoint: float = 5.0
-    q_a_max_integral: float = 10.0
+    # Sized so |ki| * max_integral covers the full actuator authority
+    # max(ratio_max - ff, ff - ratio_min) = max(6 - 3, 3 - 0.5) = 3 (Åström &
+    # Murray, Feedback Systems, ch. 10 "Integrator Windup",
+    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
+    q_a_max_integral: float = 30.0
     q_a_sensor_noise_std: float = 0.3
     q_a_sensor_lag: float = 0.8
     q_a_sensor_drift_rate: float = 0.001
