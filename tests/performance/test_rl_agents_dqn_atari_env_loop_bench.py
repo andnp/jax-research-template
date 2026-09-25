@@ -208,7 +208,7 @@ def _agent_step_target(*, learning: bool) -> Callable[[], object]:
     env = FakeAtariEnv()
     state = agent.init(AGENT_INIT_KEY, env.spec())
     if learning:
-        state = dataclasses.replace(state, buffer_state=_fake_replay_buffer_state(config.REPLAY_CAPACITY))
+        state = dataclasses.replace(state, replay_state=_fake_replay_buffer_state(config.REPLAY_CAPACITY))
     observation = env.reset(RUN_KEY).observation
     timestep = Timestep(
         reward=jnp.asarray(1.0, dtype=jnp.float32),

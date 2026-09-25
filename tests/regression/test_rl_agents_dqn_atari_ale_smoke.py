@@ -42,4 +42,4 @@ def test_dqn_atari_ale_smoke() -> None:
         assert metrics[key_name].shape == (steps,), key_name
     assert jnp.all(jnp.isfinite(metrics["loss"]))
     assert jnp.any(metrics["loss"] != 0.0), "the replay warmup completed, so the learn path must have fired"
-    assert int(final_state.agent_state.buffer_state.count) == steps - 1
+    assert int(final_state.agent_state.replay_state.count) == steps - 1

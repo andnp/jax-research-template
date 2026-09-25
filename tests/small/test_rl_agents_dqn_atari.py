@@ -145,17 +145,18 @@ class TestDQNAtariAgent:
         agent = DQNAtariAgent(config, dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1))
 
         state = agent.init(jax.random.key(0), _ToyAtariEnv().spec())
+        algorithm_state = state.algorithm_state
 
-        q_values = state.train_state.apply_fn(
-            state.train_state.params,
+        q_values = algorithm_state.train_state.apply_fn(
+            algorithm_state.train_state.params,
             jnp.zeros(OBSERVATION_SHAPE, dtype=jnp.uint8),
         )
         assert q_values.shape == (NUM_ACTIONS,)
         assert state.last_obs.shape == OBSERVATION_SHAPE
         assert state.last_obs.dtype == jnp.uint8
         assert state.last_action.shape == ()
-        assert int(state.num_actions) == NUM_ACTIONS
-        assert state.buffer_state.frame.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE[1:])
+        assert int(algorithm_state.num_actions) == NUM_ACTIONS
+        assert state.replay_state.frame.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE[1:])
 
     def test_init_rejects_a_continuous_action_space(self) -> None:
         config = DQNAtariConfig(REPLAY_CAPACITY=8)
@@ -194,7 +195,7 @@ class TestDQNAtariAgent:
 
         for key_name in ("loss", "epsilon", "loop/reward", "loop/episode_end"):
             assert metrics[key_name].shape == (steps,), key_name
-        buffer_state = final_state.agent_state.buffer_state
+        buffer_state = final_state.agent_state.replay_state
         assert buffer_state.frame.dtype == jnp.uint8
         assert buffer_state.next_frame.dtype == jnp.uint8
         assert int(buffer_state.count) == steps - 1, "the final action opens a transition that never closes"

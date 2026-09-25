@@ -32,7 +32,11 @@ def _run_arm(
     agent: DQNAtariAgent, base_hypers: DQNAtariHypers, learning_rate: jax.Array, key: jax.Array
 ) -> jax.Array:
     hypers = dataclasses.replace(base_hypers, LEARNING_RATE=learning_rate)
-    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
+    state = agent.init(key, SPEC)
+    state = dataclasses.replace(
+        state,
+        algorithm_state=dataclasses.replace(state.algorithm_state, hypers=hypers),
+    )
 
     def one_step(state: DQNAtariAgentState, step_index: jax.Array):
         observation = jnp.full(OBSERVATION_SHAPE, (step_index + 1) % 255, dtype=jnp.uint8)
@@ -47,7 +51,7 @@ def _run_arm(
         return out.state, out.metrics["loss"]
 
     state, _ = jax.lax.scan(one_step, state, jnp.arange(NUM_STEPS))
-    return state.train_state.params
+    return state.algorithm_state.train_state.params
 
 
 def _agent() -> DQNAtariAgent:
