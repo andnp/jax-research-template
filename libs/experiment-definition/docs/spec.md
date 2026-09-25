@@ -68,9 +68,9 @@ with exp.for_component(ppo):
 exp.add_ablation("no_gae", {"use_gae": False})
 
 # Define Metrics (Informs the collector). `kind` defaults to "float".
-exp.add_metric("reward", frequency="per_episode")
-exp.add_metric("value_loss", frequency="per_update")
-exp.add_metric("eigen_spread", kind="float", frequency="eval_only")
+exp.add_metric("reward")
+exp.add_metric("value_loss")
+exp.add_metric("eigen_spread", kind="float")
 
 # Sync to the relational database
 exp.sync("experiments.sqlite")

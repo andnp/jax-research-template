@@ -12,7 +12,7 @@ from experiment_definition.bridge import metric_whitelist
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
-from experiment_definition.metric import MetricFrequency, MetricSpec, MetricType
+from experiment_definition.metric import MetricSpec, MetricType
 from experiment_definition.parameter import ParameterSpec
 
 # ── Component ─────────────────────────────────────────────────────────────────
@@ -64,11 +64,10 @@ class TestParameterSpec:
 
 class TestMetricSpec:
     def test_valid(self) -> None:
-        m = MetricSpec(name="reward", type=MetricType.FLOAT, frequency=MetricFrequency.PER_EPISODE)
+        m = MetricSpec(name="reward", type=MetricType.FLOAT)
         assert m.name == "reward"
 
-    def test_enum_values(self) -> None:
-        assert MetricFrequency.EVAL_ONLY == "eval_only"
+    def test_metric_type_value(self) -> None:
         assert MetricType.FLOAT == "float"
 
 
@@ -135,12 +134,11 @@ class TestExperimentBuilder:
 
     def test_add_metric(self) -> None:
         exp = Experiment("Test")
-        exp.add_metric("reward", kind="float", frequency="per_episode")
+        exp.add_metric("reward", kind="float")
         assert len(exp._state.metrics) == 1
         m = exp._state.metrics[0]
         assert m.name == "reward"
         assert m.type == MetricType.FLOAT
-        assert m.frequency == MetricFrequency.PER_EPISODE
 
     def test_add_metric_without_frequency(self) -> None:
         """Keep metrics without a declared cadence available to the collector."""
@@ -157,18 +155,13 @@ class TestExperimentBuilder:
 
     def test_fluent_chaining(self) -> None:
         exp = Experiment("Test")
-        result = exp.add_parameter("lr", [1e-3]).add_metric("reward", kind="float", frequency="per_episode").add_ablation("x", {})
+        result = exp.add_parameter("lr", [1e-3]).add_metric("reward", kind="float").add_ablation("x", {})
         assert result is exp
 
     def test_invalid_metric_type_raises(self) -> None:
         exp = Experiment("Test")
         with pytest.raises(ValueError):
-            exp.add_metric("x", kind="invalid", frequency="per_episode")
-
-    def test_invalid_metric_frequency_raises(self) -> None:
-        exp = Experiment("Test")
-        with pytest.raises(ValueError):
-            exp.add_metric("x", kind="float", frequency="invalid")
+            exp.add_metric("x", kind="invalid")
 
 
 class TestConditionalSweepAPI:

@@ -56,7 +56,7 @@ def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = T
                 with experiment.for_component(Component(name="env", path=Path("env.py"), type=ComponentType.ENV)):
                     pass
                 experiment.add_parameter("seed", list(range({seeds})))
-                experiment.add_metric("reward", frequency="per_update")
+                experiment.add_metric("reward")
 
                 def train(ctx: ExecutionContext) -> ExecutionResult:
                     curves = [

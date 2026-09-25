@@ -20,7 +20,7 @@ Usage::
             exp.add_parameter("gae_lambda", [0.9, 0.95])
 
     exp.add_ablation("no_gae", {"use_gae": False})
-    exp.add_metric("reward", kind="float", frequency="per_episode")
+    exp.add_metric("reward", kind="float")
     exp.sync("experiments.sqlite")
 """
 
@@ -60,7 +60,7 @@ class Experiment:
 
         exp = Experiment("My Sweep", description="Testing LR schedules")
         exp.add_parameter("lr", [1e-3, 3e-4])
-        exp.add_metric("reward", kind="float", frequency="per_episode")
+        exp.add_metric("reward", kind="float")
         exp.sync("experiments.sqlite")
     """
 

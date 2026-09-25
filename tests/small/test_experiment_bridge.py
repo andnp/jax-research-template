@@ -12,20 +12,20 @@ class TestMetricWhitelist:
 
     def test_single_metric(self) -> None:
         exp = Experiment("test")
-        exp.add_metric("reward", kind="float", frequency="per_episode")
+        exp.add_metric("reward", kind="float")
         wl = metric_whitelist(exp)
         assert wl == frozenset({"reward"})
 
     def test_multiple_metrics(self) -> None:
         exp = Experiment("test")
-        exp.add_metric("reward", kind="float", frequency="per_episode")
-        exp.add_metric("loss", kind="float", frequency="per_update")
-        exp.add_metric("eval_reward", kind="float", frequency="eval_only")
+        exp.add_metric("reward", kind="float")
+        exp.add_metric("loss", kind="float")
+        exp.add_metric("eval_reward", kind="float")
         wl = metric_whitelist(exp)
         assert wl == frozenset({"reward", "loss", "eval_reward"})
 
     def test_returns_frozenset(self) -> None:
         exp = Experiment("test")
-        exp.add_metric("x", kind="int", frequency="per_episode")
+        exp.add_metric("x", kind="int")
         wl = metric_whitelist(exp)
         assert isinstance(wl, frozenset)

@@ -16,7 +16,7 @@ def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
     metrics_path = tmp_path / "metrics.sqlite"
     experiment = Experiment("metrics-test")
     experiment.add_parameter("seed", [0, 1])
-    experiment.add_metric("reward", frequency="per_update")
+    experiment.add_metric("reward")
     experiment.sync(database_path)
 
     with DatabaseManager(database_path) as database:

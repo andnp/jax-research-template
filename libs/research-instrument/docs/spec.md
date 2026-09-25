@@ -97,7 +97,7 @@ To keep JAX running at full speed, the library maintains a **Double Buffer**:
 
 ```python
 # In the experiment definition
-# exp.add_metric("reward", frequency="per_step")
+# exp.add_metric("reward")
 
 # In the agent/environment code
 from research_instrument import collector

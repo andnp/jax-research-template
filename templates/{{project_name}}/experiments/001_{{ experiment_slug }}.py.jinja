@@ -33,7 +33,7 @@ def build_experiment() -> Experiment:
         experiment.add_parameter("env_name", [ENV_NAME])
     experiment.add_parameter("seed", list(SEEDS))
     experiment.add_parameter("total_timesteps", [500_000], is_static=True)
-    experiment.add_metric("returned_episode_returns", frequency="per_update")
+    experiment.add_metric("returned_episode_returns")
     return experiment
 
 
