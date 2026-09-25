@@ -70,12 +70,18 @@ class ChemPDosingConfig:
     dose_ramp_rate: float = 15.0  # mg-Fe/L/h symmetric for chemical pump
 
     # ── Dosing loop PI ────────────────────────────────────────────
-    pi_kp: float = 2.0
-    pi_ki: float = 0.5
+    # Reverse-acting: more FeCl₃ dose *removes* PO₄, so effluent PO₄ above
+    # setpoint (negative error) must *increase* dose — hence negative gains.
+    pi_kp: float = -2.0
+    pi_ki: float = -0.5
     pi_ff: float = 10.0  # feedforward: typical dose for mean PO₄
     pi_output_min: float = 0.0
     pi_output_max: float = 30.0
-    pi_max_integral: float = 20.0
+    # Sized so |ki| * max_integral covers the full actuator authority
+    # max(output_max - ff, ff - output_min) = max(30 - 10, 10 - 0) = 20
+    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
+    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
+    pi_max_integral: float = 40.0
     pi_base_setpoint: float = 0.5
 
     # ── Dosing loop PO₄ sensor (effluent) ─────────────────────────
