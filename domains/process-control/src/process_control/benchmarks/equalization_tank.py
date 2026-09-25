@@ -44,13 +44,20 @@ class EqualizationTankBenchmarkConfig:
     pump_min_flow: float = 0.0
     pump_max_ramp_rate: float = 100.0
 
-    # PI controller (proportional-integral on level error → outlet flow)
-    pi_kp: float = 5.0
-    pi_ki: float = 0.5
+    # PI controller (proportional-integral on level error → outlet flow).
+    # Reverse-acting: raising the outlet flow *drains* the tank, so a
+    # too-high level (positive measurement, negative error) must *increase*
+    # output, and a too-low level must decrease it — hence negative gains.
+    pi_kp: float = -5.0
+    pi_ki: float = -0.5
     pi_ff: float = 75.0  # steady-state outlet ≈ mean inlet
     pi_output_min: float = 0.0
     pi_output_max: float = 150.0
-    pi_max_integral: float = 50.0
+    # Sized so |ki| * max_integral covers the full actuator authority
+    # max(output_max - ff, ff - output_min) = max(150 - 75, 75 - 0) = 75
+    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
+    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
+    pi_max_integral: float = 150.0
 
     tracking_reward_scale: float = 1.0
     overflow_penalty: float = 10.0
