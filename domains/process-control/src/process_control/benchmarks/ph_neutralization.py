@@ -55,7 +55,11 @@ class PhNeutralizationBenchmarkConfig:
     pi_ff: float = 0.4544  # steady-state dose at mean acid load and flow
     pi_output_min: float = 0.0
     pi_output_max: float = 3.0
-    pi_max_integral: float = 1.0
+    # Sized so ki * max_integral covers the full actuator authority
+    # max(output_max - ff, ff - output_min) = max(3 - 0.4544, 0.4544 - 0)
+    # = 2.5456 (Åström & Murray, Feedback Systems, ch. 10 "Integrator
+    # Windup", https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
+    pi_max_integral: float = 520.0
 
     # pH sensor
     ph_noise_std: float = 0.05
