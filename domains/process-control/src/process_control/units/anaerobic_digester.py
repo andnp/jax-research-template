@@ -128,14 +128,19 @@ class ADM1Params:
     # (ADM1 routes disintegration/hydrolysis products it does not track as
     # VFA to particulate/soluble inert pools rather than discarding them;
     # f_vfa_hyd + f_xi_hyd = 1.0 keeps hydrolysis COD-conserving)
-    f_in_hyd: float = _SUBSTRATE_N * 14.0 / _SUBSTRATE_THOD  # ~0.035 mg-N/mg-COD hydrolysed
-    # (independent of the COD split above — a nitrogen yield, not a COD
-    # fraction. Ammonification is the digester's main alkalinity SOURCE
-    # (`_ALK_PER_N` below). Derived from the SAME C10H19O3N formula as
-    # `co2_ch4_molar_ratio` (1 mol NH3, 14 g N, per mol substrate; ThOD
-    # 400 g O2/mol substrate — see `_SUBSTRATE_THOD` — gives 14/400=0.035
-    # mg N per mg COD), rather than picked independently, so the two
-    # cannot drift out of stoichiometric consistency with each other.
+    f_in_hyd: float = _SUBSTRATE_N * 14.0 / _SUBSTRATE_THOD  # ~0.035 mg-N/mg-COD hydrolysed TO VFA
+    # (a nitrogen yield, not a COD fraction, on the SAME `f_vfa_hyd`-scaled
+    # flux as the VFA/CH4/CO2 pathway below — see `step()` — not on gross
+    # r_hyd. Buswell releases 1 mol NH3 per mol C10H19O3N alongside its
+    # 6.25 CH4 + 3.75 CO2; the `f_xi_hyd` share that instead becomes inert,
+    # never-degraded particulate COD keeps its share of the original
+    # molecule's nitrogen bound in that pool rather than releasing it as
+    # free ammonia, so N release must scale with the SAME degraded
+    # fraction as CH4/CO2 production (`co2_ch4_molar_ratio`) to stay
+    # atom-consistent with the same C10H19O3N formula — scaling it by
+    # gross r_hyd instead would release more N than the degraded carbon
+    # it is paired with can be Buswell-consistent with. Ammonification is
+    # the digester's main alkalinity SOURCE (`_ALK_PER_N` below).
 
     # Methanogenesis (Monod)
     mu_max: float = 0.30  # max specific growth rate (1/d) at t_ref
@@ -360,7 +365,10 @@ def step(
         d_x_sub_hyd = -r_hyd
         d_s_vfa_hyd = r_hyd * params.f_vfa_hyd
         d_x_inert_hyd = r_hyd * params.f_xi_hyd
-        d_s_in_hyd = r_hyd * params.f_in_hyd
+        # N release is tied to the VFA-forming (degraded) share only — see
+        # ADM1Params.f_in_hyd — not gross r_hyd, since the f_xi_hyd share
+        # never reaches the CH4/CO2-producing pathway either.
+        d_s_in_hyd = r_hyd * params.f_vfa_hyd * params.f_in_hyd
 
         # 2. Methanogenesis: S_VFA -> biomass + CH4 + CO2
         mu = mu_max * s.s_vfa / (params.k_s_vfa + s.s_vfa) * i_ph
