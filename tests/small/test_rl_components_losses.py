@@ -2,7 +2,7 @@
 
 import jax
 import jax.numpy as jnp
-from rl_components.losses import clip_gradient, qrc_loss
+from rl_components.losses import clip_gradient, qrc_loss, qrc_terms
 
 
 def _apply_fn(params: dict, states: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -61,3 +61,63 @@ def test_clip_gradient_preserves_values_and_clips_derivatives() -> None:
         jax.grad(weighted_clip)(values),
         jnp.array([0.5, 0.25, -0.5]),
     )
+
+
+def test_delta_matches_the_hand_computed_target() -> None:
+    """Verify the TD error subtracts value from the reward-plus-bootstrap target.
+
+    The target is reward + discount * bootstrap.
+    """
+    q = jnp.array(0.4)
+    h = jnp.array(0.0)
+    reward = jnp.array(1.0)
+    discount = jnp.array(0.9)
+    bootstrap = jnp.array(2.0)
+
+    _, _, delta = qrc_terms(q, h, reward, discount, bootstrap)
+    assert jnp.allclose(delta, (1.0 + 0.9 * 2.0) - 0.4)
+
+
+def test_h_loss_regresses_h_toward_the_stopped_delta() -> None:
+    """Verify the dual loss regresses h toward the TD error.
+
+    The target TD error is stopped before the squared residual.
+    """
+    q = jnp.array(0.4)
+    h = jnp.array(0.1)
+    reward = jnp.array(1.0)
+    discount = jnp.array(0.9)
+    bootstrap = jnp.array(2.0)
+
+    _, h_loss, delta = qrc_terms(q, h, reward, discount, bootstrap)
+    assert jnp.allclose(h_loss, 0.5 * (delta - h) ** 2)
+
+
+def test_correction_term_gradient_flows_through_bootstrap() -> None:
+    """Verify the primal correction gradient scales with discount and h.
+
+    This gradient comes from the unstopped bootstrap in the correction term.
+    """
+    q, h, reward, discount = jnp.array(0.3), jnp.array(0.7), jnp.array(0.2), jnp.array(0.9)
+
+    def v_loss_of_bootstrap(bootstrap: jax.Array) -> jax.Array:
+        v_loss, _, _ = qrc_terms(q, h, reward, discount, bootstrap)
+        return v_loss
+
+    grad = jax.grad(v_loss_of_bootstrap)(jnp.array(1.5))
+    assert jnp.allclose(grad, discount * h)
+
+
+def test_zero_h_blocks_the_correction_gradient() -> None:
+    """Verify a zero dual value leaves the primal as a semi-gradient loss.
+
+    The bootstrap gradient is exactly zero when the correction term vanishes.
+    """
+    q, h, reward, discount = jnp.array(0.3), jnp.array(0.0), jnp.array(0.2), jnp.array(0.9)
+
+    def v_loss_of_bootstrap(bootstrap: jax.Array) -> jax.Array:
+        v_loss, _, _ = qrc_terms(q, h, reward, discount, bootstrap)
+        return v_loss
+
+    grad = jax.grad(v_loss_of_bootstrap)(jnp.array(1.5))
+    assert jnp.allclose(grad, 0.0)
