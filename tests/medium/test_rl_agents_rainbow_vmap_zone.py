@@ -42,7 +42,11 @@ def _run_arm(agent: RainbowAgent, hypers: RainbowHypers, key: jax.Array):
     it; the traced hypers ride the state pytree instead, which is exactly what ``vmap``
     can map over.
     """
-    state = dataclasses.replace(agent.init(key, SPEC), hypers=hypers)
+    state = agent.init(key, SPEC)
+    state = dataclasses.replace(
+        state,
+        algorithm_state=dataclasses.replace(state.algorithm_state, hypers=hypers),
+    )
 
     def _one_step(state: RainbowAgentState, step_index: jax.Array):
         observation = jnp.full(OBSERVATION_SHAPE, step_index + 1, dtype=jnp.uint8)
@@ -57,7 +61,7 @@ def _run_arm(agent: RainbowAgent, hypers: RainbowHypers, key: jax.Array):
         return out.state, out.metrics["loss"]
 
     state, _ = jax.lax.scan(_one_step, state, jnp.arange(STEPS, dtype=jnp.int32))
-    return state.train_state.params
+    return state.algorithm_state.train_state.params
 
 
 def _stack_leaves(*leaves: jax.Array):

@@ -122,10 +122,11 @@ def _run(warmup_fraction: float) -> Run:
     final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
 
     agent_state = final_state.agent_state
-    count = int(agent_state.buffer_state.count)
+    buffer_state = agent_state.replay_state.buffer_state
+    count = int(buffer_state.count)
     return Run(
-        params=jax.tree_util.tree_leaves(agent_state.train_state.params),
-        discounts=agent_state.buffer_state.data["4"][:count],
+        params=jax.tree_util.tree_leaves(agent_state.algorithm_state.train_state.params),
+        discounts=buffer_state.data["4"][:count],
         metrics=metrics,
         entries=count,
     )

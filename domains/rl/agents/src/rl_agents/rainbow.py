@@ -9,34 +9,20 @@ per-step ``Timestep.discount`` of ``{0, gamma}``, and the accumulator multiplies
 those coefficients together, so a second 0.99 beside ``gamma = 0.99`` would discount the
 n-step return at 0.9801 -- the two-sources-of-truth defect the port exists to remove.
 
-Multi-step returns are the whole reason this agent is the last port. Everything the loop
-knows about a boundary is per step; everything replay needs is per window. The
-accumulator in between is where the two meet, and it is the only place in the repository
-that has to distinguish ``discount`` from ``episode_end``: a termination is erased by the
-coefficient itself, while a truncation keeps a nonzero coefficient and must still cut the
-window. All of it stays inside the agent -- the loop knows nothing about n-step.
+The n-step accumulator and prioritized buffer travel together as replay state. Closing a
+transition updates both; its ``count`` comes from the buffer and keeps the shared replay
+step's occupancy gate intact. The replay prototype is rebuilt from stored leaves, and the
+atom support from traced ``V_MIN``/``V_MAX``, so a ``vmap`` sweep can still vary each arm.
 
-Three things ``step`` needs are spec-derived, and ``step`` never sees the spec -- it
-receives only a :class:`~rl_components.timestep.Timestep` -- while the agent object
-itself is static under ``jit`` and so cannot be mutated by ``init``. Each is therefore
-reachable from the state instead:
-
-- the network, through ``state.train_state.apply_fn``, which Flax marks
-  ``pytree_node=False`` and which therefore survives the scan carry as a static field;
-- the replay entry's pytree shape, rebuilt inside ``step`` from the buffer state's own
-  leaves, because ``jax_replay.per`` stores them keyed by stringified flatten index and
-  needs a prototype of that shape to reassemble a sampled batch;
-- the atom support, rebuilt from the traced ``V_MIN``/``V_MAX`` in the carried hypers, so
-  a ``vmap`` sweep over the endpoints gets one support per arm.
-
-The can-train predicate gates on replay occupancy rather than the DQN family's
-``step_index > LEARNING_STARTS``, which is the predicate this agent already had; its
-schedules now key off ``step_index``, the count of transitions closed, where the private
-loop counted its own ``env_step``.
+The accumulator distinguishes termination from truncation: zero discount erases a
+terminal bootstrap, while ``episode_end`` also flushes a truncated window. The loop knows
+nothing about n-step replay.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
+from functools import partial
 from typing import Callable, Literal, NamedTuple
 
 import chex
@@ -58,6 +44,7 @@ from rl_components.distributional import (
 from rl_components.env_protocol import EnvSpec
 from rl_components.layers import NoisyLinear
 from rl_components.optim import with_hyperparams
+from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
@@ -240,21 +227,6 @@ def rainbow_importance_sampling_exponent(
     return config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN + progress * (
         config.IMPORTANCE_SAMPLING_EXPONENT_END - config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN
     )
-
-
-def _rainbow_zoo_atari_should_learn_array(
-    env_step: jax.Array,
-    replay_size: jax.Array,
-    config: RainbowConfig,
-) -> jax.Array:
-    min_replay_capacity = jnp.asarray(rainbow_zoo_atari_min_replay_capacity(config), dtype=replay_size.dtype)
-    learn_period_env_steps = jnp.asarray(rainbow_zoo_atari_learn_period_env_steps(config), dtype=env_step.dtype)
-    return (replay_size >= min_replay_capacity) & (env_step % learn_period_env_steps == 0)
-
-
-def _rainbow_zoo_atari_should_update_target_array(env_step: jax.Array, config: RainbowConfig) -> jax.Array:
-    target_update_period_env_steps = jnp.asarray(rainbow_zoo_atari_target_update_period_env_steps(config), dtype=env_step.dtype)
-    return env_step % target_update_period_env_steps == 0
 
 
 def rainbow_zoo_atari_total_train_env_steps(runtime_config: RainbowRuntimeConfig) -> int:
@@ -557,34 +529,23 @@ def _replay_prototype_from_state(buffer_state: PERBufferState) -> RainbowTransit
 
 
 @chex_struct(frozen=True)
-class RainbowAgentState:
-    """Everything the Rainbow agent carries between loop iterations.
-
-    Attributes:
-        train_state: Online parameters, optimizer state, and the static ``apply_fn``
-            through which ``step`` reaches the noisy duelling C51 network.
-        target_params: Parameters of the target network the bootstrap distribution is
-            read from.
-        buffer_state: Prioritised replay contents, which are also the only record of the
-            entry's pytree shape.
-        n_step: The window of transitions whose n-step return is still incomplete. It is
-            the one piece of agent state the boundary semantics are visible in.
-        last_obs: Observation the pending transition started from. Zero-primed at
-            ``init``; never read before the first insertion, which is guarded on
-            ``step_index > 0``.
-        last_action: Action that opened the pending transition, zero-primed likewise.
-        key: PRNG key for sampling minibatches and for the network's noise.
-        hypers: Swept hyperparameters, traced so a batch of arms shares one kernel.
-    """
-
+class RainbowAlgorithmState:
     train_state: TrainState
     target_params: VariableDict
+    hypers: RainbowHypers
+
+
+@chex_struct(frozen=True)
+class _RainbowReplayState:
     buffer_state: PERBufferState
     n_step: _NStepAccumulatorState
-    last_obs: jax.Array
-    last_action: jax.Array
-    key: chex.PRNGKey
-    hypers: RainbowHypers
+
+    @property
+    def count(self) -> jax.Array:
+        return self.buffer_state.count
+
+
+type RainbowAgentState = ReplayAgentState[RainbowAlgorithmState, _RainbowReplayState]
 
 
 class RainbowAgent:
@@ -643,19 +604,22 @@ class RainbowAgent:
             discount=jnp.zeros((), dtype=jnp.float32),
         )
 
-        return RainbowAgentState(
-            train_state=TrainState.create(
-                apply_fn=network.apply,
-                params=params,
-                tx=build_rainbow_zoo_atari_rmsprop(self.config),
+        return init_replay_agent_state(
+            RainbowAlgorithmState(
+                train_state=TrainState.create(
+                    apply_fn=network.apply,
+                    params=params,
+                    tx=build_rainbow_zoo_atari_rmsprop(self.config),
+                ),
+                target_params=params,
+                hypers=rainbow_hypers(self.config),
             ),
-            target_params=params,
-            buffer_state=init_per_buffer(replay_prototype, self.config.REPLAY_CAPACITY),
-            n_step=_init_n_step_accumulator(self.config, replay_prototype),
-            last_obs=jnp.zeros(observation_shape, dtype=observation_dtype),
-            last_action=jnp.zeros(action_shape, dtype=action_dtype),
-            key=carry_key,
-            hypers=rainbow_hypers(self.config),
+            _RainbowReplayState(
+                buffer_state=init_per_buffer(replay_prototype, self.config.REPLAY_CAPACITY),
+                n_step=_init_n_step_accumulator(self.config, replay_prototype),
+            ),
+            carry_key,
+            spec,
         )
 
     def step(
@@ -683,7 +647,8 @@ class RainbowAgent:
             ``loss`` is a zero placeholder on the iterations that do not learn, so the
             pytree returned to ``lax.scan`` is identical on every iteration.
         """
-        hypers = state.hypers
+        algorithm_state = state.algorithm_state
+        hypers = algorithm_state.hypers
         support = _rainbow_support_from_hypers(hypers, self.config.NUM_ATOMS)
         beta = rainbow_importance_sampling_exponent(
             step_index,
@@ -691,63 +656,34 @@ class RainbowAgent:
             self.importance_sampling_anneal_steps,
         )
         carry_key, sample_key, learn_key, action_noise_key = jax.random.split(state.key, 4)
-
-        n_step, buffer_state = jax.lax.cond(
-            step_index > 0,
-            lambda: self._close_pending_transition(state, timestep),
-            lambda: (state.n_step, state.buffer_state),
-        )
-
-        can_learn = _rainbow_zoo_atari_should_learn_array(step_index, buffer_state.count, self.config)
-        train_state, buffer_state, loss = jax.lax.cond(
-            can_learn,
-            lambda: self._learn(
-                state.train_state,
-                state.target_params,
-                buffer_state,
-                sample_key,
-                learn_key,
-                hypers,
-                support,
-                beta,
+        return replay_agent_step(
+            state,
+            timestep,
+            step_index,
+            carry_key=carry_key,
+            learn_keys=(sample_key, learn_key),
+            action_keys=(action_noise_key,),
+            learning_starts=None,
+            train_frequency=rainbow_zoo_atari_learn_period_env_steps(self.config),
+            warmup_steps=None,
+            close_transition=self._close_pending_transition,
+            learn=partial(self._learn, support=support, beta=beta),
+            select_action=partial(
+                self._select_action,
+                support=support,
+                action_dtype=state.last_action.dtype,
             ),
-            lambda: (state.train_state, buffer_state, jnp.zeros((), jnp.float32)),
-        )
-
-        target_params = jax.lax.cond(
-            _rainbow_zoo_atari_should_update_target_array(step_index, self.config),
-            lambda: train_state.params,
-            lambda: state.target_params,
-        )
-
-        action_logits = jnp.asarray(
-            train_state.apply_fn(train_state.params, timestep.observation, rngs={"noise": action_noise_key})
-        )
-        action = rainbow_select_actions(action_logits, support).astype(state.last_action.dtype)
-
-        return AgentStep(
-            state=RainbowAgentState(
-                train_state=train_state,
-                target_params=target_params,
-                buffer_state=buffer_state,
-                n_step=n_step,
-                last_obs=timestep.observation,
-                last_action=action,
-                key=carry_key,
-                hypers=hypers,
-            ),
-            action=action,
-            metrics={
-                "loss": loss,
-                "max_q": jnp.max(rainbow_expected_q_values(action_logits, support)).astype(jnp.float32),
-            },
+            minimum_replay_size=rainbow_zoo_atari_min_replay_capacity(self.config),
+            after_learn=self._after_learn,
         )
 
     def _close_pending_transition(
         self,
-        state: RainbowAgentState,
+        replay_state: _RainbowReplayState,
+        last_obs: jax.Array,
+        last_action: jax.Array,
         timestep: Timestep[jax.Array],
-    ) -> tuple[_NStepAccumulatorState, PERBufferState]:
+    ) -> _RainbowReplayState:
         """Fold the closed transition into the window and insert whatever it completed.
 
         The window completes nothing on most steps, one entry once it is full, and every
@@ -755,29 +691,34 @@ class RainbowAgent:
         """
         n_step, transitions, insert_mask = _advance_n_step_accumulator(
             self.config,
-            state.n_step,
-            state.last_obs,
-            state.last_action,
+            replay_state.n_step,
+            last_obs,
+            last_action,
             timestep.reward,
             timestep.bootstrap_observation,
             timestep.discount,
             timestep.episode_end,
         )
-        return n_step, _per_add_batched_transitions(
-            state.buffer_state, transitions, insert_mask, self.config.PRIORITY_EXPONENT
+        return replace(
+            replay_state,
+            buffer_state=_per_add_batched_transitions(
+                replay_state.buffer_state,
+                transitions,
+                insert_mask,
+                self.config.PRIORITY_EXPONENT,
+            ),
+            n_step=n_step,
         )
 
     def _learn(
         self,
-        train_state: TrainState,
-        target_params: VariableDict,
-        buffer_state: PERBufferState,
-        sample_key: chex.PRNGKey,
-        noise_key: chex.PRNGKey,
-        hypers: RainbowHypers,
+        algorithm_state: RainbowAlgorithmState,
+        replay_state: _RainbowReplayState,
+        keys: tuple[jax.Array, ...],
+        *,
         support: jax.Array,
         beta: jax.Array,
-    ) -> tuple[TrainState, PERBufferState, jax.Array]:
+    ) -> tuple[RainbowAlgorithmState, _RainbowReplayState, dict[str, jax.Array]]:
         """Take one gradient step on a prioritised minibatch, then reprioritise it.
 
         ``LEARNING_RATE``/``RMSPROP_DECAY``/``OPTIMIZER_EPSILON`` are traced hypers rather
@@ -787,40 +728,80 @@ class RainbowAgent:
         was built with.
         """
         sampled_batch, importance_weights, batch_indices = per_sample(
-            buffer_state,
-            sample_key,
+            replay_state.buffer_state,
+            keys[0],
             batch_size=self.config.BATCH_SIZE,
             beta=beta,
-            prototype=_replay_prototype_from_state(buffer_state),
+            prototype=_replay_prototype_from_state(replay_state.buffer_state),
         )
 
         train_state = with_hyperparams(
-            train_state,
-            learning_rate=hypers.LEARNING_RATE,
-            decay=hypers.RMSPROP_DECAY,
-            eps=hypers.OPTIMIZER_EPSILON,
+            algorithm_state.train_state,
+            learning_rate=algorithm_state.hypers.LEARNING_RATE,
+            decay=algorithm_state.hypers.RMSPROP_DECAY,
+            eps=algorithm_state.hypers.OPTIMIZER_EPSILON,
         )
 
         def _loss_with_priorities(params: VariableDict) -> tuple[jax.Array, jax.Array]:
             return rainbow_loss(
                 params,
-                target_params,
+                algorithm_state.target_params,
                 sampled_batch.obs,
                 sampled_batch.action,
                 sampled_batch.reward,
                 sampled_batch.next_obs,
                 sampled_batch.discount,
                 importance_weights,
-                noise_key,
+                keys[1],
                 apply_fn=train_state.apply_fn,
                 support=support,
             )
 
         (loss, per_example_loss), grads = jax.value_and_grad(_loss_with_priorities, has_aux=True)(train_state.params)
         buffer_state = per_update_priorities(
-            buffer_state,
+            replay_state.buffer_state,
             batch_indices,
             per_example_loss,
             alpha=self.config.PRIORITY_EXPONENT,
         )
-        return train_state.apply_gradients(grads=grads), buffer_state, loss.astype(jnp.float32)
+        algorithm_state = replace(algorithm_state, train_state=train_state.apply_gradients(grads=grads))
+        replay_state = replace(replay_state, buffer_state=buffer_state)
+        return algorithm_state, replay_state, {"loss": loss.astype(jnp.float32)}
+
+    def _after_learn(
+        self,
+        algorithm_state: RainbowAlgorithmState,
+        step_index: jax.Array,
+        _did_learn: jax.Array,
+    ) -> RainbowAlgorithmState:
+        target_period = rainbow_zoo_atari_target_update_period_env_steps(self.config)
+        return replace(
+            algorithm_state,
+            target_params=jax.lax.cond(
+                step_index % target_period == 0,
+                lambda: algorithm_state.train_state.params,
+                lambda: algorithm_state.target_params,
+            ),
+        )
+
+    def _select_action(
+        self,
+        algorithm_state: RainbowAlgorithmState,
+        observation: jax.Array,
+        step_index: jax.Array,
+        keys: tuple[jax.Array, ...],
+        *,
+        support: jax.Array,
+        action_dtype: jnp.dtype,
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
+        del step_index
+        action_logits = jnp.asarray(
+            algorithm_state.train_state.apply_fn(
+                algorithm_state.train_state.params,
+                observation,
+                rngs={"noise": keys[0]},
+            )
+        )
+        action = rainbow_select_actions(action_logits, support).astype(action_dtype)
+        max_q = jnp.max(rainbow_expected_q_values(action_logits, support)).astype(jnp.float32)
+        return action, {"max_q": max_q}

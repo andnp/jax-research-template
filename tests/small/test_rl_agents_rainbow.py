@@ -312,7 +312,7 @@ class TestRainbowOptimizerParity:
             RMSPROP_CENTERED=False,
         )
 
-        train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).train_state
+        train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).algorithm_state.train_state
         grads = jax.tree_util.tree_map(jnp.ones_like, train_state.params)
         expected_tx = build_rainbow_zoo_atari_rmsprop(config)
 
@@ -352,7 +352,7 @@ class TestRainbowAgentInit:
             result = agent.step(state, timestep, jnp.asarray(step_index, dtype=jnp.int32))
             state = result.state
             losses.append(result.metrics["loss"])
-            targets.append(state.target_params)
+            targets.append(state.algorithm_state.target_params)
         assert losses[3] == 0.0
         assert losses[4] != 0.0
         assert losses[5] == 0.0
@@ -360,7 +360,7 @@ class TestRainbowAgentInit:
     def test_init_uses_per_buffer_with_logical_capacity(self) -> None:
         agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=17))
 
-        buffer_state = agent.init(jax.random.key(0), _toy_atari_spec()).buffer_state
+        buffer_state = agent.init(jax.random.key(0), _toy_atari_spec()).replay_state.buffer_state
 
         assert int(buffer_state.logical_capacity) == 17
         assert int(buffer_state.storage_capacity) == 32

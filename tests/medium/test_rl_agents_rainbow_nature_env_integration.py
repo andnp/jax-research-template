@@ -127,7 +127,7 @@ def _run(*, truncates: bool) -> Replay:
 
     final_state, metrics = jax.jit(train_fn)(jax.random.key(SEED))
 
-    buffer_state = final_state.agent_state.buffer_state
+    buffer_state = final_state.agent_state.replay_state.buffer_state
     count = int(buffer_state.count)
     return Replay(
         obs=buffer_state.data["0"][:count],
