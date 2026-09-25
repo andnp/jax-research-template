@@ -99,6 +99,28 @@ class TestADM1CarbonBalance:
         residual = co2_production_total + ic_dilution_loss_total - co2_vented_total - delta_ic_storage
         assert abs(float(residual)) < 0.02 * abs(float(co2_production_total))
 
+    def test_alkalinity_tracks_ammonium_charge_balance_at_steady_state(self) -> None:
+        """At steady state (VFA net change ~0, so the acid/base swing term in the
+        alkalinity balance vanishes), alkalinity must equal the ammonium charge
+        it is paired with: `alkalinity = s_in * _ALK_PER_N` (1 eq HCO3- generated
+        per eq NH4+ released) — alkalinity and S_IC are separately conserved
+        quantities (net charge vs. carbon mass), each balanced on its own, but
+        alkalinity's OWN source/sink pair must close against S_IN's.
+        """
+        params = ADM1Params()
+        state = adm1_reset(30000.0, params, jax.random.PRNGKey(4))
+        dt = jnp.array(0.04167)
+        feed_cod = jnp.array(30000.0)
+        q_feed = jnp.array(125.0)
+        temperature = jnp.array(35.0)
+
+        for _ in range(150 * 24):
+            state, _, _, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
+
+        alk_per_n = 50.0 / 14.0
+        predicted_alk = float(state.s_in) * alk_per_n
+        assert abs(float(state.alkalinity) - predicted_alk) < 0.05 * predicted_alk
+
     def test_organic_overload_still_crashes_ph_with_new_carbon_pathway(self) -> None:
         """The acid-crash failure mode (test_organic_overload_drops_ph in the
         shared test module) must still trigger with the Buswell/bicarbonate
