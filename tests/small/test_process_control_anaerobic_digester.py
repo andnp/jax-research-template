@@ -7,7 +7,7 @@ failure mode), which are unaffected by the CH4:CO2 mechanism added here.
 
 import jax
 import jax.numpy as jnp
-from process_control.units.anaerobic_digester import ADM1Params, ADM1State
+from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _speciate_inorganic_carbon
 from process_control.units.anaerobic_digester import reset as adm1_reset
 from process_control.units.anaerobic_digester import step as adm1_step
 
@@ -56,7 +56,11 @@ class TestADM1CarbonBalance:
         CO2 production is directly observable from `step()`'s outputs, so
         both are recovered from the same feed-less-washout identity that test
         already uses for COD (mass balance of a pool that receives no feed
-        input is exactly `dilution * (0 - pool_before)`).
+        input is exactly `dilution * (0 - pool_before)`). Only the free
+        CO2(aq) share of S_IC is diluted directly through the effluent — the
+        HCO3- share's export is already carried by alkalinity's own
+        dilution term (see the `d_s_ic_dil` comment in `step()`) — so the
+        washout term here uses CO2(aq), not the whole S_IC pool.
         """
         params = ADM1Params()
         state = adm1_reset(30000.0, params, jax.random.PRNGKey(1))
@@ -74,10 +78,11 @@ class TestADM1CarbonBalance:
         ic_before = state.s_ic
 
         for _ in range(200):
-            ch4_start, ic_start = state.s_ch4, state.s_ic
+            ch4_start = state.s_ch4
+            co2aq_start, _ = _speciate_inorganic_carbon(state.s_ic, state.alkalinity, temperature)
             state, q_biogas, ch4_frac, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
             ch4_dilution_loss_total += dilution * (0.0 - ch4_start) * dt
-            ic_dilution_loss_total += dilution * (0.0 - ic_start) * dt
+            ic_dilution_loss_total += dilution * (0.0 - co2aq_start) * dt
             ch4_vol = q_biogas * ch4_frac * dt
             co2_vol = q_biogas * (1.0 - ch4_frac) * dt
             ch4_vented_total += ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume

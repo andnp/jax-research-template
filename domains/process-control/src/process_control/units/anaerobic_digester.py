@@ -8,7 +8,9 @@ that captures the essential dynamics for control:
    CH4:CO2 split follows Buswell substrate stoichiometry, not pure acetate)
 3. Carbonate speciation: dissolved inorganic carbon (S_IC) splits into
    CO2(aq) and HCO3- via the pKa1/alkalinity equilibrium; only CO2(aq)
-   is subject to gas transfer (`_speciate_inorganic_carbon`)
+   is subject to gas transfer AND to its own dilution washout — HCO3-'s
+   effluent export is already carried by `alkalinity`'s own dilution term,
+   so it is not subtracted a second time from S_IC (`_speciate_inorganic_carbon`)
 4. Gas transfer: dissolved CH4 / CO2(aq) -> gas phase (Henry's law, exact
    exponential relaxation — see `_relax_to_gas_equilibrium`)
 5. Biomass decay: X_bio -> X_sub (first-order)
@@ -25,18 +27,22 @@ References:
   treatment process (AM2) — alkalinity/inorganic-carbon state for
   reduced-order digester monitoring and control.
   Biotechnol. Bioeng. 75(4):424-438. doi:10.1002/bit.10036
-  Henry's-law base values (298.15 K) and van't Hoff coefficients follow
-  the ADM1/BSM2 default parameter set, e.g. Rosen & Jeppsson (2006)
-  "Aspects on ADM1 Implementation within the BSM2 Framework"; reproduced
-  in the PyADM1 reference implementation:
-  https://github.com/paus-5/ADM1/blob/master/python_codes/Adm1_ode.py
+  Henry's-law base values (298.15 K), van't Hoff coefficients and the
+  pKa1(CO2) temperature coefficient follow the ADM1/BSM2 default parameter
+  set — Rosen & Jeppsson (2006) "Aspects on ADM1 Implementation within
+  the BSM2 Framework"; verified against the Java port of that Matlab
+  reference implementation (DAEModel.java, `kLco2`, `K_H_ch4`, `K_H_co2`,
+  `K_a_co2` temperature terms): https://github.com/liampetti/jADM1
   Buswell & Mueller (1952). Mechanism of methane fermentation.
   Ind. Eng. Chem. 44(3):550-552. doi:10.1021/ie50507a033 — CH4:CO2 ratio
   from substrate elemental (C,H,O,N) composition; reports 60-65% CH4
   as typical for sludge-digestion systems of this type.
   Metcalf & Eddy / Tchobanoglous, Burton & Stensel (2003), Wastewater
   Engineering, 4th ed., Ch.4 — primary sludge approximated as C10H19O3N,
-  the default composite formula used below.
+  the default composite formula used below (`_SUBSTRATE_C/H/O/N`), which
+  also fixes the substrate's ammonification (N-release) yield: both are
+  derived from the same Buswell equation and elemental formula so they
+  cannot drift apart independently (see `_SUBSTRATE_CO2_MOL` etc. below).
 """
 
 from dataclasses import dataclass
@@ -65,15 +71,45 @@ _ALK_PER_N = 50.0 / 14.0
 
 # Apparent first dissociation "constant" of the CO2(aq)/HCO3- carbonate
 # equilibrium (lumping true H2CO3 in with CO2(aq), the standard convention
-# in wastewater/ADM1 practice), pKa1=6.35 at 25 C — e.g. Batstone et al.
-# (2002) ADM1 STR13 and the AM2 model already cited above both use this
-# value. The van't Hoff enthalpy below sets the (small) temperature shift;
-# its magnitude is an order-of-estimate for weak-acid carbonate equilibria
-# (unverified against an ADM1-tabulated value), but the resulting pH shift
-# is <0.05 units over 25-35 C, so precision here has little effect on the
-# results — see `_speciate_inorganic_carbon`.
+# in wastewater/ADM1 practice), pKa1=6.35 at 25 C, with a van't Hoff
+# temperature correction using effective enthalpy 7646 J/mol — both values
+# verified against the ADM1/BSM2 reference parameter set (Rosen & Jeppsson
+# 2006), specifically `pK_a_co2_base=6.35` and the `7646.0` coefficient in
+# `K_a_co2 = 10^-pK_a_co2_base * exp(7646.0*factor)` in the Java port of
+# the BSM2 Matlab code: DAEModel.java lines 152/150,
+# https://github.com/liampetti/jADM1 (this shift is <0.05 pH units over
+# 25-35 C either way).
 _PKA1_CO2_298 = 6.35
-_DH_PKA1_CO2 = 7660.0  # J/mol (unverified magnitude, see note above)
+_DH_PKA1_CO2 = 7646.0  # J/mol, verified — see note above
+
+# Composite substrate elemental formula (C_a H_b O_c N_d), representative of
+# municipal primary/WAS sludge: C10H19O3N (Tchobanoglous, Burton & Stensel,
+# "Wastewater Engineering", 4th ed., Metcalf & Eddy, 2003, Ch.4). Both the
+# CH4:CO2 production ratio (`ADM1Params.co2_ch4_molar_ratio`) and the
+# ammonification N-release yield (`ADM1Params.f_in_hyd`) are derived from
+# these SAME four numbers via the Buswell equation, so they cannot drift
+# out of stoichiometric consistency with each other:
+#   CnHaObNc -> CH4*(n/2+a/8-b/4-3c/8) + CO2*(n/2-a/8+b/4+3c/8) + c*NH3
+#   (Buswell & Mueller 1952, Ind. Eng. Chem. 44(3):550, doi:10.1021/ie50507a033)
+_SUBSTRATE_C = 10.0
+_SUBSTRATE_H = 19.0
+_SUBSTRATE_O = 3.0
+_SUBSTRATE_N = 1.0
+_SUBSTRATE_CH4_MOL = (
+    _SUBSTRATE_C / 2.0 + _SUBSTRATE_H / 8.0 - _SUBSTRATE_O / 4.0 - 3.0 * _SUBSTRATE_N / 8.0
+)  # 6.25 mol CH4 per mol substrate
+_SUBSTRATE_CO2_MOL = (
+    _SUBSTRATE_C / 2.0 - _SUBSTRATE_H / 8.0 + _SUBSTRATE_O / 4.0 + 3.0 * _SUBSTRATE_N / 8.0
+)  # 3.75 mol CO2 per mol substrate
+# Theoretical oxygen demand (g O2/mol substrate) — same electron-balance
+# identity used to derive Henry-consistent COD, so that dividing the fixed
+# N release (c mol N -> 14*c g N) by it gives an N-release-per-COD yield
+# consistent with the same elemental formula, not an independently chosen
+# number: ThOD = 8*(4a+b-2c-3d) for CaHbOcNd (verified against acetate,
+# C2H4O2: ThOD=64 g O2/mol, matching its known 1.067 g O2/g COD factor).
+_SUBSTRATE_THOD = 8.0 * (
+    4.0 * _SUBSTRATE_C + _SUBSTRATE_H - 2.0 * _SUBSTRATE_O - 3.0 * _SUBSTRATE_N
+)  # 400 g O2/mol substrate
 
 
 @dataclass(frozen=True)
@@ -91,16 +127,14 @@ class ADM1Params:
     # (ADM1 routes disintegration/hydrolysis products it does not track as
     # VFA to particulate/soluble inert pools rather than discarding them;
     # f_vfa_hyd + f_xi_hyd = 1.0 keeps hydrolysis COD-conserving)
-    f_in_hyd: float = 0.018  # inorganic-N release, mg-N per mg-COD hydrolysed
+    f_in_hyd: float = _SUBSTRATE_N * 14.0 / _SUBSTRATE_THOD  # ~0.035 mg-N/mg-COD hydrolysed
     # (independent of the COD split above — a nitrogen yield, not a COD
     # fraction. Ammonification is the digester's main alkalinity SOURCE
-    # (`_ALK_PER_N` below); this now also controls, via the alkalinity ->
-    # bicarbonate -> CO2-retention chain in `step()`, how much produced CO2
-    # is retained in solution rather than vented, so it is picked from the
-    # low end of the typical mixed-sludge nitrogen content range (~2-5% of
-    # COD; Tchobanoglous, Burton & Stensel, "Wastewater Engineering", 4th
-    # ed., Metcalf & Eddy, 2003, Ch.4) to keep steady-state alkalinity and
-    # CH4 fraction within their respective literature ranges together.
+    # (`_ALK_PER_N` below). Derived from the SAME C10H19O3N formula as
+    # `co2_ch4_molar_ratio` (1 mol NH3, 14 g N, per mol substrate; ThOD
+    # 400 g O2/mol substrate — see `_SUBSTRATE_THOD` — gives 14/400=0.035
+    # mg N per mg COD), rather than picked independently, so the two
+    # cannot drift out of stoichiometric consistency with each other.
 
     # Methanogenesis (Monod)
     mu_max: float = 0.30  # max specific growth rate (1/d) at t_ref
@@ -113,26 +147,28 @@ class ADM1Params:
     # `step()`). CO2 carries no COD; its production instead follows the
     # substrate's carbon/oxidation-state stoichiometry, below.
 
-    # CO2:CH4 molar production ratio from the Buswell equation,
-    # CnHaObNc -> ((n-a/4-b/2+3c/4))H2O -> CH4*(n/2+a/8-b/4-3c/8) +
-    # CO2*(n/2-a/8+b/4+3c/8) + c*NH3, applied to a composite substrate
-    # formula representative of municipal primary/WAS sludge, C10H19O3N
-    # (Tchobanoglous, Burton & Stensel, "Wastewater Engineering", 4th ed.,
-    # Metcalf & Eddy, 2003, Ch.4): CH4=6.25, CO2=3.75 mol per mol substrate,
-    # giving CO2/CH4 = 0.6 and a produced-gas CH4 fraction of 1/(1+0.6) =
-    # 62.5%, within the 60-65% Buswell & Mueller (1952, Ind. Eng. Chem.
-    # 44(3):550, doi:10.1021/ie50507a033) report as typical for
-    # sludge-digestion systems (vs. 50:50 for a pure-carbohydrate/acetate
-    # substrate, i.e. ratio 1.0, used previously). This is a fixed
-    # composition, not a state — real sludge composition varies, but the
-    # model does not track carbohydrate/protein/lipid fractions separately.
-    co2_ch4_molar_ratio: float = 0.6
+    # CO2:CH4 molar production ratio from the Buswell equation applied to
+    # the same C10H19O3N composite substrate formula as `f_in_hyd` above
+    # (`_SUBSTRATE_CO2_MOL`/`_SUBSTRATE_CH4_MOL` = 3.75/6.25 = 0.6), giving
+    # a produced-gas CH4 fraction of 1/(1+0.6) = 62.5%, within the 60-65%
+    # Buswell & Mueller (1952, Ind. Eng. Chem. 44(3):550,
+    # doi:10.1021/ie50507a033) report as typical for sludge-digestion
+    # systems (vs. 50:50 for a pure-carbohydrate/acetate substrate, i.e.
+    # ratio 1.0, used previously). This is a fixed composition, not a
+    # state — real sludge composition varies, but the model does not track
+    # carbohydrate/protein/lipid fractions separately.
+    co2_ch4_molar_ratio: float = _SUBSTRATE_CO2_MOL / _SUBSTRATE_CH4_MOL
 
     # pH inhibition on methanogenesis (ADM1 default acetoclastic-methanogen limits)
     ph_ll: float = 6.0  # lower pH limit (complete inhibition)
     ph_ul: float = 7.0  # upper pH limit (no inhibition)
 
-    # Gas transfer (Henry's law, kLa for dissolved -> gas)
+    # Gas transfer (Henry's law, kLa for dissolved -> gas). kla_ch4/kla_co2
+    # and the van't Hoff coefficients below are verified, not tuned: they
+    # match the ADM1/BSM2 reference parameter set exactly (`kLco2=200.0`,
+    # `-14240.0*factor` for K_H_ch4, `-19410.0*factor` for K_H_co2, in
+    # DAEModel.java/DigesterParameters.java, https://github.com/liampetti/jADM1,
+    # a Java port of Rosen & Jeppsson's BSM2 Matlab implementation).
     kla_ch4: float = 200.0  # gas transfer coefficient CH4 (1/d)
     kla_co2: float = 200.0  # gas transfer coefficient CO2 (1/d)
     h_ch4_298: float = 0.0014  # Henry constant CH4 (mol/L/atm) at 298.15 K
@@ -205,7 +241,11 @@ def _speciate_inorganic_carbon(s_ic: jax.Array, alkalinity: jax.Array, t_celsius
     carbon-mass basis as `s_ic`) — the AM2-style simplification already used
     for `alkalinity` itself, since VFA- and NH4+ dominate the rest of the
     charge balance and are tracked separately. CO2(aq) is the remainder of
-    `s_ic`; pH follows from Henderson-Hasselbalch on their ratio.
+    `s_ic`; pH follows from Henderson-Hasselbalch on their ratio. Because
+    `alkalinity` has its own dilution dynamics in `step()`, the returned
+    CO2(aq) — not the whole `s_ic` pool — is what should be diluted again
+    there; diluting all of `s_ic` as well double-counts the HCO3- carbon's
+    effluent export (see the `d_s_ic_dil` comment in `step()`).
     """
     hco3_as_co2 = (alkalinity / 50.0) * 44.0  # mg CaCO3/L -> meq/L -> mg/L as CO2
     co2aq = jnp.maximum(s_ic - hco3_as_co2, 1e-3)
@@ -312,7 +352,7 @@ def step(
     _, ph = _speciate_inorganic_carbon(state.s_ic, state.alkalinity, temperature)
 
     for _ in range(_N_SUBSTEPS):
-        _, ph = _speciate_inorganic_carbon(s.s_ic, s.alkalinity, temperature)
+        co2aq_now, ph = _speciate_inorganic_carbon(s.s_ic, s.alkalinity, temperature)
         i_ph = _ph_inhibition(ph, params.ph_ll, params.ph_ul)
 
         # 1. Hydrolysis: X_sub -> S_VFA + X_inert + S_IN
@@ -346,7 +386,15 @@ def step(
         d_x_inert_dil = -dilution * s.x_inert
         d_s_vfa_dil = -dilution * s.s_vfa
         d_s_ch4_dil = -dilution * s.s_ch4
-        d_s_ic_dil = -dilution * s.s_ic
+        # Only the free CO2(aq) share of S_IC washes out through THIS term.
+        # HCO3- carbon leaving via the effluent is already accounted for by
+        # `alkalinity`'s own dilution term below (`d_alk_dil`), which shrinks
+        # the bicarbonate share `_speciate_inorganic_carbon` will attribute
+        # to the next substep's S_IC; subtracting the whole pool here as
+        # well double-counted that same bicarbonate-carbon export, starving
+        # CO2 venting and inflating the gas-phase CH4 fraction well past
+        # the Buswell production ratio even at realistic alkalinity levels.
+        d_s_ic_dil = -dilution * co2aq_now
         d_s_in_dil = -dilution * s.s_in
         d_x_bio_dil = -dilution * s.x_biomass
         d_alk_dil = -dilution * s.alkalinity
