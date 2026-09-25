@@ -140,6 +140,8 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    ```
    Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists trainer metric series to `metrics.sqlite` and trainer artifacts under the execution root.
 
+   Set `RESEARCH_MAX_CPUS=N` to initialize the Linux CPU pool under a temporary N-CPU affinity, then restore every thread to the full original affinity so workers can float across those CPUs. `XLA_FLAGS` thread-count settings and `OMP_NUM_THREADS`/`MKL_NUM_THREADS` do not set this pool size. The variable is unset by default, so no cap is applied unless configured.
+
 4. **Resume after a failure:**
    Re-running the same `run` command re-plans only the unsatisfied runs — those without a linked `COMPLETED` execution — so an interrupted sweep picks back up without repeating finished work. Check progress with:
    ```bash
