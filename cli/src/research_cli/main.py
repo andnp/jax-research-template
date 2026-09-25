@@ -1,3 +1,6 @@
+# The CLI bootstrap must settle platform and affinity before runtime imports.
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import os
@@ -7,6 +10,10 @@ import sys
 # below), so this must be decided before any other import in this file.
 if not ("experiment" in sys.argv and "run" in sys.argv and "--gpu" in sys.argv):
     os.environ["JAX_PLATFORMS"] = "cpu"
+
+from research_cli.cpu_cap import apply_cpu_cap
+
+apply_cpu_cap()
 
 import typer
 
