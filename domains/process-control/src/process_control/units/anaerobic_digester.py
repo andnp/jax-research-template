@@ -7,10 +7,11 @@ that captures the essential dynamics for control:
 2. Methanogenesis: S_VFA -> biomass + CH4 + CO2 (Monod, COD-conserving;
    CH4:CO2 split follows Buswell substrate stoichiometry, not pure acetate)
 3. Carbonate speciation: dissolved inorganic carbon (S_IC) splits into
-   CO2(aq) and HCO3- via the pKa1/alkalinity equilibrium; only CO2(aq)
-   is subject to gas transfer AND to its own dilution washout — HCO3-'s
-   effluent export is already carried by `alkalinity`'s own dilution term,
-   so it is not subtracted a second time from S_IC (`_speciate_inorganic_carbon`)
+   CO2(aq) and HCO3- via the pKa1/alkalinity equilibrium; only CO2(aq) is
+   subject to gas transfer (`_speciate_inorganic_carbon`). The whole S_IC
+   pool (both species) dilutes with the effluent — alkalinity (net
+   charge) and S_IC (carbon mass) are separately conserved quantities,
+   each with its own dilution term, not one double-counted loss.
 4. Gas transfer: dissolved CH4 / CO2(aq) -> gas phase (Henry's law, exact
    exponential relaxation — see `_relax_to_gas_equilibrium`)
 5. Biomass decay: X_bio -> X_sub (first-order)
@@ -241,11 +242,10 @@ def _speciate_inorganic_carbon(s_ic: jax.Array, alkalinity: jax.Array, t_celsius
     carbon-mass basis as `s_ic`) — the AM2-style simplification already used
     for `alkalinity` itself, since VFA- and NH4+ dominate the rest of the
     charge balance and are tracked separately. CO2(aq) is the remainder of
-    `s_ic`; pH follows from Henderson-Hasselbalch on their ratio. Because
-    `alkalinity` has its own dilution dynamics in `step()`, the returned
-    CO2(aq) — not the whole `s_ic` pool — is what should be diluted again
-    there; diluting all of `s_ic` as well double-counts the HCO3- carbon's
-    effluent export (see the `d_s_ic_dil` comment in `step()`).
+    `s_ic`; pH follows from Henderson-Hasselbalch on their ratio. Only
+    CO2(aq) is subject to gas transfer in `step()`; `s_ic` as a whole still
+    dilutes with the effluent there (`alkalinity`'s own, separate dilution
+    term tracks net charge, not this carbon mass a second time).
     """
     hco3_as_co2 = (alkalinity / 50.0) * 44.0  # mg CaCO3/L -> meq/L -> mg/L as CO2
     co2aq = jnp.maximum(s_ic - hco3_as_co2, 1e-3)
@@ -352,7 +352,7 @@ def step(
     _, ph = _speciate_inorganic_carbon(state.s_ic, state.alkalinity, temperature)
 
     for _ in range(_N_SUBSTEPS):
-        co2aq_now, ph = _speciate_inorganic_carbon(s.s_ic, s.alkalinity, temperature)
+        _, ph = _speciate_inorganic_carbon(s.s_ic, s.alkalinity, temperature)
         i_ph = _ph_inhibition(ph, params.ph_ll, params.ph_ul)
 
         # 1. Hydrolysis: X_sub -> S_VFA + X_inert + S_IN
@@ -386,15 +386,15 @@ def step(
         d_x_inert_dil = -dilution * s.x_inert
         d_s_vfa_dil = -dilution * s.s_vfa
         d_s_ch4_dil = -dilution * s.s_ch4
-        # Only the free CO2(aq) share of S_IC washes out through THIS term.
-        # HCO3- carbon leaving via the effluent is already accounted for by
-        # `alkalinity`'s own dilution term below (`d_alk_dil`), which shrinks
-        # the bicarbonate share `_speciate_inorganic_carbon` will attribute
-        # to the next substep's S_IC; subtracting the whole pool here as
-        # well double-counted that same bicarbonate-carbon export, starving
-        # CO2 venting and inflating the gas-phase CH4 fraction well past
-        # the Buswell production ratio even at realistic alkalinity levels.
-        d_s_ic_dil = -dilution * co2aq_now
+        # The effluent carries ALL dissolved inorganic carbon out (CO2(aq)
+        # and HCO3- together — S_IC is one conserved carbon pool), so this
+        # term dilutes the whole pool. Alkalinity's own dilution term below
+        # (`d_alk_dil`) tracks a DIFFERENT conserved quantity (net charge),
+        # not a second copy of this carbon; diluting only the free-CO2(aq)
+        # share here (a change briefly tried and reverted) undercounts
+        # effluent carbon and overcounts vented CO2, artificially lowering
+        # the gas-phase CH4 fraction.
+        d_s_ic_dil = -dilution * s.s_ic
         d_s_in_dil = -dilution * s.s_in
         d_x_bio_dil = -dilution * s.x_biomass
         d_alk_dil = -dilution * s.alkalinity
