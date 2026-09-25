@@ -131,7 +131,11 @@ class H2SScrubberConfig:
     bleach_ff: float = 20.0  # resting pump speed
     bleach_pump_min: float = 0.0
     bleach_pump_max: float = 80.0  # mL/min
-    bleach_max_integral: float = 500.0
+    # Sized so ki * max_integral covers the full actuator authority
+    # max(output_max - ff, ff - output_min) = max(80 - 20, 20 - 0) = 60
+    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
+    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
+    bleach_max_integral: float = 3000.0
     bleach_max_ramp: float = 40.0
 
     # ── Makeup flow loop (level control) ──────────────────────────
