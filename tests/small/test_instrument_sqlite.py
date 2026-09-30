@@ -207,8 +207,13 @@ class TestConcurrentWriters:
 
             def write_many(run_id: int, seed_id: int) -> None:
                 try:
-                    for step in range(200):
-                        write_curve(db_path, [float(step)], run_id=run_id, execution_id=run_id, seed_id=seed_id)
+                    write_curve(
+                        db_path,
+                        [float(step) for step in range(200)],
+                        run_id=run_id,
+                        execution_id=run_id,
+                        seed_id=seed_id,
+                    )
                 except BaseException as exc:  # noqa: BLE001
                     errors.append(exc)
 
