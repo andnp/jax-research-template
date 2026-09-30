@@ -193,3 +193,4 @@ def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
             execution = database.get_execution(execution_id)
             assert execution is not None
             assert execution.status == "FAILED"
+            assert execution.end_time is not None

@@ -48,8 +48,6 @@ def submit_experiment(
         with DatabaseManager(db_path) as database:
             database.initialize()
             for execution_id in execution_ids:
-                database.update_execution_status(
-                    execution_id, "FAILED",
-                )
+                database.fail_execution(execution_id)
         raise
     return result.stdout.strip()
