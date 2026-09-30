@@ -4,10 +4,16 @@ import textwrap
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
+from experiment_definition.status import RunState, run_state
 from research_cli.main import app
 from typer.testing import CliRunner
 
 runner = CliRunner()
+
+
+def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
+    statuses = database.list_run_execution_statuses(experiment_id)
+    return {run_id for run_id, run_statuses in statuses.items() if run_state(run_statuses) is not RunState.COMPLETED}
 
 
 def test_experiment_list_empty_db(tmp_path: Path) -> None:
@@ -441,7 +447,7 @@ def test_invalidate_by_where_unsatisfies_only_matched_arm(tmp_path: Path) -> Non
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        unsatisfied_ids = {r.id for r in db.list_runs_without_completed_execution(exp_id)}
+        unsatisfied_ids = _unsatisfied_run_ids(db, exp_id)
     assert changed_run_id in unsatisfied_ids
     assert stable_run_id not in unsatisfied_ids
 
@@ -813,7 +819,7 @@ def test_invalidate_all_unsatisfies_every_arm(tmp_path: Path) -> None:
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        unsatisfied = {run.id for run in db.list_runs_without_completed_execution(exp_id)}
+        unsatisfied = _unsatisfied_run_ids(db, exp_id)
     assert unsatisfied == {changed_run_id, stable_run_id}
 
 
@@ -849,7 +855,7 @@ def test_invalidate_all_leaves_other_experiments_alone(tmp_path: Path) -> None:
 
     with DatabaseManager(db_path) as db:
         db.initialize()
-        assert db.list_runs_without_completed_execution(other_exp) == []
+        assert _unsatisfied_run_ids(db, other_exp) == set()
 
 
 def test_invalidate_all_requires_an_experiment(tmp_path: Path) -> None:
