@@ -5,7 +5,11 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.integration import rk4_step
+from process_control.integration import rk4_substeps
+
+# Keeps the stiffest measured BSM1-family mode (Takacs, |dt*lambda| ~27) inside
+# RK4's stability region with margin.
+_SUBSTEPS = 16
 
 
 @dataclass(frozen=True)
@@ -402,28 +406,22 @@ def step(
     params: ASM1Params,
     dt: jax.Array,
 ) -> ASM1State:
-    """Advance ASM1 state by one time step.
+    """Advance ASM1 state by one time step with clamped RK4 sub-steps.
 
-    Integrate with RK4 then enforce non-negative concentrations.
+    Near S_O=0 the O2-Monod terms give the reactor ODE eigenvalues down to
+    |dt*lambda| ~27 at the BSM1-family dt, far outside RK4's real-axis
+    stability limit (~2.785); a single step per dt spikes DO orders of
+    magnitude above saturation.
     """
     def derivatives(x: ASM1State) -> ASM1State:
         return _asm1_derivatives(x, flow_in, influent, kla, params)
 
-    new_state = rk4_step(derivatives, state, dt)
+    return rk4_substeps(derivatives, _non_negative, state, dt, _SUBSTEPS)
 
-    # Enforce non-negative and reasonable upper bounds for problematic species
-    return ASM1State(
-        s_i=jnp.maximum(new_state.s_i, 0.0),
-        s_s=jnp.maximum(new_state.s_s, 0.0),
-        x_i=jnp.maximum(new_state.x_i, 0.0),
-        x_s=jnp.maximum(new_state.x_s, 0.0),
-        x_bh=jnp.maximum(new_state.x_bh, 0.0),
-        x_ba=jnp.maximum(new_state.x_ba, 0.0),
-        x_p=jnp.maximum(new_state.x_p, 0.0),
-        s_o=jnp.maximum(new_state.s_o, 0.0),
-        s_no=jnp.maximum(new_state.s_no, 0.0),
-        s_nh=jnp.maximum(new_state.s_nh, 0.0),
-        s_nd=jnp.maximum(new_state.s_nd, 0.0),
-        x_nd=jnp.maximum(new_state.x_nd, 0.0),
-        s_alk=jnp.maximum(new_state.s_alk, 0.0),
-    )
+
+def _non_negative(state: ASM1State):
+    return jax.tree.map(_clamp_at_zero, state)
+
+
+def _clamp_at_zero(value: jax.Array):
+    return jnp.maximum(value, 0.0)
