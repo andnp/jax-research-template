@@ -523,30 +523,10 @@ class DatabaseManager:
         jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> list[PlannedExecution]:
         """Plan execution batches and register deterministic artifact paths."""
-        base_path = Path(artifacts_root)
-        self.conn.execute("BEGIN IMMEDIATE")
-        try:
-            planned: list[PlannedExecution] = []
-            for batch in _planning.list_unsatisfied_run_batches(
-                self.conn, experiment_id, max_runs_per_batch, None, None
-            ):
-                planned.append(
-                    _planning.plan_batch_with_artifacts(
-                        self.conn,
-                        batch,
-                        base_path,
-                        manifest_name,
-                        hostname,
-                        git_commit,
-                        git_diff_blob,
-                        jax_config,
-                    )
-                )
-            self.conn.commit()
-            return planned
-        except Exception:
-            self.conn.rollback()
-            raise
+        return self._plan_batches(
+            experiment_id, artifacts_root, None, max_runs_per_batch, manifest_name,
+            hostname, git_commit, git_diff_blob, jax_config, None, None,
+        )
 
     def plan_next_execution_batch(
         self,
@@ -567,26 +547,35 @@ class DatabaseManager:
         ``only`` restricts which runs are eligible, per the planning service matcher; ``group``
         restricts planning to the batches whose ``RunBatch.group_key`` matches.
         """
-        base_path = Path(artifacts_root)
+        planned = self._plan_batches(
+            experiment_id, artifacts_root, 1, max_runs_per_batch, manifest_name,
+            hostname, git_commit, git_diff_blob, jax_config, only, group,
+        )
+        return planned[0] if planned else None
+
+    def _plan_batches(
+        self,
+        experiment_id: int,
+        artifacts_root: str | Path,
+        limit: int | None,
+        max_runs_per_batch: int | None,
+        manifest_name: str,
+        hostname: str | None,
+        git_commit: str | None,
+        git_diff_blob: str | None,
+        jax_config: Mapping[str, ParameterValue] | None,
+        only: Mapping[str, str] | None,
+        group: str | None,
+    ) -> list[PlannedExecution]:
         self.conn.execute("BEGIN IMMEDIATE")
         try:
-            batches = _planning.list_unsatisfied_run_batches(
-                self.conn, experiment_id, max_runs_per_batch, only, group
-            )
-            if not batches:
-                self.conn.commit()
-                return None
-            batch = batches[0]
-            planned = _planning.plan_batch_with_artifacts(
-                self.conn,
-                batch,
-                base_path,
-                manifest_name,
-                hostname,
-                git_commit,
-                git_diff_blob,
-                jax_config,
-            )
+            batches = _planning.list_unsatisfied_run_batches(self.conn, experiment_id, max_runs_per_batch, only, group)
+            planned = [
+                _planning.plan_batch_with_artifacts(
+                    self.conn, batch, Path(artifacts_root), manifest_name, hostname, git_commit, git_diff_blob, jax_config
+                )
+                for batch in batches[:limit]
+            ]
             self.conn.commit()
             return planned
         except Exception:
