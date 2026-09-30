@@ -13,6 +13,12 @@ from typing import NamedTuple
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from experiment_definition.status import RunState, run_state
+
+
+def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
+    statuses = database.list_run_execution_statuses(experiment_id)
+    return {run_id for run_id, run_statuses in statuses.items() if run_state(run_statuses) is not RunState.COMPLETED}
 
 
 def _require[T](value: T | None) -> T:
@@ -234,7 +240,8 @@ def test_list_runs_returns_all_runs_for_experiment(populated_db: Populated) -> N
     assert [run.seed for run in runs] == [0, 1]
 
 
-def test_list_runs_without_completed_execution_excludes_completed_execution(populated_db: Populated) -> None:
+def test_completed_execution_satisfies_only_its_runs(populated_db: Populated) -> None:
+    """Only runs linked to a COMPLETED execution count as satisfied; unrun ones are still owed."""
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
     run0 = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0)
     run1 = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1)
@@ -243,12 +250,11 @@ def test_list_runs_without_completed_execution_excludes_completed_execution(popu
     db.link_execution_run(execution_id, run0)
     db.update_execution_status(execution_id, "COMPLETED")
 
-    unsatisfied_runs = db.list_runs_without_completed_execution(exp_id)
-
-    assert [run.id for run in unsatisfied_runs] == [run1]
+    assert _unsatisfied_run_ids(db, exp_id) == {run1}
 
 
-def test_list_runs_without_completed_execution_keeps_failed_only_runs(populated_db: Populated) -> None:
+def test_failed_only_run_stays_unsatisfied(populated_db: Populated) -> None:
+    """A run whose only execution failed is still owed a result, so it stays retryable."""
     db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
     run_id = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=2)
 
@@ -256,9 +262,7 @@ def test_list_runs_without_completed_execution_keeps_failed_only_runs(populated_
     db.link_execution_run(execution_id, run_id)
     db.update_execution_status(execution_id, "FAILED")
 
-    unsatisfied_runs = db.list_runs_without_completed_execution(exp_id)
-
-    assert [run.id for run in unsatisfied_runs] == [run_id]
+    assert _unsatisfied_run_ids(db, exp_id) == {run_id}
 
 
 # ---------------------------------------------------------------------------
@@ -818,11 +822,11 @@ def test_invalidate_execution_makes_runs_unsatisfied(populated_db: Populated) ->
     db.link_execution_run(execution_id, run_id)
     db.update_execution_status(execution_id, "COMPLETED")
 
-    assert run_id not in [r.id for r in db.list_runs_without_completed_execution(exp_id)]
+    assert run_id not in _unsatisfied_run_ids(db, exp_id)
 
     db.invalidate_execution(execution_id)
 
-    assert run_id in [r.id for r in db.list_runs_without_completed_execution(exp_id)]
+    assert run_id in _unsatisfied_run_ids(db, exp_id)
 
 
 def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
