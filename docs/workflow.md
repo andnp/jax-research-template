@@ -142,6 +142,8 @@ To run a hyperparameter sweep instead of a single training script, define it dec
 
    A single-process run caps XLA's CPU thread pool with the `NPROC` environment variable, e.g. `NPROC=4 uv run research experiment run sweep.py --spec my_sweep`. `XLA_FLAGS` thread-count settings and `OMP_NUM_THREADS`/`MKL_NUM_THREADS` do not cap it. With JAX 0.11.1, a jitted matmul scan used 6.45 cores unset, 1.00 with `NPROC=1`, and 3.83 with `NPROC=4`.
 
+   To use several cores, give the run a thread budget: `uv run research experiment run sweep.py --spec my_sweep --workers 8`. The supervisor starts one worker process per pending group (runs sharing a static config), gives each an `NPROC` so the workers' threads sum to at most the budget, and starts a worker only when free memory fits it. `--max-runs N` splits each group into vmapped batches of N, so a kill loses at most one batch. Cancelling the one command stops every worker, and a worker that dies has its unfinished executions marked FAILED, so the next launch retries them. See [the spec](specs/parallel-experiment-runner.md) for the policy.
+
 4. **Resume after a failure:**
    Re-running the same `run` command re-plans only the unsatisfied runs — those without a linked `COMPLETED` execution — so an interrupted sweep picks back up without repeating finished work. Check progress with:
    ```bash
