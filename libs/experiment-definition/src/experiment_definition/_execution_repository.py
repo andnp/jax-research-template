@@ -156,7 +156,9 @@ def reclaim_stale_executions(
     stale_after_seconds: float,
 ) -> list[int]:
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)).isoformat()
-    with conn:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
         rows = conn.execute(
             "SELECT DISTINCT e.id FROM Executions e "
             "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
@@ -165,17 +167,15 @@ def reclaim_stale_executions(
             "AND e.start_time IS NOT NULL AND e.start_time < ?",
             (experiment_id, cutoff),
         ).fetchall()
-    reclaimed: list[int] = []
-    for row in rows:
-        execution_id = int(row[0])
-        update_execution_status(
-            conn,
-            execution_id,
-            "FAILED",
-            start_time=None,
-            end_time=datetime.now(timezone.utc).isoformat(),
+        reclaimed = [int(row[0]) for row in rows]
+        conn.executemany(
+            "UPDATE Executions SET status = 'FAILED', end_time = ? WHERE id = ? AND status = 'RUNNING'",
+            [(now, execution_id) for execution_id in reclaimed],
         )
-        reclaimed.append(execution_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return reclaimed
 
 

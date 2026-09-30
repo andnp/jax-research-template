@@ -36,3 +36,19 @@ def test_database_reads_component_provenance(tmp_path: Path) -> None:
         assert provenance.component_id == component_id
         assert provenance.component_name == "ppo"
         assert provenance.version_id == version_id
+
+
+def test_concurrent_stale_reclaim_fails_each_execution_once(tmp_path: Path) -> None:
+    """A second reclaimer on the same database finds nothing left to fail instead of crashing."""
+    db_path = tmp_path / "experiments.sqlite"
+    with DatabaseManager(db_path) as first, DatabaseManager(db_path) as second:
+        first.initialize()
+        experiment_id = first.add_experiment("reclaim-test")
+        hyper_id = first.add_hyperparam_config({"condition_name": "baseline"})
+        run_id = first.add_run(experiment_id, None, None, hyper_id, 0)
+        execution_id = first.add_execution()
+        first.link_execution_run(execution_id, run_id)
+        first.update_execution_status(execution_id, "RUNNING", "2000-01-01T00:00:00+00:00", None)
+
+        assert first.reclaim_stale_executions(experiment_id, 60) == [execution_id]
+        assert second.reclaim_stale_executions(experiment_id, 60) == []
