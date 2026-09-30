@@ -50,7 +50,7 @@ from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
 from rl_networks.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
-from rl_agents.dqn_zoo_atari import dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, dqn_zoo_atari_frames_to_env_steps
 
 type RainbowApplyFn = Callable[..., jax.Array]
 """The network's ``apply``, as reached through ``TrainState.apply_fn``.
@@ -61,17 +61,7 @@ no caller of :func:`rainbow_loss` can omit the key.
 
 
 @chex_struct(frozen=True, kw_only=True)
-class RainbowConfig:
-    REPLAY_CAPACITY: int = 1_000_000
-    MIN_REPLAY_CAPACITY_FRACTION: float = 0.05
-    BATCH_SIZE: int = 32
-    NUM_ACTION_REPEATS: int = 4
-    TARGET_NETWORK_UPDATE_PERIOD_FRAMES: int = 40_000
-    LEARN_PERIOD_FRAMES: int = 16
-    LEARNING_RATE: float = 0.00025
-    OPTIMIZER_EPSILON: float = 0.01 / 32**2
-    RMSPROP_DECAY: float = 0.95
-    RMSPROP_CENTERED: bool = True
+class RainbowConfig(DQNZooAtariConfig):
     N_STEP: int = 3
     NUM_ATOMS: int = 51
     V_MIN: float = -10.0
