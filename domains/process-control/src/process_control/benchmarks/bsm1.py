@@ -242,6 +242,12 @@ class BSM1BenchmarkConfig:
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
 
 
+def aeration_power(config: BSM1BenchmarkConfig, kla_34: jax.Array, kla_5: jax.Array):
+    """Aeration demand as a fraction of running every aerated reactor at its kLa ceiling."""
+    aerated_volume_34 = config.v3 + config.v4
+    power_max = max(config.kla_34_max * aerated_volume_34 + config.kla_5_max * config.v5, 1.0)
+    return (kla_34 * aerated_volume_34 + kla_5 * config.v5) / power_max
+
 @jax_dataclass
 class BSM1ObsSensors:
     """Standalone observation-only sensors (not part of any control loop)."""
@@ -334,14 +340,7 @@ def make_bsm1_benchmark(
         sample_period=config.analyzer_sample_period,
     )
 
-    # Max aeration power for normalisation
-    kla_max_total = config.kla_34_max * (config.v3 + config.v4) + config.kla_5_max * config.v5
-    power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
-
     influent = asm1_reset(config.initial_states.influent, jax.random.PRNGKey(0))
-
-    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
-        return (kla_34 * (config.v3 + config.v4) + kla_5 * config.v5) / power_max
 
     def _observe(
         nh4e: jax.Array,
@@ -398,7 +397,7 @@ def make_bsm1_benchmark(
             sensors.no3_r2.held_value,
             mean_flow,
             sensors.nh4_inf.held_value,
-            _aeration_power(kla_34_state.pump_output, kla_5_state.pump_output),
+            aeration_power(config, kla_34_state.pump_output, kla_5_state.pump_output),
             jnp.array(0.0),
         )
         return plant_state, obs
@@ -460,7 +459,7 @@ def make_bsm1_benchmark(
         new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
         new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
 
-        aeration_power = _aeration_power(kla_34, kla_5)
+        aeration = aeration_power(config, kla_34, kla_5)
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
         new_sensors = BSM1ObsSensors(
@@ -471,7 +470,7 @@ def make_bsm1_benchmark(
             last_q_in=q_in,
         )
 
-        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration_power, dq_dt)
+        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration, dq_dt)
 
         reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2)
 
