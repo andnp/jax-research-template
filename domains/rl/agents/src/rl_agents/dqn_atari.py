@@ -41,7 +41,14 @@ from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
 
-from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, build_dqn_zoo_atari_rmsprop, dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import (
+    DQNZooAtariConfig,
+    build_dqn_zoo_atari_rmsprop,
+    dqn_zoo_atari_frames_to_env_steps,
+    dqn_zoo_atari_learn_period_env_steps,
+    dqn_zoo_atari_min_replay_capacity,
+    dqn_zoo_atari_target_update_period_env_steps,
+)
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -80,18 +87,6 @@ def dqn_atari_runtime_from_dqn_zoo(
         SEED=seed,
         EVAL_EXPLORATION_EPSILON=eval_exploration_epsilon,
     )
-
-
-def dqn_zoo_atari_min_replay_capacity(config: DQNAtariConfig) -> int:
-    return int(config.REPLAY_CAPACITY * config.MIN_REPLAY_CAPACITY_FRACTION)
-
-
-def dqn_zoo_atari_learn_period_env_steps(config: DQNAtariConfig) -> int:
-    return dqn_zoo_atari_frames_to_env_steps(config.LEARN_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
-
-
-def dqn_zoo_atari_target_update_period_env_steps(config: DQNAtariConfig) -> int:
-    return dqn_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
 
 
 def dqn_zoo_atari_total_train_frames(config: DQNAtariConfig, runtime_config: DQNAtariRuntimeConfig) -> int:

@@ -49,7 +49,13 @@ from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
 from rl_networks.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
-from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, build_dqn_zoo_atari_rmsprop, dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import (
+    DQNZooAtariConfig,
+    build_dqn_zoo_atari_rmsprop,
+    dqn_zoo_atari_learn_period_env_steps,
+    dqn_zoo_atari_min_replay_capacity,
+    dqn_zoo_atari_target_update_period_env_steps,
+)
 
 type RainbowApplyFn = Callable[..., jax.Array]
 """The network's ``apply``, as reached through ``TrainState.apply_fn``.
@@ -165,18 +171,6 @@ class RainbowNatureNetwork(TypedApply[jax.Array], nn.Module):
         )
         centered_advantage_logits = advantage_logits - jnp.mean(advantage_logits, axis=-2, keepdims=True)
         return value_logits + centered_advantage_logits
-
-
-def rainbow_zoo_atari_min_replay_capacity(config: RainbowConfig) -> int:
-    return int(config.REPLAY_CAPACITY * config.MIN_REPLAY_CAPACITY_FRACTION)
-
-
-def rainbow_zoo_atari_learn_period_env_steps(config: RainbowConfig) -> int:
-    return dqn_zoo_atari_frames_to_env_steps(config.LEARN_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
-
-
-def rainbow_zoo_atari_target_update_period_env_steps(config: RainbowConfig) -> int:
-    return dqn_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
 
 
 def rainbow_importance_sampling_exponent(
@@ -626,7 +620,7 @@ class RainbowAgent:
             learn_keys=(sample_key, learn_key),
             action_keys=(action_noise_key,),
             learning_starts=None,
-            train_frequency=rainbow_zoo_atari_learn_period_env_steps(self.config),
+            train_frequency=dqn_zoo_atari_learn_period_env_steps(self.config),
             warmup_steps=None,
             close_transition=self._close_pending_transition,
             learn=partial(self._learn, support=support, beta=beta),
@@ -635,7 +629,7 @@ class RainbowAgent:
                 support=support,
                 action_dtype=state.last_action.dtype,
             ),
-            minimum_replay_size=rainbow_zoo_atari_min_replay_capacity(self.config),
+            minimum_replay_size=dqn_zoo_atari_min_replay_capacity(self.config),
             after_learn=self._after_learn,
         )
 
@@ -736,7 +730,7 @@ class RainbowAgent:
         step_index: jax.Array,
         _did_learn: jax.Array,
     ) -> RainbowAlgorithmState:
-        target_period = rainbow_zoo_atari_target_update_period_env_steps(self.config)
+        target_period = dqn_zoo_atari_target_update_period_env_steps(self.config)
         return replace(
             algorithm_state,
             target_params=jax.lax.cond(

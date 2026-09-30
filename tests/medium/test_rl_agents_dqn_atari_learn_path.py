@@ -29,9 +29,9 @@ from rl_agents.dqn_atari import (
     DQNAtariAgent,
     DQNAtariConfig,
     dqn_atari_runtime_from_dqn_zoo,
-    dqn_zoo_atari_min_replay_capacity,
     dqn_zoo_atari_total_train_env_steps,
 )
+from rl_agents.dqn_zoo_atari import dqn_zoo_atari_min_replay_capacity
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 

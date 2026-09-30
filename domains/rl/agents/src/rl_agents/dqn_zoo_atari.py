@@ -39,3 +39,15 @@ def dqn_zoo_atari_frames_to_env_steps(frames: int, num_action_repeats: int) -> i
             "DQN Zoo frame-counted periods must divide evenly by num_action_repeats when converting to Atari env-step semantics."
         )
     return frames // num_action_repeats
+
+
+def dqn_zoo_atari_min_replay_capacity(config: DQNZooAtariConfig) -> int:
+    return int(config.REPLAY_CAPACITY * config.MIN_REPLAY_CAPACITY_FRACTION)
+
+
+def dqn_zoo_atari_learn_period_env_steps(config: DQNZooAtariConfig) -> int:
+    return dqn_zoo_atari_frames_to_env_steps(config.LEARN_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
+
+
+def dqn_zoo_atari_target_update_period_env_steps(config: DQNZooAtariConfig) -> int:
+    return dqn_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)

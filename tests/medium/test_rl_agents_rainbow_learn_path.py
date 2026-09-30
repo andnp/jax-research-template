@@ -27,10 +27,10 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import pytest
+from rl_agents.dqn_zoo_atari import dqn_zoo_atari_min_replay_capacity
 from rl_agents.rainbow import (
     RainbowAgent,
     RainbowConfig,
-    rainbow_zoo_atari_min_replay_capacity,
 )
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
@@ -144,10 +144,10 @@ def warmup_only_run() -> Run:
 
 def test_the_two_runs_straddle_the_replay_warmup_threshold(learning_run: Run) -> None:
     """The pair is only a control if one threshold is reachable and the other is not."""
-    reachable = rainbow_zoo_atari_min_replay_capacity(
+    reachable = dqn_zoo_atari_min_replay_capacity(
         RainbowConfig(REPLAY_CAPACITY=REPLAY_CAPACITY, MIN_REPLAY_CAPACITY_FRACTION=REACHABLE_WARMUP_FRACTION)
     )
-    unreachable = rainbow_zoo_atari_min_replay_capacity(
+    unreachable = dqn_zoo_atari_min_replay_capacity(
         RainbowConfig(REPLAY_CAPACITY=REPLAY_CAPACITY, MIN_REPLAY_CAPACITY_FRACTION=UNREACHABLE_WARMUP_FRACTION)
     )
 
