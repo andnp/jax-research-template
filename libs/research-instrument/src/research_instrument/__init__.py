@@ -1,1 +1,1 @@
-"""JAX-native metrics collection for RL experiments."""
+"""metrics.sqlite schema and post-training metric writers for RL experiments."""
