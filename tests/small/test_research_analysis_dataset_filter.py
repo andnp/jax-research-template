@@ -7,6 +7,7 @@ from pathlib import Path
 import polars as pl
 from research_analysis.dataset.types import (
     CellAccounting,
+    ComponentVersionProvenance,
     ExecutionProvenance,
     ExperimentDataset,
     ExperimentDimensions,
@@ -49,7 +50,7 @@ def _dataset() -> ExperimentDataset:
         ExperimentDimensions(),
         runs,
         metrics,
-        (),
+        (ComponentVersionProvenance(1, "ppo", "ALGO", 7, 1, "abc123"),),
         artifacts={
             (run_id, execution_id): RunArtifacts(Path(f"/runs/{run_id}"), None, {}) for _, _, run_id, execution_id in _RUNS
         },
