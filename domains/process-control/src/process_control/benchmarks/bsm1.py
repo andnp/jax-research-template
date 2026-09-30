@@ -242,6 +242,16 @@ class BSM1BenchmarkConfig:
     analyzer_sample_period: int = 8  # steps between samples (~10 min)
 
 
+def reactor_params(config: BSM1BenchmarkConfig):
+    """Default-kinetics ASM1 parameters for the five BSM1 reactors, in flow order."""
+    return (
+        ASM1Params(volume=config.v1),
+        ASM1Params(volume=config.v2),
+        ASM1Params(volume=config.v3),
+        ASM1Params(volume=config.v4),
+        ASM1Params(volume=config.v5),
+    )
+
 def aeration_power(config: BSM1BenchmarkConfig, kla_34: jax.Array, kla_5: jax.Array):
     """Aeration demand as a fraction of running every aerated reactor at its kLa ceiling."""
     aerated_volume_34 = config.v3 + config.v4
@@ -276,11 +286,7 @@ def make_bsm1_benchmark(
     Callable[[jax.Array], tuple[BSM1PlantState, jax.Array]],
     Callable[[BSM1PlantState, jax.Array, jax.Array], tuple[BSM1PlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
-    p1 = ASM1Params(volume=config.v1)
-    p2 = ASM1Params(volume=config.v2)
-    p3 = ASM1Params(volume=config.v3)
-    p4 = ASM1Params(volume=config.v4)
-    p5 = ASM1Params(volume=config.v5)
+    p1, p2, p3, p4, p5 = reactor_params(config)
 
     # DosingSystem params for kla_34 loop (DO R3 → PI → kla_34)
     kla_34_dosing = DosingSystemParams(
