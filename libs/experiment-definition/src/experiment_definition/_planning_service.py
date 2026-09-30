@@ -157,27 +157,6 @@ def fail_group_executions_started_since(
     return failed
 
 
-def unsatisfied_run_ids(
-    conn: sqlite3.Connection,
-    experiment_id: int,
-    limit: int | None,
-) -> list[int] | None:
-    rows = conn.execute(
-        "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
-        "FROM Runs r "
-        "LEFT JOIN (" + _CLAIMED_RUNS_SQL + ") claimed ON claimed.run_id = r.id "
-        "WHERE r.experiment_id = ? AND claimed.run_id IS NULL "
-        "ORDER BY r.seed, r.hyper_id, r.id",
-        (experiment_id,),
-    ).fetchall()
-    if not rows:
-        return None
-
-    unsatisfied_runs = [_record_from_row(RunRow, row) for row in rows]
-    selected_runs = unsatisfied_runs if limit is None else unsatisfied_runs[:limit]
-    return [run.id for run in selected_runs]
-
-
 def _plan_execution(
     conn: sqlite3.Connection,
     run_ids: list[int],
