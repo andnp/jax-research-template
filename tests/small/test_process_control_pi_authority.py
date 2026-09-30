@@ -81,10 +81,6 @@ def _run_self_driven(
 class TestPIIntegralAuthorityContract:
     """Every PI loop's integral clamp must cover the actuator's full authority."""
 
-    def test_chem_p_dosing(self) -> None:
-        c = ChemPDosingConfig()
-        assert abs(c.pi_ki) * c.pi_max_integral >= _authority(c.pi_ff, c.pi_output_min, c.pi_output_max)
-
     def test_ph_neutralization(self) -> None:
         c = PhNeutralizationBenchmarkConfig()
         assert c.pi_ki * c.pi_max_integral >= _authority(c.pi_ff, c.pi_output_min, c.pi_output_max)

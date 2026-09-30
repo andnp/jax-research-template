@@ -77,11 +77,6 @@ class ChemPDosingConfig:
     pi_ff: float = 10.0  # feedforward: typical dose for mean PO₄
     pi_output_min: float = 0.0
     pi_output_max: float = 30.0
-    # Sized so |ki| * max_integral covers the full actuator authority
-    # max(output_max - ff, ff - output_min) = max(30 - 10, 10 - 0) = 20
-    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
-    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
-    pi_max_integral: float = 40.0
     pi_base_setpoint: float = 0.5
 
     # ── Dosing loop PO₄ sensor (effluent) ─────────────────────────
@@ -147,7 +142,6 @@ def make_chem_p_dosing_benchmark(
         ff=config.pi_ff,
         output_min=config.pi_output_min,
         output_max=config.pi_output_max,
-        max_integral=config.pi_max_integral,
         max_ramp_up=config.dose_ramp_rate,
         max_ramp_down=config.dose_ramp_rate,
     )
