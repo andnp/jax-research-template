@@ -58,6 +58,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.exploration import linear_epsilon_schedule
+from rl_components.heads import epsilon_greedy_action
 from rl_components.optim import with_hyperparams
 from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
 from rl_components.structs import chex_struct
@@ -330,9 +331,7 @@ class ReplayQAgent:
                 learner_state.hypers.EPSILON_FRACTION,
             )
             q_values = jnp.asarray(learner_state.train_state.apply_fn(learner_state.train_state.params, observation))
-            chose_random = jax.random.uniform(keys[0], ()) < epsilon
-            random_action = jax.random.randint(keys[0], (), 0, learner_state.num_actions)
-            action = jnp.where(chose_random, random_action, jnp.argmax(q_values)).astype(state.last_action.dtype)
+            action = epsilon_greedy_action(q_values, epsilon, key=keys[0]).astype(state.last_action.dtype)
             return action, {
                 "epsilon": epsilon,
                 "q_max": jnp.max(q_values).astype(jnp.float32),
