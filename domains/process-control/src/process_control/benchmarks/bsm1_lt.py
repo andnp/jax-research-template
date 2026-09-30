@@ -29,13 +29,14 @@ from process_control.benchmarks.bsm1 import (
     BSM1BenchmarkConfig,
     BSM1ObsSensors,
     aeration_power,
+    reactor_params,
 )
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import step as ra_step
-from process_control.units.asm1 import ArrheniusCoeffs, ASM1Params, ASM1State, apply_arrhenius
+from process_control.units.asm1 import ArrheniusCoeffs, ASM1State, apply_arrhenius
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
 
@@ -88,11 +89,7 @@ def make_bsm1_lt_benchmark(
     c = config.bsm1
 
     # Base ASM1 params (at reference temperature)
-    p1_base = ASM1Params(volume=c.v1)
-    p2_base = ASM1Params(volume=c.v2)
-    p3_base = ASM1Params(volume=c.v3)
-    p4_base = ASM1Params(volume=c.v4)
-    p5_base = ASM1Params(volume=c.v5)
+    p1_base, p2_base, p3_base, p4_base, p5_base = reactor_params(c)
 
     arrhenius_coeffs = ArrheniusCoeffs(
         theta_mu_h=config.theta_mu_h,
