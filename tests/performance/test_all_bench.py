@@ -4,10 +4,9 @@ import gymnax
 import jax
 import pytest
 from rl_agents.dqn import DQNAgent, DQNConfig
-from rl_agents.ppo import PPOAgent
+from rl_agents.ppo import PPOAgent, PPOConfig
 from rl_agents.sac import SACAgent, SACConfig
 from rl_components.loop import run
-from rl_components.types import PPOConfig
 from rl_envs.gymnax_bridge import make_gymnax_env
 
 GAMMA = 0.99

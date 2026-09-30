@@ -29,11 +29,10 @@ from typing import override
 
 import jax
 import jax.numpy as jnp
-from rl_agents.ppo import PPOAgent, PPOAgentState
+from rl_agents.ppo import PPOAgent, PPOAgentState, PPOConfig
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 from rl_components.timestep import Timestep
-from rl_components.types import PPOConfig
 
 _NUM_STEPS = 4
 _GAMMA = 0.99

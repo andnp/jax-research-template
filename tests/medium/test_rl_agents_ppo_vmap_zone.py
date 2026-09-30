@@ -9,10 +9,9 @@ import dataclasses
 
 import jax
 import jax.numpy as jnp
-from rl_agents.ppo import PPOAgent, PPOAgentState, PPOHypers, ppo_hypers
+from rl_agents.ppo import PPOAgent, PPOAgentState, PPOConfig, PPOHypers, ppo_hypers
 from rl_components.env_protocol import EnvSpec
 from rl_components.timestep import Timestep
-from rl_components.types import PPOConfig
 
 _AGENT_SPEC = EnvSpec(
     id="toy:ppo-vmap",

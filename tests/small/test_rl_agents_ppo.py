@@ -5,13 +5,13 @@ import jax.numpy as jnp
 import pytest
 from rl_agents.ppo import (
     PPOAgent,
+    PPOConfig,
     _init_observation_norm_state,
     _normalize_observation,
     _sum_action_event_terms,
     _update_observation_norm_state,
     ppo_policy_loss,
 )
-from rl_components.types import PPOConfig
 
 
 class TestRewardScaleValidation:
@@ -119,3 +119,21 @@ class TestObservationNormalization:
         normalized = _normalize_observation(state, jnp.array([100.0], dtype=jnp.float32), eps=1e-8, clip=3.0)
 
         assert jnp.allclose(normalized, jnp.array([3.0], dtype=jnp.float32))
+
+
+class TestPPOConfig:
+    def test_defaults(self) -> None:
+        """The defaults are the published PPO hyperparameters."""
+        cfg = PPOConfig()
+        assert cfg.LEARNING_RATE == 2.5e-4
+        assert cfg.GAE_LAMBDA == 0.95
+        assert cfg.CLIP_EPS == 0.2
+        assert cfg.REWARD_SCALE == 1.0
+        assert cfg.ENV_NAME == "MountainCar-v0"
+
+    def test_custom_values(self) -> None:
+        """Explicit fields override their defaults."""
+        cfg = PPOConfig(LEARNING_RATE=1e-3, ENV_NAME="CartPole-v1", REWARD_SCALE=2.5)
+        assert cfg.LEARNING_RATE == 1e-3
+        assert cfg.REWARD_SCALE == 2.5
+        assert cfg.ENV_NAME == "CartPole-v1"

@@ -22,7 +22,7 @@ from rl_agents.batch_trainer import (
 )
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.greedy_ac import GACAgent, GACConfig, GACHypers
-from rl_agents.ppo import PPOAgent, PPOHypers
+from rl_agents.ppo import PPOAgent, PPOConfig, PPOHypers
 from rl_agents.qrc import QRCAgent, QRCConfig, QRCHypers
 from rl_agents.replay_q_agent import ReplayQHypers
 from rl_agents.sac import SACAgent, SACConfig, SACHypers
@@ -30,7 +30,6 @@ from rl_agents.sac_rc import SACRCAgent, SACRCConfig, SACRCHypers
 from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol, EnvSpec, EnvStep
-from rl_components.types import PPOConfig
 from rl_envs.gymnax_bridge import make_gymnax_env
 
 
