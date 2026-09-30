@@ -95,3 +95,48 @@ def test_tracking_with_zero_integral_gain_preserves_state() -> None:
     tracked = track_output(state, jnp.array(4.0), jnp.array(5.0), jnp.array(8.0), params)
 
     assert float(tracked.integral) == pytest.approx(3.0)
+
+
+def _hold_error(params: PIControllerParams, error: float, steps: int = 400):
+    state = PIControllerState.create()
+    for _ in range(steps):
+        state, _ = pi_step(state, jnp.array(0.0), jnp.array(error), params, jnp.array(1.0))
+    _, output = pi_step(state, jnp.array(0.0), jnp.array(0.0), params, jnp.array(1.0))
+    return state, output
+
+
+class TestDerivedIntegralLimit:
+    @pytest.mark.parametrize(
+        "ki, error, expected_bound",
+        [(1.0, 0.1, 10.0), (1.0, -0.1, 0.0), (-0.5, -0.1, 10.0), (-0.5, 0.1, 0.0)],
+        ids=["forward_high", "forward_low", "reverse_high", "reverse_low"],
+    )
+    def test_integral_alone_reaches_each_output_bound(self, ki: float, error: float, expected_bound: float) -> None:
+        """Without an explicit clamp, a sustained error winds the integral far enough to hold either bound at zero error.
+
+        The feed-forward sits off-centre so the two authorities differ (8 above,
+        2 below). Conditional integration stops one increment short when the
+        next increment would overshoot, hence the one-increment tolerance.
+        """
+        params = PIControllerParams(kp=0.0, ki=ki, ff=2.0, output_min=0.0, output_max=10.0)
+
+        _, output = _hold_error(params, error)
+
+        assert float(output) == pytest.approx(expected_bound, abs=abs(ki * error))
+
+    def test_explicit_clamp_overrides_derived_one(self) -> None:
+        """An explicit max_integral below the authority caps how far the integral can move the output."""
+        params = PIControllerParams(kp=0.0, ki=1.0, ff=2.0, output_min=0.0, output_max=10.0, max_integral=1.0)
+
+        _, output = _hold_error(params, 0.1)
+
+        assert float(output) == pytest.approx(3.0)
+
+    def test_zero_integral_gain_pins_integral_at_zero(self) -> None:
+        """With no integral action there is no authority to size, so the integral never accumulates."""
+        params = PIControllerParams(kp=0.0, ki=0.0, ff=2.0, output_min=0.0, output_max=10.0)
+
+        state, output = _hold_error(params, 0.1)
+
+        assert float(state.integral) == 0.0
+        assert float(output) == pytest.approx(2.0)
