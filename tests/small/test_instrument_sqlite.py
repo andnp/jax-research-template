@@ -4,24 +4,31 @@ import math
 import sqlite3
 import tempfile
 import threading
-from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
 import pytest
-from research_instrument.collector import MetricFrame
 from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve
-from research_instrument.sqlite_backend import SQLiteBackend, open_metrics_connection
+from research_instrument.sqlite_backend import open_metrics_connection
 
 
-def make_backend(db_path: Path, *, batch_size: int = 100) -> SQLiteBackend:
-    return SQLiteBackend(
+def write_curve(
+    db_path: Path,
+    values: list[float],
+    *,
+    metric_name: str = "reward",
+    run_id: int = 101,
+    execution_id: int = 1001,
+    seed_id: int = 0,
+) -> None:
+    write_seed_batch_curve(
         db_path,
+        [values],
+        metric_name=metric_name,
         experiment_id=10,
-        run_id=101,
-        execution_id=1001,
-        batch_size=batch_size,
+        execution_id=execution_id,
+        run_ids=[run_id],
+        seed_ids=[seed_id],
     )
 
 
@@ -33,127 +40,12 @@ _NOT_NULL_VALUE_TABLE_SQL = (
 )
 
 
-class TestSQLiteBackendBasic:
-    def test_requires_explicit_experiment_identity(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend_cls = cast(Callable[..., object], SQLiteBackend)
-            with pytest.raises(TypeError):
-                backend_cls(Path(tmpdir) / "test.db")
-
-    def test_write_and_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
-            frames = [MetricFrame(name="reward", value=1.5, global_step=0, seed_id=0)]
-            backend.write_batch(frames)
-            result = backend.query("reward")
-            assert len(result) == 1
-            assert result[0].value == 1.5
-            assert result[0].global_step == 0
-            backend.close()
-
-    def test_non_finite_values_round_trip(self) -> None:
-        """NaN and infinities are recorded as outcomes rather than rejected by the schema."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
-            values = [math.nan, math.inf, -math.inf]
-            backend.write_batch([MetricFrame(name="loss", value=v, global_step=i, seed_id=0) for i, v in enumerate(values)])
-            result = [frame.value for frame in backend.query("loss")]
-            backend.close()
-
-            assert math.isnan(result[0])
-            assert result[1:] == [math.inf, -math.inf]
-
-    def test_batch_buffering(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=5)
-            for i in range(3):
-                backend.write_batch([MetricFrame(name="loss", value=float(i), global_step=i, seed_id=0)])
-            # Not yet flushed (batch_size=5, only 3 items)
-            # But query should auto-flush
-            result = backend.query("loss")
-            assert len(result) == 3
-            backend.close()
-
-    def test_flush_on_close(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test.db"
-            backend = make_backend(db_path)
-            backend.write_batch([MetricFrame(name="x", value=42.0, global_step=0, seed_id=0)])
-            backend.close()
-
-            # Reopen and verify data persisted
-            backend2 = make_backend(db_path)
-            result = backend2.query("x")
-            assert len(result) == 1
-            assert result[0].value == 42.0
-            backend2.close()
-
-    def test_query_with_seed_filter(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
-            backend.write_batch([
-                MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0),
-                MetricFrame(name="reward", value=2.0, global_step=0, seed_id=1),
-            ])
-            result = backend.query("reward", seed_id=1)
-            assert len(result) == 1
-            assert result[0].value == 2.0
-            backend.close()
-
-    def test_metric_names(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
-            backend.write_batch([
-                MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0),
-                MetricFrame(name="loss", value=0.5, global_step=0, seed_id=0),
-                MetricFrame(name="reward", value=2.0, global_step=1, seed_id=0),
-            ])
-            names = backend.metric_names()
-            assert sorted(names) == ["loss", "reward"]
-            backend.close()
-
-    def test_ordering_by_step(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db", batch_size=1)
-            backend.write_batch([
-                MetricFrame(name="r", value=3.0, global_step=2, seed_id=0),
-                MetricFrame(name="r", value=1.0, global_step=0, seed_id=0),
-                MetricFrame(name="r", value=2.0, global_step=1, seed_id=0),
-            ])
-            result = backend.query("r")
-            steps = [f.global_step for f in result]
-            assert steps == [0, 1, 2]
-            backend.close()
-
-    def test_empty_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = make_backend(Path(tmpdir) / "test.db")
-            result = backend.query("nonexistent")
-            assert result == []
-            backend.close()
-
-    def test_identity_bound_backends_can_share_one_database(self) -> None:
+class TestMetricsSchema:
+    def test_executions_can_share_one_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "shared.db"
-            backend_one = SQLiteBackend(
-                db_path,
-                batch_size=1,
-                experiment_id=10,
-                run_id=101,
-                execution_id=1001,
-            )
-            backend_two = SQLiteBackend(
-                db_path,
-                batch_size=1,
-                experiment_id=10,
-                run_id=102,
-                execution_id=1002,
-            )
-
-            backend_one.write_batch([MetricFrame(name="reward", value=1.0, global_step=5, seed_id=0)])
-            backend_two.write_batch([MetricFrame(name="reward", value=2.0, global_step=5, seed_id=0)])
-            backend_one.close()
-            backend_two.close()
+            write_curve(db_path, [1.0], run_id=101, execution_id=1001)
+            write_curve(db_path, [2.0], run_id=102, execution_id=1002)
 
             with sqlite3.connect(db_path) as conn:
                 rows = conn.execute(
@@ -161,8 +53,8 @@ class TestSQLiteBackendBasic:
                     "FROM metrics ORDER BY execution_id"
                 ).fetchall()
                 assert rows == [
-                    (10, 101, 1001, "reward", 5, 1.0),
-                    (10, 102, 1002, "reward", 5, 2.0),
+                    (10, 101, 1001, "reward", 0, 1.0),
+                    (10, 102, 1002, "reward", 0, 2.0),
                 ]
 
                 index_names = {
@@ -201,13 +93,7 @@ class TestSQLiteBackendBasic:
                     ("reward", 2.5, 6, 2, 10, 101, 1001),
                 )
 
-            backend = make_backend(db_path, batch_size=1)
-            backend.write_batch([MetricFrame(name="reward", value=3.0, global_step=7, seed_id=2)])
-            result = backend.query("reward", seed_id=2)
-            backend.close()
-
-            assert len(result) == 2
-            assert [frame.value for frame in result] == [2.5, 3.0]
+            write_curve(db_path, [0.0] * 7 + [3.0], seed_id=2)
 
             with sqlite3.connect(db_path) as conn:
                 columns = {
@@ -222,9 +108,10 @@ class TestSQLiteBackendBasic:
 
                 stored_rows = conn.execute(
                     "SELECT experiment_id, run_id, execution_id, metric_name, global_step, value "
-                    "FROM metrics ORDER BY global_step"
+                    "FROM metrics WHERE global_step IN (6, 7) ORDER BY global_step, value"
                 ).fetchall()
                 assert stored_rows == [
+                    (10, 101, 1001, "reward", 6, 0.0),
                     (10, 101, 1001, "reward", 6, 2.5),
                     (10, 101, 1001, "reward", 7, 3.0),
                 ]
@@ -240,14 +127,12 @@ class TestSQLiteBackendBasic:
                     "VALUES ('loss', 0.5, 0, 0, 10, 101, 1001)"
                 )
 
-            backend = make_backend(db_path, batch_size=1)
-            backend.write_batch([MetricFrame(name="loss", value=math.nan, global_step=1, seed_id=0)])
-            result = backend.query("loss")
-            backend.close()
+            write_curve(db_path, [math.nan], metric_name="loss", seed_id=0)
 
-            assert [(frame.global_step, frame.value) for frame in result[:1]] == [(0, 0.5)]
-            assert result[1].global_step == 1
-            assert math.isnan(result[1].value)
+            with sqlite3.connect(db_path) as conn:
+                rows = conn.execute("SELECT value FROM metrics ORDER BY id").fetchall()
+            assert rows[0] == (0.5,)
+            assert rows[1] == (None,)
 
     def test_journal_mode_is_not_wal(self) -> None:
         """WAL requires its wal-index in host-local shared memory and does not
@@ -256,12 +141,10 @@ class TestSQLiteBackendBasic:
         rollback journal rather than switching to WAL."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "journal.db"
-            backend = make_backend(db_path, batch_size=1)
-            backend.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
+            write_curve(db_path, [1.0])
 
             with sqlite3.connect(db_path) as conn:
                 mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-            backend.close()
 
             assert str(mode).lower() != "wal"
 
@@ -310,12 +193,12 @@ class TestSQLiteBackendBasic:
                 )
 
             with pytest.raises(RuntimeError, match="legacy schema without required identity columns"):
-                make_backend(db_path)
+                open_metrics_connection(db_path)
 
 
 class TestConcurrentWriters:
     def test_two_connections_write_concurrently_without_database_locked_errors(self) -> None:
-        """Two SQLiteBackend connections (simulating separate Slurm array tasks
+        """Two writers (simulating separate Slurm array tasks
         sharing one metrics.sqlite) both complete under contention instead of
         one raising 'database is locked'."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -324,14 +207,8 @@ class TestConcurrentWriters:
 
             def write_many(run_id: int, seed_id: int) -> None:
                 try:
-                    backend = SQLiteBackend(
-                        db_path, experiment_id=10, run_id=run_id, execution_id=run_id, batch_size=1
-                    )
                     for step in range(200):
-                        backend.write_batch(
-                            [MetricFrame(name="reward", value=float(step), global_step=step, seed_id=seed_id)]
-                        )
-                    backend.close()
+                        write_curve(db_path, [float(step)], run_id=run_id, execution_id=run_id, seed_id=seed_id)
                 except BaseException as exc:  # noqa: BLE001
                     errors.append(exc)
 
@@ -348,40 +225,6 @@ class TestConcurrentWriters:
             with sqlite3.connect(db_path) as conn:
                 counts = dict(conn.execute("SELECT run_id, COUNT(*) FROM metrics GROUP BY run_id").fetchall())
             assert counts == {101: 200, 102: 200}
-
-
-class TestRunScopedQueries:
-    def test_query_only_returns_rows_for_the_bound_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "shared.db"
-            backend_one = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=101, execution_id=1001)
-            backend_two = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=102, execution_id=1002)
-            backend_one.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
-            backend_two.write_batch([MetricFrame(name="reward", value=2.0, global_step=0, seed_id=0)])
-
-            result_one = backend_one.query("reward")
-            result_two = backend_two.query("reward")
-            backend_one.close()
-            backend_two.close()
-
-            assert [frame.value for frame in result_one] == [1.0]
-            assert [frame.value for frame in result_two] == [2.0]
-
-    def test_metric_names_only_returns_names_for_the_bound_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "shared.db"
-            backend_one = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=101, execution_id=1001)
-            backend_two = SQLiteBackend(db_path, batch_size=1, experiment_id=10, run_id=102, execution_id=1002)
-            backend_one.write_batch([MetricFrame(name="reward", value=1.0, global_step=0, seed_id=0)])
-            backend_two.write_batch([MetricFrame(name="loss", value=0.5, global_step=0, seed_id=0)])
-
-            names_one = backend_one.metric_names()
-            names_two = backend_two.metric_names()
-            backend_one.close()
-            backend_two.close()
-
-            assert names_one == ["reward"]
-            assert names_two == ["loss"]
 
 
 class TestWriteSeedBatchCurve:
