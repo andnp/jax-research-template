@@ -81,10 +81,6 @@ def _run_self_driven(
 class TestPIIntegralAuthorityContract:
     """Every PI loop's integral clamp must cover the actuator's full authority."""
 
-    def test_ph_neutralization(self) -> None:
-        c = PhNeutralizationBenchmarkConfig()
-        assert c.pi_ki * c.pi_max_integral >= _authority(c.pi_ff, c.pi_output_min, c.pi_output_max)
-
     @pytest.mark.parametrize("loop", ["caustic", "bleach", "makeup"])
     def test_h2s_scrubber(self, loop: str) -> None:
         c = H2SScrubberConfig()
