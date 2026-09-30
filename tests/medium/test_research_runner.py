@@ -9,11 +9,17 @@ import pytest
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.experiment import Experiment
+from experiment_definition.status import RunState, run_state
 from research_runner.git import capture_git_metadata
 from research_runner.runner import execute_batch, run_experiment
 from research_runner.types import ExecutionContext, ExecutionResult
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
+    statuses = database.list_run_execution_statuses(experiment_id)
+    return {run_id for run_id, run_statuses in statuses.items() if run_state(run_statuses) is not RunState.COMPLETED}
 
 
 def _trivial_train_fn(ctx: ExecutionContext) -> ExecutionResult:
@@ -374,7 +380,7 @@ class TestMidSweepCrashRecovery:
             database.initialize()
             experiment_row = database.get_experiment("CrashSweep")
             assert experiment_row is not None
-            assert database.list_runs_without_completed_execution(experiment_row.id) == []
+            assert _unsatisfied_run_ids(database, experiment_row.id) == set()
 
 
 class TestDynamicArmCoverage:
@@ -438,7 +444,7 @@ class TestDynamicArmCoverage:
             database.initialize()
             experiment_row = database.get_experiment("ArmSweep")
             assert experiment_row is not None
-            assert database.list_runs_without_completed_execution(experiment_row.id) == []
+            assert _unsatisfied_run_ids(database, experiment_row.id) == set()
 
 
 # ── stale (orphaned) execution reclaim ───────────────────────────────────────
@@ -507,7 +513,7 @@ class TestStaleExecutionReclaim:
             database.initialize()
             experiment_row = database.get_experiment("StaleSweep")
             assert experiment_row is not None
-            assert database.list_runs_without_completed_execution(experiment_row.id) != []
+            assert _unsatisfied_run_ids(database, experiment_row.id) != set()
 
     def test_reclaim_stale_after_seconds_resumes_orphaned_run(
         self, db_path: Path, executions_root: Path,
@@ -534,4 +540,4 @@ class TestStaleExecutionReclaim:
             database.initialize()
             experiment_row = database.get_experiment("StaleSweep")
             assert experiment_row is not None
-            assert database.list_runs_without_completed_execution(experiment_row.id) == []
+            assert _unsatisfied_run_ids(database, experiment_row.id) == set()
