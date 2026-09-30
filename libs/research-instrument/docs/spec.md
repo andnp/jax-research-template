@@ -1,8 +1,9 @@
 # PRD: `libs/research-instrument`
 
 ## 1. Overview
-`research-instrument` persists experiment metrics to `metrics.sqlite`. Training runs
-entirely inside JIT and returns metric arrays; this library writes them after training.
+`research-instrument` persists experiment metrics to `metrics.sqlite`. Trainers may run
+their loop under JIT and return metric arrays; the runner persists the returned metrics
+afterwards through this library.
 It does no in-training collection and emits no callbacks.
 
 ### Goals

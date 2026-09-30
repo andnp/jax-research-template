@@ -54,7 +54,7 @@ We enforce static typing to catch logic errors before running slow execution tri
 Logging metrics and saving model weights must not interfere with performance.
 
 ### Post-Training Metric Persistence (`research-instrument`)
-Training runs entirely inside JIT and returns its metric curves as arrays; nothing is logged from inside the trace.
+Trainers may run their loop under JIT and return metric curves as arrays; the runner persists the returned metrics afterwards, and nothing is logged from inside a trace.
 - **Runner writes once:** After a batch finishes, `research-runner` persists curves with `seed_batch.write_seed_batch_curve` and scalars with `scalar.write_seed_batch_scalars` / `write_execution_scalars`, each in a single transaction into `metrics.sqlite`.
 - **One schema owner:** `sqlite_backend` owns the `metrics` and `scalar_metrics` DDL, the shared insert column lists, schema migration, and the rollback-journal connection that is safe for concurrent Slurm tasks on a network filesystem.
 - **Declared metrics:** Which metrics exist is declared on the experiment definition (`add_metric`); the trainer's returned metrics are what get written.
