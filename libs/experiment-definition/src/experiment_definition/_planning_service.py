@@ -72,7 +72,7 @@ def list_unsatisfied_run_batches(
 ) -> list[RunBatch]:
     rows = conn.execute(
         "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
-        "       hc.json_blob, hc.vmap_zone_json "
+        "       r.vmap_zone_json AS vmap_zone, hc.json_blob, hc.vmap_zone_json "
         "FROM Runs r "
         "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
         "LEFT JOIN (" + _CLAIMED_RUNS_SQL + ") claimed ON claimed.run_id = r.id "
@@ -84,10 +84,10 @@ def list_unsatisfied_run_batches(
     grouped_runs: dict[_BatchKey, list[int]] = {}
     for row in rows:
         run = _record_from_row(RunRow, row)
-        hyper_json = str(row[7])
+        hyper_json = str(row["json_blob"])
         if only and not _run_matches(json.loads(hyper_json), run, only):
             continue
-        vmap_zone_json = str(row[8]) if row[8] is not None else None
+        vmap_zone_json = row["vmap_zone_json"]
         batch_key = _batch_key(run.algo_version_id, run.env_version_id, run.ablation, hyper_json, vmap_zone_json)
         grouped_runs.setdefault(batch_key, []).append(run.id)
 

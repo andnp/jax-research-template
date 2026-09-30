@@ -14,7 +14,7 @@ from .records import ExecutionRow, RunRow, _record_from_row
 
 def list_execution_runs(conn: sqlite3.Connection, execution_id: int) -> list[RunRow]:
     rows = conn.execute(
-        "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation "
+        "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, r.vmap_zone_json AS vmap_zone "
         "FROM Runs r "
         "INNER JOIN ExecutionRuns er ON er.run_id = r.id "
         "WHERE er.execution_id = ? "

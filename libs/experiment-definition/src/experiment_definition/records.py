@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from .parameter import ParameterValue
 
@@ -60,6 +61,12 @@ class RunRow(_Record):
     hyper_id: int
     seed: int
     ablation: str | None
+    vmap_zone: Mapping[str, list[str]] | None
+
+    @field_validator("vmap_zone", mode="before")
+    @classmethod
+    def _decode_vmap_zone(cls, value: object):
+        return json.loads(value) if isinstance(value, str) else value
 
 
 class ExecutionRow(_Record):
