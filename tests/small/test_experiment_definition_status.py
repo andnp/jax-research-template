@@ -67,3 +67,33 @@ class TestTransitions:
 
         with pytest.raises(ValueError, match="Illegal execution transition"):
             database.update_execution_status(execution_id, target)
+
+
+class TestFailExecution:
+    @pytest.mark.parametrize("path", [(), (RUNNING,)])
+    def test_live_execution_fails_with_an_end_time(
+        self, database: DatabaseManager, path: tuple[ExecutionStatus, ...]
+    ) -> None:
+        """A pending or running execution becomes FAILED and records when it ended."""
+        execution_id = _execution_at(database, path)
+
+        database.fail_execution(execution_id)
+
+        execution = database.get_execution(execution_id)
+        assert execution is not None
+        assert execution.status == FAILED
+        assert execution.end_time is not None
+
+    @pytest.mark.parametrize("path", [(RUNNING, COMPLETED), (RUNNING, FAILED), (INVALID,)])
+    def test_finished_execution_is_left_alone(
+        self, database: DatabaseManager, path: tuple[ExecutionStatus, ...]
+    ) -> None:
+        """A failure handler racing a finished execution must not overwrite its outcome."""
+        execution_id = _execution_at(database, path)
+
+        database.fail_execution(execution_id)
+
+        execution = database.get_execution(execution_id)
+        assert execution is not None
+        assert execution.status == path[-1]
+        assert execution.end_time is None
