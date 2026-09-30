@@ -45,7 +45,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from process_control.integration import rk4_step
+from process_control.integration import rk4_substeps
 from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
 
 N_COMPONENTS_ASM2D = 17
@@ -105,11 +105,11 @@ def reactor_step(
         result = reactions_asm2d(current_state, params) + dilution * (inlet - current_state)
         return result.at[7].add(kla * (s_o_sat - current_state[7]))
 
-    sub_dt = dt / _REACTOR_SUBSTEPS
-    new_state = state
-    for _ in range(_REACTOR_SUBSTEPS):
-        new_state = jnp.maximum(rk4_step(derivative, new_state, sub_dt), 0.0)
-    return new_state
+    return rk4_substeps(derivative, _non_negative, state, dt, _REACTOR_SUBSTEPS)
+
+
+def _non_negative(state: jax.Array):
+    return jnp.maximum(state, 0.0)
 
 
 @dataclass(frozen=True)

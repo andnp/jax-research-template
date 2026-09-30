@@ -39,6 +39,24 @@ def rk4_step[**P, S](
     return _tree_add(state, _tree_scale(dy, dt))
 
 
+
+def rk4_substeps[**P, S](
+    derivative_fn: Callable[Concatenate[S, P], S],
+    project: Callable[[S], S],
+    state: S,
+    dt: jax.Array,
+    substeps: int,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> S:
+    """Advance state by `substeps` RK4 steps of dt / substeps, projecting onto physical bounds after each."""
+    sub_dt = dt / substeps
+
+    def substep(_: int, current: S) -> S:
+        return project(rk4_step(derivative_fn, current, sub_dt, *args, **kwargs))
+
+    return jax.lax.fori_loop(0, substeps, substep, state)
+
 def _tree_scale[S](tree: S, scalar: jax.Array) -> S:
     def scale(x: jax.Array) -> jax.Array:
         return x * scalar
