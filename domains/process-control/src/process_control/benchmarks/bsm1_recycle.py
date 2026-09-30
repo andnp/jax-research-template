@@ -69,7 +69,6 @@ class BSM1RecycleConfig:
     q_a_ki: float = -0.1
     q_a_ff: float = 3.0  # feed-forward bias (BSM1 default ratio)
     q_a_base_setpoint: float = 5.0  # target NO3_R2 (g/m³) for FEEDFORWARD
-    q_a_max_integral: float = 10.0
     q_a_sensor_noise_std: float = 0.3
     q_a_sensor_lag: float = 0.8
     q_a_sensor_drift_rate: float = 0.001
@@ -143,7 +142,6 @@ def make_bsm1_recycle_benchmark(
         ff=config.q_a_ff,
         output_min=config.q_a_ratio_min,
         output_max=config.q_a_ratio_max,
-        max_integral=config.q_a_max_integral,
         max_ramp_up=config.q_a_ramp_rate,
         max_ramp_down=config.q_a_ramp_rate,
     )
