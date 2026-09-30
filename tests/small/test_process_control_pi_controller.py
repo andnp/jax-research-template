@@ -140,3 +140,20 @@ class TestDerivedIntegralLimit:
 
         assert float(state.integral) == 0.0
         assert float(output) == pytest.approx(2.0)
+
+    def test_tracking_is_bumpless_within_derived_clamp(self) -> None:
+        """Manual-to-auto transfer stays bumpless when the clamp is derived rather than explicit."""
+        params = PIControllerParams(kp=2.0, ki=0.5, ff=5.0, output_min=0.0, output_max=10.0)
+
+        state = track_output(PIControllerState.create(), jnp.array(4.0), jnp.array(5.0), jnp.array(8.0), params)
+        _, result = step_with_diagnostics(state, jnp.array(4.0), jnp.array(5.0), params, jnp.array(0.0))
+
+        assert float(result.raw) == pytest.approx(8.0)
+
+    def test_tracking_clips_integral_to_derived_clamp(self) -> None:
+        """A tracked integral beyond the authority bound (5 / 0.5 = 10) is clipped to it."""
+        params = PIControllerParams(kp=2.0, ki=0.5, ff=5.0, output_min=0.0, output_max=10.0)
+
+        state = track_output(PIControllerState.create(), jnp.array(7.0), jnp.array(5.0), jnp.array(10.0), params)
+
+        assert float(state.integral) == pytest.approx(10.0)
