@@ -1,10 +1,10 @@
-"""Contract tests for execution status transitions."""
+"""Contract tests for execution status transitions and derived run states."""
 
 from pathlib import Path
 
 import pytest
 from experiment_definition.db import DatabaseManager
-from experiment_definition.status import ExecutionStatus
+from experiment_definition.status import ExecutionStatus, RunState, run_state
 
 PENDING, RUNNING, COMPLETED, FAILED, INVALID = ExecutionStatus
 
@@ -97,3 +97,26 @@ class TestFailExecution:
         assert execution is not None
         assert execution.status == path[-1]
         assert execution.end_time is None
+
+
+class TestRunState:
+    @pytest.mark.parametrize(
+        ("statuses", "expected"),
+        [
+            (frozenset(), RunState.PENDING),
+            (frozenset({PENDING}), RunState.PENDING),
+            (frozenset({INVALID}), RunState.PENDING),
+            (frozenset({FAILED}), RunState.FAILED),
+            (frozenset({FAILED, INVALID}), RunState.FAILED),
+            (frozenset({FAILED, RUNNING}), RunState.PENDING),
+            (frozenset({FAILED, PENDING}), RunState.PENDING),
+            (frozenset({FAILED, COMPLETED}), RunState.COMPLETED),
+            (frozenset({RUNNING, COMPLETED}), RunState.COMPLETED),
+        ],
+    )
+    def test_precedence(self, statuses: frozenset[str], expected: RunState) -> None:
+        """Any completion wins, a live attempt outranks a failure, and invalidated attempts count for nothing.
+
+        A run whose only attempts failed must stay distinguishable from one never attempted.
+        """
+        assert run_state(statuses) is expected
