@@ -187,7 +187,6 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         ff=c.do_ff,
         output_min=c.kla_34_min,
         output_max=c.kla_34_max,
-        max_integral=c.do_max_integral,
     )
     kla_5_dosing = DosingSystemParams(
         control_mode=c.control_mode,
@@ -200,7 +199,6 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         ff=c.do_ff,
         output_min=c.kla_5_min,
         output_max=c.kla_5_max,
-        max_integral=c.do_max_integral,
     )
     waste_pump_params = RampLimitedActuatorParams(
         max_output=config.q_w_max,

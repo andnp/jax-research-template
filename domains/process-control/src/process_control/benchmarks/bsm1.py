@@ -210,7 +210,6 @@ class BSM1BenchmarkConfig:
     do_ki: float = 0.5
     do_ff: float = 5.0  # feed-forward bias (kla at rest)
     do_base_setpoint: float = 2.0  # mg/L DO target for FEEDFORWARD
-    do_max_integral: float = 20.0
 
     # BSM1 recycle/waste flows are process constants, not proportional to the
     # instantaneous influent flow (Alex et al. 2008, §2.3.1 and Table 8):
@@ -289,7 +288,6 @@ def make_bsm1_benchmark(
         ff=config.do_ff,
         output_min=config.kla_34_min,
         output_max=config.kla_34_max,
-        max_integral=config.do_max_integral,
         max_ramp_up=config.kla_34_ramp_up,
         max_ramp_down=config.kla_34_ramp_down,
         startup_delay=config.kla_34_startup_delay,
@@ -306,7 +304,6 @@ def make_bsm1_benchmark(
         ff=config.do_ff,
         output_min=config.kla_5_min,
         output_max=config.kla_5_max,
-        max_integral=config.do_max_integral,
         max_ramp_up=config.kla_5_ramp_up,
         max_ramp_down=config.kla_5_ramp_down,
         startup_delay=config.kla_5_startup_delay,

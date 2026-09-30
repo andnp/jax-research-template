@@ -15,7 +15,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
 from process_control.benchmarks.bsm1_combined import (
     BSM1CombinedDOConfig,
     BSM1CombinedRecycleConfig,
@@ -95,15 +94,6 @@ class TestPIIntegralAuthorityContract:
             "makeup": c.makeup_max_integral,
         }[loop]
         assert ki * max_integral >= _authority(ff, out_min, out_max)
-
-    @pytest.mark.parametrize("loop", ["kla_34", "kla_5"])
-    def test_bsm1_do(self, loop: str) -> None:
-        c = BSM1BenchmarkConfig()
-        out_min, out_max = {
-            "kla_34": (c.kla_34_min, c.kla_34_max),
-            "kla_5": (c.kla_5_min, c.kla_5_max),
-        }[loop]
-        assert c.do_ki * c.do_max_integral >= _authority(c.do_ff, out_min, out_max)
 
     def test_bsm1_combined_do(self) -> None:
         do = BSM1CombinedDOConfig()
