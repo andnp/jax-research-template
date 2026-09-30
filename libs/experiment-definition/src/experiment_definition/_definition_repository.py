@@ -276,20 +276,6 @@ def list_runs(conn: sqlite3.Connection, experiment_id: int) -> list[RunRow]:
     return [_record_from_row(RunRow, row) for row in rows]
 
 
-def list_runs_without_completed_execution(conn: sqlite3.Connection, experiment_id: int) -> list[RunRow]:
-    rows = conn.execute(
-        "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, r.vmap_zone_json AS vmap_zone "
-        "FROM Runs r LEFT JOIN ("
-        "    SELECT DISTINCT er.run_id AS run_id FROM ExecutionRuns er "
-        "    INNER JOIN Executions e ON e.id = er.execution_id WHERE e.status = 'COMPLETED'"
-        ") completed ON completed.run_id = r.id "
-        "WHERE r.experiment_id = ? AND completed.run_id IS NULL "
-        "ORDER BY r.seed, r.hyper_id, r.id",
-        (experiment_id,),
-    ).fetchall()
-    return [_record_from_row(RunRow, row) for row in rows]
-
-
 def list_orphan_runs(
     conn: sqlite3.Connection,
     experiment_id: int,

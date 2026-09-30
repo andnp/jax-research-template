@@ -355,15 +355,6 @@ class DatabaseManager:
         """Return all logical runs for an experiment ordered by seed and id."""
         return _definition.list_runs(self.conn, experiment_id)
 
-    def list_runs_without_completed_execution(self, experiment_id: int) -> list[RunRow]:
-        """Return runs lacking a linked completed execution.
-
-        A run is considered satisfied only when at least one linked execution
-        has status ``COMPLETED``. Runs linked only to ``FAILED`` or ``INVALID``
-        executions are returned here and should be rescheduled by the runner.
-        """
-        return _definition.list_runs_without_completed_execution(self.conn, experiment_id)
-
     def list_orphan_runs(self, experiment_id: int, wanted_run_ids: frozenset[int]) -> list[RunRow]:
         """Return runs the current definition does not want and that no execution ever touched.
 
