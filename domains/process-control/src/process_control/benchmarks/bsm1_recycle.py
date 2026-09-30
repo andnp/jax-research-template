@@ -14,7 +14,7 @@ from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, reactor_params
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
     DiurnalSourceState,
@@ -29,7 +29,7 @@ from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as do_reset
 from process_control.sensors.lagged import step as do_step
 from process_control.sensors.lagged import step as ra_step
-from process_control.units.asm1 import ASM1Params, ASM1State
+from process_control.units.asm1 import ASM1State
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
 
@@ -124,11 +124,7 @@ def make_bsm1_recycle_benchmark(
 ]:
     bsm1 = config.bsm1
 
-    p1 = ASM1Params(volume=bsm1.v1)
-    p2 = ASM1Params(volume=bsm1.v2)
-    p3 = ASM1Params(volume=bsm1.v3)
-    p4 = ASM1Params(volume=bsm1.v4)
-    p5 = ASM1Params(volume=bsm1.v5)
+    p1, p2, p3, p4, p5 = reactor_params(bsm1)
 
     # Q_a DosingSystem: NO3_R2 sensor + PI + ramp-limited actuator
     q_a_dosing = DosingSystemParams(

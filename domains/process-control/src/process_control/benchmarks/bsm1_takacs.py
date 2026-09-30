@@ -34,13 +34,13 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import reset as pump_reset
 from process_control.actuators.ramp_limited import step as pump_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, aeration_power
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, aeration_power, reactor_params
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import step as ra_step
-from process_control.units.asm1 import ASM1Params, ASM1State
+from process_control.units.asm1 import ASM1State
 from process_control.units.asm1 import reset as asm1_reset
 from process_control.units.bsm1_plant import reactor_train
 from process_control.units.takacs_settler import (
@@ -170,11 +170,7 @@ class BSM1TakacsConfig:
 
 def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
     c = config.bsm1
-    p1 = ASM1Params(volume=c.v1)
-    p2 = ASM1Params(volume=c.v2)
-    p3 = ASM1Params(volume=c.v3)
-    p4 = ASM1Params(volume=c.v4)
-    p5 = ASM1Params(volume=c.v5)
+    p1, p2, p3, p4, p5 = reactor_params(c)
 
     kla_34_dosing = DosingSystemParams(
         control_mode=c.control_mode,
