@@ -1,5 +1,6 @@
 """Execution status vocabulary shared by the schema, planner and readers."""
 
+from collections.abc import Iterable
 from enum import StrEnum
 
 
@@ -20,3 +21,7 @@ TRANSITIONS: dict[ExecutionStatus, frozenset[ExecutionStatus]] = {
     ExecutionStatus.FAILED: frozenset({ExecutionStatus.INVALID}),
     ExecutionStatus.INVALID: frozenset(),
 }
+
+
+def sql_in(statuses: Iterable[ExecutionStatus]) -> str:
+    return "(" + ", ".join(f"'{status}'" for status in statuses) + ")"

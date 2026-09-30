@@ -18,8 +18,8 @@ from experiment_definition.schema import (
     CREATE_LATEST_VERSIONS_VIEW,
     CREATE_RUNS,
     DEFAULT_DB_NAME,
-    EXECUTION_STATUSES,
 )
+from experiment_definition.status import ExecutionStatus
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -31,7 +31,7 @@ def test_component_types_complete() -> None:
 
 
 def test_execution_statuses_complete() -> None:
-    assert set(EXECUTION_STATUSES) == {"PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID"}
+    assert set(ExecutionStatus) == {"PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID"}
 
 
 # ---------------------------------------------------------------------------

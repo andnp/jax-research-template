@@ -6,12 +6,13 @@ Schema design follows ADR 008 (Relational Experiment Schema) and ADR 007
 for SQLite rowid aliasing (fast lookups, no UUID overhead in hot paths).
 """
 
+from .status import ExecutionStatus, sql_in
+
 # ---------------------------------------------------------------------------
 # Enum-like string constants referenced in DDL CHECK constraints
 # ---------------------------------------------------------------------------
 
 COMPONENT_TYPES = ("ALGO", "ENV", "WRAPPER")
-EXECUTION_STATUSES = ("PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID")
 
 # ---------------------------------------------------------------------------
 # Table DDL
@@ -81,11 +82,11 @@ CREATE TABLE IF NOT EXISTS Runs (
 # An Execution is the *physical event*: a single process (possibly covering
 # many logical Runs via jax.vmap). jax_config_json stores runtime metadata:
 #   {"jax_version": "0.4.x", "platform": "gpu", "devices": 4, "flags": {...}}
-CREATE_EXECUTIONS = """
+CREATE_EXECUTIONS = f"""
 CREATE TABLE IF NOT EXISTS Executions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    status          TEXT NOT NULL DEFAULT 'PENDING'
-                         CHECK(status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'INVALID')),
+    status          TEXT NOT NULL DEFAULT '{ExecutionStatus.PENDING}'
+                         CHECK(status IN {sql_in(ExecutionStatus)}),
     hostname        TEXT,
     start_time      TEXT,
     end_time        TEXT,
