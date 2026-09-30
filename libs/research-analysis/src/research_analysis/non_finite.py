@@ -50,7 +50,7 @@ def require_finite_array(values: NDArray[np.floating], name: str) -> None:
 
 
 def substitute_non_finite(dataset: ExperimentDataset, metric: str, worst_case: float) -> ExperimentDataset:
-    """Replace one metric's non-finite values with a declared worst-case value, as a deliberate analysis choice.
+    """Replace one metric's non-finite curve and run-scalar values with a declared worst case, as an analysis choice.
 
     The runs table keeps its ``non_finite_metrics`` flags and the accounting keeps its diverged counts, so the
     substitution never hides that the runs diverged.
@@ -58,7 +58,9 @@ def substitute_non_finite(dataset: ExperimentDataset, metric: str, worst_case: f
     if not math.isfinite(worst_case):
         raise ValueError(f"worst_case must be finite, got {worst_case!r}")
     diverged = (pl.col("metric") == metric) & ~pl.col("value").is_finite()
-    metrics = dataset.metrics.with_columns(
-        pl.when(diverged).then(pl.lit(worst_case)).otherwise(pl.col("value")).alias("value")
+    substituted = pl.when(diverged).then(pl.lit(worst_case)).otherwise(pl.col("value")).alias("value")
+    return replace(
+        dataset,
+        metrics=dataset.metrics.with_columns(substituted),
+        scalar_metrics=dataset.scalar_metrics.with_columns(substituted),
     )
-    return replace(dataset, metrics=metrics)
