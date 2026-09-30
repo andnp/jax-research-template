@@ -12,7 +12,7 @@ from process_control.integration import rk4_substeps
 _SUBSTEPS = 16
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class ASM1Params:
     """Kinetic and stoichiometric parameters for the full ASM1 model.
 
@@ -398,6 +398,7 @@ def _asm1_derivatives(
     )
 
 
+@jax.jit
 def step(
     state: ASM1State,
     influent: ASM1State,
