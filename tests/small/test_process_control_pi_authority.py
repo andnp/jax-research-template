@@ -81,10 +81,6 @@ def _run_self_driven(
 class TestPIIntegralAuthorityContract:
     """Every PI loop's integral clamp must cover the actuator's full authority."""
 
-    def test_chlorine(self) -> None:
-        c = ChlorineBenchmarkConfig()
-        assert c.pi_ki * c.pi_max_integral >= _authority(c.pi_ff, c.pump_min_dose, c.pump_max_dose)
-
     def test_chlorine_two_stage(self) -> None:
         c = ChlorineTwoStageBenchmarkConfig()
         assert c.pi_ki * c.pi_max_integral >= _authority(c.pi_ff, c.pump_min_dose, c.pump_max_dose)

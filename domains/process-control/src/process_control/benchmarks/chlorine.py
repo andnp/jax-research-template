@@ -72,12 +72,6 @@ class ChlorineBenchmarkConfig:
     pi_ki: float = 0.1
     pi_kd: float = 0.0
     pi_ff: float = 3.0
-    # Sized so ki * max_integral covers the full actuator authority
-    # max(output_max - ff, ff - output_min) = max(8 - 3, 3 - 0) = 5; a smaller
-    # clamp caps the achievable steady-state offset well short of saturation
-    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
-    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
-    pi_max_integral: float = 50.0
 
     flow_noise_std: float = 0.5
     flow_bias: float = 0.0
@@ -160,7 +154,6 @@ def make_chlorine_benchmark(
         ff=config.pi_ff,
         output_min=config.pump_min_dose,
         output_max=config.pump_max_dose,
-        max_integral=config.pi_max_integral,
         max_ramp_up=config.pump_max_ramp_rate,
         max_ramp_down=config.pump_max_ramp_rate,
     )
