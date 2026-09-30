@@ -147,10 +147,8 @@ def fail_group_executions_started_since(
                 if _group_key(_batch_key(row[1], row[2], row[3], str(row[4]), row[5])) == group
             }
         )
-        conn.executemany(
-            "UPDATE Executions SET status = 'FAILED', end_time = ? WHERE id = ? AND status = 'RUNNING'",
-            [(now, execution_id) for execution_id in failed],
-        )
+        for execution_id in failed:
+            _execution._transition(conn, execution_id, ExecutionStatus.FAILED, None, now)
         conn.commit()
     except Exception:
         conn.rollback()

@@ -170,10 +170,8 @@ def reclaim_stale_executions(
             (experiment_id, cutoff),
         ).fetchall()
         reclaimed = [int(row[0]) for row in rows]
-        conn.executemany(
-            "UPDATE Executions SET status = 'FAILED', end_time = ? WHERE id = ? AND status = 'RUNNING'",
-            [(now, execution_id) for execution_id in reclaimed],
-        )
+        for execution_id in reclaimed:
+            _transition(conn, execution_id, ExecutionStatus.FAILED, None, now)
         conn.commit()
     except Exception:
         conn.rollback()
