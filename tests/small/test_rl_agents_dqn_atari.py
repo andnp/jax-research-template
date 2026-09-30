@@ -6,7 +6,6 @@ from rl_agents.dqn_atari import (
     DQNAtariAgent,
     DQNAtariConfig,
     DQNAtariRuntimeConfig,
-    build_dqn_zoo_atari_rmsprop,
     dqn_atari_runtime_from_dqn_zoo,
     dqn_atari_td_loss,
     dqn_zoo_atari_exploration_decay_env_steps,
@@ -16,7 +15,7 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_total_train_env_steps,
     dqn_zoo_atari_total_train_frames,
 )
-from rl_agents.dqn_zoo_atari import dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import build_dqn_zoo_atari_rmsprop, dqn_zoo_atari_frames_to_env_steps
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 

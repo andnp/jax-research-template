@@ -4,8 +4,8 @@ import numpy.testing as npt
 import pytest
 from rl_agents.dqn_atari import (
     DQNAtariConfig,
-    build_dqn_zoo_atari_rmsprop,
 )
+from rl_agents.dqn_zoo_atari import build_dqn_zoo_atari_rmsprop
 from rl_agents.rainbow import (
     RainbowAgent,
     RainbowConfig,
@@ -15,7 +15,6 @@ from rl_agents.rainbow import (
     _advance_n_step_accumulator,
     _gather_action_logits,
     _init_n_step_accumulator,
-    build_rainbow_zoo_atari_rmsprop,
     categorical_loss,
     categorical_losses,
     categorical_target_probabilities,
@@ -285,7 +284,7 @@ class TestRainbowOptimizerParity:
         params = {"w": jnp.array([1.0, -2.0], dtype=jnp.float32)}
         grads = {"w": jnp.array([0.5, -0.25], dtype=jnp.float32)}
 
-        rainbow_tx = build_rainbow_zoo_atari_rmsprop(rainbow_config)
+        rainbow_tx = build_dqn_zoo_atari_rmsprop(rainbow_config)
         dqn_tx = build_dqn_zoo_atari_rmsprop(dqn_config)
 
         rainbow_state = rainbow_tx.init(params)
@@ -314,7 +313,7 @@ class TestRainbowOptimizerParity:
 
         train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).algorithm_state.train_state
         grads = jax.tree_util.tree_map(jnp.ones_like, train_state.params)
-        expected_tx = build_rainbow_zoo_atari_rmsprop(config)
+        expected_tx = build_dqn_zoo_atari_rmsprop(config)
 
         actual_state = train_state.tx.init(train_state.params)
         expected_state = expected_tx.init(train_state.params)

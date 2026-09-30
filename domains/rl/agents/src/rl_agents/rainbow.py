@@ -29,7 +29,6 @@ import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
@@ -50,7 +49,7 @@ from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
 from rl_networks.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
-from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, build_dqn_zoo_atari_rmsprop, dqn_zoo_atari_frames_to_env_steps
 
 type RainbowApplyFn = Callable[..., jax.Array]
 """The network's ``apply``, as reached through ``TrainState.apply_fn``.
@@ -166,23 +165,6 @@ class RainbowNatureNetwork(TypedApply[jax.Array], nn.Module):
         )
         centered_advantage_logits = advantage_logits - jnp.mean(advantage_logits, axis=-2, keepdims=True)
         return value_logits + centered_advantage_logits
-
-
-def build_rainbow_zoo_atari_rmsprop(config: RainbowConfig) -> optax.GradientTransformation:
-    """Build the rmsprop transform with a swept-value slot for its scalar hyperparameters.
-
-    ``learning_rate``, ``decay`` and ``eps`` are injected via
-    ``optax.inject_hyperparams`` so a sweep can overwrite them in ``opt_state``
-    each step (see ``make_train_step``'s ``_do_learn``) instead of leaking one
-    arm's value into every arm's compiled transform. ``centered`` stays a
-    ``static_args`` entry: it selects a code path, not a scalar.
-    """
-    return optax.inject_hyperparams(optax.rmsprop, static_args=("centered",))(
-        learning_rate=jnp.asarray(config.LEARNING_RATE, jnp.float32),
-        decay=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
-        eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
-        centered=config.RMSPROP_CENTERED,
-    )
 
 
 def rainbow_zoo_atari_min_replay_capacity(config: RainbowConfig) -> int:
@@ -589,7 +571,7 @@ class RainbowAgent:
                 train_state=TrainState.create(
                     apply_fn=network.apply,
                     params=params,
-                    tx=build_rainbow_zoo_atari_rmsprop(self.config),
+                    tx=build_dqn_zoo_atari_rmsprop(self.config),
                 ),
                 target_params=params,
                 hypers=rainbow_hypers(self.config),

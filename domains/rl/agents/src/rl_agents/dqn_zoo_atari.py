@@ -1,5 +1,7 @@
 """Definitions DQN Zoo Atari agents share."""
 
+import jax.numpy as jnp
+import optax
 from rl_components.structs import chex_struct
 
 
@@ -15,6 +17,16 @@ class DQNZooAtariConfig:
     OPTIMIZER_EPSILON: float = 0.01 / 32**2
     RMSPROP_DECAY: float = 0.95
     RMSPROP_CENTERED: bool = True
+
+
+def build_dqn_zoo_atari_rmsprop(config: DQNZooAtariConfig) -> optax.GradientTransformation:
+    # Injected so a sweep can overwrite each scalar in opt_state instead of leaking one arm's value into every arm's compiled transform.
+    return optax.inject_hyperparams(optax.rmsprop, static_args="centered")(
+        learning_rate=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        decay=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
+        centered=config.RMSPROP_CENTERED,
+    )
 
 
 def dqn_zoo_atari_frames_to_env_steps(frames: int, num_action_repeats: int) -> int:

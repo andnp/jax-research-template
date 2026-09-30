@@ -28,7 +28,6 @@ from functools import partial
 import chex
 import jax
 import jax.numpy as jnp
-import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from rl_components.agent_protocol import AgentStep
@@ -42,7 +41,7 @@ from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
 
-from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, dqn_zoo_atari_frames_to_env_steps
+from rl_agents.dqn_zoo_atari import DQNZooAtariConfig, build_dqn_zoo_atari_rmsprop, dqn_zoo_atari_frames_to_env_steps
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -58,15 +57,6 @@ class DQNAtariRuntimeConfig:
     TOTAL_TRAIN_ENV_STEPS: int = 50_000_000
     SEED: int = 42
     EVAL_EXPLORATION_EPSILON: float = 0.05
-
-
-def build_dqn_zoo_atari_rmsprop(config: DQNAtariConfig) -> optax.GradientTransformation:
-    return optax.inject_hyperparams(optax.rmsprop, static_args="centered")(
-        learning_rate=jnp.asarray(config.LEARNING_RATE, jnp.float32),
-        decay=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
-        eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
-        centered=config.RMSPROP_CENTERED,
-    )
 
 
 def dqn_atari_runtime_from_dqn_zoo(
