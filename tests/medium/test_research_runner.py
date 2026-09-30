@@ -72,7 +72,7 @@ class TestRunExperiment:
                 assert manifest_path.exists(), f"Manifest missing at {manifest_path}"
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 assert manifest["experiment_slug"] == "TestSweep"
-                assert manifest["metadata"] == {"trained": True}
+                assert manifest["metadata"]["trained"] is True
 
                 exec_id = manifest["execution_id"]
                 execution = database.get_execution(exec_id)

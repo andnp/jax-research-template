@@ -2,6 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
 from research_runner.runner import execute_batch
@@ -144,3 +145,34 @@ def test_execute_batch_persists_result_artifacts(tmp_path: Path) -> None:
     manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
     assert manifest["metadata"]["artifacts"]["summary"].startswith("research://")
     assert list((Path(planned.root_path) / "artifacts").rglob("summary_v1.pkl"))
+
+
+def test_execute_batch_records_runtime_telemetry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verify a completed execution records its thread count, batch width, wall time and peak memory.
+    """
+    monkeypatch.setenv("NPROC", "3")
+    database_path = tmp_path / "experiments.sqlite"
+    experiment = Experiment("telemetry-test")
+    experiment.add_parameter("seed", [0, 1])
+    experiment.sync(database_path)
+
+    with DatabaseManager(database_path) as database:
+        database.initialize()
+        experiment_row = database.get_experiment(experiment.name)
+        assert experiment_row is not None
+        planned = database.plan_next_execution_batch(experiment_row.id, tmp_path / "executions")
+        assert planned is not None
+
+    execute_batch(database_path, planned, lambda context: ExecutionResult(), capture_git=False)
+
+    with DatabaseManager(database_path) as database:
+        artifacts = database.get_execution_artifacts(planned.execution_id)
+    assert artifacts is not None and artifacts.metadata_json is not None
+    runtime = json.loads(artifacts.metadata_json)["runtime"]
+    manifest_runtime = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))["metadata"]["runtime"]
+    assert runtime == manifest_runtime
+    assert runtime["nproc"] == 3
+    assert runtime["batch_runs"] == 2
+    assert runtime["wall_seconds"] >= 0
+    assert runtime["peak_rss_bytes"] > 0

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import resource
+import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,10 +144,12 @@ def execute_batch(
 
     try:
         execution_root.mkdir(parents=True, exist_ok=True)
+        started = time.perf_counter()
         result = train_fn(context)
         _write_metrics(context, result, metric_subsample_factor)
         artifact_uris = _write_artifacts(context, result)
         metadata = dict(result.metadata)
+        metadata["runtime"] = _runtime_telemetry(len(points), time.perf_counter() - started)
         if artifact_uris:
             metadata["artifacts"] = artifact_uris
 
@@ -254,6 +259,17 @@ def _write_metrics(
         experiment_id=context.experiment_id,
         execution_id=context.execution_id,
     )
+
+
+def _runtime_telemetry(batch_runs: int, wall_seconds: float) -> dict[str, int | float | None]:
+    nproc = os.environ.get("NPROC")
+    return {
+        "nproc": int(nproc) if nproc is not None else None,
+        "batch_runs": batch_runs,
+        "wall_seconds": wall_seconds,
+        # ru_maxrss is in KiB on Linux
+        "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+    }
 
 
 def _utc_now():
