@@ -33,25 +33,6 @@ from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
 
 
 @dataclass(frozen=True)
-class BSM1CombinedDOConfig:
-    control_mode: int = DIRECT
-    do_kp: float = 2.0
-    do_ki: float = 0.5
-    do_ff: float = 5.0
-    do_base_setpoint: float = 2.0
-    kla_34_min: float = 0.0
-    kla_34_max: float = 10.0
-    kla_34_ramp_up: float = 5.0
-    kla_34_ramp_down: float = 8.0
-    kla_34_startup_delay: float = 0.05
-    kla_5_min: float = 0.0
-    kla_5_max: float = 10.0
-    kla_5_ramp_up: float = 5.0
-    kla_5_ramp_down: float = 8.0
-    kla_5_startup_delay: float = 0.05
-
-
-@dataclass(frozen=True)
 class BSM1CombinedRecycleConfig:
     control_mode: int = DIRECT
     q_a_kp: float = -0.5
@@ -87,7 +68,6 @@ class BSM1CombinedConfig:
       q_a_ratio/q_a_max, q_rs_ratio/q_rs_max
     """
 
-    do: BSM1CombinedDOConfig = field(default_factory=BSM1CombinedDOConfig)
     recycle: BSM1CombinedRecycleConfig = field(default_factory=BSM1CombinedRecycleConfig)
     reward: BSM1CombinedRewardConfig = field(default_factory=BSM1CombinedRewardConfig)
     bsm1: BSM1BenchmarkConfig = field(default_factory=BSM1BenchmarkConfig)
@@ -176,41 +156,40 @@ def make_bsm1_combined_benchmark(
     p5 = ASM1Params(volume=bsm1.v5)
 
     # kla_34 DosingSystem: DO R3 sensor → PI → kla
-    do = config.do
     recycle = config.recycle
     reward_cfg = config.reward
 
     kla_34_dosing = _make_dosing_params(
-        control_mode=do.control_mode,
-        base_setpoint=do.do_base_setpoint,
+        control_mode=bsm1.control_mode,
+        base_setpoint=bsm1.do_base_setpoint,
         sensor_noise_std=bsm1.do_noise_std,
         sensor_lag=bsm1.do_lag,
         sensor_drift_rate=bsm1.do_drift_rate,
-        kp=do.do_kp,
-        ki=do.do_ki,
-        ff=do.do_ff,
-        output_min=do.kla_34_min,
-        output_max=do.kla_34_max,
-        max_ramp_up=do.kla_34_ramp_up,
-        max_ramp_down=do.kla_34_ramp_down,
-        startup_delay=do.kla_34_startup_delay,
+        kp=bsm1.do_kp,
+        ki=bsm1.do_ki,
+        ff=bsm1.do_ff,
+        output_min=bsm1.kla_34_min,
+        output_max=bsm1.kla_34_max,
+        max_ramp_up=bsm1.kla_34_ramp_up,
+        max_ramp_down=bsm1.kla_34_ramp_down,
+        startup_delay=bsm1.kla_34_startup_delay,
     )
 
     # kla_5 DosingSystem: DO R5 sensor → PI → kla
     kla_5_dosing = _make_dosing_params(
-        control_mode=do.control_mode,
-        base_setpoint=do.do_base_setpoint,
+        control_mode=bsm1.control_mode,
+        base_setpoint=bsm1.do_base_setpoint,
         sensor_noise_std=bsm1.do_noise_std,
         sensor_lag=bsm1.do_lag,
         sensor_drift_rate=bsm1.do_drift_rate,
-        kp=do.do_kp,
-        ki=do.do_ki,
-        ff=do.do_ff,
-        output_min=do.kla_5_min,
-        output_max=do.kla_5_max,
-        max_ramp_up=do.kla_5_ramp_up,
-        max_ramp_down=do.kla_5_ramp_down,
-        startup_delay=do.kla_5_startup_delay,
+        kp=bsm1.do_kp,
+        ki=bsm1.do_ki,
+        ff=bsm1.do_ff,
+        output_min=bsm1.kla_5_min,
+        output_max=bsm1.kla_5_max,
+        max_ramp_up=bsm1.kla_5_ramp_up,
+        max_ramp_down=bsm1.kla_5_ramp_down,
+        startup_delay=bsm1.kla_5_startup_delay,
     )
 
     # Q_a DosingSystem: NO3 R2 sensor → reverse-acting PI → Q_a ratio
@@ -261,7 +240,7 @@ def make_bsm1_combined_benchmark(
     )
 
     # Max aeration power for normalisation
-    kla_max_total = do.kla_34_max * (bsm1.v3 + bsm1.v4) + do.kla_5_max * bsm1.v5
+    kla_max_total = bsm1.kla_34_max * (bsm1.v3 + bsm1.v4) + bsm1.kla_5_max * bsm1.v5
     power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
 
     influent = asm1_reset(config.bsm1.initial_states.influent, jax.random.PRNGKey(0))
