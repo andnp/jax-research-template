@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -290,3 +290,25 @@ class ExperimentDataset:
             raise TypeError(f"scalar_metrics table is missing columns: {sorted(missing_scalar_metrics)}")
         if missing_execution_metrics:
             raise TypeError(f"execution_metrics table is missing columns: {sorted(missing_execution_metrics)}")
+
+    def filter_runs(self, predicate: pl.Expr) -> ExperimentDataset:
+        """Restrict to runs matching ``predicate``, keeping every run-keyed frame consistent with them.
+
+        An execution metric is a whole-execution value, kept while any of its runs survives; diagnostics,
+        accounting, provenance, and executions still describe the whole load.
+        """
+        runs = self.runs.filter(predicate)
+        run_keys = runs.select("run_id", "execution_id").unique()
+        kept = set(run_keys.iter_rows())
+        return replace(
+            self,
+            runs=runs,
+            metrics=self.metrics.join(run_keys, on=["run_id", "execution_id"], how="semi", maintain_order="left"),
+            scalar_metrics=self.scalar_metrics.join(
+                run_keys, on=["run_id", "execution_id"], how="semi", maintain_order="left"
+            ),
+            execution_metrics=self.execution_metrics.join(
+                run_keys.select("execution_id").unique(), on="execution_id", how="semi", maintain_order="left"
+            ),
+            artifacts={key: value for key, value in self.artifacts.items() if key in kept},
+        )
