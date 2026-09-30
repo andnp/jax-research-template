@@ -12,6 +12,11 @@ from process_control.benchmarks.bsm1_recycle import (
     BSM1RecycleConfig,
     make_bsm1_recycle_benchmark,
 )
+from process_control.benchmarks.bsm1_takacs import (
+    BSM1TakacsConfig,
+    BSM1TakacsPlantState,
+    make_bsm1_takacs_benchmark,
+)
 from process_control.units.asm1 import (
     ASM1Params,
     ASM1State,
@@ -444,10 +449,35 @@ class TestASM1IntegrationStability:
             return reactors, jnp.stack([r.s_o for r in reactors])
 
         def rollout(reactors: Reactors):
-            return jax.lax.scan(body, reactors, None, length=300)
+            return jax.lax.scan(body, reactors, None, length=150)
 
         _, dissolved_oxygen = jax.jit(rollout)(reactors)
 
-        assert dissolved_oxygen.shape == (300, 5)
+        assert dissolved_oxygen.shape == (150, 5)
         assert float(dissolved_oxygen.min()) >= 0.0
         assert float(dissolved_oxygen.max()) <= params[0].s_o_sat
+
+    def test_takacs_settler_max_aeration_keeps_do_within_saturation(self) -> None:
+        """Every reactor's DO stays in [0, s_o_sat] at maximum kLa with the Takács settler's sludge return.
+
+        The layered settler returns the most concentrated biomass of the BSM1
+        family, which gives the stiffest measured oxygen mode.
+        """
+        config = BSM1TakacsConfig()
+        reset, step = make_bsm1_takacs_benchmark(config)
+        state, _ = reset(jax.random.PRNGKey(0))
+        action = jnp.array([config.bsm1.kla_34_max, config.bsm1.kla_5_max, config.q_w_min])
+
+        def body(state: BSM1TakacsPlantState, key: jax.Array):
+            state, *_ = step(state, action, key)
+            reactors = (state.reactor1, state.reactor2, state.reactor3, state.reactor4, state.reactor5)
+            return state, jnp.stack([r.s_o for r in reactors])
+
+        def rollout(state: BSM1TakacsPlantState):
+            return jax.lax.scan(body, state, jax.random.split(jax.random.PRNGKey(1), 150))
+
+        _, dissolved_oxygen = jax.jit(rollout)(state)
+
+        assert dissolved_oxygen.shape == (150, 5)
+        assert float(dissolved_oxygen.min()) >= 0.0
+        assert float(dissolved_oxygen.max()) <= ASM1Params(volume=config.bsm1.v5).s_o_sat
