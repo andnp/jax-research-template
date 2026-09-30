@@ -23,6 +23,7 @@ from process_control._jax_dataclass import jax_dataclass
 from process_control.controllers.pi_controller import (
     PIControllerParams,
     PIControllerState,
+    integral_limit,
 )
 from process_control.controllers.pi_controller import (
     step_with_diagnostics as pi_step,
@@ -59,7 +60,7 @@ class DosingSystemParams:
     ff: float | jax.Array = 50.0  # feed-forward bias (resting pump speed)
     output_min: float | jax.Array = 0.0  # min pump command (% or dose units)
     output_max: float | jax.Array = 125.0  # max pump command
-    max_integral: float | jax.Array = 200.0  # anti-windup clamp
+    max_integral: float | jax.Array | None = None  # anti-windup clamp; None sizes it to the PI output range
 
     # ── Pump actuator ─────────────────────────────────────────────
     max_ramp_up: float | jax.Array = 50.0  # max output increase per hour
@@ -136,19 +137,20 @@ def step(
         action,
         jnp.array(params.base_setpoint),
     )
+    pi_params = PIControllerParams(
+        kp=params.kp,
+        ki=params.ki,
+        ff=params.ff,
+        output_min=params.output_min,
+        output_max=params.output_max,
+        max_integral=params.max_integral,
+    )
     if params.kd == 0.0:
         pi_state, pi_result = pi_step(
             PIControllerState(integral=state.pi_integral),
             sensed_pv,
             pi_setpoint,
-            PIControllerParams(
-                kp=params.kp,
-                ki=params.ki,
-                ff=params.ff,
-                output_min=params.output_min,
-                output_max=params.output_max,
-                max_integral=params.max_integral,
-            ),
+            pi_params,
             dt,
         )
         new_integral = pi_state.integral
@@ -168,7 +170,7 @@ def step(
                 ff=params.ff,
                 output_min=params.output_min,
                 output_max=params.output_max,
-                max_integral=params.max_integral,
+                max_integral=integral_limit(pi_params),
             ),
             dt,
         )
