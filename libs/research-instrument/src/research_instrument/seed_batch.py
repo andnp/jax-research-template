@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from research_instrument.collector import MetricFrame, subsample_frames
 from research_instrument.sqlite_backend import INSERT_METRICS_SQL, open_metrics_connection
 
 
@@ -50,23 +49,23 @@ def write_seed_batch_curve(
         execution_id: Control-plane execution id shared by every row.
         run_ids: Run id for each row of ``curves``, same length and order.
         seed_ids: Seed id for each row of ``curves``, same length and order.
-        subsample_factor: Keep one frame every N steps; see
-            ``subsample_frames``. True step indices are preserved.
+        subsample_factor: Keep one frame every N steps. True step indices are
+            preserved.
         batch_size: Rows are inserted in chunks of this size within the
             single transaction.
     """
     resolved_path = Path(database_path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if subsample_factor < 1:
+        raise ValueError(f"subsample factor must be >= 1; received {subsample_factor}.")
+
     rows_to_insert: list[tuple[str, float, int, int, int, int, int]] = []
     for row, run_id, seed_id in zip(curves, run_ids, seed_ids, strict=True):
-        frames = [
-            MetricFrame(name=metric_name, value=float(value), global_step=step, seed_id=seed_id)
-            for step, value in enumerate(row)
-        ]
         rows_to_insert.extend(
-            (f.name, f.value, f.global_step, f.seed_id, experiment_id, run_id, execution_id)
-            for f in subsample_frames(frames, subsample_factor)
+            (metric_name, float(value), step, seed_id, experiment_id, run_id, execution_id)
+            for step, value in enumerate(row)
+            if step % subsample_factor == 0
         )
 
     conn = open_metrics_connection(resolved_path)
