@@ -383,6 +383,7 @@ class DatabaseManager:
         experiment_id: int,
         max_runs_per_batch: int | None = None,
         only: Mapping[str, str] | None = None,
+        group: str | None = None,
     ) -> list[RunBatch]:
         """Group unsatisfied runs by static vmap zone for batch planning.
 
@@ -391,7 +392,9 @@ class DatabaseManager:
         is a vmap zone, so narrowing one changes how wide it trains but not the identity of
         the runs in it, and skipping would make a single-seed selector silently do nothing.
         """
-        return _planning.list_unsatisfied_run_batches(self.conn, experiment_id, max_runs_per_batch, only)
+        return _planning.list_unsatisfied_run_batches(
+            self.conn, experiment_id, max_runs_per_batch, only, group
+        )
 
     # ------------------------------------------------------------------
     # Executions
@@ -513,7 +516,7 @@ class DatabaseManager:
         try:
             planned: list[PlannedExecution] = []
             for batch in _planning.list_unsatisfied_run_batches(
-                self.conn, experiment_id, max_runs_per_batch, None
+                self.conn, experiment_id, max_runs_per_batch, None, None
             ):
                 planned.append(
                     _planning.plan_batch_with_artifacts(
@@ -545,16 +548,18 @@ class DatabaseManager:
         git_diff_blob: str | None = None,
         jax_config: Mapping[str, ParameterValue] | None = None,
         only: Mapping[str, str] | None = None,
+        group: str | None = None,
     ) -> PlannedExecution | None:
         """Plan and return the next unsatisfied execution batch, or None when none remain.
 
-        ``only`` restricts which runs are eligible, per the planning service matcher.
+        ``only`` restricts which runs are eligible, per the planning service matcher; ``group``
+        restricts planning to the batches whose ``RunBatch.group_key`` matches.
         """
         base_path = Path(artifacts_root)
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             batches = _planning.list_unsatisfied_run_batches(
-                self.conn, experiment_id, max_runs_per_batch, only
+                self.conn, experiment_id, max_runs_per_batch, only, group
             )
             if not batches:
                 self.conn.commit()

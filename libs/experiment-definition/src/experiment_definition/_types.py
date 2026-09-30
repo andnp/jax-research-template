@@ -15,6 +15,7 @@ class RunBatch(NamedTuple):
     static_config: Mapping[str, ParameterValue]
     vmap_zone: Mapping[str, list[str]] | None
     run_ids: list[int]
+    group_key: str
 
 
 class PlannedExecution(NamedTuple):

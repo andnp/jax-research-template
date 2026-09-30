@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
@@ -43,11 +44,16 @@ def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: M
     )
 
 
+def _group_key(batch_key: tuple[int | None, int | None, str | None, str, str | None]) -> str:
+    return hashlib.sha256(json.dumps(batch_key).encode()).hexdigest()[:12]
+
+
 def list_unsatisfied_run_batches(
     conn: sqlite3.Connection,
     experiment_id: int,
     max_runs_per_batch: int | None,
     only: Mapping[str, str] | None,
+    group: str | None,
 ) -> list[RunBatch]:
     rows = conn.execute(
         "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
@@ -85,6 +91,9 @@ def list_unsatisfied_run_batches(
     batches: list[RunBatch] = []
     for batch_key, run_ids in sorted(grouped_runs.items(), key=batch_key_of):
         algo_version_id, env_version_id, ablation, static_config_json, vmap_zone_json = batch_key
+        group_key = _group_key(batch_key)
+        if group is not None and group_key != group:
+            continue
         static_config = json.loads(static_config_json)
         vmap_zone = json.loads(vmap_zone_json) if vmap_zone_json is not None else None
         chunk_size = len(run_ids) if max_runs_per_batch is None else max_runs_per_batch
@@ -97,6 +106,7 @@ def list_unsatisfied_run_batches(
                     static_config,
                     vmap_zone,
                     run_ids[start : start + chunk_size],
+                    group_key,
                 )
             )
     return batches
