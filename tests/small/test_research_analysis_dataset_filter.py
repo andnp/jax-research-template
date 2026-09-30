@@ -23,12 +23,12 @@ _IDENTITY = ["condition_name", "seed", "run_id", "execution_id"]
 
 def _dataset() -> ExperimentDataset:
     runs = pl.DataFrame(_RUNS, schema=_IDENTITY, orient="row").with_columns(pl.lit(None, pl.String).alias("ablation"))
+    # Stray curve and scalar rows carry run 1's id under run 3's execution: they belong to no loaded run.
     metrics = pl.DataFrame(
-        [(*run, step, "reward", float(step)) for run in _RUNS for step in (0, 1)],
+        [(*run, step, "reward", float(step)) for run in _RUNS for step in (0, 1)] + [("a", 0, 1, 11, 0, "reward", 99.0)],
         schema=[*_IDENTITY, "step", "metric", "value"],
         orient="row",
     )
-    # A stray scalar carries run 1's id under run 3's execution: it belongs to no loaded run.
     scalar_metrics = pl.DataFrame(
         [(*run, None, "auc", float(run[2])) for run in _RUNS] + [("a", 0, 1, 11, None, "auc", 99.0)],
         schema={
@@ -71,10 +71,11 @@ class TestRunKeyedFrames:
         assert subset.metrics.select("run_id", "step").rows() == [(2, 0), (2, 1), (3, 0), (3, 1)]
         assert subset.scalar_metrics.select("run_id", "value").rows() == [(2, 2.0), (3, 3.0)]
 
-    def test_matches_scalars_on_run_and_execution_together(self) -> None:
-        """A scalar whose run id survives under a different execution is not that run's value."""
+    def test_matches_rows_on_run_and_execution_together(self) -> None:
+        """A curve or scalar row whose run id survives under a different execution is not that run's data."""
         subset = _dataset().filter_runs(pl.col("run_id") == 1)
 
+        assert subset.metrics.select("run_id", "execution_id", "value").rows() == [(1, 10, 0.0), (1, 10, 1.0)]
         assert subset.scalar_metrics.select("run_id", "execution_id", "value").rows() == [(1, 10, 1.0)]
 
     def test_never_duplicates_rows(self) -> None:
@@ -83,7 +84,7 @@ class TestRunKeyedFrames:
 
         subset = dataset.filter_runs(pl.lit(True))
 
-        assert subset.metrics.equals(dataset.metrics)
+        assert subset.metrics.height == 2 * len(_RUNS)
         assert subset.scalar_metrics.height == len(_RUNS)
         assert subset.execution_metrics.equals(dataset.execution_metrics)
 
