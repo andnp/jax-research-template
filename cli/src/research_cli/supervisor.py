@@ -21,6 +21,7 @@ from types import FrameType
 
 from experiment_definition.db import DatabaseManager, RunBatch
 from experiment_definition.records import ExecutionArtifactRow
+from experiment_definition.status import ExecutionStatus
 from research_runner.types import ExperimentSpec
 
 from research_cli.parallel_policy import (
@@ -257,7 +258,7 @@ class _Supervisor:
             artifacts = [
                 database.get_execution_artifacts(execution.id)
                 for execution in executions
-                if execution.status == "COMPLETED"
+                if execution.status == ExecutionStatus.COMPLETED
             ]
         peaks = [peak for peak in map(_reported_peak_rss, artifacts) if peak is not None]
         return worker_projection(peaks, self._settings.worker_memory_bytes)
