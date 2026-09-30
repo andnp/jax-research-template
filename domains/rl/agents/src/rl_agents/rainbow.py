@@ -50,6 +50,8 @@ from rl_components.timestep import Timestep
 from rl_networks.layers import NatureCNN
 from rl_networks.q_networks import infer_nature_observation_layout, prepare_nature_observations
 
+from rl_agents.dqn_zoo_atari import dqn_zoo_atari_frames_to_env_steps
+
 type RainbowApplyFn = Callable[..., jax.Array]
 """The network's ``apply``, as reached through ``TrainState.apply_fn``.
 
@@ -193,28 +195,16 @@ def build_rainbow_zoo_atari_rmsprop(config: RainbowConfig) -> optax.GradientTran
     )
 
 
-def rainbow_zoo_atari_frames_to_env_steps(frames: int, num_action_repeats: int) -> int:
-    if frames < 0:
-        raise ValueError("frames must be non-negative.")
-    if num_action_repeats <= 0:
-        raise ValueError("num_action_repeats must be positive.")
-    if frames % num_action_repeats != 0:
-        raise ValueError(
-            "DQN Zoo frame-counted periods must divide evenly by num_action_repeats when converting to Atari env-step semantics."
-        )
-    return frames // num_action_repeats
-
-
 def rainbow_zoo_atari_min_replay_capacity(config: RainbowConfig) -> int:
     return int(config.REPLAY_CAPACITY * config.MIN_REPLAY_CAPACITY_FRACTION)
 
 
 def rainbow_zoo_atari_learn_period_env_steps(config: RainbowConfig) -> int:
-    return rainbow_zoo_atari_frames_to_env_steps(config.LEARN_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
+    return dqn_zoo_atari_frames_to_env_steps(config.LEARN_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
 
 
 def rainbow_zoo_atari_target_update_period_env_steps(config: RainbowConfig) -> int:
-    return rainbow_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
+    return dqn_zoo_atari_frames_to_env_steps(config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES, config.NUM_ACTION_REPEATS)
 
 
 def rainbow_importance_sampling_exponent(

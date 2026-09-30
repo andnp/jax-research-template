@@ -42,6 +42,8 @@ from rl_components.structs import chex_struct
 from rl_components.timestep import Timestep
 from rl_networks.q_networks import NatureQNetwork, infer_nature_observation_layout
 
+from rl_agents.dqn_zoo_atari import dqn_zoo_atari_frames_to_env_steps
+
 
 @chex_struct(frozen=True, kw_only=True)
 class DQNAtariConfig:
@@ -75,18 +77,6 @@ def build_dqn_zoo_atari_rmsprop(config: DQNAtariConfig) -> optax.GradientTransfo
         eps=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
         centered=config.RMSPROP_CENTERED,
     )
-
-
-def dqn_zoo_atari_frames_to_env_steps(frames: int, num_action_repeats: int) -> int:
-    if frames < 0:
-        raise ValueError("frames must be non-negative.")
-    if num_action_repeats <= 0:
-        raise ValueError("num_action_repeats must be positive.")
-    if frames % num_action_repeats != 0:
-        raise ValueError(
-            "DQN Zoo frame-counted periods must divide evenly by num_action_repeats when converting to Atari env-step semantics."
-        )
-    return frames // num_action_repeats
 
 
 def dqn_atari_runtime_from_dqn_zoo(
