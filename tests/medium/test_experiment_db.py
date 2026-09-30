@@ -483,13 +483,13 @@ def test_list_unsatisfied_run_batches_groups_by_static_vmap_zone(db: DatabaseMan
     exp_id = db.add_experiment("Batch Experiment")
 
     vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
-    shared_static_h1 = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
-    shared_static_h2 = db.add_hyperparam_config({"arch": "mlp", "lr": 3e-4}, vmap_zone=vmap_zone)
-    different_static = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3}, vmap_zone=vmap_zone)
+    shared_static_h1 = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3})
+    shared_static_h2 = db.add_hyperparam_config({"arch": "mlp", "lr": 3e-4})
+    different_static = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3})
 
-    db.add_run(exp_id, algo_ver, env_ver, shared_static_h1, seed=0)
-    db.add_run(exp_id, algo_ver, env_ver, shared_static_h2, seed=1)
-    db.add_run(exp_id, algo_ver, env_ver, different_static, seed=2)
+    db.add_run(exp_id, algo_ver, env_ver, shared_static_h1, seed=0, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, shared_static_h2, seed=1, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, different_static, seed=2, vmap_zone=vmap_zone)
 
     batches = db.list_unsatisfied_run_batches(exp_id)
 
@@ -508,9 +508,9 @@ def _selector_fixture(db: DatabaseManager) -> int:
 
     vmap_zone = {"static_keys": ["algorithm"], "dynamic_keys": []}
     for algorithm in ("sac", "gi_sac"):
-        hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "lr": 1e-3}, vmap_zone=vmap_zone)
+        hyper_id = db.add_hyperparam_config({"algorithm": algorithm, "lr": 1e-3})
         for seed in range(4):
-            db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed)
+            db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed, vmap_zone=vmap_zone)
     return exp_id
 
 
@@ -589,9 +589,9 @@ def test_list_unsatisfied_run_batches_respects_batch_limit(db: DatabaseManager) 
     env_ver = db.add_component_version(env_id, "env-hash")
     exp_id = db.add_experiment("Chunk Experiment")
 
-    hyper_id = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone={"static_keys": ["arch"]})
+    hyper_id = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3})
     for seed in range(5):
-        db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed)
+        db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=seed, vmap_zone={"static_keys": ["arch"]})
 
     batches = db.list_unsatisfied_run_batches(exp_id, max_runs_per_batch=2)
 
@@ -615,14 +615,14 @@ def test_list_unsatisfied_run_batches_chunks_do_not_interleave_hyper_configs(db:
     exp_id = db.add_experiment("Interleave Experiment")
 
     vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
-    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
-    hyper_b = db.add_hyperparam_config({"arch": "mlp", "lr": 2e-3}, vmap_zone=vmap_zone)
+    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3})
+    hyper_b = db.add_hyperparam_config({"arch": "mlp", "lr": 2e-3})
 
     hyper_a_run_ids = []
     hyper_b_run_ids = []
     for seed in range(3):
-        hyper_a_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=seed))
-        hyper_b_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=seed))
+        hyper_a_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=seed, vmap_zone=vmap_zone))
+        hyper_b_run_ids.append(db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=seed, vmap_zone=vmap_zone))
 
     batches = db.list_unsatisfied_run_batches(exp_id, max_runs_per_batch=3)
 
@@ -639,11 +639,11 @@ def test_plan_experiment_execution_batches_creates_one_execution_per_batch(db: D
     exp_id = db.add_experiment("Planner Experiment")
 
     vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
-    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3}, vmap_zone=vmap_zone)
-    hyper_b = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3}, vmap_zone=vmap_zone)
-    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=0)
-    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=1)
-    db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=2)
+    hyper_a = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3})
+    hyper_b = db.add_hyperparam_config({"arch": "cnn", "lr": 1e-3})
+    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=0, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_a, seed=1, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_b, seed=2, vmap_zone=vmap_zone)
 
     execution_ids = [
         planned.execution_id
@@ -706,12 +706,10 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
     env_ver = db.add_component_version(env_id, "env-hash")
     exp_id = db.add_experiment("Facade Experiment")
 
-    hyper_id = db.add_hyperparam_config(
-        {"arch": "mlp", "lr": 1e-3},
-        vmap_zone={"static_keys": ["arch"], "dynamic_keys": ["lr"]},
-    )
-    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=0)
-    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=1)
+    hyper_id = db.add_hyperparam_config({"arch": "mlp", "lr": 1e-3})
+    vmap_zone = {"static_keys": ["arch"], "dynamic_keys": ["lr"]}
+    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=0, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=1, vmap_zone=vmap_zone)
 
     planned = db.plan_experiment_execution_batches(
         exp_id,
@@ -742,10 +740,10 @@ def test_plan_experiment_execution_batches_rolls_back_all_batches_on_artifact_fa
     env_ver = db.add_component_version(env_id, "env-hash")
     exp_id = db.add_experiment("Atomic Planner Experiment")
     vmap_zone = {"static_keys": ["arch"], "dynamic_keys": []}
-    mlp_hyper_id = db.add_hyperparam_config({"arch": "mlp"}, vmap_zone=vmap_zone)
-    cnn_hyper_id = db.add_hyperparam_config({"arch": "cnn"}, vmap_zone=vmap_zone)
-    db.add_run(exp_id, algo_ver, env_ver, mlp_hyper_id, seed=0)
-    db.add_run(exp_id, algo_ver, env_ver, cnn_hyper_id, seed=1)
+    mlp_hyper_id = db.add_hyperparam_config({"arch": "mlp"})
+    cnn_hyper_id = db.add_hyperparam_config({"arch": "cnn"})
+    db.add_run(exp_id, algo_ver, env_ver, mlp_hyper_id, seed=0, vmap_zone=vmap_zone)
+    db.add_run(exp_id, algo_ver, env_ver, cnn_hyper_id, seed=1, vmap_zone=vmap_zone)
     db.conn.execute(
         "CREATE TRIGGER fail_second_artifact_insert "
         "BEFORE INSERT ON ExecutionArtifacts "

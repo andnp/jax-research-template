@@ -72,7 +72,7 @@ def list_unsatisfied_run_batches(
 ) -> list[RunBatch]:
     rows = conn.execute(
         "SELECT r.id, r.experiment_id, r.algo_version_id, r.env_version_id, r.hyper_id, r.seed, r.ablation, "
-        "       r.vmap_zone_json AS vmap_zone, hc.json_blob, hc.vmap_zone_json "
+        "       r.vmap_zone_json AS vmap_zone, hc.json_blob "
         "FROM Runs r "
         "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
         "LEFT JOIN (" + _CLAIMED_RUNS_SQL + ") claimed ON claimed.run_id = r.id "
@@ -87,7 +87,7 @@ def list_unsatisfied_run_batches(
         hyper_json = str(row["json_blob"])
         if only and not _run_matches(json.loads(hyper_json), run, only):
             continue
-        vmap_zone_json = row["vmap_zone_json"]
+        vmap_zone_json = row["vmap_zone"]
         batch_key = _batch_key(run.algo_version_id, run.env_version_id, run.ablation, hyper_json, vmap_zone_json)
         grouped_runs.setdefault(batch_key, []).append(run.id)
 
@@ -131,7 +131,7 @@ def fail_group_executions_started_since(
     conn.execute("BEGIN IMMEDIATE")
     try:
         rows = conn.execute(
-            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, hc.json_blob, hc.vmap_zone_json "
+            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, hc.json_blob, r.vmap_zone_json "
             "FROM Executions e "
             "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
             "INNER JOIN Runs r ON r.id = er.run_id "
