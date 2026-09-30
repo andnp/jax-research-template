@@ -108,39 +108,6 @@ class BSM1CombinedPlantState:
     loops: BSM1CombinedLoopState
     sensors: BSM1CombinedObsSensors
 
-def _make_dosing_params(
-    *,
-    control_mode: int,
-    base_setpoint: float,
-    sensor_noise_std: float,
-    sensor_lag: float,
-    sensor_drift_rate: float,
-    kp: float,
-    ki: float,
-    ff: float,
-    output_min: float,
-    output_max: float,
-    max_ramp_up: float,
-    max_ramp_down: float,
-    startup_delay: float = 0.0,
-) -> DosingSystemParams:
-    return DosingSystemParams(
-        control_mode=control_mode,
-        base_setpoint=base_setpoint,
-        sensor_noise_std=sensor_noise_std,
-        sensor_lag=sensor_lag,
-        sensor_drift_rate=sensor_drift_rate,
-        kp=kp,
-        ki=ki,
-        ff=ff,
-        output_min=output_min,
-        output_max=output_max,
-        max_ramp_up=max_ramp_up,
-        max_ramp_down=max_ramp_down,
-        startup_delay=startup_delay,
-    )
-
-
 def make_bsm1_combined_benchmark(
     config: BSM1CombinedConfig,
 ) -> tuple[
@@ -155,7 +122,7 @@ def make_bsm1_combined_benchmark(
     recycle = config.recycle
     reward_cfg = config.reward
 
-    kla_34_dosing = _make_dosing_params(
+    kla_34_dosing = DosingSystemParams(
         control_mode=bsm1.control_mode,
         base_setpoint=bsm1.do_base_setpoint,
         sensor_noise_std=bsm1.do_noise_std,
@@ -172,7 +139,7 @@ def make_bsm1_combined_benchmark(
     )
 
     # kla_5 DosingSystem: DO R5 sensor → PI → kla
-    kla_5_dosing = _make_dosing_params(
+    kla_5_dosing = DosingSystemParams(
         control_mode=bsm1.control_mode,
         base_setpoint=bsm1.do_base_setpoint,
         sensor_noise_std=bsm1.do_noise_std,
@@ -189,7 +156,7 @@ def make_bsm1_combined_benchmark(
     )
 
     # Q_a DosingSystem: NO3 R2 sensor → reverse-acting PI → Q_a ratio
-    q_a_dosing = _make_dosing_params(
+    q_a_dosing = DosingSystemParams(
         control_mode=recycle.control_mode,
         base_setpoint=recycle.q_a_base_setpoint,
         sensor_noise_std=recycle.q_a_sensor_noise_std,
