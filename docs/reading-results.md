@@ -182,8 +182,10 @@ versions before you interpret anything. Reproduce a historical cohort with
 
 ## Diverged runs are outcomes
 
-Runs whose metric went NaN or infinite stay in the dataset. They are listed in
-`runs["non_finite_metrics"]` and counted as diverged in the accounting.
+Runs whose curve or stored per-run scalar went NaN or infinite stay in the
+dataset. They are listed in `runs["non_finite_metrics"]` and counted as diverged
+in the accounting, once per run and metric. A non-finite whole-execution value in
+`execution_metrics` is not a run outcome and is not counted.
 `run_scores`, and so every report, raises `NonFiniteValuesError` naming those
 runs. You can declare a worst-case score with
 `research_analysis.non_finite.substitute_non_finite(dataset, metric, worst_case)`
