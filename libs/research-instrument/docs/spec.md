@@ -10,8 +10,9 @@ It does no in-training collection and emits no callbacks.
 - **One writer:** `seed_batch` and `scalar` are the only paths that insert metric rows.
 - **One schema owner:** `sqlite_backend` holds the DDL, the insert column lists, schema
   migration, and connection handling.
-- **Safe for shared storage:** concurrent Slurm array tasks write the same file over a
-  network filesystem.
+- **Concurrent writers:** Slurm array tasks may write the same file; contention is handled
+  by a busy timeout on a rollback journal, which assumes the shared filesystem's file
+  locking works.
 
 ## 2. API
 
