@@ -51,3 +51,15 @@ def test_group_filter_plans_only_that_group(tmp_path: Path) -> None:
             experiment_id, tmp_path / "executions", group=target.group_key
         ) is None
         assert database.plan_next_execution_batch(experiment_id, tmp_path / "executions") is not None
+
+
+def test_groups_with_and_without_an_ablation_list_together(tmp_path: Path) -> None:
+    """A run with no ablation and one with a named ablation form two listable groups."""
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        experiment_id = database.add_experiment("mixed-ablation")
+        hyper_id = database.add_hyperparam_config({"condition_name": "baseline"})
+        for ablation in (None, "no-trick"):
+            database.add_run(experiment_id, None, None, hyper_id, 0, ablation)
+
+        assert len(database.list_unsatisfied_run_batches(experiment_id)) == 2

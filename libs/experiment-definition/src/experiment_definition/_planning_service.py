@@ -83,10 +83,11 @@ def list_unsatisfied_run_batches(
         )
         grouped_runs.setdefault(batch_key, []).append(run.id)
 
+    # None sorts first, so groups with and without an ablation or version still compare.
     def batch_key_of(
         item: tuple[tuple[int | None, int | None, str | None, str, str | None], list[int]],
-    ) -> tuple[int | None, int | None, str | None, str, str | None]:
-        return item[0]
+    ) -> tuple[tuple[bool, int | str], ...]:
+        return tuple((value is not None, value if value is not None else 0) for value in item[0])
 
     batches: list[RunBatch] = []
     for batch_key, run_ids in sorted(grouped_runs.items(), key=batch_key_of):
