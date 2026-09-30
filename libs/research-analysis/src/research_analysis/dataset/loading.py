@@ -58,7 +58,7 @@ def load_experiment_dataset(
     metric_frames, scalar_frames = load_metric_frames(rows, experiment.id, metrics, diagnostics)
     run_frame, metric_frame = assemble_frames(rows, metric_frames, selected_dimensions)
     scalar_metric_frame, execution_metric_frame = assemble_scalar_frames(rows, scalar_frames, selected_dimensions)
-    divergence = non_finite_summary(metric_frame)
+    divergence = non_finite_summary(metric_frame, scalar_metric_frame)
     diagnose_non_finite(divergence, diagnostics)
     run_frame = with_non_finite_metrics(run_frame, divergence)
     accounting = account_runs(resolved, selected_sets, selected_versions, diagnostics.as_tuple(), divergence)
