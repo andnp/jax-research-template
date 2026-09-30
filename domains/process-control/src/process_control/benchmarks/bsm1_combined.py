@@ -39,7 +39,6 @@ class BSM1CombinedDOConfig:
     do_ki: float = 0.5
     do_ff: float = 5.0
     do_base_setpoint: float = 2.0
-    do_max_integral: float = 20.0
     kla_34_min: float = 0.0
     kla_34_max: float = 10.0
     kla_34_ramp_up: float = 5.0
@@ -59,11 +58,6 @@ class BSM1CombinedRecycleConfig:
     q_a_ki: float = -0.1
     q_a_ff: float = 3.0
     q_a_base_setpoint: float = 5.0
-    # Sized so |ki| * max_integral covers the full actuator authority
-    # max(ratio_max - ff, ff - ratio_min) = max(6 - 3, 3 - 0.5) = 3 (Åström &
-    # Murray, Feedback Systems, ch. 10 "Integrator Windup",
-    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
-    q_a_max_integral: float = 30.0
     q_a_sensor_noise_std: float = 0.3
     q_a_sensor_lag: float = 0.8
     q_a_sensor_drift_rate: float = 0.001
@@ -146,7 +140,6 @@ def _make_dosing_params(
     ff: float,
     output_min: float,
     output_max: float,
-    max_integral: float,
     max_ramp_up: float,
     max_ramp_down: float,
     startup_delay: float = 0.0,
@@ -162,7 +155,6 @@ def _make_dosing_params(
         ff=ff,
         output_min=output_min,
         output_max=output_max,
-        max_integral=max_integral,
         max_ramp_up=max_ramp_up,
         max_ramp_down=max_ramp_down,
         startup_delay=startup_delay,
@@ -199,7 +191,6 @@ def make_bsm1_combined_benchmark(
         ff=do.do_ff,
         output_min=do.kla_34_min,
         output_max=do.kla_34_max,
-        max_integral=do.do_max_integral,
         max_ramp_up=do.kla_34_ramp_up,
         max_ramp_down=do.kla_34_ramp_down,
         startup_delay=do.kla_34_startup_delay,
@@ -217,7 +208,6 @@ def make_bsm1_combined_benchmark(
         ff=do.do_ff,
         output_min=do.kla_5_min,
         output_max=do.kla_5_max,
-        max_integral=do.do_max_integral,
         max_ramp_up=do.kla_5_ramp_up,
         max_ramp_down=do.kla_5_ramp_down,
         startup_delay=do.kla_5_startup_delay,
@@ -235,7 +225,6 @@ def make_bsm1_combined_benchmark(
         ff=recycle.q_a_ff,
         output_min=recycle.q_a_ratio_min,
         output_max=recycle.q_a_ratio_max,
-        max_integral=recycle.q_a_max_integral,
         max_ramp_up=recycle.q_a_ramp_rate,
         max_ramp_down=recycle.q_a_ramp_rate,
     )

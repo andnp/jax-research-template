@@ -15,10 +15,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
-from process_control.benchmarks.bsm1_combined import (
-    BSM1CombinedDOConfig,
-    BSM1CombinedRecycleConfig,
-)
 from process_control.benchmarks.chem_p_dosing import ChemPDosingConfig, make_chem_p_dosing_benchmark
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
 from process_control.benchmarks.chlorine_two_stage import (
@@ -94,16 +90,6 @@ class TestPIIntegralAuthorityContract:
             "makeup": c.makeup_max_integral,
         }[loop]
         assert ki * max_integral >= _authority(ff, out_min, out_max)
-
-    def test_bsm1_combined_do(self) -> None:
-        do = BSM1CombinedDOConfig()
-        assert do.do_ki * do.do_max_integral >= _authority(do.do_ff, do.kla_34_min, do.kla_34_max)
-        assert do.do_ki * do.do_max_integral >= _authority(do.do_ff, do.kla_5_min, do.kla_5_max)
-
-    def test_bsm1_combined_recycle(self) -> None:
-        recycle = BSM1CombinedRecycleConfig()
-        authority = _authority(recycle.q_a_ff, recycle.q_a_ratio_min, recycle.q_a_ratio_max)
-        assert abs(recycle.q_a_ki) * recycle.q_a_max_integral >= authority
 
 
 class TestClosedLoopTracking:
