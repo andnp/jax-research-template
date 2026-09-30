@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sqlite3
 import sys
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +11,7 @@ from types import ModuleType
 
 import typer
 from experiment_definition.db import DatabaseManager
+from experiment_definition.status import RunState, run_state
 from research_analysis.plan import registered_plans
 from research_analysis.plan_report import run_plan
 from research_analysis.plan_snapshots import read_plan_snapshots, record_plan_snapshot
@@ -167,27 +169,8 @@ def status(
         for exp_row in exp_rows:
             all_runs = db.list_runs(exp_row.id)
             statuses = db.list_run_execution_statuses(exp_row.id)
-            # FAILED must not hide behind "pending": a run with only failed executions is
-            # neither satisfied nor merely unrun, and an agent needs to see it separately.
-            completed_ids = {r.id for r in all_runs if "COMPLETED" in statuses.get(r.id, frozenset())}
-            # Precedence matches research_analysis.dataset.candidates._run_state: an
-            # in-flight PENDING/RUNNING execution outranks a FAILED one, since the run
-            # may yet complete.
-            failed_ids = {
-                r.id
-                for r in all_runs
-                if r.id not in completed_ids
-                and "FAILED" in statuses.get(r.id, frozenset())
-                and not statuses.get(r.id, frozenset()) & {"PENDING", "RUNNING"}
-            }
-            total = len(all_runs)
-            completed = len(completed_ids)
-            failed = len(failed_ids)
-            pending = total - completed - failed
-            typer.echo(
-                f"{exp_row.name}: {total} runs "
-                f"({completed} completed, {failed} failed, {pending} pending)"
-            )
+            state_of = {r.id: run_state(statuses.get(r.id, frozenset())) for r in all_runs}
+            typer.echo(f"{exp_row.name}: {_describe_states(list(state_of.values()))}")
 
             pairs = {(r.algo_version_id, r.env_version_id) for r in all_runs}
             if len(pairs) > 1:
@@ -199,22 +182,25 @@ def status(
                 # mints a version and its unexecuted runs for any source edit, cosmetic
                 # ones included, so the newest pair is routinely one nothing has run.
                 with_results = [
-                    pair for pair, runs in counts.items() if any(r.id in completed_ids for r in runs)
+                    pair for pair, runs in counts.items() if any(state_of[r.id] is RunState.COMPLETED for r in runs)
                 ]
                 newest_pair = max(with_results, key=_version_pair_newest_key) if with_results else None
                 for pair in sorted(pairs, key=_version_pair_sort_key):
-                    pair_runs = counts[pair]
-                    pair_total = len(pair_runs)
-                    pair_completed = sum(1 for r in pair_runs if r.id in completed_ids)
-                    pair_failed = sum(1 for r in pair_runs if r.id in failed_ids)
-                    pair_pending = pair_total - pair_completed - pair_failed
                     marker = " (newest with results)" if pair == newest_pair else ""
                     algo_display = _render_version(pair[0])
                     env_display = _render_version(pair[1])
                     typer.echo(
                         f"  algo_version={algo_display} env_version={env_display}: "
-                        f"{pair_total} runs ({pair_completed} completed, {pair_failed} failed, {pair_pending} pending){marker}"
+                        f"{_describe_states([state_of[r.id] for r in counts[pair]])}{marker}"
                     )
+
+
+def _describe_states(states: list[RunState]):
+    counts = Counter(states)
+    return (
+        f"{len(states)} runs ({counts[RunState.COMPLETED]} completed, "
+        f"{counts[RunState.FAILED]} failed, {counts[RunState.PENDING]} pending)"
+    )
 
 
 _ONLY_HELP = (

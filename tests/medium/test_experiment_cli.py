@@ -166,9 +166,8 @@ def test_experiment_status_separates_failed_from_never_run(tmp_path: Path) -> No
 def test_experiment_status_a_retried_run_counts_as_pending_not_failed(tmp_path: Path) -> None:
     """A run with a FAILED execution and a queued retry is in-flight, not failed.
 
-    Precedence must match research_analysis.dataset.candidates._run_state: completed >
-    in-flight pending/running > failed > never run. Covers both the overall count and
-    the per-version-pair breakdown.
+    Precedence is completed > in-flight pending/running > failed > never run, the same
+    rule analysis applies. Covers both the overall count and the per-version-pair breakdown.
     """
     db_path = tmp_path / "test.sqlite"
     with DatabaseManager(db_path) as db:
