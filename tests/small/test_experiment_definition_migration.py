@@ -1,0 +1,49 @@
+"""Contract tests for opening results databases written by an older schema."""
+
+import sqlite3
+from pathlib import Path
+
+from experiment_definition.db import DatabaseManager
+
+_ZONE_JSON = '{"dynamic_keys": ["lr"], "static_keys": ["arch"]}'
+
+_LEGACY_DDL = [
+    "CREATE TABLE Experiments (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, "
+    "description TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+    "CREATE TABLE HyperparamConfigs (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL UNIQUE, "
+    "json_blob TEXT NOT NULL, vmap_zone_json TEXT)",
+    "CREATE TABLE Runs (id INTEGER PRIMARY KEY AUTOINCREMENT, experiment_id INTEGER NOT NULL, "
+    "algo_version_id INTEGER, env_version_id INTEGER, hyper_id INTEGER NOT NULL, seed INTEGER NOT NULL, "
+    "ablation TEXT, UNIQUE(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation))",
+]
+
+
+def _write_legacy_database(db_path: Path) -> None:
+    with sqlite3.connect(db_path) as con:
+        for ddl in _LEGACY_DDL:
+            con.execute(ddl)
+        con.execute("INSERT INTO Experiments(name) VALUES ('legacy')")
+        for hyper_id, lr in ((1, 1e-3), (2, 3e-4)):
+            con.execute(
+                "INSERT INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
+                (f"h{hyper_id}", f'{{"arch": "mlp", "lr": {lr}}}', _ZONE_JSON),
+            )
+            con.execute("INSERT INTO Runs(experiment_id, hyper_id, seed) VALUES (1, ?, 0)", (hyper_id,))
+
+
+def test_legacy_database_keeps_its_batches_after_upgrade(tmp_path: Path) -> None:
+    """Runs of a pre-upgrade database inherit their config's zone, so they still batch together.
+
+    Results databases are durable; opening one with a newer core must not re-split its
+    pending runs or change their group keys.
+    """
+    db_path = tmp_path / "experiments.sqlite"
+    _write_legacy_database(db_path)
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        zones = {row[0] for row in database.conn.execute("SELECT vmap_zone_json FROM Runs")}
+        batches = database.list_unsatisfied_run_batches(1)
+
+    assert zones == {_ZONE_JSON}
+    assert [(batch.static_config, len(batch.run_ids)) for batch in batches] == [({"arch": "mlp"}, 2)]
