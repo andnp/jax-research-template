@@ -22,8 +22,12 @@ from process_control.units.asm1 import (
     mix_streams,
 )
 from process_control.units.asm1 import (
+    reset as asm1_reset,
+)
+from process_control.units.asm1 import (
     step as asm1_step,
 )
+from process_control.units.bsm1_plant import perfect_clarifier, reactor_train
 
 
 class TestASM1Unit:
@@ -394,3 +398,56 @@ class TestBSM1Benchmark:
         assert jnp.allclose(obs[3], prev_r5_so / 8.0, atol=1e-5)
         # Effluent NH4 reading should match current true state (standalone sensor)
         assert jnp.allclose(obs[0], info["s_nh_effluent"] / 35.0, atol=1e-5)
+
+
+type Reactors = tuple[ASM1State, ASM1State, ASM1State, ASM1State, ASM1State]
+
+
+class TestASM1IntegrationStability:
+    @pytest.mark.parametrize(
+        "q_a_ratio, q_rs_ratio",
+        [(3.0, 1.0), (0.5, 0.3)],
+        ids=["bsm1_recycle", "minimum_recycle"],
+    )
+    def test_max_aeration_keeps_do_within_saturation(self, q_a_ratio: float, q_rs_ratio: float) -> None:
+        """Every reactor's DO stays in [0, s_o_sat] at maximum kLa over a BSM1 dt.
+
+        Near DO=0 the O2-Monod terms make the reactor ODE stiff enough that a
+        single explicit step per dt diverges, spiking DO far above saturation.
+        """
+        config = BSM1BenchmarkConfig()
+        initial = config.initial_states
+        key = jax.random.PRNGKey(0)
+        params = (
+            ASM1Params(volume=config.v1),
+            ASM1Params(volume=config.v2),
+            ASM1Params(volume=config.v3),
+            ASM1Params(volume=config.v4),
+            ASM1Params(volume=config.v5),
+        )
+        influent = asm1_reset(initial.influent, key)
+        reactors = (
+            asm1_reset(initial.r1, key),
+            asm1_reset(initial.r2, key),
+            asm1_reset(initial.r3, key),
+            asm1_reset(initial.r4, key),
+            asm1_reset(initial.r5, key),
+        )
+        q_in = jnp.array(config.mean_flow)
+        q_a = q_a_ratio * q_in
+        q_rs = q_rs_ratio * q_in
+        kla = jnp.array(config.kla_34_max)
+
+        def body(reactors: Reactors, _: None):
+            _effluent, sludge = perfect_clarifier(reactors[4], q_in + q_rs, q_rs, jnp.array(config.q_w_fixed))
+            reactors = reactor_train(reactors, influent, q_in, sludge, q_rs, q_a, kla, kla, params, jnp.array(config.dt))
+            return reactors, jnp.stack([r.s_o for r in reactors])
+
+        def rollout(reactors: Reactors):
+            return jax.lax.scan(body, reactors, None, length=300)
+
+        _, dissolved_oxygen = jax.jit(rollout)(reactors)
+
+        assert dissolved_oxygen.shape == (300, 5)
+        assert float(dissolved_oxygen.min()) >= 0.0
+        assert float(dissolved_oxygen.max()) <= params[0].s_o_sat
