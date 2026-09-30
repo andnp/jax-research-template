@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
+from experiment_definition.experiment import Experiment
 
 
 def _seed_groups(database: DatabaseManager, seeds: tuple[int, ...] = (0, 1)) -> int:
@@ -102,3 +103,33 @@ def test_fail_group_executions_fails_only_that_groups_recent_running(tmp_path: P
 
     assert failed == [dead]
     assert statuses == {dead: "FAILED", older: "RUNNING", finished: "COMPLETED", other_group: "RUNNING"}
+
+
+def test_fail_group_executions_survives_a_split_change_while_running(tmp_path: Path) -> None:
+    """A dead worker's execution is still failed after a re-sync changes the static split mid-run.
+
+    A re-sync rewrites each run's zone, so a group identity rebuilt from current zones would
+    miss the execution and leave its runs claimed forever.
+    """
+    db_path = tmp_path / "experiments.sqlite"
+    experiment = Experiment("split-change")
+    experiment.add_parameter("seed", [0, 1])
+    experiment.add_parameter("arch", ["mlp"])
+    experiment.add_parameter("lr", [1e-3, 3e-4])
+    experiment.sync(db_path, static_parameter_names=frozenset({"arch"}))
+    since = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+
+    with DatabaseManager(db_path) as database:
+        experiment_row = database.get_experiment("split-change")
+        assert experiment_row is not None
+        [batch] = database.list_unsatisfied_run_batches(experiment_row.id)
+        planned = database.plan_next_execution_batch(experiment_row.id, tmp_path / "executions")
+        assert planned is not None
+        database.update_execution_status(planned.execution_id, "RUNNING", start_time="2026-01-01T12:00:01+00:00")
+
+    experiment.sync(db_path, static_parameter_names=frozenset({"arch", "lr"}))
+
+    with DatabaseManager(db_path) as database:
+        failed = database.fail_group_executions_started_since(experiment_row.id, batch.group_key, since)
+
+    assert failed == [planned.execution_id]

@@ -64,6 +64,19 @@ def _group_key(batch_key: _BatchKey) -> str:
     return hashlib.sha256(json.dumps(batch_key).encode()).hexdigest()[:12]
 
 
+def _planned_group_key(
+    algo_version_id: int | None,
+    env_version_id: int | None,
+    ablation: str | None,
+    metadata_json: str,
+) -> str:
+    # A re-sync may have changed the runs' zones since planning, so use the batch as planned.
+    metadata = json.loads(metadata_json)
+    return _group_key(
+        (algo_version_id, env_version_id, ablation, metadata["static_config_json"], metadata["vmap_zone_json"])
+    )
+
+
 def list_unsatisfied_run_batches(
     conn: sqlite3.Connection,
     experiment_id: int,
@@ -132,21 +145,15 @@ def fail_group_executions_started_since(
     conn.execute("BEGIN IMMEDIATE")
     try:
         rows = conn.execute(
-            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, hc.json_blob, r.vmap_zone_json "
+            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, ea.metadata_json "
             "FROM Executions e "
+            "INNER JOIN ExecutionArtifacts ea ON ea.execution_id = e.id "
             "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
             "INNER JOIN Runs r ON r.id = er.run_id "
-            "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
             f"WHERE r.experiment_id = ? AND e.status = '{ExecutionStatus.RUNNING}' AND e.start_time >= ?",
             (experiment_id, since),
         ).fetchall()
-        failed = sorted(
-            {
-                int(row[0])
-                for row in rows
-                if _group_key(_batch_key(row[1], row[2], row[3], str(row[4]), row[5])) == group
-            }
-        )
+        failed = sorted({int(row[0]) for row in rows if _planned_group_key(row[1], row[2], row[3], row[4]) == group})
         for execution_id in failed:
             _execution._transition(conn, execution_id, ExecutionStatus.FAILED, None, now)
         conn.commit()
