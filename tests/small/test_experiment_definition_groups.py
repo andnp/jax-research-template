@@ -6,7 +6,7 @@ from pathlib import Path
 from experiment_definition.db import DatabaseManager
 
 
-def _seed_groups(database: DatabaseManager) -> int:
+def _seed_groups(database: DatabaseManager, seeds: tuple[int, ...] = (0, 1)) -> int:
     """Create four groups that differ only in ablation or algorithm version."""
     experiment_id = database.add_experiment("groups-test")
     component_id = database.add_component("algo", "ALGO")
@@ -15,7 +15,7 @@ def _seed_groups(database: DatabaseManager) -> int:
     hyper_id = database.add_hyperparam_config({"condition_name": "baseline"})
     for version in (v1, v2):
         for ablation in ("full", "no-trick"):
-            for seed in (0, 1):
+            for seed in seeds:
                 database.add_run(experiment_id, version, None, hyper_id, seed, ablation)
     return experiment_id
 
@@ -76,19 +76,21 @@ def test_fail_group_executions_fails_only_that_groups_recent_running(tmp_path: P
     before, after = "2026-01-01T11:59:59+00:00", "2026-01-01T12:00:00.5+00:00"
     with DatabaseManager(tmp_path / "experiments.sqlite") as database:
         database.initialize()
-        experiment_id = _seed_groups(database)
+        experiment_id = _seed_groups(database, seeds=(0, 1, 2))
         target, other = database.list_unsatisfied_run_batches(experiment_id)[:2]
 
-        def running(run_id: int, start_time: str, status: str = "RUNNING") -> int:
-            execution_id = database.add_execution()
-            database.link_execution_run(execution_id, run_id)
-            database.update_execution_status(execution_id, status, start_time=start_time)
-            return execution_id
+        def running(group: str, start_time: str, status: str = "RUNNING"):
+            planned = database.plan_next_execution_batch(
+                experiment_id, tmp_path / "executions", max_runs_per_batch=1, group=group
+            )
+            assert planned is not None
+            database.update_execution_status(planned.execution_id, status, start_time=start_time)
+            return planned.execution_id
 
-        dead = running(target.run_ids[0], after)
-        older = running(target.run_ids[1], before)
-        finished = running(target.run_ids[1], after, "COMPLETED")
-        other_group = running(other.run_ids[0], after)
+        dead = running(target.group_key, after)
+        older = running(target.group_key, before)
+        finished = running(target.group_key, after, "COMPLETED")
+        other_group = running(other.group_key, after)
 
         def status(execution_id: int) -> str:
             execution = database.get_execution(execution_id)
