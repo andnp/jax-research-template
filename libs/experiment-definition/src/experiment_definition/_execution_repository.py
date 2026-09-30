@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
-from .status import TRANSITIONS, ExecutionStatus
+from .status import LIVE, TRANSITIONS, ExecutionStatus
 
 
 def add_execution(
@@ -124,6 +124,18 @@ def update_execution_status(
     conn.execute("BEGIN IMMEDIATE")
     try:
         _transition(conn, execution_id, status, start_time, end_time)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def fail_live_execution(conn: sqlite3.Connection, execution_id: int, end_time: str) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
+        if row is not None and row[0] in LIVE:
+            _transition(conn, execution_id, ExecutionStatus.FAILED, None, end_time)
         conn.commit()
     except Exception:
         conn.rollback()

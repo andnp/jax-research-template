@@ -473,6 +473,10 @@ class DatabaseManager:
         """
         _execution.update_execution_status(self.conn, execution_id, status, start_time, end_time)
 
+    def fail_execution(self, execution_id: int) -> None:
+        """Mark a PENDING or RUNNING execution FAILED now, leaving a finished one untouched."""
+        _execution.fail_live_execution(self.conn, execution_id, datetime.now(timezone.utc).isoformat())
+
     def reclaim_stale_executions(
         self,
         experiment_id: int,
