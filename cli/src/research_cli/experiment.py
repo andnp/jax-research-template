@@ -323,6 +323,7 @@ def run(
         help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
     ),
     only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
+    group: str | None = typer.Option(None, "--group", hidden=True, help="Run only the batches with this group key."),
     # Unused here: the real JAX_PLATFORMS decision must happen in main.py before jax is
     # ever imported, so this is declared only so typer accepts/documents the flag.
     gpu: bool = typer.Option(False, "--gpu", help="Use the GPU backend for JAX instead of CPU."),
@@ -352,6 +353,7 @@ def run(
             static_parameter_names=experiment_spec.static_parameter_names,
             metric_subsample_factor=experiment_spec.metric_subsample_factor,
             only=only_clauses,
+            group=group,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:

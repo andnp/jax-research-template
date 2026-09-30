@@ -32,8 +32,12 @@ def run_experiment(
     static_parameter_names: frozenset[str] | None = None,
     metric_subsample_factor: int = 1,
     only: Mapping[str, str] | None = None,
+    group: str | None = None,
 ):
-    """``only`` restricts which pending runs execute, per the planning service matcher."""
+    """``only`` restricts which pending runs execute, per the planning service matcher.
+
+    ``group`` restricts execution to the batches whose ``RunBatch.group_key`` matches.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     static_parameter_names = _resolve_static_parameter_names(
         experiment,
@@ -66,6 +70,7 @@ def run_experiment(
                 git_commit=git_commit,
                 git_diff_blob=git_diff,
                 only=only,
+                group=group,
             )
         if planned is None:
             break
