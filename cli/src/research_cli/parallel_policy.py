@@ -74,3 +74,12 @@ def parse_meminfo(text: bytes) -> MemInfo:
     if missing:
         raise ValueError(f"meminfo is missing {', '.join(sorted(missing))}")
     return MemInfo(available_bytes=values["MemAvailable"], total_bytes=values["MemTotal"])
+
+
+def parse_vm_rss(text: bytes) -> int:
+    """Resident set size in bytes from /proc/<pid>/status contents; 0 for a process that has exited."""
+    for line in text.decode().splitlines():
+        key, _, rest = line.partition(":")
+        if key == "VmRSS":
+            return int(rest.split()[0]) * 1024
+    return 0

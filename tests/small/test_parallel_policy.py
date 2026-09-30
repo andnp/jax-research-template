@@ -5,6 +5,7 @@ from research_cli.parallel_policy import (
     RunningWorker,
     admit_worker,
     parse_meminfo,
+    parse_vm_rss,
     worker_projection,
     worker_threads,
 )
@@ -86,3 +87,13 @@ class TestParseMeminfo:
     def test_missing_field_raises(self) -> None:
         with pytest.raises(ValueError, match="MemAvailable"):
             parse_meminfo(b"MemTotal: 1 kB\n")
+
+
+class TestParseVmRss:
+    def test_reads_resident_set_in_bytes(self) -> None:
+        """VmRSS is reported in kB and returned in bytes."""
+        assert parse_vm_rss(b"Name:\tpython\nVmRSS:\t  2048 kB\nThreads:\t4\n") == 2048 * 1024
+
+    def test_exited_process_has_no_resident_set(self) -> None:
+        """A zombie's status has no VmRSS line, so it counts as using no memory."""
+        assert parse_vm_rss(b"Name:\tpython\nState:\tZ (zombie)\n") == 0
