@@ -1,11 +1,8 @@
 import jax
 import jax.numpy as jnp
 import numpy.testing as npt
+import optax
 import pytest
-from rl_agents.dqn_atari import (
-    DQNAtariConfig,
-)
-from rl_agents.dqn_zoo_atari import build_dqn_zoo_atari_rmsprop
 from rl_agents.rainbow import (
     RainbowAgent,
     RainbowConfig,
@@ -277,32 +274,8 @@ class TestRainbowNetworkAndLoss:
         )
 
 
-class TestRainbowOptimizerParity:
-    def test_rmsprop_builder_matches_dqn_atari_baseline_updates(self) -> None:
-        rainbow_config = RainbowConfig()
-        dqn_config = DQNAtariConfig()
-        params = {"w": jnp.array([1.0, -2.0], dtype=jnp.float32)}
-        grads = {"w": jnp.array([0.5, -0.25], dtype=jnp.float32)}
-
-        rainbow_tx = build_dqn_zoo_atari_rmsprop(rainbow_config)
-        dqn_tx = build_dqn_zoo_atari_rmsprop(dqn_config)
-
-        rainbow_state = rainbow_tx.init(params)
-        dqn_state = dqn_tx.init(params)
-        for _ in range(2):
-            rainbow_updates, rainbow_state = rainbow_tx.update(grads, rainbow_state, params)
-            dqn_updates, dqn_state = dqn_tx.update(grads, dqn_state, params)
-            jax.tree_util.tree_map(
-                _assert_allclose_leaf,
-                rainbow_updates,
-                dqn_updates,
-            )
-            def add_update(value: jax.Array, update: jax.Array):
-                return value + update
-
-            params = jax.tree_util.tree_map(add_update, params, rainbow_updates)
-
-    def test_agent_init_wires_rmsprop_builder(self) -> None:
+class TestRainbowOptimizer:
+    def test_agent_init_builds_rmsprop_from_config(self) -> None:
         config = RainbowConfig(
             REPLAY_CAPACITY=16,
             LEARNING_RATE=1e-3,
@@ -313,7 +286,7 @@ class TestRainbowOptimizerParity:
 
         train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).algorithm_state.train_state
         grads = jax.tree_util.tree_map(jnp.ones_like, train_state.params)
-        expected_tx = build_dqn_zoo_atari_rmsprop(config)
+        expected_tx = optax.rmsprop(learning_rate=1e-3, decay=0.8, eps=1e-4, centered=False)
 
         actual_state = train_state.tx.init(train_state.params)
         expected_state = expected_tx.init(train_state.params)
@@ -324,11 +297,6 @@ class TestRainbowOptimizerParity:
             _assert_allclose_leaf,
             actual_updates,
             expected_updates,
-        )
-        jax.tree_util.tree_map(
-            _assert_allclose_leaf,
-            actual_state,
-            expected_state,
         )
 
 

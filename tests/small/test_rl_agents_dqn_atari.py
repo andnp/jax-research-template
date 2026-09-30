@@ -13,12 +13,14 @@ from rl_agents.dqn_atari import (
     dqn_zoo_atari_total_train_frames,
 )
 from rl_agents.dqn_zoo_atari import (
+    DQNZooAtariConfig,
     build_dqn_zoo_atari_rmsprop,
     dqn_zoo_atari_frames_to_env_steps,
     dqn_zoo_atari_learn_period_env_steps,
     dqn_zoo_atari_min_replay_capacity,
     dqn_zoo_atari_target_update_period_env_steps,
 )
+from rl_agents.rainbow import RainbowConfig
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 from rl_components.loop import run
 
@@ -115,10 +117,23 @@ class TestDQNAtariConfig:
         assert runtime_config.SEED == 42
         assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
 
-    def test_rmsprop_builder_uses_exact_deepmind_settings(self) -> None:
-        transform = build_dqn_zoo_atari_rmsprop(DQNAtariConfig())
+    @pytest.mark.parametrize("config", [DQNAtariConfig(), RainbowConfig()], ids=["dqn_atari", "rainbow"])
+    def test_rmsprop_builder_matches_literal_dqn_zoo_settings(self, config: DQNZooAtariConfig) -> None:
+        """Updates equal a hand-built centered RMSProp with DQN Zoo's published constants."""
+        params = jnp.array([1.0, -2.0])
+        grads = jnp.array([0.5, -0.25])
+        built = build_dqn_zoo_atari_rmsprop(config)
+        expected = optax.rmsprop(learning_rate=0.00025, decay=0.95, eps=0.01 / 32**2, centered=True)
 
-        assert isinstance(transform, optax.GradientTransformation)
+        built_state = built.init(params)
+        expected_state = expected.init(params)
+        for _ in range(3):
+            built_updates, built_state = built.update(grads, built_state, params)
+            expected_updates, expected_state = expected.update(grads, expected_state, params)
+            assert all(
+                jnp.allclose(b, e, atol=1e-7)
+                for b, e in zip(jax.tree_util.tree_leaves(built_updates), jax.tree_util.tree_leaves(expected_updates), strict=True)
+            )
 
 
 class TestDQNAtariEnvStepConversions:
