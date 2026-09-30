@@ -21,10 +21,7 @@ A logical unit of code. In RL, this might be an `Agent` or an `Environment`. In 
 - **Ablations:** High-level overrides that clone the search space to test the removal of features or the swapping of entire components.
 
 ### 2.3 Metric Specifications
-Researchers define the metrics they intend to collect (e.g., `reward`, `loss`, `latency`).
-- **Standard Metrics:** Simple scalar writes (`collector.write`).
-- **Eval Metrics:** Expensive computations executed on-demand (`collector.eval`).
-- **Optimization:** Metrics not defined in the `spec` are ignored by the instrumentation layer to save compute and disk space.
+Researchers declare the metrics they intend to record (e.g., `reward`, `loss`, `latency`). The trainer returns the series and the runner persists them to `metrics.sqlite` after training.
 
 ## 3. The Definition Script
 
@@ -67,7 +64,7 @@ with exp.for_component(ppo):
 # Ablation: Test without GAE across all PPO runs
 exp.add_ablation("no_gae", {"use_gae": False})
 
-# Define Metrics (Informs the collector). `kind` defaults to "float".
+# Define Metrics. `kind` defaults to "float".
 exp.add_metric("reward")
 exp.add_metric("value_loss")
 exp.add_metric("eigen_spread", kind="float")
@@ -125,7 +122,6 @@ with `research experiment plan <spec_file.py>`.
 - [x] **Relational Schema Support:** Maps directly to ADR 008.
 - [x] **JAX Performance:** Support for `is_static` metadata to define vmap-zones.
 - [x] **Ablations:** First-class support for both flags and component swaps.
-- [x] **Collector Integration:** Metric definitions serve as a whitelist for the instrumentation library.
 - [x] **Project Scoping:** Strictly tied to the project-level SQLite database.
 
 ## 5. Technical Constraints

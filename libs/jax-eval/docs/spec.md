@@ -15,8 +15,7 @@ database.
 
 The package is a microscope, not the microscope slide or the camera: callers
 choose the observations, parameters, gradients, and replay state to inspect;
-`research-instrument` decides whether and where the resulting scalar is
-recorded.
+the trainer returns the resulting scalar and the runner records it.
 
 ## 2. Current reality and reconciliation
 
@@ -31,15 +30,15 @@ Several responsibilities already exist elsewhere:
 | --- | --- | --- |
 | Generic pytree norms and inner products | `jax-utils` | Reuse these operations; do not duplicate tree arithmetic. |
 | Feature-covariance stable rank | `jax-utils.linalg.stable_rank` | Treat this as the current canonical implementation. Its contract is feature covariance stable rank, not arbitrary matrix stable rank. |
-| Metric whitelist, JIT callbacks, vmap seed IDs, and SQLite frames | `research-instrument` | Remove whitelist behavior from this package. A diagnostic is pure; the collector is the optional effect boundary. |
-| Metric declarations and frequencies | `experiment-definition` | Keep metric names and collection cadence in the experiment definition. |
+| Persisting metric curves and scalars to `metrics.sqlite` | `research-instrument`, called by `research-runner` | A diagnostic is pure; the trainer returns its scalar series and the runner writes them after training. |
+| Metric declarations | `experiment-definition` | Keep metric names in the experiment definition. |
 | Fixed-probe construction and project-specific diagnostics | Research projects, currently `reversible-rank-rl` | Keep benchmark-specific probes and scientific aggregates in the project until a second consumer establishes a reusable contract. |
 | JAX rollout mechanics | `rl-components.rollout` | Do not build a second environment loop here. |
 | Dataset loading and statistical reporting | `research-analysis` | Do not make this package open SQLite files or compute study-level estimands. |
 
 The old usage example is therefore corrected: a caller imports the current
 stable-rank implementation from `jax_utils.linalg`, computes a diagnostic, and
-passes the scalar to `research_instrument.collector`.
+returns the scalar from the trainer's metrics.
 
 ## 3. Goals
 
@@ -60,7 +59,7 @@ The first release will not:
 - own a training or evaluation loop, environment reset protocol, or checkpoint
   loader;
 - emit callbacks or write SQLite, Parquet, or other artifacts;
-- inspect an experiment definition or decide whether a metric is whitelisted;
+- inspect an experiment definition or decide which metrics are recorded;
 - provide statistical confidence intervals, curve summaries, or reporting;
 - expose arbitrary model internals through reflection;
 - reproduce every metric from the research literature without a project-backed
@@ -234,35 +233,21 @@ origin. No valid entries returns `0.0`.
 
 ## 7. Collection and experiment integration
 
-The diagnostic layer remains pure. Collection is explicit at the call site:
+The diagnostic layer remains pure. A trainer computes a diagnostic at its own
+cadence inside the traced function (for example under `jax.lax.cond` on
+`step % N == 0` when the probe forward pass is expensive) and returns the series
+in its metrics. The runner persists the returned series after training.
 
 ```python
 from jax_utils.linalg import stable_rank
-from research_instrument.collector import collector
 from jax_eval.representations import dead_neurons
 
-collector.eval(
-    "diagnostic/representation_stable_rank",
-    lambda: stable_rank(model.apply(params, probe_states)),
-    step,
-    every=1000,
-)
-collector.eval(
-    "diagnostic/dead_neuron_fraction",
-    lambda: dead_neurons(model.apply(params, probe_states)),
-    step,
-    every=1000,
-)
+representation_stable_rank = stable_rank(model.apply(params, probe_states))
+dead_neuron_fraction = dead_neurons(model.apply(params, probe_states))
 ```
 
-The experiment definition declares the exact metric names and frequencies. The
-instrumentation collector performs the trace-time whitelist check and is the
-only component that emits `jax.debug.callback` effects. Expensive diagnostics
-on fixed probes should use `collector.eval(..., every=N)` so the expensive probe
-forward pass is skipped on non-scheduled steps; the probe itself is prepared
-outside the traced training function or passed as a fixed-shape input. A
-diagnostic over values already available in the training step may use
-`collector.write` directly.
+The experiment definition declares the exact metric names. The probe is
+prepared outside the traced training function or passed as a fixed-shape input.
 
 Each scalar series must document its semantic unit in the experiment plan:
 which probe or batch was used, whether the batch axis is seeds or samples, the
@@ -308,7 +293,7 @@ and stale-timestamp cases.
 ### Phase 4 — One end-to-end consumer
 
 Adapt one project diagnostic, preferably a fixed-probe representation report,
-to use the published kernels and `research-instrument` collection boundary.
+to use the published kernels and return them as trainer metrics.
 Record the probe, metric names, cadence, and expected output in that project's
 experiment plan and diary. Do not generalize project-specific aggregates into
 `jax-eval` during this phase.
@@ -330,9 +315,7 @@ The first release is complete when:
 - every published kernel has a written formula and tests for normal, boundary,
   and degenerate inputs;
 - all kernels pass `jax.jit` and the relevant `jax.vmap` tests;
-- no kernel imports storage, collector, experiment-definition, or project code;
-- the collector integration test, owned by `research-instrument`, confirms that
-  a non-whitelisted metric emits no frame;
+- no kernel imports storage, experiment-definition, or project code;
 - at least one project records a kernel result with stable run/seed identity;
 - the output can be loaded through the existing research-analysis dataset
   boundary without a package-specific database reader.
@@ -341,8 +324,8 @@ Run the repository-required `uv run ruff check .` and
 `uv run pyrefly check` after adding implementation code. Add a performance
 benchmark only for a kernel whose implementation introduces measurable work
 beyond its direct JAX expression, using fixed shapes and reporting compilation
-and steady-state costs separately. Callback and SQLite overhead belong to the
-`research-instrument` benchmarks, not to `jax-eval`.
+and steady-state costs separately. SQLite write overhead belongs to
+`research-instrument`, not to `jax-eval`.
 
 ## 10. Decisions required before implementation
 

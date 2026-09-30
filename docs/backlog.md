@@ -35,20 +35,6 @@ This backlog contains actionable tickets derived from the [ROADMAP.md](ROADMAP.m
 
 ## Phase 2: Runtime & Data (The Heart)
 
-### [RUN-001] `research-instrument` Basic Collector
-- **Description:** Implement the JAX-native `write()` and `eval()` API using `jax.debug.callback`.
-- **Acceptance Criteria:**
-    - Works inside a JIT-compiled `lax.scan` loop.
-    - Correctly captures the `vmap` index.
-    - No-op if metric is not in the whitelist.
-
-### [RUN-002] Double-Buffered Storage Spooler
-- **Description:** Implement the background thread and double-buffer for the instrumentation library.
-- **Acceptance Criteria:**
-    - Buffer A and B swap when full.
-    - Background thread flushes to SQLite without blocking the JAX thread.
-    - Supports a `flush()` call to ensure data integrity before job exit.
-
 ### [RUN-003] `jax-utils` Typed Wrappers
 - **Description:** Implement `typed_jit` and `typed_vmap`.
 - **Acceptance Criteria:**
