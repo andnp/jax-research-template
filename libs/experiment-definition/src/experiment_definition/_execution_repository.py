@@ -123,23 +123,33 @@ def update_execution_status(
         raise ValueError(f"Invalid status {status!r}.")
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
-        if row is None:
-            raise ValueError(f"Execution {execution_id} does not exist.")
-        current_status = ExecutionStatus(row[0])
-        if status not in TRANSITIONS[current_status]:
-            raise ValueError(f"Illegal execution transition: {current_status} -> {status}.")
-        updated = conn.execute(
-            "UPDATE Executions SET status = ?, start_time = COALESCE(?, start_time), "
-            "end_time = COALESCE(?, end_time) WHERE id = ? AND status = ?",
-            (status, start_time, end_time, execution_id, current_status),
-        )
-        if updated.rowcount != 1:
-            raise RuntimeError(f"Execution {execution_id} changed before it could be updated.")
+        _transition(conn, execution_id, status, start_time, end_time)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+
+
+def _transition(
+    conn: sqlite3.Connection,
+    execution_id: int,
+    status: str,
+    start_time: str | None,
+    end_time: str | None,
+) -> None:
+    row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"Execution {execution_id} does not exist.")
+    current_status = ExecutionStatus(row[0])
+    if status not in TRANSITIONS[current_status]:
+        raise ValueError(f"Illegal execution transition: {current_status} -> {status}.")
+    updated = conn.execute(
+        "UPDATE Executions SET status = ?, start_time = COALESCE(?, start_time), "
+        "end_time = COALESCE(?, end_time) WHERE id = ? AND status = ?",
+        (status, start_time, end_time, execution_id, current_status),
+    )
+    if updated.rowcount != 1:
+        raise RuntimeError(f"Execution {execution_id} changed before it could be updated.")
 
 
 def reclaim_stale_executions(
