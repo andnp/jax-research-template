@@ -123,15 +123,9 @@ def sync_runs(
 
         for abl_name, abl_overrides in ablation_list:
             final_hyper = {**hyper_config, **abl_overrides}
-            hyper_id = _upsert_hyperparam_config(
-                cur,
-                final_hyper,
-                _vmap_zone_for_hyper_config(
-                    state,
-                    final_hyper,
-                    static_parameter_names=static_parameter_names,
-                ),
-            )
+            vmap_zone = _vmap_zone_for_hyper_config(state, final_hyper, static_parameter_names=static_parameter_names)
+            hyper_id = _upsert_hyperparam_config(cur, final_hyper, vmap_zone)
+            vmap_json = _json_stable(vmap_zone)
 
             existing = cur.execute(
                 "SELECT id FROM Runs "
@@ -140,13 +134,14 @@ def sync_runs(
                 (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
             ).fetchone()
             if existing is not None:
+                cur.execute("UPDATE Runs SET vmap_zone_json = ? WHERE id = ?", (vmap_json, existing[0]))
                 wanted.add(int(existing[0]))
                 continue
 
             cur.execute(
-                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name),
+                "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation, "
+                "vmap_zone_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (exp_id, algo_vid, env_vid, hyper_id, seed, abl_name, vmap_json),
             )
             new_run_id = cur.lastrowid
             assert new_run_id is not None, "INSERT into Runs did not assign a rowid"
@@ -284,11 +279,13 @@ def add_run(
     hyper_id: int,
     seed: int,
     ablation: str | None,
+    vmap_zone: dict[str, list[str]] | None,
 ) -> int:
+    vmap_json = _json_stable(vmap_zone) if vmap_zone is not None else None
     cur = conn.execute(
-        "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation),
+        "INSERT INTO Runs(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation, vmap_zone_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation, vmap_json),
     )
     if cur.lastrowid is None:
         raise RuntimeError("Insert failed: no run ID returned.")

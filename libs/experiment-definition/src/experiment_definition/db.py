@@ -356,13 +356,16 @@ class DatabaseManager:
         hyper_id: int,
         seed: int,
         ablation: str | None = None,
+        vmap_zone: dict[str, list[str]] | None = None,
     ) -> int:
         """Insert a logical Run (intent record) and return its id.
 
         Raises ``sqlite3.IntegrityError`` if an identical run already exists.
         """
         with self.conn:
-            return _definition.add_run(self.conn, experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation)
+            return _definition.add_run(
+                self.conn, experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation, vmap_zone
+            )
 
     def list_runs(self, experiment_id: int) -> list[RunRow]:
         """Return all logical runs for an experiment ordered by seed and id."""
