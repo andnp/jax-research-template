@@ -40,11 +40,10 @@ Reference:
   IWA Scientific and Technical Report No. 9.
 """
 
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
 
+from process_control._jax_dataclass import jax_dataclass
 from process_control.integration import rk4_substeps
 from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
 
@@ -83,6 +82,7 @@ def perfect_clarifier(state: jax.Array, q_in: jax.Array, q_underflow: jax.Array,
 _REACTOR_SUBSTEPS = 10
 
 
+@jax.jit
 def reactor_step(
     state: jax.Array,
     inlet: jax.Array,
@@ -112,7 +112,7 @@ def _non_negative(state: jax.Array):
     return jnp.maximum(state, 0.0)
 
 
-@dataclass(frozen=True)
+@jax_dataclass
 class ASM2dParams:
     """Parameters for the PAO extension on top of ASM1."""
 
