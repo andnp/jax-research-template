@@ -150,14 +150,13 @@ def test_add_hyperparam_config_deduplicates(db: DatabaseManager) -> None:
     assert id1 == id2
 
 
-def test_add_hyperparam_config_with_vmap_zone(db: DatabaseManager) -> None:
+def test_add_run_with_vmap_zone(db: DatabaseManager) -> None:
+    exp_id = db.add_experiment("zoned")
+    hid = db.add_hyperparam_config({"lr": 1e-3, "arch": "mlp"})
     vmap_zone = {"static_keys": ["arch", "env_name"], "dynamic_keys": ["lr", "seed"]}
-    hid = db.add_hyperparam_config({"lr": 1e-3, "arch": "mlp"}, vmap_zone=vmap_zone)
-    row = db.get_hyperparam_config(hid)
-    assert row is not None
-    assert row.vmap_zone is not None
-    assert row.vmap_zone["static_keys"] == ["arch", "env_name"]
-    assert row.vmap_zone["dynamic_keys"] == ["lr", "seed"]
+    db.add_run(exp_id, None, None, hid, seed=0, vmap_zone=vmap_zone)
+    [run] = db.list_runs(exp_id)
+    assert run.vmap_zone == vmap_zone
 
 
 def test_hyperparam_config_hash_is_canonical(db: DatabaseManager) -> None:

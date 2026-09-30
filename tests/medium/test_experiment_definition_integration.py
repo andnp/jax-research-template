@@ -81,14 +81,12 @@ class TestSyncToDb:
             experiment_row = database.get_experiment(exp.name)
             assert experiment_row is not None
             runs = database.list_runs(experiment_row.id)
-            config = database.get_hyperparam_config(runs[0].hyper_id)
-            assert config is not None
 
-        assert config.vmap_zone is not None
-        assert "env_steps" in config.vmap_zone["static_keys"]
-        assert "lr" in config.vmap_zone["dynamic_keys"]
+        assert runs[0].vmap_zone is not None
+        assert "env_steps" in runs[0].vmap_zone["static_keys"]
+        assert "lr" in runs[0].vmap_zone["dynamic_keys"]
 
-    def test_hyperparam_configs_store_vmap_zone_metadata(self, db_path: Path) -> None:
+    def test_runs_store_vmap_zone_metadata(self, db_path: Path) -> None:
         exp = Experiment("Vmap Zone Test")
         exp.add_parameter("seed", [0])
         exp.add_parameter("lr", [1e-3, 3e-4])
@@ -96,7 +94,7 @@ class TestSyncToDb:
         exp.sync(db_path)
 
         with sqlite3.connect(db_path) as con:
-            rows = con.execute("SELECT json_blob, vmap_zone_json FROM HyperparamConfigs ORDER BY json_blob").fetchall()
+            rows = con.execute("SELECT id, vmap_zone_json FROM Runs ORDER BY id").fetchall()
 
         assert rows
         assert all('"static_keys": ["arch"]' in row[1] for row in rows)

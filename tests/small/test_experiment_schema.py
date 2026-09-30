@@ -44,7 +44,7 @@ def test_execution_statuses_complete() -> None:
     [
         (CREATE_COMPONENTS, ["Components", "AUTOINCREMENT", "ALGO", "ENV", "WRAPPER"]),
         (CREATE_COMPONENT_VERSIONS, ["ComponentVersions", "version_number", "code_snapshot_hash", "UNIQUE(component_id, version_number)"]),
-        (CREATE_HYPERPARAM_CONFIGS, ["HyperparamConfigs", "hash", "json_blob", "vmap_zone_json"]),
+        (CREATE_HYPERPARAM_CONFIGS, ["HyperparamConfigs", "hash", "json_blob"]),
         (CREATE_EXPERIMENTS, ["Experiments", "created_at"]),
         (CREATE_RUNS, ["Runs", "algo_version_id", "env_version_id", "hyper_id", "seed", "ablation", "UNIQUE("]),
         (CREATE_EXECUTIONS, ["Executions", "PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID", "jax_config_json", "git_commit", "git_diff_blob"]),
@@ -97,9 +97,9 @@ def test_foreign_keys_declared_in_runs() -> None:
     assert "REFERENCES Experiments(id)" in CREATE_RUNS
 
 
-def test_vmap_zone_json_in_hyperparam_configs() -> None:
-    """JAX vmap-zone metadata column must be present in HyperparamConfigs."""
-    assert "vmap_zone_json" in CREATE_HYPERPARAM_CONFIGS
+def test_vmap_zone_json_in_runs() -> None:
+    """JAX vmap-zone metadata column must be present in Runs."""
+    assert "vmap_zone_json" in CREATE_RUNS
 
 
 def test_jax_config_json_in_executions() -> None:

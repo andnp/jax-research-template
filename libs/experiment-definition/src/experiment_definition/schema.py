@@ -40,15 +40,13 @@ CREATE TABLE IF NOT EXISTS ComponentVersions (
 );
 """
 
-# vmap_zone_json stores JAX-native batching metadata:
-#   {"static_keys": ["arch", "env_name"], "dynamic_keys": ["lr", "seed"]}
-# static_keys require recompilation; dynamic_keys are vmap-able at runtime.
+# Databases created before runs carried their own vmap zone also have an
+# unread vmap_zone_json column here.
 CREATE_HYPERPARAM_CONFIGS = """
 CREATE TABLE IF NOT EXISTS HyperparamConfigs (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     hash           TEXT    NOT NULL UNIQUE,
-    json_blob      TEXT    NOT NULL,
-    vmap_zone_json TEXT
+    json_blob      TEXT    NOT NULL
 );
 """
 
@@ -63,6 +61,9 @@ CREATE TABLE IF NOT EXISTS Experiments (
 
 # A Run is the *intent*: a unique (experiment, algo_version, env_version,
 # hypers, seed) combination. It is satisfied by one or more Executions.
+# vmap_zone_json stores this experiment's JAX batching split for the run:
+#   {"static_keys": ["arch", "env_name"], "dynamic_keys": ["lr", "seed"]}
+# static_keys require recompilation; dynamic_keys are vmap-able at runtime.
 CREATE_RUNS = """
 CREATE TABLE IF NOT EXISTS Runs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

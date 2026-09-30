@@ -294,30 +294,14 @@ class DatabaseManager:
     # HyperparamConfigs
     # ------------------------------------------------------------------
 
-    def add_hyperparam_config(
-        self,
-        params: Mapping[str, ParameterValue],
-        vmap_zone: dict[str, list[str]] | None = None,
-    ) -> int:
+    def add_hyperparam_config(self, params: Mapping[str, ParameterValue]) -> int:
         """Upsert a hyperparam configuration and return its id.
 
         The ``hash`` is a SHA-256 digest of the canonical JSON representation,
         making configs content-addressed and deduplicated.
-
-        Args:
-            params: Flat dictionary of hyperparameter name → value.
-            vmap_zone: Optional JAX vmap metadata::
-
-                    {"static_keys": ["arch"], "dynamic_keys": ["lr", "seed"]}
-
-                ``static_keys`` require recompilation when changed;
-                ``dynamic_keys`` can be batched via ``jax.vmap``.
-
-        Returns:
-            The integer ``id`` of the (possibly pre-existing) row.
         """
         with self.conn:
-            return _definition.add_hyperparam_config(self.conn, params, vmap_zone)
+            return _definition.add_hyperparam_config(self.conn, params)
 
     def get_hyperparam_config(self, config_id: int) -> HyperparamConfigRow | None:
         """Fetch a HyperparamConfig by id."""

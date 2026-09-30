@@ -53,29 +53,13 @@ def _upsert_component(cur: sqlite3.Cursor, name: str, comp_type: str, code_hash:
     return comp_id, version_id
 
 
-def _upsert_hyperparam_config(
-    cur: sqlite3.Cursor,
-    config: dict[str, ParameterValue],
-    vmap_zone: dict[str, list[str]] | None = None,
-) -> int:
+def _upsert_hyperparam_config(cur: sqlite3.Cursor, config: dict[str, ParameterValue]) -> int:
     h = _hash_dict(config)
-    blob = _json_stable(config)
-    vmap_json = _json_stable(vmap_zone) if vmap_zone is not None else None
-    cur.execute(
-        "INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob, vmap_zone_json) VALUES (?, ?, ?)",
-        (h, blob, vmap_json),
-    )
-    cur.execute("SELECT id, vmap_zone_json FROM HyperparamConfigs WHERE hash = ?", (h,))
+    cur.execute("INSERT OR IGNORE INTO HyperparamConfigs(hash, json_blob) VALUES (?, ?)", (h, _json_stable(config)))
+    cur.execute("SELECT id FROM HyperparamConfigs WHERE hash = ?", (h,))
     row = cur.fetchone()
     assert row is not None
-    result = int(row[0])
-    existing_vmap_json = row[1]
-    if vmap_json is not None and existing_vmap_json != vmap_json:
-        cur.execute(
-            "UPDATE HyperparamConfigs SET vmap_zone_json = ? WHERE id = ?",
-            (vmap_json, result),
-        )
-    return result
+    return int(row[0])
 
 
 def _upsert_experiment(cur: sqlite3.Cursor, name: str, description: str | None) -> int:
@@ -124,7 +108,7 @@ def sync_runs(
         for abl_name, abl_overrides in ablation_list:
             final_hyper = {**hyper_config, **abl_overrides}
             vmap_zone = _vmap_zone_for_hyper_config(state, final_hyper, static_parameter_names=static_parameter_names)
-            hyper_id = _upsert_hyperparam_config(cur, final_hyper, vmap_zone)
+            hyper_id = _upsert_hyperparam_config(cur, final_hyper)
             vmap_json = _json_stable(vmap_zone)
 
             existing = cur.execute(
@@ -218,28 +202,19 @@ def get_component_version_provenance(
     return _record_from_row(ComponentVersionProvenanceRow, row) if row else None
 
 
-def add_hyperparam_config(
-    conn: sqlite3.Connection,
-    params: Mapping[str, ParameterValue],
-    vmap_zone: dict[str, list[str]] | None,
-) -> int:
-    return _upsert_hyperparam_config(conn.cursor(), dict(params), vmap_zone)
+def add_hyperparam_config(conn: sqlite3.Connection, params: Mapping[str, ParameterValue]) -> int:
+    return _upsert_hyperparam_config(conn.cursor(), dict(params))
 
 
 def get_hyperparam_config(conn: sqlite3.Connection, config_id: int) -> HyperparamConfigRow | None:
     row = conn.execute(
-        "SELECT id, hash, json_blob, vmap_zone_json FROM HyperparamConfigs WHERE id = ?",
+        "SELECT id, hash, json_blob FROM HyperparamConfigs WHERE id = ?",
         (config_id,),
     ).fetchone()
     if row is None:
         return None
-    row_id, config_hash, json_blob, vmap_zone_json = row
-    return HyperparamConfigRow(
-        id=row_id,
-        hash=config_hash,
-        hyperparameters=json.loads(json_blob),
-        vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
-    )
+    row_id, config_hash, json_blob = row
+    return HyperparamConfigRow(id=row_id, hash=config_hash, hyperparameters=json.loads(json_blob))
 
 
 def add_experiment(conn: sqlite3.Connection, name: str, description: str | None) -> int:

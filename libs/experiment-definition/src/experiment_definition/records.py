@@ -43,7 +43,6 @@ class HyperparamConfigRow(_Record):
     id: int
     hash: str
     hyperparameters: Mapping[str, ParameterValue]
-    vmap_zone: Mapping[str, list[str]] | None
 
 
 class ExperimentRow(_Record):

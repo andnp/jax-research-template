@@ -147,9 +147,7 @@ def test_experiment_spec_applies_trainer_schema(tmp_path: Path) -> None:
         runs = database.list_runs(experiment_row.id)
         zones = set()
         for run in runs:
-            config = database.get_hyperparam_config(run.hyper_id)
-            assert config is not None
-            assert config.vmap_zone is not None
-            zones.add((tuple(config.vmap_zone["static_keys"]), tuple(config.vmap_zone["dynamic_keys"])))
+            assert run.vmap_zone is not None
+            zones.add((tuple(run.vmap_zone["static_keys"]), tuple(run.vmap_zone["dynamic_keys"])))
 
     assert zones == {(("env_name",), ("learning_rate",))}
