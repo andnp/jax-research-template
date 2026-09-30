@@ -14,7 +14,7 @@ from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, aeration_power
 from process_control.scenarios.diurnal_source import (
     DiurnalSourceParams,
     DiurnalSourceState,
@@ -239,19 +239,12 @@ def make_bsm1_combined_benchmark(
         sample_period=bsm1.analyzer_sample_period,
     )
 
-    # Max aeration power for normalisation
-    kla_max_total = bsm1.kla_34_max * (bsm1.v3 + bsm1.v4) + bsm1.kla_5_max * bsm1.v5
-    power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
-
     influent = asm1_reset(config.bsm1.initial_states.influent, jax.random.PRNGKey(0))
     q_w_fixed = jnp.array(bsm1.q_w_fixed)
 
     # Initial recycle ratios (BSM1 defaults, actuator seed only — Q_a/Q_rs are actions here)
     init_q_a_ratio = 3.0
     init_q_rs_ratio = jnp.array(1.0)
-
-    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
-        return (kla_34 * (bsm1.v3 + bsm1.v4) + kla_5 * bsm1.v5) / power_max
 
     def _observe(
         nh4e: jax.Array,
@@ -323,7 +316,7 @@ def make_bsm1_combined_benchmark(
             q_a_state.sensor_value,
             mean_flow,
             sensors.nh4_inf.held_value,
-            _aeration_power(kla_34_state.pump_output, kla_5_state.pump_output),
+            aeration_power(bsm1, kla_34_state.pump_output, kla_5_state.pump_output),
             jnp.array(0.0),
             q_a_state.pump_output,
             init_q_rs_ratio,
@@ -419,7 +412,7 @@ def make_bsm1_combined_benchmark(
             k_nh4i,
         )
 
-        aeration_power = _aeration_power(kla_34, kla_5)
+        aeration = aeration_power(bsm1, kla_34, kla_5)
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
         new_sensors = BSM1CombinedObsSensors(
@@ -430,7 +423,7 @@ def make_bsm1_combined_benchmark(
         )
 
         # 13. Observation (11D)
-        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration_power, dq_dt, q_a_ratio, q_rs_ratio)
+        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration, dq_dt, q_a_ratio, q_rs_ratio)
 
         # 14. Reward: effluent quality (from sensors) + energy penalty
         reward = -(

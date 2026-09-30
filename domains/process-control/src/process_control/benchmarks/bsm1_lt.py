@@ -28,6 +28,7 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.benchmarks.bsm1 import (
     BSM1BenchmarkConfig,
     BSM1ObsSensors,
+    aeration_power,
 )
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
@@ -161,13 +162,7 @@ def make_bsm1_lt_benchmark(
     t_mean = jnp.array(config.t_mean)
     t_amplitude = jnp.array(config.t_amplitude)
 
-    kla_max_total = c.kla_34_max * (c.v3 + c.v4) + c.kla_5_max * c.v5
-    power_max = jnp.array(jnp.maximum(kla_max_total, 1.0))
-
     influent = asm1_reset(c.initial_states.influent, jax.random.PRNGKey(0))
-
-    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
-        return (kla_34 * (c.v3 + c.v4) + kla_5 * c.v5) / power_max
 
     def _observe(
         nh4e: jax.Array,
@@ -232,7 +227,7 @@ def make_bsm1_lt_benchmark(
             sensors.no3_r2.held_value,
             mean_flow,
             sensors.nh4_inf.held_value,
-            _aeration_power(kla_34_state.pump_output, kla_5_state.pump_output),
+            aeration_power(c, kla_34_state.pump_output, kla_5_state.pump_output),
             jnp.array(0.0),
             temp,
         )
@@ -303,7 +298,7 @@ def make_bsm1_lt_benchmark(
         new_no3r2, no3r2_reading = ra_step(state.sensors.no3_r2, new_r2.s_no, analyzer_params, k_no3r2)
         new_nh4i, nh4i_reading = ra_step(state.sensors.nh4_inf, influent.s_nh, analyzer_params, k_nh4i)
 
-        aeration_power = _aeration_power(kla_34, kla_5)
+        aeration = aeration_power(c, kla_34, kla_5)
         dq_dt = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
         new_sensors = BSM1ObsSensors(
@@ -314,7 +309,7 @@ def make_bsm1_lt_benchmark(
             last_q_in=q_in,
         )
 
-        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration_power, dq_dt, temp)
+        obs = _observe(nh4e_reading, no3e_reading, do3_reading, do5_reading, no3r2_reading, q_in, nh4i_reading, aeration, dq_dt, temp)
 
         reward = -(config.reward_w_nh * nh4e_reading**2 + config.reward_w_no * no3e_reading**2)
 

@@ -34,7 +34,7 @@ from process_control.actuators.dosing_system import step as dosing_step
 from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
 from process_control.actuators.ramp_limited import reset as pump_reset
 from process_control.actuators.ramp_limited import step as pump_step
-from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig
+from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, aeration_power
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -239,13 +239,9 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
     mean_flow = jnp.array(c.mean_flow)
     q_a_fixed = jnp.array(c.q_a_fixed)
     q_r_fixed = jnp.array(c.q_r_fixed)
-    power_max = c.kla_34_max * (c.v3 + c.v4) + c.kla_5_max * c.v5
     settler_depth = jnp.array(config.settler.depth)
     eff_tss_limit = jnp.array(config.eff_tss_limit)
     blanket_alarm = jnp.array(config.blanket_alarm)
-
-    def _aeration_power(kla_34: jax.Array, kla_5: jax.Array):
-        return (kla_34 * (c.v3 + c.v4) + kla_5 * c.v5) / power_max
 
     def _observe(
         nh4e: jax.Array,
@@ -330,7 +326,7 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
             sensors.no3_r2.held_value,
             mean_flow,
             sensors.nh4_inf.held_value,
-            _aeration_power(kla34_loop.pump_output, kla5_loop.pump_output),
+            aeration_power(c, kla34_loop.pump_output, kla5_loop.pump_output),
             jnp.array(0.0),
             sensors.blanket.held_value,
             sensors.eff_tss.held_value,
@@ -414,10 +410,10 @@ def make_bsm1_takacs_benchmark(config: BSM1TakacsConfig):
         new_etss, etss_reading = ra_step(state.sensors.eff_tss, eff_tss_val, tss_analyzer, k_etss)
         new_utss, utss_reading = ra_step(state.sensors.und_tss, new_und_tss, tss_analyzer, k_utss)
 
-        aeration_power = _aeration_power(kla_34, kla_5)
+        aeration = aeration_power(c, kla_34, kla_5)
         dq = (q_in - state.sensors.last_q_in) / dt / mean_flow
 
-        obs = _observe(nh4e, no3e, do3_reading, do5_reading, no3r2, q_in, nh4i, aeration_power, dq, bl_reading, etss_reading, utss_reading)
+        obs = _observe(nh4e, no3e, do3_reading, do5_reading, no3r2, q_in, nh4i, aeration, dq, bl_reading, etss_reading, utss_reading)
 
         # Reward: BSM1 N penalty + TSS penalty + blanket alarm
         tss_violation = jnp.maximum(etss_reading - eff_tss_limit, 0.0)
