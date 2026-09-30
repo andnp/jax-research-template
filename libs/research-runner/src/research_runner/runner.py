@@ -13,6 +13,7 @@ from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.experiment import Experiment
 from experiment_definition.parameter import ParameterValue
 from experiment_definition.records import RunRow
+from experiment_definition.status import ExecutionStatus
 from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve
 from research_store.store import Store
@@ -120,16 +121,12 @@ def execute_batch(
                 )
 
             database.update_execution_status(
-                planned.execution_id, "RUNNING", start_time=_utc_now(),
+                planned.execution_id, ExecutionStatus.RUNNING, start_time=_utc_now(),
             )
     except Exception:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            execution = database.get_execution(planned.execution_id)
-            if execution is not None and execution.status in {"PENDING", "RUNNING"}:
-                database.update_execution_status(
-                    planned.execution_id, "FAILED", end_time=_utc_now(),
-                )
+            database.fail_execution(planned.execution_id)
         raise
 
     context = ExecutionContext(
@@ -175,16 +172,12 @@ def execute_batch(
                 metadata={**metadata, "metrics_db_path": str(resolved_metrics_db)},
             )
             database.update_execution_status(
-                planned.execution_id, "COMPLETED", end_time=_utc_now(),
+                planned.execution_id, ExecutionStatus.COMPLETED, end_time=_utc_now(),
             )
     except Exception:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            execution = database.get_execution(planned.execution_id)
-            if execution is not None and execution.status in {"PENDING", "RUNNING"}:
-                database.update_execution_status(
-                    planned.execution_id, "FAILED", end_time=_utc_now(),
-                )
+            database.fail_execution(planned.execution_id)
         raise
 
     return execution_root
