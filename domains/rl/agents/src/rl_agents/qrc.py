@@ -51,6 +51,7 @@ from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
 from rl_components.exploration import linear_epsilon_schedule
+from rl_components.heads import epsilon_greedy_action
 from rl_components.losses import qrc_terms
 from rl_components.optim import with_hyperparams
 from rl_components.replay_agent import ReplayAgentState, init_replay_agent_state, replay_agent_step
@@ -380,7 +381,7 @@ class QRCAgent:
         algorithm_state = state.algorithm_state
         hypers = algorithm_state.hypers
         buffer = ReplayBuffer.from_state(state.replay_state)
-        carry_key, sample_key, explore_key, action_key = jax.random.split(state.key, 4)
+        carry_key, sample_key, action_key = jax.random.split(state.key, 3)
 
         epsilon = linear_epsilon_schedule(
             step_index,
@@ -412,9 +413,7 @@ class QRCAgent:
             keys: tuple[jax.Array, ...],
         ) -> tuple[jax.Array, dict[str, jax.Array]]:
             q_values, _ = learner_state.train_state.apply_fn(learner_state.train_state.params, observation)
-            chose_random = jax.random.uniform(keys[0], ()) < epsilon
-            random_action = jax.random.randint(keys[1], (), 0, learner_state.num_actions)
-            action = jnp.where(chose_random, random_action, jnp.argmax(q_values)).astype(state.last_action.dtype)
+            action = epsilon_greedy_action(q_values, epsilon, key=keys[0]).astype(state.last_action.dtype)
             return action, {"epsilon": epsilon, "q_max": jnp.max(q_values).astype(jnp.float32)}
 
         return replay_agent_step(
@@ -423,7 +422,7 @@ class QRCAgent:
             step_index,
             carry_key=carry_key,
             learn_keys=(sample_key,),
-            action_keys=(explore_key, action_key),
+            action_keys=(action_key,),
             learning_starts=hypers.LEARNING_STARTS,
             train_frequency=hypers.TRAIN_FREQUENCY,
             warmup_steps=None,
