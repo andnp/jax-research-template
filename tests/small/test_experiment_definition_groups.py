@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
 
@@ -131,5 +132,30 @@ def test_fail_group_executions_survives_a_split_change_while_running(tmp_path: P
 
     with DatabaseManager(db_path) as database:
         failed = database.fail_group_executions_started_since(experiment_row.id, batch.group_key, since)
+
+    assert failed == [planned.execution_id]
+
+
+def test_trainer_metadata_cannot_rewrite_the_planned_group(tmp_path: Path) -> None:
+    """Metadata colliding with the planner's batch identity is refused, so the sweep still finds the execution.
+
+    A worker that records such metadata and then dies must not leave its runs claimed forever.
+    """
+    since = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        experiment_id = _seed_groups(database)
+        [target, *_] = database.list_unsatisfied_run_batches(experiment_id)
+        planned = database.plan_next_execution_batch(experiment_id, tmp_path / "executions", group=target.group_key)
+        assert planned is not None
+        database.update_execution_status(planned.execution_id, "RUNNING", start_time="2026-01-01T12:00:01+00:00")
+
+        with pytest.raises(ValueError, match="static_config_json"):
+            database.record_execution_artifacts(
+                planned.execution_id,
+                planned.root_path,
+                metadata={"static_config_json": "{}", "trained": True},
+            )
+        failed = database.fail_group_executions_started_since(experiment_id, target.group_key, since)
 
     assert failed == [planned.execution_id]

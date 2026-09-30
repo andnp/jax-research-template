@@ -11,6 +11,9 @@ from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
 from .status import LIVE, TRANSITIONS, ExecutionStatus
 
+# The planned batch's identity; the dead-worker sweep and resume read these back.
+_PLANNER_KEYS = frozenset({"run_ids", "static_config_json", "vmap_zone_json"})
+
 
 def add_execution(
     conn: sqlite3.Connection,
@@ -90,6 +93,11 @@ def _record_execution_artifacts(
             raise ValueError("Execution artifact metadata must be a JSON object.")
         merged_metadata.update(parsed)
     if metadata is not None:
+        clobbered = sorted(
+            key for key in _PLANNER_KEYS & metadata.keys() & merged_metadata.keys() if metadata[key] != merged_metadata[key]
+        )
+        if clobbered:
+            raise ValueError(f"Execution {execution_id} metadata must not overwrite planner keys {clobbered}.")
         merged_metadata.update(metadata)
     metadata_json = json.dumps(merged_metadata, sort_keys=True) if merged_metadata else None
     conn.execute(
