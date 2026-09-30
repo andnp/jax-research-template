@@ -104,6 +104,7 @@ never carries partial results.
 | You want | Use |
 |---|---|
 | Typed runs, metrics, accounting, and diagnostics | `research_analysis.dataset.loading.load_experiment_dataset(experiments_db, slug, *, dimensions=..., version_selection=..., cohort=..., metrics=..., partial=...)` |
+| A subset of runs with its curves, scalars, and artifacts kept consistent | `dataset.filter_runs(predicate)` (diagnostics, accounting, and executions still describe the whole load) |
 | A comparison between two or more conditions | `research_analysis.reporting.bakeoff_report(dataset, metric, conditions, spec=..., pairs=..., measure=...)` |
 | A bias-corrected champion configuration | `best_hypers(dataset, metric, group_by=...)` |
 | Sensitivity to one swept axis | `slice_hypers(dataset, metric, vary, group_by=...)` |
