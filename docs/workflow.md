@@ -171,4 +171,4 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    `research_analysis.reporting` directly. See [Reading Results](reading-results.md) and
    [Auto-Research Loop](auto-research.md).
 
-For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and metrics together, see `core/examples/run_experiment.py`.
+For the design rationale behind this database-centric, resumable model, see [ADR 007](adrs/007-declarative-experiment-management.md). For a runnable minimal example wiring definition, training, and checkpointing together, see `core/examples/run_experiment.py`; metrics are persisted by the runner (`research experiment run`).

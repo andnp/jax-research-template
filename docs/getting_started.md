@@ -48,15 +48,14 @@ This script:
 3. Generates a training curve saved as `ppo_results.png`.
 
 ### Running the End-to-End Experiment Pipeline
-To run a complete, instrumented experiment:
+To run a complete experiment lifecycle:
 ```bash
 uv run examples/run_experiment.py
 ```
 This script demonstrates the interaction of the core framework libraries:
 1. **Definition:** Declares hyperparameters, seeds, and metrics using the `experiment-definition` builder API, syncing them to a local SQLite schema (`experiment.sqlite`).
-2. **Telemetry:** Configures `research-instrument` with an active metric whitelist and routes training updates (loss, episode returns) into `metrics.db`.
-3. **Execution:** Runs a JIT-compiled DQN agent in JAX.
-4. **Checkpointing:** Uses `research-store` to write pytree weights to the local store via atomic temp-and-rename writes.
+2. **Execution:** Runs a JIT-compiled DQN agent in JAX.
+3. **Checkpointing:** Uses `research-store` to write pytree weights to the local store via atomic temp-and-rename writes.
 
 ---
 

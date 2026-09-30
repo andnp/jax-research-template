@@ -53,10 +53,11 @@ We enforce static typing to catch logic errors before running slow execution tri
 
 Logging metrics and saving model weights must not interfere with performance.
 
-### Double-Buffered Metric Collection (`research-instrument`)
-To log metrics from JIT-compiled JAX execution traces, `research-instrument` uses `jax.debug.callback` to safely pass arrays back to Python.
-- **Non-blocking Spooling:** To avoid slowing down the GPU, metrics are written to a double-buffered queue in memory. When Buffer A fills up, a background thread flushes it to the SQLite metrics database (`metrics.db`) while JAX continues writing to Buffer B.
-- **Declarative Whitelisting:** The instrumentation suite reads the synced experiment configuration database to only capture active metrics, reducing I/O overhead.
+### Post-Training Metric Persistence (`research-instrument`)
+Training runs entirely inside JIT and returns its metric curves as arrays; nothing is logged from inside the trace.
+- **Runner writes once:** After a batch finishes, `research-runner` persists curves with `seed_batch.write_seed_batch_curve` and scalars with `scalar.write_seed_batch_scalars` / `write_execution_scalars`, each in a single transaction into `metrics.sqlite`.
+- **One schema owner:** `sqlite_backend` owns the `metrics` and `scalar_metrics` DDL, the shared insert column lists, schema migration, and the rollback-journal connection that is safe for concurrent Slurm tasks on a network filesystem.
+- **Declared metrics:** Which metrics exist is declared on the experiment definition (`add_metric`); the trainer's returned metrics are what get written.
 
 ### Atomic Weight Checkpointing (`research-store`)
 Checkpoints are serialized using Orbax and managed by `research-store`.
