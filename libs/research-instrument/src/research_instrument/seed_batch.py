@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from research_instrument.collector import MetricFrame, subsample_frames
-from research_instrument.sqlite_backend import open_metrics_connection
+from research_instrument.sqlite_backend import INSERT_METRICS_SQL, open_metrics_connection
 
 
 def write_seed_batch_curve(
@@ -73,9 +73,7 @@ def write_seed_batch_curve(
     try:
         for batch_start in range(0, len(rows_to_insert), batch_size):
             conn.executemany(
-                "INSERT INTO metrics ("
-                "metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                INSERT_METRICS_SQL,
                 rows_to_insert[batch_start : batch_start + batch_size],
             )
         conn.commit()

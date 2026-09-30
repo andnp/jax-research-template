@@ -69,8 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_scalar_metrics_run_metric
     WHERE run_id IS NOT NULL;
 """
 
-_STRICT_COLUMN_NAMES = {
-    "id",
+METRICS_COLUMNS = (
     "metric_name",
     "value",
     "global_step",
@@ -78,8 +77,27 @@ _STRICT_COLUMN_NAMES = {
     "experiment_id",
     "run_id",
     "execution_id",
-    "created_at",
-}
+)
+SCALAR_METRICS_COLUMNS = (
+    "metric_name",
+    "value",
+    "scope",
+    "experiment_id",
+    "run_id",
+    "seed_id",
+    "execution_id",
+)
+
+
+def _insert_sql(table: str, columns: tuple[str, ...]) -> str:
+    placeholders = ", ".join("?" for _ in columns)
+    return f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+
+
+INSERT_METRICS_SQL = _insert_sql("metrics", METRICS_COLUMNS)
+INSERT_SCALAR_METRICS_SQL = _insert_sql("scalar_metrics", SCALAR_METRICS_COLUMNS)
+
+_STRICT_COLUMN_NAMES = {"id", "created_at", *METRICS_COLUMNS}
 
 
 def open_metrics_connection(db_path: Path | str) -> sqlite3.Connection:
@@ -264,9 +282,7 @@ class SQLiteBackend:
         if not self._buffer:
             return
         self._conn.executemany(
-            "INSERT INTO metrics ("
-            "metric_name, value, global_step, seed_id, experiment_id, run_id, execution_id"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            INSERT_METRICS_SQL,
             [
                 (
                     f.name,

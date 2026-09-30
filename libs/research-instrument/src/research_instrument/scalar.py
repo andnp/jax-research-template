@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from research_instrument.sqlite_backend import open_metrics_connection
+from research_instrument.sqlite_backend import INSERT_SCALAR_METRICS_SQL, open_metrics_connection
 
 type _ScalarMetricRow = tuple[str, float, str, int, int | None, int | None, int]
 
@@ -59,9 +59,7 @@ def _write_scalar_rows(database_path: Path | str, rows: list[_ScalarMetricRow]) 
     connection = open_metrics_connection(resolved_path)
     try:
         connection.executemany(
-            "INSERT INTO scalar_metrics ("
-            "metric_name, value, scope, experiment_id, run_id, seed_id, execution_id"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            INSERT_SCALAR_METRICS_SQL,
             rows,
         )
         connection.commit()
