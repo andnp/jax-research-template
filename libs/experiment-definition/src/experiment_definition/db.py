@@ -63,6 +63,7 @@ def sync_to_db(
         with con:
             for ddl in ALL_DDL:
                 con.execute(ddl)
+            _migrate_run_vmap_zone(con)
             cur = con.cursor()
 
             # ── Experiment row ────────────────────────────────────────────────
@@ -87,6 +88,17 @@ def sync_to_db(
     finally:
         con.close()
     return frozenset(wanted)
+
+
+def _migrate_run_vmap_zone(conn: sqlite3.Connection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(Runs)")}
+    if "vmap_zone_json" in columns:
+        return
+    conn.execute("ALTER TABLE Runs ADD COLUMN vmap_zone_json TEXT")
+    conn.execute(
+        "UPDATE Runs SET vmap_zone_json = "
+        "(SELECT hc.vmap_zone_json FROM HyperparamConfigs hc WHERE hc.id = Runs.hyper_id)"
+    )
 
 
 # ── Config generation ─────────────────────────────────────────────────────────
@@ -210,9 +222,15 @@ class DatabaseManager:
 
         Idempotent: safe to call on an already-initialised database.
         """
-        with self.conn:
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
             for ddl in ALL_DDL:
                 self.conn.execute(ddl)
+            _migrate_run_vmap_zone(self.conn)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     # ------------------------------------------------------------------
     # Components

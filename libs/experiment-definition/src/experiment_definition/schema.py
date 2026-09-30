@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS Runs (
     hyper_id        INTEGER NOT NULL REFERENCES HyperparamConfigs(id),
     seed            INTEGER NOT NULL,
     ablation        TEXT,
+    vmap_zone_json  TEXT,
     UNIQUE(experiment_id, algo_version_id, env_version_id, hyper_id, seed, ablation)
 );
 """
