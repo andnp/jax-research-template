@@ -81,7 +81,9 @@ class TestDivergedStoredScalar:
         diagnostics = [item for item in dataset.diagnostics if item.code is DiagnosticCode.NON_FINITE_METRIC]
         assert _flags(dataset) == {"baseline": [], "candidate": ["auc"]}
         assert _diverged(dataset) == {"baseline": {}, "candidate": {"auc": 1}}
-        assert len(diagnostics) == 1
+        assert [item.message.split("metric 'auc' ")[1] for item in diagnostics] == [
+            "is non-finite from step 0 (1 values) and has a non-finite stored value"
+        ]
 
     def test_a_diverged_execution_value_is_not_a_run_outcome(self, tmp_path: Path) -> None:
         """A whole-execution value describes no single run, so it never marks a run as diverged."""

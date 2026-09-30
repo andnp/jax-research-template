@@ -15,20 +15,23 @@ def non_finite_summary(metrics: pl.DataFrame, scalar_metrics: pl.DataFrame) -> p
     return (
         pl.concat([curves, scalars])
         .group_by(keys)
-        .agg(pl.col("step").min().alias("first_step"), pl.len().alias("count"))
+        .agg(
+            pl.col("step").min().alias("first_step"),
+            pl.col("step").count().alias("count"),
+            pl.col("step").is_null().any().alias("stored"),
+        )
         .sort(["run_id", "execution_id", "metric"])
     )
 
 
 def diagnose_non_finite(summary: pl.DataFrame, diagnostics: DiagnosticAccumulator) -> None:
     for row in summary.iter_rows(named=True):
-        if row["first_step"] is None:
-            detail = "has a non-finite stored value"
-        else:
-            detail = f"is non-finite from step {row['first_step']} ({row['count']} values)"
+        details = [f"is non-finite from step {row['first_step']} ({row['count']} values)"] if row["count"] else []
+        if row["stored"]:
+            details.append("has a non-finite stored value")
         diagnostics.add(
             DiagnosticCode.NON_FINITE_METRIC,
-            f"run {row['run_id']} (seed {row['seed']}) metric {row['metric']!r} {detail}",
+            f"run {row['run_id']} (seed {row['seed']}) metric {row['metric']!r} {' and '.join(details)}",
             row["run_id"],
             row["execution_id"],
         )
