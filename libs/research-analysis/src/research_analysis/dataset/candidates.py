@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
@@ -13,6 +12,7 @@ from experiment_definition.records import (
     ExperimentRow,
     RunRow,
 )
+from experiment_definition.status import RunState, run_state
 from pydantic import BaseModel, ConfigDict
 
 from research_analysis.dataset.types import ResolvedArtifacts, RunArtifacts
@@ -25,14 +25,6 @@ class _ArtifactMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     metrics_db_path: str
-
-
-class RunState(StrEnum):
-    """Outcome of a run's execution attempts."""
-
-    COMPLETED = "completed"
-    FAILED = "failed"
-    PENDING = "pending"
 
 
 @dataclass(frozen=True)
@@ -71,14 +63,6 @@ class RunCandidate:
     completed: CompletedRun | None
 
 
-def _run_state(statuses: frozenset[str]) -> RunState:
-    if "COMPLETED" in statuses:
-        return RunState.COMPLETED
-    if "FAILED" in statuses and not statuses & {"PENDING", "RUNNING"}:
-        return RunState.FAILED
-    return RunState.PENDING
-
-
 def _completed_run(database: DatabaseManager, run: RunRow) -> CompletedRun | None:
     execution = database.get_latest_completed_execution_for_run(run.id)
     if execution is None:
@@ -93,7 +77,7 @@ def fetch_run_candidates(database: DatabaseManager, experiment: ExperimentRow) -
     statuses = database.list_run_execution_statuses(experiment.id)
     candidates: list[RunCandidate] = []
     for run in database.list_runs(experiment.id):
-        state = _run_state(statuses.get(run.id, frozenset()))
+        state = run_state(statuses.get(run.id, frozenset()))
         completed = _completed_run(database, run) if state is RunState.COMPLETED else None
         candidates.append(RunCandidate(run=run, state=state, completed=completed))
     return candidates

@@ -30,3 +30,20 @@ FINISHED = frozenset({ExecutionStatus.COMPLETED, ExecutionStatus.FAILED})
 
 def sql_in(statuses: frozenset[ExecutionStatus]) -> str:
     return "(" + ", ".join(f"'{status}'" for status in ExecutionStatus if status in statuses) + ")"
+
+
+class RunState(StrEnum):
+    """Outcome of a run's execution attempts."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PENDING = "pending"
+
+
+def run_state(statuses: frozenset[str]):
+    if ExecutionStatus.COMPLETED in statuses:
+        return RunState.COMPLETED
+    # A live execution outranks a failed one, since the run may yet complete.
+    if ExecutionStatus.FAILED in statuses and not statuses & LIVE:
+        return RunState.FAILED
+    return RunState.PENDING
