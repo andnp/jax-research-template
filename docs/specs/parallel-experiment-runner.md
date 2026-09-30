@@ -1,6 +1,6 @@
 # Technical Specification: Parallel local experiment runs
 
-- **Status:** Accepted for implementation (revised after external review, 2026-09-29)
+- **Status:** Implemented (2026-09-29); decision recorded in ADR 013
 - **Owner:** Andy
 - **Created:** 2026-09-29
 - **Touches:** `cli/` (`research experiment run`), `libs/research-runner`, `libs/experiment-definition`
