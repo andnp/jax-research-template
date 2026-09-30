@@ -22,6 +22,8 @@ from research_runner.types import ExperimentSpec
 from rich.console import Console
 from rich.markdown import Markdown
 
+from research_cli.supervisor import GIB, SupervisorSettings, supervise
+
 experiment_app = typer.Typer(help="Manage experiments.")
 
 
@@ -323,6 +325,21 @@ def run(
         help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
     ),
     only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
+    workers: int | None = typer.Option(
+        None,
+        "--workers",
+        min=1,
+        help="Thread budget: run pending groups in parallel worker processes whose NPROC sums to at most this.",
+    ),
+    cores_per_worker: int | None = typer.Option(
+        None, "--cores-per-worker", min=1, help="With --workers, give every worker this NPROC instead of spreading the budget."
+    ),
+    worker_memory: float = typer.Option(
+        4.0, "--worker-memory", help="With --workers, GiB a worker is projected to need until one has reported its peak."
+    ),
+    memory_reserve: float | None = typer.Option(
+        None, "--memory-reserve", help="With --workers, GiB of memory kept free (default 15% of MemTotal)."
+    ),
     group: str | None = typer.Option(None, "--group", hidden=True, help="Run only the batches with this group key."),
     # Unused here: the real JAX_PLATFORMS decision must happen in main.py before jax is
     # ever imported, so this is declared only so typer accepts/documents the flag.
@@ -334,6 +351,34 @@ def run(
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
+
+    if workers is not None:
+        if gpu:
+            typer.echo("Error: --workers runs CPU workers; drop --gpu.", err=True)
+            raise typer.Exit(code=1)
+        if cores_per_worker is not None and cores_per_worker > workers:
+            typer.echo(f"Error: --cores-per-worker {cores_per_worker} exceeds --workers {workers}.", err=True)
+            raise typer.Exit(code=1)
+        if len(specs) != 1:
+            typer.echo(f"Error: --workers runs one spec; name it with --spec. Available: {', '.join(sorted(specs))}", err=True)
+            raise typer.Exit(code=1)
+        name, factory = next(iter(specs.items()))
+        experiment_spec = _with_results_root(factory(), results_root)
+        _record_declared_plan(module, name, experiment_spec)
+        settings = SupervisorSettings(
+            spec_file=spec_file,
+            spec_name=name,
+            results_root=results_root,
+            budget=workers,
+            cores_per_worker=cores_per_worker,
+            max_runs=max_runs,
+            worker_memory_bytes=int(worker_memory * GIB),
+            memory_reserve_bytes=None if memory_reserve is None else int(memory_reserve * GIB),
+            only=only or [],
+            only_clauses=only_clauses,
+            reclaim_stale_after=reclaim_stale_after,
+        )
+        raise typer.Exit(code=supervise(experiment_spec, settings))
 
     for name, factory in specs.items():
         experiment_spec = _with_results_root(factory(), results_root)

@@ -11,6 +11,10 @@ import sys
 if not ("experiment" in sys.argv and "run" in sys.argv and "--gpu" in sys.argv):
     os.environ["JAX_PLATFORMS"] = "cpu"
 
+from research_cli.supervisor import die_with_supervisor
+
+die_with_supervisor()
+
 import typer
 
 from research_cli.doctor import doctor_command
