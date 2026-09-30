@@ -9,15 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
-from .schema import EXECUTION_STATUSES
-
-_EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
-    "PENDING": frozenset({"RUNNING", "COMPLETED", "FAILED", "INVALID"}),
-    "RUNNING": frozenset({"COMPLETED", "FAILED", "INVALID"}),
-    "COMPLETED": frozenset({"INVALID"}),
-    "FAILED": frozenset({"INVALID"}),
-    "INVALID": frozenset(),
-}
+from .status import TRANSITIONS, ExecutionStatus
 
 
 def add_execution(
@@ -127,15 +119,15 @@ def update_execution_status(
     start_time: str | None,
     end_time: str | None,
 ) -> None:
-    if status not in EXECUTION_STATUSES:
+    if status not in TRANSITIONS:
         raise ValueError(f"Invalid status {status!r}.")
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
         if row is None:
             raise ValueError(f"Execution {execution_id} does not exist.")
-        current_status = str(row[0])
-        if status not in _EXECUTION_TRANSITIONS[current_status]:
+        current_status = ExecutionStatus(row[0])
+        if status not in TRANSITIONS[current_status]:
             raise ValueError(f"Illegal execution transition: {current_status} -> {status}.")
         updated = conn.execute(
             "UPDATE Executions SET status = ?, start_time = COALESCE(?, start_time), "
