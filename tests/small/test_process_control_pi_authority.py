@@ -85,10 +85,6 @@ class TestPIIntegralAuthorityContract:
         c = PhNeutralizationBenchmarkConfig()
         assert c.pi_ki * c.pi_max_integral >= _authority(c.pi_ff, c.pi_output_min, c.pi_output_max)
 
-    def test_equalization_tank(self) -> None:
-        c = EqualizationTankBenchmarkConfig()
-        assert abs(c.pi_ki) * c.pi_max_integral >= _authority(c.pi_ff, c.pi_output_min, c.pi_output_max)
-
     @pytest.mark.parametrize("loop", ["caustic", "bleach", "makeup"])
     def test_h2s_scrubber(self, loop: str) -> None:
         c = H2SScrubberConfig()

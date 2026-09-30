@@ -53,11 +53,6 @@ class EqualizationTankBenchmarkConfig:
     pi_ff: float = 75.0  # steady-state outlet ≈ mean inlet
     pi_output_min: float = 0.0
     pi_output_max: float = 150.0
-    # Sized so |ki| * max_integral covers the full actuator authority
-    # max(output_max - ff, ff - output_min) = max(150 - 75, 75 - 0) = 75
-    # (Åström & Murray, Feedback Systems, ch. 10 "Integrator Windup",
-    # https://www.cds.caltech.edu/~murray/books/AM08/pdf/am08-pid_04Mar10.pdf).
-    pi_max_integral: float = 150.0
 
     tracking_reward_scale: float = 1.0
     overflow_penalty: float = 10.0
@@ -120,7 +115,6 @@ def make_equalization_tank_benchmark(
         ff=config.pi_ff,
         output_min=config.pi_output_min,
         output_max=config.pi_output_max,
-        max_integral=config.pi_max_integral,
     )
     level_sensor_params = LaggedSensorParams(
         noise_std=config.level_noise_std,
