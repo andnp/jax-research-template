@@ -481,12 +481,6 @@ def _require_every_run_placed(dataset: ExperimentDataset, blocks: list[tuple[Blo
     )
 
 
-def _filter_dataset(dataset: ExperimentDataset, predicate: pl.Expr) -> ExperimentDataset:
-    runs = dataset.runs.filter(predicate)
-    metrics = dataset.metrics.join(runs.select("run_id"), on="run_id", how="inner")
-    return replace(dataset, runs=runs, metrics=metrics)
-
-
 def _filter_to_champions(
     dataset: ExperimentDataset, champions: dict[str, dict[str, Any]], untuned: Sequence[str]
 ) -> ExperimentDataset:
@@ -499,7 +493,7 @@ def _filter_to_champions(
             for condition, config in champions.items()
         ],
     )
-    return _filter_dataset(dataset, selected)
+    return dataset.filter_runs(selected)
 
 
 def _planned_pairs(conditions: list[str], pairs: Sequence[tuple[str, str]] | None) -> list[tuple[str, str]]:
@@ -571,7 +565,7 @@ def bakeoff_report(
     if set(conditions) <= set(untuned):
         raise ValueError("a tuned-champion comparison needs at least one tuned condition; every condition is untuned")
 
-    dataset = _filter_dataset(dataset, pl.col("condition_name").is_in(conditions))
+    dataset = dataset.filter_runs(pl.col("condition_name").is_in(conditions))
 
     # Only numeric axes have grid edges; string and boolean values carry no declared order.
     ordered_axes = [
@@ -582,7 +576,7 @@ def bakeoff_report(
 
     shared = _shared_conditions(dataset, block_by, shared_across)
     block_keys = _block_keys(dataset.runs, block_by, shared_across)
-    blocks = [(block_key, _filter_dataset(dataset, _block_predicate(block_key, shared_across))) for block_key in block_keys]
+    blocks = [(block_key, dataset.filter_runs(_block_predicate(block_key, shared_across))) for block_key in block_keys]
     _require_every_run_placed(dataset, blocks)
     reuses_runs = sum(block_dataset.runs.height for _key, block_dataset in blocks) > dataset.runs.height
 
@@ -635,7 +629,7 @@ def bakeoff_report(
             )
 
         raw_champions = best_hypers(
-            _filter_dataset(block_dataset, ~pl.col("condition_name").is_in(list(untuned))),
+            block_dataset.filter_runs(~pl.col("condition_name").is_in(list(untuned))),
             metric_name,
             group_by=[dataset.dimensions.condition],
             higher_is_better=higher_is_better,
