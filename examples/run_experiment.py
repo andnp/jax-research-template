@@ -1,7 +1,7 @@
-"""Full experiment lifecycle: definition → training → metrics → checkpoint.
+"""Full experiment lifecycle: definition → training → checkpoint.
 
-Demonstrates how to wire experiment-definition, rl-agents,
-research-instrument, and research-store into a cohesive pipeline.
+Demonstrates how to wire experiment-definition, rl-agents, and research-store
+into a cohesive pipeline.
 
 Usage:
     uv run examples/run_experiment.py
@@ -13,11 +13,8 @@ from pathlib import Path
 import gymnax
 import jax
 import matplotlib.pyplot as plt
-from experiment_definition.bridge import metric_whitelist
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.experiment import Experiment
-from research_instrument.collector import configure
-from research_instrument.sqlite_backend import SQLiteBackend
 from research_store.store import Store
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_components.loop import run
@@ -57,33 +54,15 @@ def main() -> None:
     exp.sync(db_path)
     print(f"✓ Experiment definition synced to {db_path}")
 
-    # ── 2. Configure metrics collection ───────────────────────────────────────
-    whitelist = metric_whitelist(exp)
-    print(f"✓ Metric whitelist: {whitelist}")
-
-    metrics_db = Path("metrics.db")
-    metrics_experiment_id = 1
-    metrics_run_id = 1
-    metrics_execution_id = 1
-    backend = SQLiteBackend(
-        metrics_db,
-        experiment_id=metrics_experiment_id,
-        run_id=metrics_run_id,
-        execution_id=metrics_execution_id,
-        batch_size=50,
-    )
-    configure(whitelist, backend=backend)
-    print(f"✓ Metrics backend: {metrics_db}")
-
-    # ── 3. Configure artifact store ───────────────────────────────────────────
+    # ── 2. Configure artifact store ───────────────────────────────────────────
     store = Store(
-        root=metrics_db.parent / "artifacts",
+        root=db_path.parent / "artifacts",
         experiment_id="dqn_cartpole_integration",
     )
     artifact_execution_id = uuid.uuid4()
     print(f"✓ Store configured (execution_id={artifact_execution_id})")
 
-    # ── 4. Train ──────────────────────────────────────────────────────────────
+    # ── 3. Train ──────────────────────────────────────────────────────────────
     config = DQNConfig(
         ENV_NAME="CartPole-v1",
         TOTAL_TIMESTEPS=100_000,
@@ -109,7 +88,7 @@ def main() -> None:
     final_state, metrics = train_fn(rng)
     print("✓ Training complete")
 
-    # ── 5. Save checkpoint ────────────────────────────────────────────────────
+    # ── 4. Save checkpoint ────────────────────────────────────────────────────
     final_params = final_state.agent_state.algorithm_state.train_state.params
     uri = store.put(final_params, name="final_weights", execution_id=artifact_execution_id)
     print(f"✓ Checkpoint saved: {uri}")
@@ -118,12 +97,7 @@ def main() -> None:
     store.get(uri)
     print("✓ Checkpoint recovery verified")
 
-    # ── 6. Flush metrics and report ───────────────────────────────────────────
-    backend.flush()
-    names = backend.metric_names()
-    print(f"✓ Metrics collected: {names}")
-
-    # ── 7. Plot results ───────────────────────────────────────────────────────
+    # ── 5. Plot results ───────────────────────────────────────────────────────
     returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     ax.plot(returns)
@@ -133,7 +107,6 @@ def main() -> None:
     fig.savefig("experiment_results.png", dpi=100, bbox_inches="tight")
     print("✓ Results plotted to experiment_results.png")
 
-    backend.close()
     print("\n✓ Experiment lifecycle complete!")
 
 
