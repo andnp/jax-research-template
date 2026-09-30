@@ -10,6 +10,7 @@ from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from ._types import PlannedExecution
 from .records import ExecutionRow, RunRow, _record_from_row
+from .status import FINISHED, ExecutionStatus, sql_in
 
 
 def list_execution_runs(conn: sqlite3.Connection, execution_id: int) -> list[RunRow]:
@@ -32,7 +33,7 @@ def get_latest_completed_execution_for_run(
         "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, e.git_commit, e.git_diff_blob, e.jax_config_json "
         "FROM Executions e "
         "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-        "WHERE er.run_id = ? AND e.status = 'COMPLETED' "
+        f"WHERE er.run_id = ? AND e.status = '{ExecutionStatus.COMPLETED}' "
         "ORDER BY COALESCE(e.end_time, e.start_time, '') DESC, e.id DESC "
         "LIMIT 1",
         (run_id,),
@@ -60,20 +61,21 @@ def invalidate_execution(conn: sqlite3.Connection, execution_id: int) -> bool:
     existing = _execution.get_execution(conn, execution_id)
     if existing is None:
         return False
-    _execution.update_execution_status(conn, execution_id, "INVALID", None, None)
+    _execution.update_execution_status(conn, execution_id, ExecutionStatus.INVALID, None, None)
     return True
 
 
 def invalidate_executions_by_commit(conn: sqlite3.Connection, git_commit: str) -> list[int]:
     with conn:
         rows = conn.execute(
-            "SELECT id FROM Executions WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
+            f"SELECT id FROM Executions WHERE git_commit = ? AND status IN {sql_in(FINISHED)}",
             (git_commit,),
         ).fetchall()
         if not rows:
             return []
         conn.execute(
-            "UPDATE Executions SET status = 'INVALID' WHERE git_commit = ? AND status IN ('COMPLETED', 'FAILED')",
+            f"UPDATE Executions SET status = '{ExecutionStatus.INVALID}' "
+            f"WHERE git_commit = ? AND status IN {sql_in(FINISHED)}",
             (git_commit,),
         )
     return [int(row[0]) for row in rows]
@@ -86,7 +88,7 @@ def find_executions_for_experiment(conn: sqlite3.Connection, experiment_id: int)
         "FROM Executions e "
         "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
         "INNER JOIN Runs r ON r.id = er.run_id "
-        "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
+        f"WHERE r.experiment_id = ? AND e.status IN {sql_in(FINISHED)} "
         "ORDER BY e.id",
         (experiment_id,),
     ).fetchall()
@@ -104,7 +106,7 @@ def find_executions_by_hyperparams(
         "FROM Executions e "
         "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
         "INNER JOIN Runs r ON r.id = er.run_id "
-        "WHERE r.experiment_id = ? AND e.status IN ('COMPLETED', 'FAILED') "
+        f"WHERE r.experiment_id = ? AND e.status IN {sql_in(FINISHED)} "
         "ORDER BY e.id",
         (experiment_id,),
     ).fetchall()

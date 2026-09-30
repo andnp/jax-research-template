@@ -1,6 +1,5 @@
 """Execution status vocabulary shared by the schema, planner and readers."""
 
-from collections.abc import Iterable
 from enum import StrEnum
 
 
@@ -23,5 +22,11 @@ TRANSITIONS: dict[ExecutionStatus, frozenset[ExecutionStatus]] = {
 }
 
 
-def sql_in(statuses: Iterable[ExecutionStatus]) -> str:
-    return "(" + ", ".join(f"'{status}'" for status in statuses) + ")"
+LIVE = frozenset({ExecutionStatus.PENDING, ExecutionStatus.RUNNING})
+# A run with an execution in any of these is not planned again.
+CLAIMING = LIVE | {ExecutionStatus.COMPLETED}
+FINISHED = frozenset({ExecutionStatus.COMPLETED, ExecutionStatus.FAILED})
+
+
+def sql_in(statuses: frozenset[ExecutionStatus]) -> str:
+    return "(" + ", ".join(f"'{status}'" for status in ExecutionStatus if status in statuses) + ")"

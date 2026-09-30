@@ -86,7 +86,7 @@ CREATE_EXECUTIONS = f"""
 CREATE TABLE IF NOT EXISTS Executions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     status          TEXT NOT NULL DEFAULT '{ExecutionStatus.PENDING}'
-                         CHECK(status IN {sql_in(ExecutionStatus)}),
+                         CHECK(status IN {sql_in(frozenset(ExecutionStatus))}),
     hostname        TEXT,
     start_time      TEXT,
     end_time        TEXT,

@@ -155,7 +155,7 @@ def reclaim_stale_executions(
             "SELECT DISTINCT e.id FROM Executions e "
             "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
             "INNER JOIN Runs r ON r.id = er.run_id "
-            "WHERE r.experiment_id = ? AND e.status = 'RUNNING' "
+            f"WHERE r.experiment_id = ? AND e.status = '{ExecutionStatus.RUNNING}' "
             "AND e.start_time IS NOT NULL AND e.start_time < ?",
             (experiment_id, cutoff),
         ).fetchall()

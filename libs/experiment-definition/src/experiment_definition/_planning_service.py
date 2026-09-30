@@ -14,12 +14,13 @@ from ._database_utils import _json_stable
 from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
 from .records import RunRow, _record_from_row
+from .status import CLAIMING, ExecutionStatus, sql_in
 
 _CLAIMED_RUNS_SQL = (
     "SELECT DISTINCT er.run_id AS run_id "
     "FROM ExecutionRuns er "
     "INNER JOIN Executions e ON e.id = er.execution_id "
-    "WHERE e.status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+    f"WHERE e.status IN {sql_in(CLAIMING)}"
 )
 
 
@@ -136,7 +137,7 @@ def fail_group_executions_started_since(
             "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
             "INNER JOIN Runs r ON r.id = er.run_id "
             "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
-            "WHERE r.experiment_id = ? AND e.status = 'RUNNING' AND e.start_time >= ?",
+            f"WHERE r.experiment_id = ? AND e.status = '{ExecutionStatus.RUNNING}' AND e.start_time >= ?",
             (experiment_id, since),
         ).fetchall()
         failed = sorted(
