@@ -1,5 +1,6 @@
 """Contract tests for run-batch group keys and the group planning filter."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
@@ -63,3 +64,39 @@ def test_groups_with_and_without_an_ablation_list_together(tmp_path: Path) -> No
             database.add_run(experiment_id, None, None, hyper_id, 0, ablation)
 
         assert len(database.list_unsatisfied_run_batches(experiment_id)) == 2
+
+
+def test_fail_group_executions_fails_only_that_groups_recent_running(tmp_path: Path) -> None:
+    """Only RUNNING executions of the named group that started at or after the cutoff become FAILED.
+
+    A dead worker's executions are exactly those, so older runs of the group and every other
+    group's in-flight work must survive.
+    """
+    since = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    before, after = "2026-01-01T11:59:59+00:00", "2026-01-01T12:00:00.5+00:00"
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        experiment_id = _seed_groups(database)
+        target, other = database.list_unsatisfied_run_batches(experiment_id)[:2]
+
+        def running(run_id: int, start_time: str, status: str = "RUNNING") -> int:
+            execution_id = database.add_execution()
+            database.link_execution_run(execution_id, run_id)
+            database.update_execution_status(execution_id, status, start_time=start_time)
+            return execution_id
+
+        dead = running(target.run_ids[0], after)
+        older = running(target.run_ids[1], before)
+        finished = running(target.run_ids[1], after, "COMPLETED")
+        other_group = running(other.run_ids[0], after)
+
+        def status(execution_id: int) -> str:
+            execution = database.get_execution(execution_id)
+            assert execution is not None
+            return execution.status
+
+        failed = database.fail_group_executions_started_since(experiment_id, target.group_key, since)
+        statuses = {execution_id: status(execution_id) for execution_id in (dead, older, finished, other_group)}
+
+    assert failed == [dead]
+    assert statuses == {dead: "FAILED", older: "RUNNING", finished: "COMPLETED", other_group: "RUNNING"}

@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import _execution_repository as _execution
@@ -44,7 +45,21 @@ def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: M
     )
 
 
-def _group_key(batch_key: tuple[int | None, int | None, str | None, str, str | None]) -> str:
+type _BatchKey = tuple[int | None, int | None, str | None, str, str | None]
+
+
+def _batch_key(
+    algo_version_id: int | None,
+    env_version_id: int | None,
+    ablation: str | None,
+    hyper_json: str,
+    vmap_zone_json: str | None,
+) -> _BatchKey:
+    static_config_json = _static_config_json(hyper_json, vmap_zone_json)
+    return (algo_version_id, env_version_id, ablation, static_config_json, vmap_zone_json)
+
+
+def _group_key(batch_key: _BatchKey) -> str:
     return hashlib.sha256(json.dumps(batch_key).encode()).hexdigest()[:12]
 
 
@@ -66,26 +81,19 @@ def list_unsatisfied_run_batches(
         (experiment_id,),
     ).fetchall()
 
-    grouped_runs: dict[tuple[int | None, int | None, str | None, str, str | None], list[int]] = {}
+    grouped_runs: dict[_BatchKey, list[int]] = {}
     for row in rows:
         run = _record_from_row(RunRow, row)
         hyper_json = str(row[7])
         if only and not _run_matches(json.loads(hyper_json), run, only):
             continue
         vmap_zone_json = str(row[8]) if row[8] is not None else None
-        static_config_json = _static_config_json(hyper_json, vmap_zone_json)
-        batch_key = (
-            run.algo_version_id,
-            run.env_version_id,
-            run.ablation,
-            static_config_json,
-            vmap_zone_json,
-        )
+        batch_key = _batch_key(run.algo_version_id, run.env_version_id, run.ablation, hyper_json, vmap_zone_json)
         grouped_runs.setdefault(batch_key, []).append(run.id)
 
     # None sorts first, so groups with and without an ablation or version still compare.
     def batch_key_of(
-        item: tuple[tuple[int | None, int | None, str | None, str, str | None], list[int]],
+        item: tuple[_BatchKey, list[int]],
     ) -> tuple[tuple[bool, int | str], ...]:
         return tuple((value is not None, value if value is not None else 0) for value in item[0])
 
@@ -111,6 +119,42 @@ def list_unsatisfied_run_batches(
                 )
             )
     return batches
+
+
+def fail_group_executions_started_since(
+    conn: sqlite3.Connection,
+    experiment_id: int,
+    group: str,
+    since: str,
+) -> list[int]:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, hc.json_blob, hc.vmap_zone_json "
+            "FROM Executions e "
+            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+            "INNER JOIN Runs r ON r.id = er.run_id "
+            "INNER JOIN HyperparamConfigs hc ON hc.id = r.hyper_id "
+            "WHERE r.experiment_id = ? AND e.status = 'RUNNING' AND e.start_time >= ?",
+            (experiment_id, since),
+        ).fetchall()
+        failed = sorted(
+            {
+                int(row[0])
+                for row in rows
+                if _group_key(_batch_key(row[1], row[2], row[3], str(row[4]), row[5])) == group
+            }
+        )
+        conn.executemany(
+            "UPDATE Executions SET status = 'FAILED', end_time = ? WHERE id = ? AND status = 'RUNNING'",
+            [(now, execution_id) for execution_id in failed],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return failed
 
 
 def unsatisfied_run_ids(
