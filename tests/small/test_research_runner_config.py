@@ -156,3 +156,27 @@ class TestStrAndLiteralChecks:
         """True equals 1 in Python but is not the option 1."""
         with pytest.raises(ValueError):
             _check_value(Literal[1, 2], "agent.K", True)
+
+
+class TestUnionChecks:
+    def test_accepts_none_for_an_optional_field(self):
+        """An explicit None is a valid value of X | None."""
+        assert _check_value(float | None, "agent.TARGET", None) is None
+
+    def test_converts_through_the_matching_member(self):
+        """An int satisfies float | None by converting to float."""
+        assert _check_value(float | None, "agent.TARGET", 2) == 2.0
+
+    def test_rejects_a_value_no_member_accepts(self):
+        """The error names the whole annotation."""
+        with pytest.raises(ValueError, match=r"agent.TARGET expects float \| None, got 'x'"):
+            _check_value(float | None, "agent.TARGET", "x")
+
+    def test_rejects_none_for_a_required_field(self):
+        """None is only valid where the annotation allows it."""
+        with pytest.raises(ValueError, match="agent.LR expects float, got None"):
+            _check_value(float, "agent.LR", None)
+
+    def test_passes_through_annotations_it_does_not_know(self):
+        """Unrecognised annotations are the field's own business."""
+        assert _check_value(tuple[int, ...], "agent.SIZES", (1, 2)) == (1, 2)
