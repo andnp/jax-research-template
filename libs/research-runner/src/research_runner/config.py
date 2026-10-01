@@ -2,6 +2,10 @@
 
 import dataclasses
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 _TRACED = "research_runner.traced"
 
@@ -25,3 +29,26 @@ def _walk(config: object, prefix: str = "") -> Iterator[tuple[str, dataclasses.F
 
 def _traced_paths(config: object) -> tuple[str, ...]:
     return tuple(path for path, _ in _walk(config))
+
+
+def _get_path(config: object, path: str) -> object:
+    for part in path.split("."):
+        config = getattr(config, part)
+    return config
+
+
+def _set_path[C: DataclassInstance](config: C, path: str, value: object) -> C:
+    head, _, rest = path.partition(".")
+    if rest:
+        value = _set_path(getattr(config, head), rest, value)
+    return dataclasses.replace(config, **{head: value})
+
+
+def _split_traced[C: DataclassInstance](config: C) -> tuple[C, dict[str, object]]:
+    """Reset every traced field to its default and return the values it held, so equal statics can share a batch."""
+    static = config
+    values: dict[str, object] = {}
+    for path, field in _walk(config):
+        values[path] = _get_path(config, path)
+        static = _set_path(static, path, field.default)
+    return static, values
