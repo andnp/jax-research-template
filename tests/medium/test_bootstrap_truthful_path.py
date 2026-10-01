@@ -86,18 +86,27 @@ def _write_fake_stub_package(core_root: Path, dist_name: str, import_name: str) 
     )
     (src_dir / "__init__.py").write_text("", encoding="utf-8")
     if import_name == "experiment_definition":
-        (src_dir / "db.py").write_text(
-            "from collections import namedtuple\n"
+        stubs = {
+            "db": "from collections import namedtuple\n"
             "ExperimentRow = namedtuple('ExperimentRow', ['id', 'name', 'description', 'created_at'])\n"
             "ExecutionRow = namedtuple('ExecutionRow', ['id', 'experiment_id', 'status', 'created_at'])\n"
+            "class RunBatch: pass\n"
+            "class ReclaimReport: pass\n"
             "class DatabaseManager:\n"
             "    def __init__(self, *a, **kw): pass\n"
             "    def __enter__(self): return self\n"
             "    def __exit__(self, *a): pass\n"
             "    def initialize(self): pass\n",
-            encoding="utf-8",
-        )
-        (src_dir / "experiment.py").write_text("", encoding="utf-8")
+            "experiment": "",
+            "ownership": "def local_owner(*a): pass\n",
+            "records": "class ExecutionArtifactRow: pass\n",
+            "status": "from enum import StrEnum\n\n\nclass ExecutionStatus(StrEnum): pass\n\n\n"
+            "class RunState(StrEnum): pass\n\n\ndef run_state(*a): pass\n",
+        }
+        for module, source in stubs.items():
+            (src_dir / f"{module}.py").write_text(source, encoding="utf-8")
+    elif import_name == "research_cluster":
+        (src_dir / "ownership.py").write_text("def owner_state(*a): pass\n", encoding="utf-8")
     elif import_name == "research_runner":
         (src_dir / "types.py").write_text(
             "class ExperimentSpec: pass\n",
