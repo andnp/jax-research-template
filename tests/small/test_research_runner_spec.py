@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import jax
+import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
+from experiment_definition.parameter import ParameterValue
 from research_runner.config import traced
 from research_runner.types import ExperimentSpec
 
@@ -72,3 +74,20 @@ def test_each_run_is_batched_by_the_traced_fields_of_its_own_choice(tmp_path: Pa
         (("agent",), ("agent.LEARNING_RATE",)),
         (("agent", "agent.LEARNING_RATE"), ()),
     }
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "error"),
+    [
+        pytest.param("agent.LEARNING_RTE", 1e-3, "_TracedRate has no field LEARNING_RTE", id="bad-path"),
+        pytest.param("agent", "missing", "'missing' is not a choice for agent", id="bad-choice"),
+        pytest.param("agent.LEARNING_RATE", "fast", "agent.LEARNING_RATE expects float", id="wrong-type"),
+    ],
+)
+def test_sync_rejects_a_parameter_its_config_cannot_take(tmp_path: Path, name: str, value: ParameterValue, error: str) -> None:
+    experiment = Experiment("errors").add_parameter(name, [value]).add_parameter("seed", [0])
+    choices = {"agent": {"traced": _TracedRate(), "static": _StaticRate()}}
+    spec = ExperimentSpec(experiment, config=_Agents(), choices=choices, train=_train, results_root=tmp_path)
+
+    with pytest.raises(ValueError, match=error):
+        spec.sync(spec.db_path)
