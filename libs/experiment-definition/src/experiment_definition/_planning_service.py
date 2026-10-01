@@ -163,7 +163,7 @@ def _plan_execution(
     git_diff_blob: str | None,
     jax_config: Mapping[str, ParameterValue] | None,
 ) -> int:
-    execution_id = _execution._insert_execution(conn, hostname, git_commit, git_diff_blob, jax_config)
+    execution_id = _execution.add_execution(conn, hostname, git_commit, git_diff_blob, jax_config)
     for run_id in run_ids:
         _execution._link_execution_run(conn, execution_id, run_id)
     return execution_id

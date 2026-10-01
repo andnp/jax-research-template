@@ -22,16 +22,6 @@ def add_execution(
     git_diff_blob: str | None,
     jax_config: Mapping[str, ParameterValue] | None,
 ) -> int:
-    return _insert_execution(conn, hostname, git_commit, git_diff_blob, jax_config)
-
-
-def _insert_execution(
-    conn: sqlite3.Connection,
-    hostname: str | None,
-    git_commit: str | None,
-    git_diff_blob: str | None,
-    jax_config: Mapping[str, ParameterValue] | None,
-) -> int:
     jax_json = json.dumps(jax_config, sort_keys=True) if jax_config is not None else None
     cur = conn.execute(
         "INSERT INTO Executions(hostname, git_commit, git_diff_blob, jax_config_json) "
