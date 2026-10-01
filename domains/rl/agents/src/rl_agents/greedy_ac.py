@@ -75,7 +75,7 @@ class GACConfig:
         ACTOR_LEARNING_RATE: Actor learning rate.
         BUFFER_SIZE: Capacity of the uniform replay buffer.
         BATCH_SIZE: Minibatch size for both actor and critic updates.
-        TOTAL_TIMESTEPS: Total environment steps per training run.
+        total_timesteps: Total environment steps per training run.
         LEARNING_STARTS: Steps of random exploration before training begins.
         TRAIN_FREQUENCY: Number of environment steps between training updates.
         TAU: Target network polyak averaging coefficient.
@@ -97,7 +97,7 @@ class GACConfig:
     ACTOR_LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
-    TOTAL_TIMESTEPS: int = 200_000
+    total_timesteps: int = 200_000
     LEARNING_STARTS: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
     TAU: float = 0.005

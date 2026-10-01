@@ -63,7 +63,7 @@ from rl_envs.gymnax_bridge import make_gymnax_env
 _GOLDEN_PATH = Path(__file__).with_name("ppo_golden_baseline.json")
 
 _CONFIG = PPOConfig(
-    TOTAL_TIMESTEPS=1024,
+    total_timesteps=1024,
     NUM_STEPS=32,
     ENV_NAME="CartPole-v1",
     NORMALIZE_OBSERVATIONS=True,
@@ -134,7 +134,7 @@ def _smoothed_return_curve(metrics: dict[str, jax.Array]) -> jax.Array:
         The per-seed, per-update rollout-mean smoothed return, shaped
         `(_NUM_SEEDS, num_updates)`.
     """
-    steps = _CONFIG.TOTAL_TIMESTEPS
+    steps = _CONFIG.total_timesteps
     episode_return = metrics["loop/episode_return"]
     impulse_index = jnp.asarray(
         jnp.where(metrics["loop/episode_end"], jnp.arange(steps, dtype=jnp.int32), jnp.int32(-1))
@@ -160,7 +160,7 @@ def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
             agent,
             env,
             key,
-            steps=_CONFIG.TOTAL_TIMESTEPS,
+            steps=_CONFIG.total_timesteps,
             gamma=_GAMMA,
             env_params=env_params,
         )

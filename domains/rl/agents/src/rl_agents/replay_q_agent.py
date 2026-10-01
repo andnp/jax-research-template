@@ -118,7 +118,7 @@ class ReplayQConfig(Protocol):
     def BATCH_SIZE(self) -> int: ...
 
     @property
-    def TOTAL_TIMESTEPS(self) -> int: ...
+    def total_timesteps(self) -> int: ...
 
     @property
     def LEARNING_STARTS(self) -> int: ...
@@ -173,7 +173,7 @@ def replay_q_hypers(config: ReplayQConfig):
         EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
         EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
         EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
-        TOTAL_TIMESTEPS=jnp.asarray(config.TOTAL_TIMESTEPS, jnp.float32),
+        TOTAL_TIMESTEPS=jnp.asarray(config.total_timesteps, jnp.float32),
     )
 
 

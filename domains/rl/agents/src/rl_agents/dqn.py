@@ -32,7 +32,7 @@ class DQNConfig:
     LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
-    TOTAL_TIMESTEPS: int = 200_000
+    total_timesteps: int = 200_000
     LEARNING_STARTS: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
     TARGET_NETWORK_FREQUENCY: int = traced(1_000)

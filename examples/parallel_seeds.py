@@ -17,7 +17,7 @@ def main() -> None:
     NUM_SEEDS = 16
 
     config = PPOConfig(
-        TOTAL_TIMESTEPS=200_000,
+        total_timesteps=200_000,
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,
@@ -36,7 +36,7 @@ def main() -> None:
     # VMAP over the seeds!
     # This runs NUM_SEEDS independent agents in parallel.
     def train_one_seed(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     parallel_train = jax.vmap(train_one_seed)
     parallel_train = jax.jit(parallel_train)
@@ -53,7 +53,7 @@ def main() -> None:
     episode_returns = metrics["loop/episode_return"]
     episode_ends = metrics["loop/episode_end"]
 
-    sps = (config.TOTAL_TIMESTEPS * NUM_SEEDS) / total_time
+    sps = (config.total_timesteps * NUM_SEEDS) / total_time
 
     print(f"Total Time:      {total_time:.2f}s")
     print(f"Combined SPS:    {sps:.2f}")

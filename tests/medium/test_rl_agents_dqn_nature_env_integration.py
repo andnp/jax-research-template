@@ -64,7 +64,7 @@ class TestDQNNatureEnvIntegration:
     def test_run_drives_the_agent_against_an_injected_atari_like_env(self) -> None:
         config = DQNConfig(
             NETWORK_PRESET="nature_cnn",
-            TOTAL_TIMESTEPS=STEPS,
+            total_timesteps=STEPS,
             LEARNING_STARTS=100,
             BUFFER_SIZE=16,
             BATCH_SIZE=4,

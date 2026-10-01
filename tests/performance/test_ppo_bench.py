@@ -11,7 +11,7 @@ GAMMA = 0.99
 
 def test_ppo_speed(benchmark: Any) -> None:
     config = PPOConfig(
-        TOTAL_TIMESTEPS=100_000,
+        total_timesteps=100_000,
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,
@@ -24,7 +24,7 @@ def test_ppo_speed(benchmark: Any) -> None:
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
 

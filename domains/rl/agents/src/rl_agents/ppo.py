@@ -50,7 +50,7 @@ class PPOConfig:
     # Training Hyperparameters
     LEARNING_RATE: float = traced(2.5e-4)
     NUM_STEPS: int = 128
-    TOTAL_TIMESTEPS: int = 500_000
+    total_timesteps: int = 500_000
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
 

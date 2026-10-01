@@ -23,7 +23,7 @@ def _short_agent(env_name: str) -> TD3Agent:
     return TD3Agent(
         TD3Config(
             ENV_NAME=env_name,
-            TOTAL_TIMESTEPS=STEPS,
+            total_timesteps=STEPS,
             LEARNING_STARTS=50,
             BUFFER_SIZE=64,
             BATCH_SIZE=16,

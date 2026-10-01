@@ -73,7 +73,7 @@ class QRCConfig:
     LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
-    TOTAL_TIMESTEPS: int = 200_000
+    total_timesteps: int = 200_000
     LEARNING_STARTS: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
     EPSILON_START: float = traced(1.0)
@@ -119,7 +119,7 @@ def qrc_hypers(config: QRCConfig) -> QRCHypers:
         EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
         EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
         EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
-        TOTAL_TIMESTEPS=jnp.asarray(config.TOTAL_TIMESTEPS, jnp.float32),
+        TOTAL_TIMESTEPS=jnp.asarray(config.total_timesteps, jnp.float32),
         BETA=jnp.asarray(config.BETA, jnp.float32),
     )
 

@@ -12,7 +12,7 @@ GAMMA = 0.99
 
 def main() -> None:
     config = PPOConfig(
-        TOTAL_TIMESTEPS=500_000,
+        total_timesteps=500_000,
         NUM_STEPS=64,
         UPDATE_EPOCHS=4,
         NUM_MINIBATCHES=4,
@@ -25,7 +25,7 @@ def main() -> None:
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
 
@@ -41,7 +41,7 @@ def main() -> None:
     execution_time = time.time() - start_time
 
     returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
-    sps = config.TOTAL_TIMESTEPS / execution_time
+    sps = config.total_timesteps / execution_time
 
     print(f"Compilation Time: {max(0, total_time - execution_time):.2f}s")
     print(f"Execution Time:   {execution_time:.2f}s")

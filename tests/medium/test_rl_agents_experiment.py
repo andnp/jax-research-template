@@ -19,7 +19,7 @@ def _dqn(learning_rate: float = 3e-4) -> DQNConfig:
         BATCH_SIZE=8,
         LEARNING_STARTS=8,
         TARGET_NETWORK_FREQUENCY=10,
-        TOTAL_TIMESTEPS=_STEPS,
+        total_timesteps=_STEPS,
     )
 
 

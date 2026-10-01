@@ -220,7 +220,7 @@ def _finish(
 
 def _run_dqn(learning_starts: int) -> Run:
     config = dqn.DQNConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -245,7 +245,7 @@ def _run_dqn(learning_starts: int) -> Run:
 
 def _run_double_dqn(learning_starts: int) -> Run:
     config = double_dqn.DoubleDQNConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -270,7 +270,7 @@ def _run_double_dqn(learning_starts: int) -> Run:
 
 def _run_dueling_dqn(learning_starts: int) -> Run:
     config = dueling_dqn.DuelingDQNConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -295,7 +295,7 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
 
 def _run_qrc(learning_starts: int) -> Run:
     config = qrc.QRCConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -320,7 +320,7 @@ def _run_qrc(learning_starts: int) -> Run:
 
 def _run_sac(learning_starts: int) -> Run:
     config = sac.SACConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -345,7 +345,7 @@ def _run_sac(learning_starts: int) -> Run:
 
 def _run_td3(learning_starts: int) -> Run:
     config = td3.TD3Config(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -371,7 +371,7 @@ def _run_td3(learning_starts: int) -> Run:
 
 def _run_sac_rc(learning_starts: int) -> Run:
     config = sac_rc.SACRCConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,
@@ -396,7 +396,7 @@ def _run_sac_rc(learning_starts: int) -> Run:
 
 def _run_greedy_ac(learning_starts: int) -> Run:
     config = greedy_ac.GACConfig(
-        TOTAL_TIMESTEPS=TOTAL_TIMESTEPS,
+        total_timesteps=TOTAL_TIMESTEPS,
         LEARNING_STARTS=learning_starts,
         BUFFER_SIZE=BUFFER_SIZE,
         BATCH_SIZE=BATCH_SIZE,

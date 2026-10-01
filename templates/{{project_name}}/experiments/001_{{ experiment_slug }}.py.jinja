@@ -25,7 +25,7 @@ SEEDS = tuple(range({{ num_seeds }}))
 PPO_COMPONENT = Component.from_module("ppo", ppo_module, type=ComponentType.ALGO)
 ENV_COMPONENT = Component.from_module("gymnax", gymnax_bridge_module, type=ComponentType.ENV)
 ENVS = {ENV_NAME: GymnaxConfig(ENV_NAME, normalized=True)}
-CONFIG = RLConfig(agent=PPOConfig(TOTAL_TIMESTEPS=500_000), env=ENVS[ENV_NAME])
+CONFIG = RLConfig(agent=PPOConfig(total_timesteps=500_000), env=ENVS[ENV_NAME])
 
 
 def train(config: RLConfig[object], key: jax.Array) -> tuple[object, dict[str, jax.Array]]:

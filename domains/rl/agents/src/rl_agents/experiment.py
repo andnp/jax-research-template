@@ -16,7 +16,7 @@ class AgentConfig[AgentStateT](Protocol):
     """An agent config: how long to train, and how to build the agent."""
 
     @property
-    def TOTAL_TIMESTEPS(self) -> int: ...
+    def total_timesteps(self) -> int: ...
 
     def build(self) -> AgentProtocol[AgentStateT, jax.Array, jax.Array]: ...
 
@@ -43,7 +43,7 @@ def rl_train[AgentStateT](
         config.agent.build(),
         env,
         key,
-        steps=config.agent.TOTAL_TIMESTEPS,
+        steps=config.agent.total_timesteps,
         gamma=config.gamma,
         env_params=env_params,
     )

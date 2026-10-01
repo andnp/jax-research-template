@@ -13,7 +13,7 @@ GAMMA = 0.99
 
 def main() -> None:
     config = DQNConfig(
-        TOTAL_TIMESTEPS=100_000,
+        total_timesteps=100_000,
         BUFFER_SIZE=50_000,
         BATCH_SIZE=128,
         LEARNING_STARTS=1000,
@@ -32,7 +32,7 @@ def main() -> None:
             agent,
             env,
             key,
-            steps=config.TOTAL_TIMESTEPS,
+            steps=config.total_timesteps,
             gamma=GAMMA,
             env_params=env_params,
         )
@@ -45,7 +45,7 @@ def main() -> None:
     elapsed = time.time() - start
 
     returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
-    sps = config.TOTAL_TIMESTEPS / elapsed
+    sps = config.total_timesteps / elapsed
     print(f"Episodes:         {returns.size}")
     print(f"Final Return:     {jnp.mean(returns[-10:]).item():.2f}")
     print(f"Max Return:       {returns.max().item():.2f}")

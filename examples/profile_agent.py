@@ -12,7 +12,7 @@ GAMMA = 0.99
 
 def profile_ppo(steps: int = 1000) -> None:
     config = PPOConfig(
-        TOTAL_TIMESTEPS=steps,
+        total_timesteps=steps,
         NUM_STEPS=64,
         ENV_NAME="CartPole-v1",
     )
@@ -22,7 +22,7 @@ def profile_ppo(steps: int = 1000) -> None:
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
 

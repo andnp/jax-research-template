@@ -38,7 +38,7 @@ def train_gac(
     """
     config = GACConfig(
         ENV_NAME=env_name,
-        TOTAL_TIMESTEPS=total_timesteps,
+        total_timesteps=total_timesteps,
         BUFFER_SIZE=50_000,
         BATCH_SIZE=64,
         LEARNING_STARTS=500,
@@ -54,7 +54,7 @@ def train_gac(
     env = make_gymnax_env(raw_env)
     agent = GACAgent(config)
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
 
@@ -64,7 +64,7 @@ def train_gac(
     elapsed = time.time() - start
 
     returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
-    sps = config.TOTAL_TIMESTEPS / elapsed
+    sps = config.total_timesteps / elapsed
     print(f"Final Return:     {returns[-1].item():.2f}")
     print(f"Max Return:       {returns.max().item():.2f}")
 

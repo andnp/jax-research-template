@@ -51,7 +51,7 @@ def _cartpole_return(config: QRCConfig) -> jax.Array:
     agent = QRCAgent(config)
 
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
     _, metrics = train_jit(jax.random.PRNGKey(config.SEED))
@@ -59,13 +59,13 @@ def _cartpole_return(config: QRCConfig) -> jax.Array:
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return on
     # the boundary step and zero everywhere else, so it must be masked, not averaged.
     boundaries = jnp.flatnonzero(metrics["loop/episode_end"])
-    late = boundaries[boundaries >= int(LATE_FRACTION * config.TOTAL_TIMESTEPS)]
+    late = boundaries[boundaries >= int(LATE_FRACTION * config.total_timesteps)]
     assert late.size > 0, "no episode completed in the final tenth of the run"
     return metrics["loop/episode_return"][late].mean()
 
 
 def test_qrc_cartpole_learns() -> None:
-    config = QRCConfig(ENV_NAME="CartPole-v1", TOTAL_TIMESTEPS=50_000)
+    config = QRCConfig(ENV_NAME="CartPole-v1", total_timesteps=50_000)
     final_return = _cartpole_return(config)
     print(f"Final mean return: {final_return}")
     assert final_return > 100, f"QRC failed to learn CartPole. Return: {final_return}"
@@ -73,13 +73,13 @@ def test_qrc_cartpole_learns() -> None:
 
 def _acrobot_seed_means(style: HRegularization) -> np.ndarray:
     """Mean of each seed's last ``FLOOR_EPISODES`` completed episode returns."""
-    config = QRCConfig(ENV_NAME="Acrobot-v1", TOTAL_TIMESTEPS=50_000, H_REGULARIZATION=style)
+    config = QRCConfig(ENV_NAME="Acrobot-v1", total_timesteps=50_000, H_REGULARIZATION=style)
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = make_gymnax_env(raw_env)
     agent = QRCAgent(config)
 
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(jax.vmap(train_fn))
     _, metrics = train_jit(jax.random.split(jax.random.key(config.SEED), FLOOR_SEEDS))

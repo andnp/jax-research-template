@@ -65,7 +65,7 @@ def main() -> None:
     # ── 3. Train ──────────────────────────────────────────────────────────────
     config = DQNConfig(
         ENV_NAME="CartPole-v1",
-        TOTAL_TIMESTEPS=100_000,
+        total_timesteps=100_000,
         SEED=42,
     )
     raw_env, env_params = gymnax.make(config.ENV_NAME)
@@ -76,7 +76,7 @@ def main() -> None:
             agent,
             env,
             key,
-            steps=config.TOTAL_TIMESTEPS,
+            steps=config.total_timesteps,
             gamma=GAMMA,
             env_params=env_params,
         )

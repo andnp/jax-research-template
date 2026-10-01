@@ -20,12 +20,12 @@ LATE_EPISODES = 20
 
 
 def test_sac_pendulum_learns() -> None:
-    config = SACConfig(TOTAL_TIMESTEPS=50_000, ENV_NAME="Pendulum-v1", SEED=42)
+    config = SACConfig(total_timesteps=50_000, ENV_NAME="Pendulum-v1", SEED=42)
     raw_env, env_params = gymnax.make(config.ENV_NAME)
     env = ActionNormalizationWrapper(make_gymnax_env(raw_env))
     agent = SACAgent(config)
     def _train(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(_train)
     _, metrics = train_jit(jax.random.key(config.SEED))

@@ -19,7 +19,7 @@ from rl_agents.td3 import TD3Config
 from rl_envs.env_config import GymnaxConfig
 
 _STEPS = 4
-_REPLAY = {"TOTAL_TIMESTEPS": _STEPS, "BUFFER_SIZE": 8, "BATCH_SIZE": 2, "LEARNING_STARTS": 0}
+_REPLAY = {"total_timesteps": _STEPS, "BUFFER_SIZE": 8, "BATCH_SIZE": 2, "LEARNING_STARTS": 0}
 _CARTPOLE = GymnaxConfig("CartPole-v1")
 _PENDULUM = GymnaxConfig("Pendulum-v1", normalized=True)
 
@@ -35,7 +35,7 @@ _CASES = [
         id="gac",
     ),
     pytest.param(
-        PPOConfig, {"TOTAL_TIMESTEPS": _STEPS, "NUM_STEPS": 2, "UPDATE_EPOCHS": 1, "NUM_MINIBATCHES": 1}, _CARTPOLE, id="ppo"
+        PPOConfig, {"total_timesteps": _STEPS, "NUM_STEPS": 2, "UPDATE_EPOCHS": 1, "NUM_MINIBATCHES": 1}, _CARTPOLE, id="ppo"
     ),
     pytest.param(TD3Config, _REPLAY, _PENDULUM, id="td3"),
     pytest.param(SACConfig, _REPLAY, _PENDULUM, id="sac"),

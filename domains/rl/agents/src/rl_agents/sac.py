@@ -45,7 +45,7 @@ class SACConfig:
     LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
-    TOTAL_TIMESTEPS: int = 1_000_000
+    total_timesteps: int = 1_000_000
     LEARNING_STARTS: int = traced(5_000)
     TRAIN_FREQUENCY: int = traced(1)
     TAU: float = traced(0.005)

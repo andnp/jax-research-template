@@ -11,7 +11,7 @@ GAMMA = 0.99
 LATE_FRACTION = 0.9
 """Fraction of the horizon after which an episode counts towards the final score."""
 
-_config = PPOConfig(TOTAL_TIMESTEPS=80_000, ENV_NAME="CartPole-v1", NORMALIZE_OBSERVATIONS=True)
+_config = PPOConfig(total_timesteps=80_000, ENV_NAME="CartPole-v1", NORMALIZE_OBSERVATIONS=True)
 
 
 def test_ppo_cartpole_learns() -> None:
@@ -24,7 +24,7 @@ def test_ppo_cartpole_learns() -> None:
             agent,
             env,
             key,
-            steps=_config.TOTAL_TIMESTEPS,
+            steps=_config.total_timesteps,
             gamma=GAMMA,
             env_params=env_params,
         )
@@ -36,7 +36,7 @@ def test_ppo_cartpole_learns() -> None:
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
     # on the boundary step and zero everywhere else, so it must be masked, not averaged.
     boundaries = jnp.flatnonzero(metrics["loop/episode_end"])
-    late = boundaries[boundaries >= int(LATE_FRACTION * _config.TOTAL_TIMESTEPS)]
+    late = boundaries[boundaries >= int(LATE_FRACTION * _config.total_timesteps)]
     final_return = metrics["loop/episode_return"][late].mean()
     print(f"Episodes: {boundaries.size}, late episodes: {late.size}, final mean return: {final_return}")
 

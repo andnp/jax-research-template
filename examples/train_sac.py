@@ -12,7 +12,7 @@ GAMMA = 0.99
 
 def main() -> None:
     config = SACConfig(
-        TOTAL_TIMESTEPS=100_000,
+        total_timesteps=100_000,
         BUFFER_SIZE=100_000,
         BATCH_SIZE=256,
         LEARNING_STARTS=1000,
@@ -26,7 +26,7 @@ def main() -> None:
     env = make_gymnax_env(raw_env)
     agent = SACAgent(config)
     def train_fn(key: jax.Array):
-        return run(agent, env, key, steps=config.TOTAL_TIMESTEPS, gamma=GAMMA, env_params=env_params)
+        return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
 
@@ -36,7 +36,7 @@ def main() -> None:
     elapsed = time.time() - start
 
     returns = metrics["loop/episode_return"][metrics["loop/episode_end"]]
-    sps = config.TOTAL_TIMESTEPS / elapsed
+    sps = config.total_timesteps / elapsed
     print(f"Final Return:     {returns[-1].item():.2f}")
     print(f"Max Return:       {returns.max().item():.2f}")
 
