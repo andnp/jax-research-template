@@ -15,20 +15,20 @@ from rl_envs.process_control_bridge import make_process_control_env
 class GymnaxConfig:
     """A registered Gymnax environment, with continuous actions normalized to ``[-1, 1]`` if asked."""
 
-    ENV_ID: str
-    NORMALIZED: bool = False
+    env_id: str
+    normalized: bool = False
 
     def build(self) -> tuple[EnvProtocol[jax.Array, object, jax.Array, object], object]:
-        return make_gymnax_env_by_id(self.ENV_ID, normalized=self.NORMALIZED)
+        return make_gymnax_env_by_id(self.env_id, normalized=self.normalized)
 
 
 @dataclass(frozen=True)
 class ProcessControlConfig:
     """A process-control benchmark, optionally pinned to one named scenario."""
 
-    ENV_ID: str
-    SCENARIO: str | None = None
+    env_id: str
+    scenario: str | None = None
 
     def build(self) -> tuple[EnvProtocol[jax.Array, object, jax.Array, object], None]:
-        overrides = {} if self.SCENARIO is None else {"scenario": self.SCENARIO}
-        return make_process_control_env(self.ENV_ID, **overrides), None
+        overrides = {} if self.scenario is None else {"scenario": self.scenario}
+        return make_process_control_env(self.env_id, **overrides), None

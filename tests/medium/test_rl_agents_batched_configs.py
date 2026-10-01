@@ -21,7 +21,7 @@ from rl_envs.env_config import GymnaxConfig
 _STEPS = 4
 _REPLAY = {"TOTAL_TIMESTEPS": _STEPS, "BUFFER_SIZE": 8, "BATCH_SIZE": 2, "LEARNING_STARTS": 0}
 _CARTPOLE = GymnaxConfig("CartPole-v1")
-_PENDULUM = GymnaxConfig("Pendulum-v1", NORMALIZED=True)
+_PENDULUM = GymnaxConfig("Pendulum-v1", normalized=True)
 
 _CASES = [
     pytest.param(DQNConfig, _REPLAY, _CARTPOLE, id="dqn"),
@@ -31,7 +31,7 @@ _CASES = [
     pytest.param(
         GACConfig,
         {**_REPLAY, "NUM_SAMPLES": 2, "NUM_RAND_ACTIONS": 1, "HIDDEN_SIZE": 8},
-        GymnaxConfig("MountainCarContinuous-v0", NORMALIZED=True),
+        GymnaxConfig("MountainCarContinuous-v0", normalized=True),
         id="gac",
     ),
     pytest.param(

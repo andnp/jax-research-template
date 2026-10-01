@@ -11,7 +11,7 @@ def test_gymnax_config_builds_an_environment_and_its_params() -> None:
 
 
 def test_normalized_gymnax_config_scales_continuous_actions_to_unit_bounds() -> None:
-    env, env_params = GymnaxConfig("Pendulum-v1", NORMALIZED=True).build()
+    env, env_params = GymnaxConfig("Pendulum-v1", normalized=True).build()
     spec = env.spec(env_params)
 
     assert spec.action_low is not None
@@ -23,7 +23,7 @@ def test_normalized_gymnax_config_scales_continuous_actions_to_unit_bounds() -> 
 def test_gymnax_configs_compare_and_hash_by_value() -> None:
     assert GymnaxConfig("CartPole-v1") == GymnaxConfig("CartPole-v1")
     assert hash(GymnaxConfig("CartPole-v1")) == hash(GymnaxConfig("CartPole-v1"))
-    assert GymnaxConfig("Pendulum-v1") != GymnaxConfig("Pendulum-v1", NORMALIZED=True)
+    assert GymnaxConfig("Pendulum-v1") != GymnaxConfig("Pendulum-v1", normalized=True)
 
 
 def test_process_control_config_builds_an_environment_without_params() -> None:
@@ -34,8 +34,8 @@ def test_process_control_config_builds_an_environment_without_params() -> None:
 
 
 def test_process_control_scenario_reaches_the_environment_id() -> None:
-    nominal, _ = ProcessControlConfig("h2s_scrubber", SCENARIO="nominal").build()
-    shifted, _ = ProcessControlConfig("h2s_scrubber", SCENARIO="load_shift").build()
+    nominal, _ = ProcessControlConfig("h2s_scrubber", scenario="nominal").build()
+    shifted, _ = ProcessControlConfig("h2s_scrubber", scenario="load_shift").build()
 
     assert nominal.spec().id.endswith(":nominal")
     assert shifted.spec().id.endswith(":load_shift")
