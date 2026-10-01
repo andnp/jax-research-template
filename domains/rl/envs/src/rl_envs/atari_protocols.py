@@ -22,7 +22,7 @@ def nature_dqn_2015(game: str) -> AtariProtocol:
     The 108,000-frame episode cap follows ALE v5 and DQN Zoo because Nature DQN does not
     specify a training cap. Nature DQN treated life loss as terminal for learning while
     the game continued; ``Timestep`` has no lives signal, so this preset terminates only
-    at game over. TD-error clipping belongs to the agent (``DQNAtariConfig.GRAD_ERROR_BOUND``),
+    at game over. TD-error clipping belongs to the agent (``DQNAtariConfig.grad_error_bound``),
     not to this environment and reward-preprocessing preset.
     """
     return AtariProtocol(

@@ -163,7 +163,7 @@ def _learner_config() -> DQNAtariConfig:
         batch_size=LEARNER_BATCH_SIZE,
         target_network_update_period_frames=8,
         learn_period_frames=4,
-        EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+        exploration_epsilon_decay_frame_fraction=0.25,
     )
 
 
@@ -261,7 +261,7 @@ def test_fake_micro_train_replay_and_update_speed(benchmark: object) -> None:
         batch_size=4,
         target_network_update_period_frames=8,
         learn_period_frames=4,
-        EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
+        exploration_epsilon_decay_frame_fraction=0.25,
     )
     runtime_config = _runtime_config(config)
     agent = DQNAtariAgent(config, runtime_config)

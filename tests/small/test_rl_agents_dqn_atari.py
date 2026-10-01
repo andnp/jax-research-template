@@ -84,10 +84,10 @@ class TestDQNAtariConfig:
         assert config.optimizer_epsilon == 0.01 / 32**2
         assert config.rmsprop_decay == 0.95
         assert config.rmsprop_centered is True
-        assert config.EXPLORATION_EPSILON_BEGIN == 1.0
-        assert config.EXPLORATION_EPSILON_END == 0.1
-        assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
-        assert config.GRAD_ERROR_BOUND == 1 / 32
+        assert config.exploration_epsilon_begin == 1.0
+        assert config.exploration_epsilon_end == 0.1
+        assert config.exploration_epsilon_decay_frame_fraction == 0.02
+        assert config.grad_error_bound == 1 / 32
 
     def test_td_loss_gradient_is_bounded_per_sample(self) -> None:
         """Match DQN Zoo's clipped TD-error gradient after mean reduction."""
@@ -195,7 +195,7 @@ class TestDQNAtariAgent:
             batch_size=4,
             learn_period_frames=16,
             target_network_update_period_frames=32,
-            EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.5,
+            exploration_epsilon_decay_frame_fraction=0.5,
         )
         runtime_config = dqn_atari_runtime_from_dqn_zoo(
             config,

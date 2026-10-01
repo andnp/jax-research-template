@@ -53,10 +53,10 @@ from rl_agents.dqn_zoo_atari import (
 
 @chex_struct(frozen=True, kw_only=True)
 class DQNAtariConfig(DQNZooAtariConfig):
-    EXPLORATION_EPSILON_BEGIN: float = 1.0
-    EXPLORATION_EPSILON_END: float = 0.1
-    EXPLORATION_EPSILON_DECAY_FRAME_FRACTION: float = 0.02
-    GRAD_ERROR_BOUND: float = 1 / 32
+    exploration_epsilon_begin: float = 1.0
+    exploration_epsilon_end: float = 0.1
+    exploration_epsilon_decay_frame_fraction: float = 0.02
+    grad_error_bound: float = 1 / 32
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -102,7 +102,7 @@ def dqn_zoo_atari_total_train_env_steps(runtime_config: DQNAtariRuntimeConfig) -
 
 def dqn_zoo_atari_exploration_decay_env_steps(config: DQNAtariConfig, runtime_config: DQNAtariRuntimeConfig) -> int:
     decay_frames = int(
-        dqn_zoo_atari_total_train_frames(config, runtime_config) * config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION
+        dqn_zoo_atari_total_train_frames(config, runtime_config) * config.exploration_epsilon_decay_frame_fraction
     )
     return dqn_zoo_atari_frames_to_env_steps(decay_frames, config.num_action_repeats)
 
@@ -138,8 +138,8 @@ def dqn_atari_hypers(config: DQNAtariConfig) -> DQNAtariHypers:
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         OPTIMIZER_EPSILON=jnp.asarray(config.optimizer_epsilon, jnp.float32),
         RMSPROP_DECAY=jnp.asarray(config.rmsprop_decay, jnp.float32),
-        EXPLORATION_EPSILON_BEGIN=jnp.asarray(config.EXPLORATION_EPSILON_BEGIN, jnp.float32),
-        EXPLORATION_EPSILON_END=jnp.asarray(config.EXPLORATION_EPSILON_END, jnp.float32),
+        EXPLORATION_EPSILON_BEGIN=jnp.asarray(config.exploration_epsilon_begin, jnp.float32),
+        EXPLORATION_EPSILON_END=jnp.asarray(config.exploration_epsilon_end, jnp.float32),
     )
 
 
@@ -349,7 +349,7 @@ class DQNAtariAgent:
             q_action = jnp.take_along_axis(q_values, actions[:, None], axis=-1).squeeze(-1)
             next_q_max = jnp.max(jnp.asarray(train_state.apply_fn(algorithm_state.target_params, next_obs)), axis=-1)
             targets = rewards + discounts * next_q_max
-            return dqn_atari_td_loss(q_action, targets, self.config.GRAD_ERROR_BOUND)
+            return dqn_atari_td_loss(q_action, targets, self.config.grad_error_bound)
 
         loss, grads = jax.value_and_grad(_loss_fn)(train_state.params)
         algorithm_state = replace(algorithm_state, train_state=train_state.apply_gradients(grads=grads))
