@@ -124,3 +124,19 @@ def test_execute_batch_records_runtime_telemetry(tmp_path: Path, monkeypatch: py
     assert runtime["batch_runs"] == 2
     assert runtime["wall_seconds"] >= 0
     assert runtime["peak_rss_bytes"] > 0
+
+
+def test_the_manifest_records_how_each_metric_was_sampled(tmp_path: Path) -> None:
+    """Sampling is not part of a run's identity, so the manifest is where it is kept."""
+    experiment = _experiment("sampling").add_metric("reward", every=2, ema=0.9).add_metric("score")
+    spec, planned = _plan(tmp_path, experiment)
+
+    execute_batch(spec.db_path, planned, spec, capture_git=False)
+
+    with DatabaseManager(spec.db_path) as database:
+        artifacts = database.get_execution_artifacts(planned.execution_id)
+    assert artifacts is not None and artifacts.metadata_json is not None
+    manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
+    expected = {"reward": {"every": 2, "ema": 0.9}, "score": {"every": 1, "ema": None}}
+    assert manifest["metadata"]["metrics"] == expected
+    assert json.loads(artifacts.metadata_json)["metrics"] == expected
