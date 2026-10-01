@@ -16,8 +16,8 @@ Two design decisions carried over from ``qrc.py``:
   collapse SAC-RC back into plain semi-gradient SAC with an inert extra head.
 
 The squared losses carry a ``0.5`` that TDRC's published form omits. That is
-a house convention, but it scales the data terms and not ``BETA``'s
-regulariser, so a given ``BETA`` is twice as strong relative to the data as
+a house convention, but it scales the data terms and not ``beta``'s
+regulariser, so a given ``beta`` is twice as strong relative to the data as
 the same number in the published sweeps.
 
 The entropy-coefficient (alpha) update is not merely equivalent to
@@ -73,12 +73,12 @@ class SACRCConfig:
     batch_size: int = 256
     total_timesteps: int = 1_000_000
     learning_starts: int = traced(5_000)
-    TRAIN_FREQUENCY: int = traced(1)
-    ALPHA: float = traced(0.2)
-    TARGET_ENTROPY: float | None = None
-    BETA: float = traced(1.0)
-    ENV_NAME: str = "MountainCarContinuous-v0"
-    SEED: int = 42
+    train_frequency: int = traced(1)
+    alpha: float = traced(0.2)
+    target_entropy: float | None = None
+    beta: float = traced(1.0)
+    env_name: str = "MountainCarContinuous-v0"
+    seed: int = 42
 
     def build(self) -> SACRCAgent:
         return SACRCAgent(self)
@@ -106,8 +106,8 @@ def sac_rc_hypers(config: SACRCConfig) -> SACRCHypers:
     return SACRCHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        BETA=jnp.asarray(config.BETA, jnp.float32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
+        BETA=jnp.asarray(config.beta, jnp.float32),
     )
 
 
@@ -274,13 +274,13 @@ class SACRCAgent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
-    INIT_SWEPT_FIELDS: tuple[str, ...] = ("ALPHA", "TARGET_ENTROPY")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ("alpha", "target_entropy")
     """Config fields ``init`` reads but ``step`` never traces, so they ride neither
     ``SACRCHypers`` nor a per-step tracer -- yet ``init`` itself runs inside the vmapped
     region exactly as ``step`` does, so a per-arm traced value works there too, making
     both genuinely sweepable despite never appearing on the hypers struct.
 
-    ``TARGET_ENTROPY`` is ``float | None``: ``None`` means "derive ``-action_dim`` in
+    ``target_entropy`` is ``float | None``: ``None`` means "derive ``-action_dim`` in
     ``init``". A sweep must supply a numeric value for every arm -- it cannot mix ``None``
     with numbers in one vmapped batch -- so sweeping this field forgoes the default-entropy
     behavior for the arms in that sweep. That limitation is not solved here.
@@ -326,7 +326,7 @@ class SACRCAgent:
             action_dtype=action_dtype,
             obs_dtype=observation_dtype,
         )
-        target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
+        target_entropy = -float(action_dim) if self.config.target_entropy is None else self.config.target_entropy
 
         lr = jnp.asarray(self.config.learning_rate, jnp.float32)
         return init_replay_agent_state(
@@ -345,7 +345,7 @@ class SACRCAgent:
                 ),
                 alpha_state=TrainState.create(
                     apply_fn=None,
-                    params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
+                    params={"log_alpha": jnp.log(jnp.array([self.config.alpha], dtype=jnp.float32))},
                     tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
                 ),
                 target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),

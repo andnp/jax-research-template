@@ -11,20 +11,20 @@ class TestSACRCConfig:
         assert cfg.learning_rate == 3e-4
         assert cfg.buffer_size == 100_000
         assert cfg.batch_size == 256
-        assert cfg.ALPHA == 0.2
-        assert cfg.BETA == 1.0
+        assert cfg.alpha == 0.2
+        assert cfg.beta == 1.0
 
     def test_custom_config(self) -> None:
-        cfg = SACRCConfig(learning_rate=1e-3, buffer_size=1000, ENV_NAME="Pendulum-v1", BETA=0.5)
+        cfg = SACRCConfig(learning_rate=1e-3, buffer_size=1000, env_name="Pendulum-v1", beta=0.5)
         assert cfg.learning_rate == 1e-3
         assert cfg.buffer_size == 1000
-        assert cfg.ENV_NAME == "Pendulum-v1"
-        assert cfg.BETA == 0.5
+        assert cfg.env_name == "Pendulum-v1"
+        assert cfg.beta == 0.5
 
     def test_no_target_network_knobs(self) -> None:
         """SAC-RC has no target network, so it must not carry a Polyak TAU knob."""
         cfg = SACRCConfig()
-        assert not hasattr(cfg, "TAU")
+        assert not hasattr(cfg, "tau")
 
 
 class TestSACRCCritic:

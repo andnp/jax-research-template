@@ -44,7 +44,7 @@ _EXPECTED_TRACED = [
         id="ppo",
     ),
     pytest.param(SACConfig, {"alpha", "learning_rate", "learning_starts", "tau", "train_frequency"}, id="sac"),
-    pytest.param(SACRCConfig, {"ALPHA", "BETA", "learning_rate", "learning_starts", "TRAIN_FREQUENCY"}, id="sac-rc"),
+    pytest.param(SACRCConfig, {"alpha", "beta", "learning_rate", "learning_starts", "train_frequency"}, id="sac-rc"),
 ]
 
 
