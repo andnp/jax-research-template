@@ -23,7 +23,6 @@ def build_sbatch_flags(config: SlurmConfig) -> str:
 def build_job_script(
     config: SlurmConfig,
     execution_ids: list[int],
-    db_path: Path,
     spec_file: Path,
     spec_name: str,
     *,
@@ -57,7 +56,6 @@ def build_job_script(
         lines.extend(config.setup_commands)
 
     command_args = [
-        f'    "{db_path}"',
         '    --execution-id "$EXECUTION_ID"',
         f'    --spec-file "{spec_file}"',
         f'    --spec "{spec_name}"',

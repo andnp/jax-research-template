@@ -79,8 +79,8 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Lists executions with status, hostname, start time and commit.
 - `research experiment invalidate <db_path> (--execution <id> | --git-commit <sha>)`:
     - Marks executions `INVALID` so their runs become plannable again. This is also how a run killed mid-execution — left claimed as `RUNNING` — is released.
-- `research experiment execute-batch <db_path> --execution-id <id> --spec-file <file> --spec <name>`:
-    - Executes a single already-planned execution. This is the entry point a scheduler invokes.
+- `research experiment execute-batch --execution-id <id> --spec-file <file> --spec <name>`:
+    - Executes a single already-planned execution in the spec's database. This is the entry point a scheduler invokes.
 - `research experiment submit <spec_file> [--slurm-config <file.json>] [slurm options] [--dry-run]`:
     - Plans every outstanding batch up front, writes a Slurm array script, and submits it. The planned executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` must never re-plan them.
     - `--slurm-config` loads a JSON `SlurmConfig`; explicit flags override its values.

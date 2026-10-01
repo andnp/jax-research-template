@@ -508,7 +508,6 @@ def invalidate(
 
 @experiment_app.command("execute-batch")
 def execute_batch_cmd(
-    db_path: Path = typer.Argument(..., help="Path to the experiment database."),
     execution_id: int = typer.Option(..., "--execution-id", help="Planned execution ID to run."),
     spec_file: Path = typer.Option(..., "--spec-file", help="Path to the Python spec file."),
     spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
@@ -524,7 +523,7 @@ def execute_batch_cmd(
 
     experiment_spec = _with_results_root(next(iter(specs.values()))(), results_root)
 
-    with DatabaseManager(db_path) as database:
+    with DatabaseManager(experiment_spec.db_path) as database:
         database.initialize()
         planned = database.get_planned_execution(execution_id)
 
@@ -533,7 +532,7 @@ def execute_batch_cmd(
         raise typer.Exit(code=1)
 
     root = execute_batch(
-        db_path,
+        experiment_spec.db_path,
         planned,
         experiment_spec,
         capture_git=experiment_spec.capture_git,

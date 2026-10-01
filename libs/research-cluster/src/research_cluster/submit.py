@@ -24,7 +24,6 @@ def submit_experiment(
     script = build_job_script(
         config,
         execution_ids,
-        db_path,
         spec_file,
         spec_name,
         working_dir=working_dir,

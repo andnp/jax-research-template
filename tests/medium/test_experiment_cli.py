@@ -532,7 +532,7 @@ def test_execute_batch_runs_planned_execution(tmp_path: Path) -> None:
         execution_id = planned[0].execution_id
 
     result = runner.invoke(app, [
-        "experiment", "execute-batch", str(db_path),
+        "experiment", "execute-batch",
         "--execution-id", str(execution_id),
         "--spec-file", str(spec_file),
         "--spec", "my_spec",
@@ -603,7 +603,7 @@ def test_execute_batch_honors_results_root_override(tmp_path: Path) -> None:
         execution_id = planned[0].execution_id
 
     result = runner.invoke(app, [
-        "experiment", "execute-batch", str(db_path),
+        "experiment", "execute-batch",
         "--execution-id", str(execution_id),
         "--spec-file", str(spec_file),
         "--spec", "my_spec",
@@ -624,7 +624,7 @@ def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
     assert plan_result.exit_code == 0, plan_result.output
 
     result = runner.invoke(app, [
-        "experiment", "execute-batch", str(db_path),
+        "experiment", "execute-batch",
         "--execution-id", "99999",
         "--spec-file", str(spec_file),
         "--spec", "my_spec",

@@ -84,7 +84,6 @@ def test_build_job_script_contains_essentials() -> None:
     script = build_job_script(
         config,
         execution_ids=[1, 2, 3],
-        db_path=Path("/data/exp.sqlite"),
         spec_file=Path("/specs/train.py"),
         spec_name="my_spec",
     )
@@ -101,7 +100,6 @@ def test_build_job_script_with_modules() -> None:
     script = build_job_script(
         config,
         execution_ids=[1],
-        db_path=Path("/data/exp.sqlite"),
         spec_file=Path("/specs/train.py"),
         spec_name="s",
     )
@@ -112,7 +110,7 @@ def test_build_job_script_with_modules() -> None:
 def test_build_job_script_forwards_results_root(tmp_path: Path) -> None:
     """A configured results root reaches the batch execution command."""
     script = build_job_script(
-        SlurmConfig(), [1], Path("/db.sqlite"), Path("/spec.py"), "spec",
+        SlurmConfig(), [1], Path("/spec.py"), "spec",
         results_root=tmp_path / "results",
     )
     assert f'--results-root "{tmp_path / "results"}"' in script
@@ -124,7 +122,6 @@ def test_build_job_script_empty_ids_raises() -> None:
         build_job_script(
             config,
             execution_ids=[],
-            db_path=Path("/data/exp.sqlite"),
             spec_file=Path("/specs/train.py"),
             spec_name="s",
         )
