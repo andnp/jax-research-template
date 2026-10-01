@@ -112,7 +112,7 @@ def _run(warmup_fraction: float) -> Run:
         batch_size=BATCH_SIZE,
         learn_period_frames=8,
         target_network_update_period_frames=16,
-        N_STEP=N_STEP,
+        n_step=N_STEP,
     )
     agent = RainbowAgent(config)
 

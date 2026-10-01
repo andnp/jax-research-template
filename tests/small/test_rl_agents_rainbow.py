@@ -47,16 +47,16 @@ class TestRainbowConfig:
         config = RainbowConfig()
         runtime_config = RainbowRuntimeConfig()
 
-        assert config.NUM_ATOMS == 51
-        assert config.V_MIN == -10.0
-        assert config.V_MAX == 10.0
-        assert config.N_STEP == 3
+        assert config.num_atoms == 51
+        assert config.v_min == -10.0
+        assert config.v_max == 10.0
+        assert config.n_step == 3
         assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
 
     def test_priority_exponents_match_dqn_zoo_schedule(self) -> None:
         """Expose Rainbow's configured priority alpha and beta schedule."""
         config = RainbowConfig()
-        assert config.PRIORITY_EXPONENT == 0.5
+        assert config.priority_exponent == 0.5
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(0), config, 100), 0.4)
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(50), config, 100), 0.7)
         assert jnp.allclose(rainbow_importance_sampling_exponent(jnp.asarray(100), config, 100), 1.0)
@@ -65,7 +65,7 @@ class TestRainbowConfig:
 class TestRainbowNetworkAndLoss:
     def test_nature_network_emits_action_atom_logits(self) -> None:
         config = RainbowConfig()
-        network = RainbowNatureNetwork(action_dim=4, num_atoms=config.NUM_ATOMS, observation_layout="fhwc")
+        network = RainbowNatureNetwork(action_dim=4, num_atoms=config.num_atoms, observation_layout="fhwc")
         x = jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)
 
         variables = network.init({"params": jax.random.key(0), "noise": jax.random.key(1)}, x)
@@ -91,7 +91,7 @@ class TestRainbowNetworkAndLoss:
         assert int(action) == 1
 
     def test_categorical_target_and_loss_preserve_shapes_and_mass(self) -> None:
-        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+        support = rainbow_support(RainbowConfig(num_atoms=3, v_min=-1.0, v_max=1.0))
         next_probabilities = jnp.array(
             [
                 [0.2, 0.5, 0.3],
@@ -133,7 +133,7 @@ class TestRainbowNetworkAndLoss:
         assert jnp.all(losses >= 0.0)
 
     def test_double_q_distributional_targets_use_online_selection_and_target_evaluation(self) -> None:
-        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+        support = rainbow_support(RainbowConfig(num_atoms=3, v_min=-1.0, v_max=1.0))
         online_next_probabilities = jnp.array(
             [
                 [
@@ -209,7 +209,7 @@ class TestRainbowNetworkAndLoss:
         scalar discount cannot produce these three rows at once, which is exactly what the
         deleted ``ADDITIONAL_DISCOUNT ** N_STEP`` was.
         """
-        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+        support = rainbow_support(RainbowConfig(num_atoms=3, v_min=-1.0, v_max=1.0))
 
         target_support = categorical_target_support(
             rewards=jnp.array([0.5, 0.5, 0.5], dtype=jnp.float32),
@@ -231,7 +231,7 @@ class TestRainbowNetworkAndLoss:
         )
 
     def test_categorical_target_probabilities_match_golden_projection_cases(self) -> None:
-        support = rainbow_support(RainbowConfig(NUM_ATOMS=3, V_MIN=-1.0, V_MAX=1.0))
+        support = rainbow_support(RainbowConfig(num_atoms=3, v_min=-1.0, v_max=1.0))
         n_step_projected = categorical_target_probabilities(
             rewards=jnp.array([0.5], dtype=jnp.float32),
             next_probabilities=jnp.array([[0.0, 0.0, 1.0]], dtype=jnp.float32),
@@ -303,7 +303,7 @@ class TestRainbowOptimizer:
 class TestRainbowAgentInit:
     def test_step_metrics_and_target_schedule_follow_real_path(self) -> None:
         """Learning and target synchronization follow step-index cadence."""
-        config = RainbowConfig(replay_capacity=4, batch_size=1, N_STEP=1, learn_period_frames=16, target_network_update_period_frames=32)
+        config = RainbowConfig(replay_capacity=4, batch_size=1, n_step=1, learn_period_frames=16, target_network_update_period_frames=32)
         agent = RainbowAgent(config)
         state = agent.init(jax.random.key(0), _toy_atari_spec())
         timestep = Timestep(
@@ -359,7 +359,7 @@ def _toy_n_step_prototype() -> RainbowTransition:
 
 class TestRainbowNStepAccumulator:
     def test_nonterminal_insert_waits_for_exact_n_step_rewards(self) -> None:
-        config = RainbowConfig(N_STEP=3)
+        config = RainbowConfig(n_step=3)
         prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
@@ -398,7 +398,7 @@ class TestRainbowNStepAccumulator:
         npt.assert_allclose(accumulator.obs[:, 0], jnp.array([2.0, 3.0, 0.0], dtype=jnp.float32))
 
     def test_terminal_step_flushes_all_pending_transitions(self) -> None:
-        config = RainbowConfig(N_STEP=3)
+        config = RainbowConfig(n_step=3)
         prototype = _toy_n_step_prototype()
         accumulator = _init_n_step_accumulator(config, prototype)
 
@@ -442,7 +442,7 @@ class TestRainbowNStepAccumulator:
         must leave with ``gamma ** (m - i)``. A single ``gamma ** N_STEP`` is correct for
         at most the oldest row, and the assertion below pins all three apart.
         """
-        config = RainbowConfig(N_STEP=3)
+        config = RainbowConfig(n_step=3)
         accumulator = _init_n_step_accumulator(config, _toy_n_step_prototype())
         gamma = jnp.asarray(0.5, dtype=jnp.float32)
 

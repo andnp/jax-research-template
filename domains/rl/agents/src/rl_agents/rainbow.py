@@ -67,13 +67,13 @@ no caller of :func:`rainbow_loss` can omit the key.
 
 @chex_struct(frozen=True, kw_only=True)
 class RainbowConfig(DQNZooAtariConfig):
-    N_STEP: int = 3
-    NUM_ATOMS: int = 51
-    V_MIN: float = -10.0
-    V_MAX: float = 10.0
-    PRIORITY_EXPONENT: float = 0.5
-    IMPORTANCE_SAMPLING_EXPONENT_BEGIN: float = 0.4
-    IMPORTANCE_SAMPLING_EXPONENT_END: float = 1.0
+    n_step: int = 3
+    num_atoms: int = 51
+    v_min: float = -10.0
+    v_max: float = 10.0
+    priority_exponent: float = 0.5
+    importance_sampling_exponent_begin: float = 0.4
+    importance_sampling_exponent_end: float = 1.0
 
 
 @chex_struct(frozen=True, kw_only=True)
@@ -105,8 +105,8 @@ def rainbow_hypers(config: RainbowConfig) -> RainbowHypers:
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         OPTIMIZER_EPSILON=jnp.asarray(config.optimizer_epsilon, jnp.float32),
         RMSPROP_DECAY=jnp.asarray(config.rmsprop_decay, jnp.float32),
-        V_MIN=jnp.asarray(config.V_MIN, jnp.float32),
-        V_MAX=jnp.asarray(config.V_MAX, jnp.float32),
+        V_MIN=jnp.asarray(config.v_min, jnp.float32),
+        V_MAX=jnp.asarray(config.v_max, jnp.float32),
     )
 
 
@@ -180,8 +180,8 @@ def rainbow_importance_sampling_exponent(
 ) -> jax.Array:
     """Linearly anneal the importance-sampling exponent over training."""
     progress = jnp.clip(env_step / anneal_steps, 0.0, 1.0)
-    return config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN + progress * (
-        config.IMPORTANCE_SAMPLING_EXPONENT_END - config.IMPORTANCE_SAMPLING_EXPONENT_BEGIN
+    return config.importance_sampling_exponent_begin + progress * (
+        config.importance_sampling_exponent_end - config.importance_sampling_exponent_begin
     )
 
 
@@ -192,13 +192,13 @@ def rainbow_zoo_atari_total_train_env_steps(runtime_config: RainbowRuntimeConfig
 
 
 def rainbow_support(config: RainbowConfig) -> jax.Array:
-    return jnp.linspace(config.V_MIN, config.V_MAX, config.NUM_ATOMS, dtype=jnp.float32)
+    return jnp.linspace(config.v_min, config.v_max, config.num_atoms, dtype=jnp.float32)
 
 
 def _rainbow_support_from_hypers(hypers: "RainbowHypers", num_atoms: int) -> jax.Array:
     """Rebuild the support array from traced endpoints so a sweep can vary ``V_MIN``/``V_MAX``.
 
-    ``num_atoms`` stays the static array length (``RainbowConfig.NUM_ATOMS``);
+    ``num_atoms`` stays the static array length (``RainbowConfig.num_atoms``);
     only the endpoints come from the traced ``hypers``.
     """
     return jnp.linspace(hypers.V_MIN, hypers.V_MAX, num_atoms, dtype=jnp.float32)
@@ -321,13 +321,13 @@ def rainbow_loss(
 
 
 def _init_n_step_accumulator(config: RainbowConfig, prototype: RainbowTransition) -> _NStepAccumulatorState:
-    if config.N_STEP <= 0:
-        raise ValueError("N_STEP must be positive.")
+    if config.n_step <= 0:
+        raise ValueError("n_step must be positive.")
     return _NStepAccumulatorState(
-        obs=jnp.zeros((config.N_STEP, *prototype.obs.shape), dtype=prototype.obs.dtype),
-        action=jnp.zeros((config.N_STEP, *prototype.action.shape), dtype=prototype.action.dtype),
-        reward=jnp.zeros((config.N_STEP, *prototype.reward.shape), dtype=prototype.reward.dtype),
-        discount=jnp.zeros((config.N_STEP, *prototype.discount.shape), dtype=prototype.discount.dtype),
+        obs=jnp.zeros((config.n_step, *prototype.obs.shape), dtype=prototype.obs.dtype),
+        action=jnp.zeros((config.n_step, *prototype.action.shape), dtype=prototype.action.dtype),
+        reward=jnp.zeros((config.n_step, *prototype.reward.shape), dtype=prototype.reward.dtype),
+        discount=jnp.zeros((config.n_step, *prototype.discount.shape), dtype=prototype.discount.dtype),
         size=jnp.zeros((), dtype=jnp.int32),
     )
 
@@ -386,7 +386,7 @@ def _materialize_n_step_transitions(
         obs=accumulator.obs,
         action=accumulator.action,
         reward=accumulator.reward,
-        next_obs=jnp.broadcast_to(next_obs, (config.N_STEP, *next_obs.shape)),
+        next_obs=jnp.broadcast_to(next_obs, (config.n_step, *next_obs.shape)),
         discount=accumulator.discount,
     )
 
@@ -410,7 +410,7 @@ def _advance_n_step_accumulator(
     that cuts a window whose discount is still nonzero.
 
     Args:
-        config: Static hyperparameters; only ``N_STEP`` is read.
+        config: Static hyperparameters; only ``n_step`` is read.
         accumulator: The pending window before this step.
         obs: Observation the transition this step opens started from.
         action: Action the transition this step opens took.
@@ -427,8 +427,8 @@ def _advance_n_step_accumulator(
     appended = _accumulate_n_step_step(accumulator, obs, action, reward, discount)
     transitions = _materialize_n_step_transitions(config, appended, next_obs)
 
-    indices = jnp.arange(config.N_STEP, dtype=jnp.int32)
-    appended_is_full = appended.size == jnp.asarray(config.N_STEP, dtype=appended.size.dtype)
+    indices = jnp.arange(config.n_step, dtype=jnp.int32)
+    appended_is_full = appended.size == jnp.asarray(config.n_step, dtype=appended.size.dtype)
     insert_mask = jnp.where(episode_end, indices < appended.size, jnp.logical_and(appended_is_full, indices == 0))
 
     def reset_accumulator(value: _NStepAccumulatorState) -> _NStepAccumulatorState:
@@ -543,7 +543,7 @@ class RainbowAgent:
         action_dtype = jnp.dtype(spec.action_dtype)
         network = RainbowNatureNetwork(
             action_dim=spec.num_actions,
-            num_atoms=self.config.NUM_ATOMS,
+            num_atoms=self.config.num_atoms,
             observation_layout=infer_nature_observation_layout(observation_shape),
         )
 
@@ -589,7 +589,7 @@ class RainbowAgent:
         The order is normative. The fold uses ``timestep.bootstrap_observation`` and not
         ``timestep.observation``: at an episode boundary the latter is the post-reset
         observation, and the whole window would bootstrap from the next episode's first
-        state -- for an n-step agent that corrupts up to ``N_STEP`` entries at once, not
+        state -- for an n-step agent that corrupts up to ``n_step`` entries at once, not
         the one a single-step agent would lose.
 
         Args:
@@ -605,7 +605,7 @@ class RainbowAgent:
         """
         algorithm_state = state.algorithm_state
         hypers = algorithm_state.hypers
-        support = _rainbow_support_from_hypers(hypers, self.config.NUM_ATOMS)
+        support = _rainbow_support_from_hypers(hypers, self.config.num_atoms)
         beta = rainbow_importance_sampling_exponent(
             step_index,
             self.config,
@@ -661,7 +661,7 @@ class RainbowAgent:
                 replay_state.buffer_state,
                 transitions,
                 insert_mask,
-                self.config.PRIORITY_EXPONENT,
+                self.config.priority_exponent,
             ),
             n_step=n_step,
         )
@@ -718,7 +718,7 @@ class RainbowAgent:
             replay_state.buffer_state,
             batch_indices,
             per_example_loss,
-            alpha=self.config.PRIORITY_EXPONENT,
+            alpha=self.config.priority_exponent,
         )
         algorithm_state = replace(algorithm_state, train_state=train_state.apply_gradients(grads=grads))
         replay_state = replace(replay_state, buffer_state=buffer_state)

@@ -119,7 +119,7 @@ def test_rainbow_loss_ignores_next_obs_on_terminal_rows() -> None:
     config = RainbowConfig()
     network = RainbowNatureNetwork(
         action_dim=NUM_ACTIONS,
-        num_atoms=config.NUM_ATOMS,
+        num_atoms=config.num_atoms,
         observation_layout="fhwc",
     )
     support = rainbow_support(config)
