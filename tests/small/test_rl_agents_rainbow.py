@@ -51,7 +51,7 @@ class TestRainbowConfig:
         assert config.v_min == -10.0
         assert config.v_max == 10.0
         assert config.n_step == 3
-        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
+        assert runtime_config.total_train_env_steps == 50_000_000
 
     def test_priority_exponents_match_dqn_zoo_schedule(self) -> None:
         """Expose Rainbow's configured priority alpha and beta schedule."""

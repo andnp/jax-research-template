@@ -78,8 +78,8 @@ class RainbowConfig(DQNZooAtariConfig):
 
 @chex_struct(frozen=True, kw_only=True)
 class RainbowRuntimeConfig:
-    TOTAL_TRAIN_ENV_STEPS: int = 50_000_000
-    SEED: int = 42
+    total_train_env_steps: int = 50_000_000
+    seed: int = 42
 
 
 @chex_struct(frozen=True)
@@ -186,9 +186,9 @@ def rainbow_importance_sampling_exponent(
 
 
 def rainbow_zoo_atari_total_train_env_steps(runtime_config: RainbowRuntimeConfig) -> int:
-    if runtime_config.TOTAL_TRAIN_ENV_STEPS < 0:
-        raise ValueError("TOTAL_TRAIN_ENV_STEPS must be non-negative.")
-    return runtime_config.TOTAL_TRAIN_ENV_STEPS
+    if runtime_config.total_train_env_steps < 0:
+        raise ValueError("total_train_env_steps must be non-negative.")
+    return runtime_config.total_train_env_steps
 
 
 def rainbow_support(config: RainbowConfig) -> jax.Array:
@@ -517,7 +517,7 @@ class RainbowAgent:
         self.config = config
         self.importance_sampling_anneal_steps = (
             runtime_config or RainbowRuntimeConfig()
-        ).TOTAL_TRAIN_ENV_STEPS
+        ).total_train_env_steps
 
     def init(self, key: chex.PRNGKey, spec: EnvSpec) -> RainbowAgentState:
         """Build parameters, optimizer, replay, the n-step window and the pending slots.
