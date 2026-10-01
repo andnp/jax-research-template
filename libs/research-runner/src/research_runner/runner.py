@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import resource
 import time
@@ -111,7 +110,6 @@ def execute_batch(
         with DatabaseManager(db_path) as database:
             database.initialize()
             execution_root = Path(planned.root_path)
-            manifest_path = Path(planned.manifest_path)
             static_config = planned.static_config
             points = _resolve_points(database, runs, static_config)
             resolved_metrics_db = spec.metrics_db_path
@@ -152,25 +150,11 @@ def execute_batch(
             "metrics": {metric.name: {"every": metric.every, "ema": metric.ema} for metric in metrics},
         }
 
-        manifest = {
-            "experiment_slug": experiment_row.name,
-            "execution_id": planned.execution_id,
-            "root_path": str(execution_root),
-            "metrics_db_path": str(resolved_metrics_db),
-            "run_ids": [point.run_id for point in points],
-            "metadata": metadata,
-        }
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-
         with DatabaseManager(db_path) as database:
             database.initialize()
             database.record_execution_artifacts(
                 planned.execution_id,
                 str(execution_root),
-                manifest_path=str(manifest_path),
                 metadata={**metadata, "metrics_db_path": str(resolved_metrics_db)},
             )
             database.update_execution_status(

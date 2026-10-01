@@ -119,16 +119,14 @@ def test_execute_batch_records_runtime_telemetry(tmp_path: Path, monkeypatch: py
         artifacts = database.get_execution_artifacts(planned.execution_id)
     assert artifacts is not None and artifacts.metadata_json is not None
     runtime = json.loads(artifacts.metadata_json)["runtime"]
-    manifest_runtime = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))["metadata"]["runtime"]
-    assert runtime == manifest_runtime
     assert runtime["nproc"] == 3
     assert runtime["batch_runs"] == 2
     assert runtime["wall_seconds"] >= 0
     assert runtime["peak_rss_bytes"] > 0
 
 
-def test_the_manifest_records_how_each_metric_was_sampled(tmp_path: Path) -> None:
-    """Sampling is not part of a run's identity, so the manifest is where it is kept."""
+def test_the_execution_records_how_each_metric_was_sampled(tmp_path: Path) -> None:
+    """Sampling is not part of a run's identity, so the execution's artifact metadata is where it is kept."""
     experiment = _experiment("sampling").add_metric("reward", every=2, ema=0.9).add_metric("score")
     spec, planned = _plan(tmp_path, experiment)
 
@@ -137,15 +135,15 @@ def test_the_manifest_records_how_each_metric_was_sampled(tmp_path: Path) -> Non
     with DatabaseManager(spec.db_path) as database:
         artifacts = database.get_execution_artifacts(planned.execution_id)
     assert artifacts is not None and artifacts.metadata_json is not None
-    manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
     expected = {"reward": {"every": 2, "ema": 0.9}, "score": {"every": 1, "ema": None}}
-    assert manifest["metadata"]["metrics"] == expected
     assert json.loads(artifacts.metadata_json)["metrics"] == expected
 
 
-def _manifest_metrics(spec: ExperimentSpec[_Toy], planned: PlannedExecution) -> dict[str, object]:
-    manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
-    return manifest["metadata"]["metrics"]
+def _recorded_metrics(spec: ExperimentSpec[_Toy], planned: PlannedExecution) -> dict[str, object]:
+    with DatabaseManager(spec.db_path) as database:
+        artifacts = database.get_execution_artifacts(planned.execution_id)
+    assert artifacts is not None and artifacts.metadata_json is not None
+    return json.loads(artifacts.metadata_json)["metrics"]
 
 
 def test_a_conditional_metric_is_recorded_by_runs_that_match(tmp_path: Path) -> None:
@@ -158,7 +156,7 @@ def test_a_conditional_metric_is_recorded_by_runs_that_match(tmp_path: Path) -> 
 
     with sqlite3.connect(spec.metrics_db_path) as connection:
         names = connection.execute("SELECT DISTINCT metric_name FROM scalar_metrics").fetchall()
-    assert (names, list(_manifest_metrics(spec, planned))) == ([("score",)], ["score"])
+    assert (names, list(_recorded_metrics(spec, planned))) == ([("score",)], ["score"])
 
 
 def test_a_conditional_metric_is_dropped_for_runs_that_do_not_match(tmp_path: Path) -> None:
@@ -169,7 +167,7 @@ def test_a_conditional_metric_is_dropped_for_runs_that_do_not_match(tmp_path: Pa
 
     execute_batch(spec.db_path, planned, spec, capture_git=False)
 
-    assert _manifest_metrics(spec, planned) == {}
+    assert _recorded_metrics(spec, planned) == {}
 
 
 def test_a_metric_conditioned_on_a_per_run_value_fails_when_a_batch_mixes_it(tmp_path: Path) -> None:

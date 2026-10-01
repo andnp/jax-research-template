@@ -75,7 +75,7 @@ class TestRunExperiment:
     def test_happy_path(self, db_path: Path, executions_root: Path) -> None:
         """
         Full lifecycle: sync experiment, plan, execute with trivial callback,
-        verify execution roots, DB status, manifest, and artifacts.
+        verify execution roots, DB status, and artifacts.
         """
         exp = _make_experiment()
         roots = run_experiment(_spec(exp, _trivial_train, db_path))
@@ -90,12 +90,7 @@ class TestRunExperiment:
             assert experiment_row is not None
 
             for root in roots:
-                manifest_path = root / "manifest.json"
-                assert manifest_path.exists(), f"Manifest missing at {manifest_path}"
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                assert manifest["experiment_slug"] == "TestSweep"
-
-                exec_id = manifest["execution_id"]
+                exec_id = int(root.name)
                 execution = database.get_execution(exec_id)
                 assert execution is not None
                 assert execution.status == "COMPLETED"
@@ -104,10 +99,9 @@ class TestRunExperiment:
                 assert artifacts is not None
                 assert artifacts.root_path == str(root)
                 artifact_metadata = json.loads(artifacts.metadata_json or "{}")
-                assert [run.id for run in database.list_execution_runs(exec_id)] == manifest["run_ids"]
                 assert "static_config_json" in artifact_metadata
                 assert "vmap_zone_json" in artifact_metadata
-                assert artifact_metadata["metrics_db_path"] == manifest["metrics_db_path"]
+                assert artifact_metadata["metrics_db_path"] == str(db_path.parent / "metrics.sqlite")
 
     def test_on_batch_complete_invoked(self, db_path: Path, executions_root: Path) -> None:
         """
@@ -219,14 +213,13 @@ class TestExecuteBatch:
     def test_happy_path(self, db_path: Path, executions_root: Path) -> None:
         """
         Manually plan a batch then execute it; verify status transitions
-        and manifest creation.
+        and artifact recording.
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
         root = execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train, db_path), capture_git=False)
 
         assert root == Path(planned.root_path)
-        assert (root / "manifest.json").exists()
 
         with DatabaseManager(db_path) as database:
             database.initialize()
