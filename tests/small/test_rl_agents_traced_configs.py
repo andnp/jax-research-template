@@ -8,6 +8,7 @@ from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.dueling_dqn import DuelingDQNConfig
 from rl_agents.qrc import QRCAgent, QRCConfig, QRCHypers
 from rl_agents.replay_q_agent import ReplayQHypers
+from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 
 # Fields the derivation marks dynamic but the config keeps static: PPO checks REWARD_SCALE in Python.
 _STATIC_EXCEPTIONS = {"reward_scale", "target_entropy"}
@@ -18,6 +19,7 @@ _CASES = [
     pytest.param(DoubleDQNConfig, DQNAgent, ReplayQHypers, id="double-dqn"),
     pytest.param(DuelingDQNConfig, DQNAgent, ReplayQHypers, id="dueling-dqn"),
     pytest.param(QRCConfig, QRCAgent, QRCHypers, id="qrc"),
+    pytest.param(TD3Config, TD3Agent, TD3Hypers, id="td3"),
 ]
 
 
