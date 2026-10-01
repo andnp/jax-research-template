@@ -781,6 +781,40 @@ class TestReclaimDeadExecutions:
             assert _require(db.get_execution(planned.execution_id)).status == "PENDING"
 
 
+class TestTransferOwners:
+    """Handing executions to new owners is a compare-and-set on the current owner."""
+
+    def test_expected_owners_are_replaced(self, populated_db: Populated) -> None:
+        """Live executions whose owner matches the expectation take the new owner."""
+        db, *_ = populated_db
+        first = TestReclaimDeadExecutions._owned(populated_db, 0, "local:planner")
+        second = TestReclaimDeadExecutions._owned(populated_db, 1, "local:planner", "RUNNING")
+
+        moved = db.transfer_owners(
+            {first: "local:planner", second: "local:planner"}, {first: "slurm:7_0", second: "slurm:7_1"}
+        )
+
+        assert moved == [first, second]
+        assert [_require(db.get_execution(i)).owner for i in (first, second)] == ["slurm:7_0", "slurm:7_1"]
+
+    def test_mismatched_and_finished_executions_keep_their_owner(self, populated_db: Populated) -> None:
+        """An execution whose owner changed, or that already finished, is skipped without failing the rest."""
+        db, *_ = populated_db
+        taken = TestReclaimDeadExecutions._owned(populated_db, 0, "slurm:5_0")
+        done = TestReclaimDeadExecutions._owned(populated_db, 1, "local:planner", "COMPLETED")
+        free = TestReclaimDeadExecutions._owned(populated_db, 2, "local:planner")
+        expected = {taken: "local:planner", done: "local:planner", free: "local:planner"}
+
+        moved = db.transfer_owners(expected, {i: "slurm:7_0" for i in expected})
+
+        assert moved == [free]
+        assert [_require(db.get_execution(i)).owner for i in (taken, done, free)] == [
+            "slurm:5_0",
+            "local:planner",
+            "slurm:7_0",
+        ]
+
+
 def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
     """
     Two database connections planning the same experiment create one batch.
