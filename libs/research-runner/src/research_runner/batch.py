@@ -47,6 +47,9 @@ def _run_batch[C: DataclassInstance](
         values.append(traced)
     stacked = {path: jnp.asarray([v[path] for v in values], _DTYPES[type(field.default)]) for path, field in _walk(static)}
     keys = jnp.stack([jax.random.PRNGKey(seed) for seed in seeds])
+    for metric in metrics:
+        if metric.name in _RUNNER_METRICS and (metric.every != 1 or metric.ema is not None):
+            raise ValueError(f"metric {metric.name!r} is one value per batch, so it takes neither every nor ema")
 
     def one(traced: dict[str, jax.Array], key: jax.Array) -> dict[str, jax.Array]:
         _, emitted = train(_merge_traced(static, traced), key)
