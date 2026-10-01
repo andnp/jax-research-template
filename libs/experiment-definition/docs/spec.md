@@ -21,7 +21,7 @@ A logical unit of code. In RL, this might be an `Agent` or an `Environment`. In 
 - **Ablations:** High-level overrides that clone the search space to test the removal of features or the swapping of entire components.
 
 ### 2.3 Metric Specifications
-Researchers declare the metrics they intend to record (e.g., `reward`, `loss`, `latency`). The trainer returns the series and the runner persists them to `metrics.sqlite` after training.
+Researchers declare the metrics they intend to record (e.g., `reward`, `loss`, `latency`). Only declared metrics are recorded: the experiment's `train` function emits named arrays, and the runner persists the declared ones to `metrics.sqlite` after training.
 
 ## 3. The Definition Script
 
@@ -51,9 +51,9 @@ exp.add_parameter("gamma", [0.99])
 
 # Component-Specific Sweeps
 with exp.for_component(ppo):
-    # A static parameter changes the compiled kernel, so it opens its own
-    # vmap zone. Everything else varies along the batch axis.
-    exp.add_parameter("arch", ["mlp", "cnn"], is_static=True)
+    # Whether a parameter opens its own vmap zone is decided by the runner's
+    # config: a field marked `traced(...)` varies along the batch axis.
+    exp.add_parameter("arch", ["mlp", "cnn"])
     exp.add_parameter("lr", [1e-3, 3e-4])
 
     # Conditional logic
@@ -84,35 +84,35 @@ from `research_runner`, and `research experiment` discovers exactly the
 decorated factories in that module.
 
 ```python
+from dataclasses import dataclass
 from pathlib import Path
 
+import jax
+from research_runner.config import traced
 from research_runner.registry import spec
-from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+from research_runner.types import ExperimentSpec
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def train(ctx: ExecutionContext) -> ExecutionResult:
-    # Every run in the batch shares `static_config`, so it is safe to close
-    # over when tracing. The parameters that vary arrive per point.
-    arch = ctx.static_config["arch"]
-    for point in ctx.points:
-        print(point.run_id, point.hyperparameters["lr"], point.hyperparameters["seed"])
+@dataclass(frozen=True)
+class Config:
+    arch: str = "mlp"                 # read by Python: one compiled kernel per value
+    lr: float = traced(1e-3)          # read only by JAX: varies along the batch axis
+    gamma: float = traced(0.99)
+    use_gae: bool = True
+    gae_lambda: float = traced(0.95)
 
-    # `axes()` stacks the varying parameters in `points` order, ready to be
-    # mapped over as a single vmap axis.
-    lrs = ctx.axes()["lr"]
-    del arch, lrs
-    return ExecutionResult(metadata={})
+
+def train(config: Config, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+    # Runs under jit(vmap(...)); `key` is the run's PRNGKey(seed). It must emit
+    # every metric the experiment declares; undeclared ones are dropped.
+    ...
 
 
 @spec
-def policy_gradient_ablations() -> ExperimentSpec:
-    return ExperimentSpec(
-        experiment=exp,
-        train_fn=train,
-        results_root=PROJECT_ROOT / "results",
-    )
+def policy_gradient_ablations() -> ExperimentSpec[Config]:
+    return ExperimentSpec(exp, config=Config(), train=train, results_root=PROJECT_ROOT / "results")
 ```
 
 Run it with `research experiment run <spec_file.py>`, or preview the batches
@@ -120,7 +120,7 @@ with `research experiment plan <spec_file.py>`.
 
 ## 4. Requirement Gap Analysis (Fulfilled)
 - [x] **Relational Schema Support:** Maps directly to ADR 008.
-- [x] **JAX Performance:** Support for `is_static` metadata to define vmap-zones.
+- [x] **JAX Performance:** Each run's vmap zone comes from the static keys its spec computes at sync.
 - [x] **Ablations:** First-class support for both flags and component swaps.
 - [x] **Project Scoping:** Strictly tied to the project-level SQLite database.
 
