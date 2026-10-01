@@ -22,7 +22,8 @@ from . import _planning_service as _planning
 from . import _query_repository as _query
 from . import schema
 from ._database_utils import _hash_dict  # noqa: F401
-from ._types import PlannedExecution, RunBatch
+from ._types import PlannedExecution, ReclaimReport, RunBatch
+from .ownership import OwnerState
 from .parameter import ParameterValue
 from .records import (
     ComponentRow,
@@ -482,6 +483,30 @@ class DatabaseManager:
         """Mark each PENDING or RUNNING execution FAILED now in one transaction; return the ids failed."""
         return _execution._transition_many(
             self.conn, execution_ids, ExecutionStatus.FAILED, datetime.now(timezone.utc).isoformat()
+        )
+
+    def reclaim_dead_executions(
+        self,
+        experiment_id: int,
+        owner_state: Callable[[str], OwnerState],
+    ) -> ReclaimReport:
+        """Fail the PENDING or RUNNING executions of ``experiment_id`` whose owner is DEAD.
+
+        ``owner_state`` is probed once per distinct owner, outside any transaction. Executions it
+        reports UNKNOWN, and ones with no owner, are reported and left alone. An execution whose
+        owner changed since the probe is not failed.
+        """
+        owners = _execution.list_live_execution_owners(self.conn, experiment_id)
+        states = {owner: owner_state(owner) for owner in {owner for owner in owners.values() if owner is not None}}
+
+        dead = {i: owner for i, owner in owners.items() if owner is not None and states[owner] is OwnerState.DEAD}
+        failed = _execution._transition_many(
+            self.conn, dead, ExecutionStatus.FAILED, datetime.now(timezone.utc).isoformat(), expected_owners=dead
+        )
+        return ReclaimReport(
+            failed=failed,
+            unknown=[i for i, owner in owners.items() if owner is not None and states[owner] is OwnerState.UNKNOWN],
+            ownerless=[i for i, owner in owners.items() if owner is None],
         )
 
     def reclaim_stale_executions(

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row, execution_columns
-from .status import TRANSITIONS, ExecutionStatus
+from .status import LIVE, TRANSITIONS, ExecutionStatus, sql_in
 
 # The planned batch's identity; the dead-worker sweep and resume read these back.
 _PLANNER_KEYS = frozenset({"run_ids", "static_config_json", "vmap_zone_json"})
@@ -118,19 +118,36 @@ def update_execution_status(
         raise
 
 
+def list_live_execution_owners(conn: sqlite3.Connection, experiment_id: int) -> dict[int, str | None]:
+    rows = conn.execute(
+        "SELECT DISTINCT e.id, e.owner FROM Executions e "
+        "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
+        "INNER JOIN Runs r ON r.id = er.run_id "
+        f"WHERE r.experiment_id = ? AND e.status IN {sql_in(LIVE)} ORDER BY e.id",
+        (experiment_id,),
+    ).fetchall()
+    return {int(row[0]): row[1] for row in rows}
+
+
 def _transition_many(
     conn: sqlite3.Connection,
     execution_ids: Iterable[int],
     status: ExecutionStatus,
     end_time: str | None = None,
+    expected_owners: Mapping[int, str] | None = None,
 ) -> list[int]:
-    """Move every execution that may legally enter ``status`` there in one transaction, skipping the rest."""
+    """Move every execution that may legally enter ``status`` there in one transaction, skipping the rest.
+
+    With ``expected_owners``, an execution whose owner is no longer the expected one is skipped too.
+    """
     transitioned: list[int] = []
     conn.execute("BEGIN IMMEDIATE")
     try:
         for execution_id in execution_ids:
-            row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
+            row = conn.execute("SELECT status, owner FROM Executions WHERE id = ?", (execution_id,)).fetchone()
             if row is None or status not in TRANSITIONS[ExecutionStatus(row[0])]:
+                continue
+            if expected_owners is not None and row[1] != expected_owners.get(execution_id):
                 continue
             _transition(conn, execution_id, status, None, end_time)
             transitioned.append(execution_id)

@@ -13,6 +13,7 @@ from typing import NamedTuple
 
 import pytest
 from experiment_definition.db import DatabaseManager
+from experiment_definition.ownership import OwnerState
 from experiment_definition.status import RunState, run_state
 
 
@@ -673,6 +674,111 @@ def test_planned_executions_record_their_owner(populated_db: Populated) -> None:
     owners = [_require(db.get_execution(planned.execution_id)).owner for planned in [next_batch, *rest]]
     assert owners == ["local:h:b:1:2", "slurm:7_0", "slurm:7_0"]
     assert _require(db.get_execution(ownerless)).owner is None
+
+
+class TestReclaimDeadExecutions:
+    """Reclaim fails only live executions whose owner is provably dead."""
+
+    @staticmethod
+    def _owned(populated_db: Populated, seed: int, owner: str, status: str = "PENDING") -> int:
+        db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+        db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=seed)
+        (planned,) = db.plan_experiment_execution_batches(exp_id, "/tmp/executions", owner=owner)
+        if status != "PENDING":
+            db.update_execution_status(planned.execution_id, status)
+        return planned.execution_id
+
+    @staticmethod
+    def _probe(states: dict[str, OwnerState]):
+        def probe(owner: str) -> OwnerState:
+            return states[owner]
+
+        return probe
+
+    def test_dead_owners_pending_and_running_executions_fail(self, populated_db: Populated) -> None:
+        """A dead owner's PENDING and RUNNING executions fail; an alive owner's stay live."""
+        db, exp_id, *_ = populated_db
+        pending = self._owned(populated_db, 0, "dead")
+        running = self._owned(populated_db, 1, "dead", "RUNNING")
+        alive = self._owned(populated_db, 2, "alive")
+
+        report = db.reclaim_dead_executions(exp_id, self._probe({"dead": OwnerState.DEAD, "alive": OwnerState.ALIVE}))
+
+        assert (report.failed, report.unknown, report.ownerless) == ([pending, running], [], [])
+        assert [_require(db.get_execution(i)).status for i in (pending, running, alive)] == [
+            "FAILED",
+            "FAILED",
+            "PENDING",
+        ]
+
+    def test_unknown_and_ownerless_are_reported_untouched(self, populated_db: Populated) -> None:
+        """Rows reclaim cannot resolve are listed, never failed."""
+        db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+        unknown = self._owned(populated_db, 0, "elsewhere")
+        legacy = db.add_execution(hostname="n1")
+        db.link_execution_run(legacy, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1))
+
+        report = db.reclaim_dead_executions(exp_id, self._probe({"elsewhere": OwnerState.UNKNOWN}))
+
+        assert (report.failed, report.unknown, report.ownerless) == ([], [unknown], [legacy])
+        assert [_require(db.get_execution(i)).status for i in (unknown, legacy)] == ["PENDING", "PENDING"]
+
+    def test_finished_executions_are_left_alone(self, populated_db: Populated) -> None:
+        """A COMPLETED execution keeps its result however dead its owner is."""
+        db, exp_id, *_ = populated_db
+        completed = self._owned(populated_db, 0, "dead", "COMPLETED")
+
+        report = db.reclaim_dead_executions(exp_id, self._probe({"dead": OwnerState.DEAD}))
+
+        assert report.failed == []
+        assert _require(db.get_execution(completed)).status == "COMPLETED"
+
+    def test_reclaiming_twice_fails_nothing_the_second_time(self, populated_db: Populated) -> None:
+        """Repeated reclaim is safe: already-FAILED executions are no longer live."""
+        db, exp_id, *_ = populated_db
+        dead = self._owned(populated_db, 0, "dead")
+        probe = self._probe({"dead": OwnerState.DEAD})
+
+        first = db.reclaim_dead_executions(exp_id, probe)
+        second = db.reclaim_dead_executions(exp_id, probe)
+
+        assert (first.failed, second.failed) == ([dead], [])
+
+    def test_each_distinct_owner_is_probed_once(self, populated_db: Populated) -> None:
+        """Executions sharing an owner cost one liveness probe."""
+        db, exp_id, *_ = populated_db
+        self._owned(populated_db, 0, "shared")
+        self._owned(populated_db, 1, "shared")
+        probed: list[str] = []
+
+        def probe(owner: str) -> OwnerState:
+            probed.append(owner)
+            return OwnerState.ALIVE
+
+        db.reclaim_dead_executions(exp_id, probe)
+
+        assert probed == ["shared"]
+
+    def test_owner_changed_after_probe_is_not_failed(self, tmp_path: Path) -> None:
+        """An execution handed to a new owner while its old one was being probed survives."""
+        with DatabaseManager(tmp_path / "experiments.sqlite") as db:
+            db.initialize()
+            algo = db.add_component_version(db.add_component("A", "ALGO"), "a")
+            env = db.add_component_version(db.add_component("E", "ENV"), "e")
+            hyper = db.add_hyperparam_config({"lr": 1e-3})
+            exp_id = db.add_experiment("Handover")
+            db.add_run(exp_id, algo, env, hyper, seed=0)
+            (planned,) = db.plan_experiment_execution_batches(exp_id, tmp_path, owner="local:old")
+
+            def probe(owner: str) -> OwnerState:
+                with sqlite3.connect(tmp_path / "experiments.sqlite") as other:
+                    other.execute("UPDATE Executions SET owner = 'slurm:9_0' WHERE id = ?", (planned.execution_id,))
+                return OwnerState.DEAD
+
+            report = db.reclaim_dead_executions(exp_id, probe)
+
+            assert report.failed == []
+            assert _require(db.get_execution(planned.execution_id)).status == "PENDING"
 
 
 def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:

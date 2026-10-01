@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from .parameter import ParameterValue
@@ -16,6 +17,15 @@ class RunBatch(NamedTuple):
     vmap_zone: Mapping[str, list[str]] | None
     run_ids: list[int]
     group_key: str
+
+
+@dataclass(frozen=True)
+class ReclaimReport:
+    """Execution ids touched by a reclaim: failed ones, and live ones it could not resolve."""
+
+    failed: list[int]
+    unknown: list[int]
+    ownerless: list[int]
 
 
 class PlannedExecution(NamedTuple):
