@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from experiment_definition.metric import MetricSpec
+from research_instrument.thinning import thin_metric
 
 from .config import _merge_traced, _split_traced, _walk
 
@@ -43,15 +44,21 @@ def _run_batch[C: DataclassInstance](
 
     def one(traced: dict[str, jax.Array], key: jax.Array) -> dict[str, jax.Array]:
         _, emitted = train(_merge_traced(static, traced), key)
-        return {metric.name: _require(emitted, metric.name) for metric in metrics}
+        return {metric.name: _record(metric, emitted) for metric in metrics}
 
     return {name: np.asarray(value) for name, value in jax.device_get(jax.jit(jax.vmap(one))(stacked, keys)).items()}
 
 
-def _require(emitted: Mapping[str, jax.Array], name: str) -> jax.Array:
-    if name not in emitted:
-        raise ValueError(f"metric {name!r} is declared but not emitted; emitted metrics are {sorted(emitted)}")
-    return emitted[name]
+def _record(metric: MetricSpec, emitted: Mapping[str, jax.Array]) -> jax.Array:
+    """One run's declared metric: smoothed and thinned if per-step, as emitted if per-run."""
+    if metric.name not in emitted:
+        raise ValueError(f"metric {metric.name!r} is declared but not emitted; emitted metrics are {sorted(emitted)}")
+    value = emitted[metric.name]
+    if value.ndim > 0:
+        return thin_metric(value, ema=metric.ema, every=metric.every)
+    if metric.every != 1 or metric.ema is not None:
+        raise ValueError(f"metric {metric.name!r} is one value per run, so it takes neither every nor ema")
+    return value
 
 
 def _first_difference(a: object, b: object, path: str = "") -> str | None:
