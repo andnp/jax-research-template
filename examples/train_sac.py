@@ -17,12 +17,12 @@ def main() -> None:
         batch_size=256,
         learning_starts=1000,
         learning_rate=1e-3,
-        ENV_NAME="MountainCarContinuous-v0",
-        SEED=42,
+        env_name="MountainCarContinuous-v0",
+        seed=42,
     )
 
-    rng = jax.random.key(config.SEED)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    rng = jax.random.key(config.seed)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = SACAgent(config)
     def train_fn(key: jax.Array):
@@ -30,7 +30,7 @@ def main() -> None:
 
     train_jit = jax.jit(train_fn)
 
-    print(f"--- Training SAC on {config.ENV_NAME} ---")
+    print(f"--- Training SAC on {config.env_name} ---")
     start = time.time()
     _, metrics = jax.block_until_ready(train_jit(rng))
     elapsed = time.time() - start
@@ -43,7 +43,7 @@ def main() -> None:
     plt.plot(returns)
     plt.xlabel("Episode")
     plt.ylabel("Episode Return")
-    plt.title(f"SAC on {config.ENV_NAME} (SPS: {sps:.0f})")
+    plt.title(f"SAC on {config.env_name} (SPS: {sps:.0f})")
     plt.savefig("sac_results.png")
     print("Plot saved as sac_results.png")
 

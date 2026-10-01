@@ -18,9 +18,9 @@ class TestSACConfig:
         cfg = SACConfig()
         assert cfg.learning_rate == 3e-4
         assert cfg.buffer_size == 100_000
-        assert cfg.TAU == 0.005
-        assert cfg.ALPHA == 0.2
-        assert cfg.TARGET_ENTROPY is None
+        assert cfg.tau == 0.005
+        assert cfg.alpha == 0.2
+        assert cfg.target_entropy is None
 
     def test_frozen(self) -> None:
         cfg = SACConfig()
@@ -32,9 +32,9 @@ class TestSACConfig:
             pass
 
     def test_custom_config(self) -> None:
-        cfg = SACConfig(TARGET_ENTROPY=-2.0, TAU=0.01)
-        assert cfg.TARGET_ENTROPY == -2.0
-        assert cfg.TAU == 0.01
+        cfg = SACConfig(target_entropy=-2.0, tau=0.01)
+        assert cfg.target_entropy == -2.0
+        assert cfg.tau == 0.01
 
 
 class TestCritic:

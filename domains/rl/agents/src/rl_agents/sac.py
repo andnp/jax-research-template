@@ -47,12 +47,12 @@ class SACConfig:
     batch_size: int = 256
     total_timesteps: int = 1_000_000
     learning_starts: int = traced(5_000)
-    TRAIN_FREQUENCY: int = traced(1)
-    TAU: float = traced(0.005)
-    ALPHA: float = traced(0.2)
-    TARGET_ENTROPY: float | None = None
-    ENV_NAME: str = "MountainCarContinuous-v0"
-    SEED: int = 42
+    train_frequency: int = traced(1)
+    tau: float = traced(0.005)
+    alpha: float = traced(0.2)
+    target_entropy: float | None = None
+    env_name: str = "MountainCarContinuous-v0"
+    seed: int = 42
 
     def build(self) -> SACAgent:
         return SACAgent(self)
@@ -64,7 +64,7 @@ class SACHypers:
 
     These ride the state pytree rather than the agent object so a sweep can
     ``vmap`` one compiled kernel across a batch of arms. ``TARGET_ENTROPY`` is
-    not here: it is resolved from ``config.TARGET_ENTROPY`` (or the action
+    not here: it is resolved from ``config.target_entropy`` (or the action
     dimension) into a Python float at construction time, so it stays a
     per-state leaf derived once in ``init`` rather than a swept hyper.
     """
@@ -79,8 +79,8 @@ def sac_hypers(config: SACConfig) -> SACHypers:
     return SACHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        TAU=jnp.asarray(config.TAU, jnp.float32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
+        TAU=jnp.asarray(config.tau, jnp.float32),
     )
 
 
@@ -267,7 +267,7 @@ class SACAgent:
     """
 
     REPORTED_METRICS = ("critic_loss", "actor_loss", "alpha_loss", "alpha")
-    INIT_SWEPT_FIELDS: tuple[str, ...] = ("ALPHA", "TARGET_ENTROPY")
+    INIT_SWEPT_FIELDS: tuple[str, ...] = ("alpha", "target_entropy")
     """Config fields ``init`` reads but ``step`` never traces -- see ``SACRCAgent``'s
     identical declaration, which this mirrors: ``init`` runs inside the vmapped region
     exactly as ``step`` does, so a per-arm traced value works there too.
@@ -316,7 +316,7 @@ class SACAgent:
             action_dtype=action_dtype,
             obs_dtype=observation_dtype,
         )
-        target_entropy = -float(action_dim) if self.config.TARGET_ENTROPY is None else self.config.TARGET_ENTROPY
+        target_entropy = -float(action_dim) if self.config.target_entropy is None else self.config.target_entropy
 
         lr = jnp.asarray(self.config.learning_rate, jnp.float32)
         return init_replay_agent_state(
@@ -334,7 +334,7 @@ class SACAgent:
                 critic_target_params=critic_params,
                 alpha_state=TrainState.create(
                     apply_fn=None,
-                    params={"log_alpha": jnp.log(jnp.array([self.config.ALPHA], dtype=jnp.float32))},
+                    params={"log_alpha": jnp.log(jnp.array([self.config.alpha], dtype=jnp.float32))},
                     tx=optax.inject_hyperparams(optax.adam)(learning_rate=lr),
                 ),
                 target_entropy=jnp.asarray(target_entropy, dtype=jnp.float32),

@@ -20,15 +20,15 @@ LATE_EPISODES = 20
 
 
 def test_sac_pendulum_learns() -> None:
-    config = SACConfig(total_timesteps=50_000, ENV_NAME="Pendulum-v1", SEED=42)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    config = SACConfig(total_timesteps=50_000, env_name="Pendulum-v1", seed=42)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = ActionNormalizationWrapper(make_gymnax_env(raw_env))
     agent = SACAgent(config)
     def _train(key: jax.Array):
         return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(_train)
-    _, metrics = train_jit(jax.random.key(config.SEED))
+    _, metrics = train_jit(jax.random.key(config.seed))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
     # on the boundary step and zero everywhere else, so it must be masked, not averaged.

@@ -43,7 +43,7 @@ _EXPECTED_TRACED = [
         {"CLIP_EPS", "ENT_COEF", "GAE_LAMBDA", "learning_rate", "MAX_GRAD_NORM", "OBS_NORM_CLIP", "OBS_NORM_EPS", "VF_COEF"},
         id="ppo",
     ),
-    pytest.param(SACConfig, {"ALPHA", "learning_rate", "learning_starts", "TAU", "TRAIN_FREQUENCY"}, id="sac"),
+    pytest.param(SACConfig, {"alpha", "learning_rate", "learning_starts", "tau", "train_frequency"}, id="sac"),
     pytest.param(SACRCConfig, {"ALPHA", "BETA", "learning_rate", "learning_starts", "TRAIN_FREQUENCY"}, id="sac-rc"),
 ]
 
