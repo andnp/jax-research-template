@@ -597,10 +597,7 @@ class DatabaseManager:
     def link_execution_run(self, execution_id: int, run_id: int) -> None:
         """Record that an Execution covers a logical Run (ExecutionRuns bridge)."""
         with self.conn:
-            self._link_execution_run(execution_id, run_id)
-
-    def _link_execution_run(self, execution_id: int, run_id: int) -> None:
-        _execution._link_execution_run(self.conn, execution_id, run_id)
+            _execution.link_execution_run(self.conn, execution_id, run_id)
 
     def invalidate_execution(self, execution_id: int):
         return _query.invalidate_execution(self.conn, execution_id)

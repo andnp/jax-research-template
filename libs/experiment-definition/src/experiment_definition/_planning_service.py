@@ -165,7 +165,7 @@ def _plan_execution(
 ) -> int:
     execution_id = _execution.add_execution(conn, hostname, git_commit, git_diff_blob, jax_config)
     for run_id in run_ids:
-        _execution._link_execution_run(conn, execution_id, run_id)
+        _execution.link_execution_run(conn, execution_id, run_id)
     return execution_id
 
 

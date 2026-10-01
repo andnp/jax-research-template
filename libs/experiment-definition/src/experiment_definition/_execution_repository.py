@@ -180,10 +180,6 @@ def reclaim_stale_executions(
 
 
 def link_execution_run(conn: sqlite3.Connection, execution_id: int, run_id: int) -> None:
-    _link_execution_run(conn, execution_id, run_id)
-
-
-def _link_execution_run(conn: sqlite3.Connection, execution_id: int, run_id: int) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO ExecutionRuns(execution_id, run_id) VALUES (?, ?)",
         (execution_id, run_id),
