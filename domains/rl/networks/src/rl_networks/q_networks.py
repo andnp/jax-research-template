@@ -32,7 +32,7 @@ class QNetwork(TypedApply[jax.Array], nn.Module):
 
 class HasNetworkPreset(Protocol):
     @property
-    def NETWORK_PRESET(self) -> Literal["mlp", "nature_cnn"]: ...
+    def network_preset(self) -> Literal["mlp", "nature_cnn"]: ...
 
 
 class NatureQNetwork(TypedApply[jax.Array], nn.Module):
@@ -65,7 +65,7 @@ def prepare_nature_observations(
     if observation_layout == "hwc":
         if x.ndim not in (3, 4):
             raise ValueError(
-                "NETWORK_PRESET='nature_cnn' with HWC observations expects shape (height, width, channels) or (batch, height, width, channels)."
+                "network_preset='nature_cnn' with HWC observations expects shape (height, width, channels) or (batch, height, width, channels)."
             )
         return x
 
@@ -78,7 +78,7 @@ def prepare_nature_observations(
         return moved.reshape(moved.shape[:-2] + (moved.shape[-2] * moved.shape[-1],))
 
     raise ValueError(
-        "NETWORK_PRESET='nature_cnn' with Atari-style observations expects shape (frames, height, width, channels) or (batch, frames, height, width, channels)."
+        "network_preset='nature_cnn' with Atari-style observations expects shape (frames, height, width, channels) or (batch, frames, height, width, channels)."
     )
 
 
@@ -88,7 +88,7 @@ def infer_nature_observation_layout(observation_shape: tuple[int, ...]) -> Liter
     if len(observation_shape) == 4:
         return "fhwc"
     raise ValueError(
-        "NETWORK_PRESET='nature_cnn' requires image observations shaped (height, width, channels) or Atari-style (frames, height, width, channels)."
+        "network_preset='nature_cnn' requires image observations shaped (height, width, channels) or Atari-style (frames, height, width, channels)."
     )
 
 
@@ -97,15 +97,15 @@ def make_q_network(
     action_dim: int,
     observation_shape: tuple[int, ...] | None = None,
 ) -> QNetwork | NatureQNetwork:
-    if config.NETWORK_PRESET == "mlp":
+    if config.network_preset == "mlp":
         return QNetwork(action_dim)
-    if config.NETWORK_PRESET == "nature_cnn":
+    if config.network_preset == "nature_cnn":
         if observation_shape is None:
-            raise ValueError("NETWORK_PRESET='nature_cnn' requires observation_shape to build the Q-network.")
+            raise ValueError("network_preset='nature_cnn' requires observation_shape to build the Q-network.")
         return NatureQNetwork(
             action_dim=action_dim,
             observation_layout=infer_nature_observation_layout(observation_shape),
         )
     raise ValueError(
-        f"Invalid NETWORK_PRESET {config.NETWORK_PRESET!r}. Expected one of: 'mlp', 'nature_cnn'."
+        f"Invalid network_preset {config.network_preset!r}. Expected one of: 'mlp', 'nature_cnn'."
     )

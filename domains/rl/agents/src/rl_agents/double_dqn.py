@@ -32,7 +32,7 @@ class DoubleDQNConfig:
     EPSILON_FRACTION: float = traced(0.5)
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
-    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
+    network_preset: Literal["mlp", "nature_cnn"] = "mlp"
 
     def build(self) -> DoubleDQNAgent:
         return DoubleDQNAgent(self)

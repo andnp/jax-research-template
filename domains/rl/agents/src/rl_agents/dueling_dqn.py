@@ -42,7 +42,7 @@ class DuelingDQNConfig:
     EPSILON_FRACTION: float = traced(0.5)
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
-    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
+    network_preset: Literal["mlp", "nature_cnn"] = "mlp"
 
     def build(self) -> DuelingDQNAgent:
         return DuelingDQNAgent(self)
@@ -75,14 +75,14 @@ def _make_dueling_q_network(config: DuelingDQNConfig, action_dim: int) -> Duelin
     is a flat MLP, and the agent's ``init`` derives the shape it needs from the
     environment spec.
     """
-    if config.NETWORK_PRESET == "mlp":
+    if config.network_preset == "mlp":
         return DuelingQNetwork(action_dim)
-    if config.NETWORK_PRESET == "nature_cnn":
+    if config.network_preset == "nature_cnn":
         raise ValueError(
-            "NETWORK_PRESET='nature_cnn' is not yet supported in rl_agents.dueling_dqn because the dueling Nature architecture has not been specified."
+            "network_preset='nature_cnn' is not yet supported in rl_agents.dueling_dqn because the dueling Nature architecture has not been specified."
         )
     raise ValueError(
-        f"Invalid NETWORK_PRESET {config.NETWORK_PRESET!r}. Expected one of: 'mlp', 'nature_cnn'."
+        f"Invalid network_preset {config.network_preset!r}. Expected one of: 'mlp', 'nature_cnn'."
     )
 
 

@@ -53,7 +53,7 @@ def _module_names(agent: DoubleDQNAgent | DuelingDQNAgent) -> list[str]:
 class TestDoubleDQNNetwork:
     def test_double_dqn_can_use_nature_preset(self) -> None:
         net = make_q_network(
-            DoubleDQNConfig(NETWORK_PRESET="nature_cnn"),
+            DoubleDQNConfig(network_preset="nature_cnn"),
             action_dim=3,
             observation_shape=(4, 84, 84, 1),
         )
@@ -82,7 +82,7 @@ class TestDuelingDQNNetwork:
 
     def test_dueling_network_rejects_nature_preset_until_specified(self) -> None:
         with pytest.raises(ValueError, match="not yet supported"):
-            _make_dueling_q_network(DuelingDQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=2)
+            _make_dueling_q_network(DuelingDQNConfig(network_preset="nature_cnn"), action_dim=2)
 
 
 class TestAgentNetworkBinding:

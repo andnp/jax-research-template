@@ -63,7 +63,7 @@ class FakeAtariLikeEnv:
 class TestDQNNatureEnvIntegration:
     def test_run_drives_the_agent_against_an_injected_atari_like_env(self) -> None:
         config = DQNConfig(
-            NETWORK_PRESET="nature_cnn",
+            network_preset="nature_cnn",
             total_timesteps=STEPS,
             LEARNING_STARTS=100,
             BUFFER_SIZE=16,
@@ -87,7 +87,7 @@ class TestDQNNatureEnvIntegration:
 
     def test_the_spec_selects_the_nature_network_without_an_observation_argument(self) -> None:
         """``init`` sees only the spec, so the CNN choice must follow from it alone."""
-        agent = DQNAgent(DQNConfig(NETWORK_PRESET="nature_cnn", BUFFER_SIZE=8))
+        agent = DQNAgent(DQNConfig(network_preset="nature_cnn", BUFFER_SIZE=8))
 
         state = agent.init(jax.random.key(0), FakeAtariLikeEnv().spec())
 

@@ -15,7 +15,7 @@ class TestDQNConfig:
         assert cfg.BATCH_SIZE == 64
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
-        assert cfg.NETWORK_PRESET == "mlp"
+        assert cfg.network_preset == "mlp"
 
     def test_custom_config(self) -> None:
         cfg = DQNConfig(LEARNING_RATE=1e-3, BUFFER_SIZE=1000, ENV_NAME="CartPole-v1")
@@ -31,24 +31,24 @@ class TestQNetwork:
         assert isinstance(network, QNetwork)
 
     def test_make_q_network_uses_nature_cnn_for_atari_style_observations(self) -> None:
-        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        cfg = DQNConfig(network_preset="nature_cnn")
         network = make_q_network(cfg, action_dim=4, observation_shape=(4, 84, 84, 1))
         assert isinstance(network, NatureQNetwork)
 
     def test_make_q_network_requires_observation_shape_for_nature_cnn(self) -> None:
-        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        cfg = DQNConfig(network_preset="nature_cnn")
         with pytest.raises(ValueError, match="requires observation_shape"):
             make_q_network(cfg, action_dim=4)
 
     def test_make_q_network_rejects_non_image_observation_shape_for_nature_cnn(self) -> None:
-        cfg = DQNConfig(NETWORK_PRESET="nature_cnn")
+        cfg = DQNConfig(network_preset="nature_cnn")
         with pytest.raises(ValueError, match="requires image observations"):
             make_q_network(cfg, action_dim=4, observation_shape=(8,))
 
     def test_make_q_network_rejects_invalid_preset(self) -> None:
         cfg = DQNConfig()
-        object.__setattr__(cfg, "NETWORK_PRESET", "bogus")
-        with pytest.raises(ValueError, match="Invalid NETWORK_PRESET 'bogus'"):
+        object.__setattr__(cfg, "network_preset", "bogus")
+        with pytest.raises(ValueError, match="Invalid network_preset 'bogus'"):
             make_q_network(cfg, action_dim=4)
 
     def test_output_shape(self) -> None:
@@ -64,14 +64,14 @@ class TestQNetwork:
         assert q.shape == (10, 3)
 
     def test_nature_q_network_output_shape_for_atari_observation(self) -> None:
-        net = make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
+        net = make_q_network(DQNConfig(network_preset="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
         x = jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8)
         params = net.init(jax.random.key(0), x)
         q = net.apply(params, x)
         assert q.shape == (3,)
 
     def test_nature_q_network_output_shape_for_batched_atari_observation(self) -> None:
-        net = make_q_network(DQNConfig(NETWORK_PRESET="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
+        net = make_q_network(DQNConfig(network_preset="nature_cnn"), action_dim=3, observation_shape=(4, 84, 84, 1))
         x = jnp.zeros((2, 4, 84, 84, 1), dtype=jnp.uint8)
         params = net.init(jax.random.key(0), jnp.zeros((4, 84, 84, 1), dtype=jnp.uint8))
         q = net.apply(params, x)
