@@ -96,23 +96,11 @@ def find_executions_by_hyperparams(
     experiment_id: int,
     where: Mapping[str, str],
 ) -> list[ExecutionRow]:
-    rows = conn.execute(
-        "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-        "e.git_commit, e.git_diff_blob, e.jax_config_json "
-        "FROM Executions e "
-        "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-        "INNER JOIN Runs r ON r.id = er.run_id "
-        f"WHERE r.experiment_id = ? AND e.status IN {sql_in(FINISHED)} "
-        "ORDER BY e.id",
-        (experiment_id,),
-    ).fetchall()
-    matched: list[ExecutionRow] = []
-    for row in rows:
-        execution = _record_from_row(ExecutionRow, row)
-        runs = list_execution_runs(conn, execution.id)
-        if runs and all(_run_selected(conn, run, where) for run in runs):
-            matched.append(execution)
-    return matched
+    return [
+        execution
+        for execution in find_executions_for_experiment(conn, experiment_id)
+        if (runs := list_execution_runs(conn, execution.id)) and all(_run_selected(conn, run, where) for run in runs)
+    ]
 
 
 def _run_selected(conn: sqlite3.Connection, run: RunRow, where: Mapping[str, str]) -> bool:
