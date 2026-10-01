@@ -1,7 +1,7 @@
 """Config fields that may vary between the runs of one batch."""
 
 import dataclasses
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from types import UnionType
 from typing import TYPE_CHECKING, Literal, Union, get_args, get_origin, get_type_hints
 
@@ -131,3 +131,9 @@ def _build_config[C: DataclassInstance](base: C, choices: Mapping[str, Mapping[s
             continue
         config = _set_path(config, path, _check_value(_field_annotation(config, path), path, value))
     return config
+
+
+def _static_names(config: object, names: Iterable[str]) -> frozenset[str]:
+    """The parameter names that decide which batch a run joins: those not setting a traced field, and not `seed`."""
+    traced = set(_traced_paths(config))
+    return frozenset(name for name in names if name != "seed" and name not in traced)
