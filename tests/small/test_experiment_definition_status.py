@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from experiment_definition._execution_repository import _transition_many
 from experiment_definition.db import DatabaseManager
 from experiment_definition.status import ExecutionStatus, RunState, run_state
 
@@ -14,6 +15,12 @@ def _execution_at(database: DatabaseManager, path: tuple[ExecutionStatus, ...]):
     for status in path:
         database.update_execution_status(execution_id, status)
     return execution_id
+
+
+def _status_of(database: DatabaseManager, execution_id: int):
+    execution = database.get_execution(execution_id)
+    assert execution is not None
+    return execution.status
 
 
 @pytest.fixture
@@ -97,6 +104,34 @@ class TestFailExecution:
         assert execution is not None
         assert execution.status == path[-1]
         assert execution.end_time is None
+
+
+class TestTransitionMany:
+    def test_transitions_every_eligible_execution_and_skips_the_rest(self, database: DatabaseManager) -> None:
+        """Missing, finished and duplicate ids are skipped; only executions that legally fail are returned."""
+        pending = _execution_at(database, ())
+        running = _execution_at(database, (RUNNING,))
+        completed = _execution_at(database, (RUNNING, COMPLETED))
+
+        failed = _transition_many(database.conn, [pending, completed, 999999, running, pending], FAILED, "t")
+
+        assert failed == [pending, running]
+        assert _status_of(database, pending) == FAILED
+        assert _status_of(database, completed) == COMPLETED
+
+    def test_rolls_back_every_transition_when_one_fails(self, database: DatabaseManager) -> None:
+        """A write error part-way through leaves no execution half-transitioned."""
+        first = _execution_at(database, ())
+        second = _execution_at(database, ())
+        database.conn.execute(
+            f"CREATE TRIGGER block_second BEFORE UPDATE ON Executions WHEN OLD.id = {second} "
+            "BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+        )
+
+        with pytest.raises(Exception, match="blocked"):
+            _transition_many(database.conn, [first, second], FAILED)
+
+        assert _status_of(database, first) == PENDING
 
 
 class TestRunState:

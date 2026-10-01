@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
@@ -128,6 +128,29 @@ def fail_live_execution(conn: sqlite3.Connection, execution_id: int, end_time: s
     except Exception:
         conn.rollback()
         raise
+
+
+def _transition_many(
+    conn: sqlite3.Connection,
+    execution_ids: Iterable[int],
+    status: ExecutionStatus,
+    end_time: str | None = None,
+) -> list[int]:
+    """Move every execution that may legally enter ``status`` there in one transaction, skipping the rest."""
+    transitioned: list[int] = []
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for execution_id in execution_ids:
+            row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
+            if row is None or status not in TRANSITIONS[ExecutionStatus(row[0])]:
+                continue
+            _transition(conn, execution_id, status, None, end_time)
+            transitioned.append(execution_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return transitioned
 
 
 def _transition(
