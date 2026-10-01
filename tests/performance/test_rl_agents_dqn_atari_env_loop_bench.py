@@ -158,11 +158,11 @@ def _learner_config() -> DQNAtariConfig:
     benchmark handed a pre-filled buffer does.
     """
     return DQNAtariConfig(
-        REPLAY_CAPACITY=LEARNER_REPLAY_CAPACITY,
-        MIN_REPLAY_CAPACITY_FRACTION=0.75,
-        BATCH_SIZE=LEARNER_BATCH_SIZE,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
-        LEARN_PERIOD_FRAMES=4,
+        replay_capacity=LEARNER_REPLAY_CAPACITY,
+        min_replay_capacity_fraction=0.75,
+        batch_size=LEARNER_BATCH_SIZE,
+        target_network_update_period_frames=8,
+        learn_period_frames=4,
         EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
     )
 
@@ -171,7 +171,7 @@ def _runtime_config(config: DQNAtariConfig) -> DQNAtariRuntimeConfig:
     return dqn_atari_runtime_from_dqn_zoo(
         config,
         num_iterations=1,
-        num_train_frames_per_iteration=ROLLOUT_STEPS * config.NUM_ACTION_REPEATS,
+        num_train_frames_per_iteration=ROLLOUT_STEPS * config.num_action_repeats,
     )
 
 
@@ -208,7 +208,7 @@ def _agent_step_target(*, learning: bool) -> Callable[[], object]:
     env = FakeAtariEnv()
     state = agent.init(AGENT_INIT_KEY, env.spec())
     if learning:
-        state = dataclasses.replace(state, replay_state=_fake_replay_buffer_state(config.REPLAY_CAPACITY))
+        state = dataclasses.replace(state, replay_state=_fake_replay_buffer_state(config.replay_capacity))
     observation = env.reset(RUN_KEY).observation
     timestep = Timestep(
         reward=jnp.asarray(1.0, dtype=jnp.float32),
@@ -256,11 +256,11 @@ def test_real_pong_policy_and_env_rollout_speed(benchmark: object) -> None:
 @pytest.mark.benchmark(group="dqn-atari-env-loop")
 def test_fake_micro_train_replay_and_update_speed(benchmark: object) -> None:
     config = DQNAtariConfig(
-        REPLAY_CAPACITY=16,
-        MIN_REPLAY_CAPACITY_FRACTION=0.25,
-        BATCH_SIZE=4,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
-        LEARN_PERIOD_FRAMES=4,
+        replay_capacity=16,
+        min_replay_capacity_fraction=0.25,
+        batch_size=4,
+        target_network_update_period_frames=8,
+        learn_period_frames=4,
         EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.25,
     )
     runtime_config = _runtime_config(config)

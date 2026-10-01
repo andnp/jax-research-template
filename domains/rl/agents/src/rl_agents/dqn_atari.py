@@ -80,10 +80,10 @@ def dqn_atari_runtime_from_dqn_zoo(
         raise ValueError("num_train_frames_per_iteration must be non-negative.")
 
     # DQN Zoo counts emulator frames, while this Atari runtime trains in env steps.
-    # With action repeat, one env.step advances NUM_ACTION_REPEATS frames, so frame-based schedules must divide by that repeat count.
+    # With action repeat, one env.step advances num_action_repeats frames, so frame-based schedules must divide by that repeat count.
     total_train_frames = num_iterations * num_train_frames_per_iteration
     return DQNAtariRuntimeConfig(
-        TOTAL_TRAIN_ENV_STEPS=dqn_zoo_atari_frames_to_env_steps(total_train_frames, config.NUM_ACTION_REPEATS),
+        TOTAL_TRAIN_ENV_STEPS=dqn_zoo_atari_frames_to_env_steps(total_train_frames, config.num_action_repeats),
         SEED=seed,
         EVAL_EXPLORATION_EPSILON=eval_exploration_epsilon,
     )
@@ -91,7 +91,7 @@ def dqn_atari_runtime_from_dqn_zoo(
 
 def dqn_zoo_atari_total_train_frames(config: DQNAtariConfig, runtime_config: DQNAtariRuntimeConfig) -> int:
     total_train_env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
-    return total_train_env_steps * config.NUM_ACTION_REPEATS
+    return total_train_env_steps * config.num_action_repeats
 
 
 def dqn_zoo_atari_total_train_env_steps(runtime_config: DQNAtariRuntimeConfig) -> int:
@@ -104,7 +104,7 @@ def dqn_zoo_atari_exploration_decay_env_steps(config: DQNAtariConfig, runtime_co
     decay_frames = int(
         dqn_zoo_atari_total_train_frames(config, runtime_config) * config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION
     )
-    return dqn_zoo_atari_frames_to_env_steps(decay_frames, config.NUM_ACTION_REPEATS)
+    return dqn_zoo_atari_frames_to_env_steps(decay_frames, config.num_action_repeats)
 
 
 def dqn_atari_td_loss(q_action: jax.Array, targets: jax.Array, grad_error_bound: float) -> jax.Array:
@@ -135,9 +135,9 @@ class DQNAtariHypers:
 
 def dqn_atari_hypers(config: DQNAtariConfig) -> DQNAtariHypers:
     return DQNAtariHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
-        OPTIMIZER_EPSILON=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
-        RMSPROP_DECAY=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
+        OPTIMIZER_EPSILON=jnp.asarray(config.optimizer_epsilon, jnp.float32),
+        RMSPROP_DECAY=jnp.asarray(config.rmsprop_decay, jnp.float32),
         EXPLORATION_EPSILON_BEGIN=jnp.asarray(config.EXPLORATION_EPSILON_BEGIN, jnp.float32),
         EXPLORATION_EPSILON_END=jnp.asarray(config.EXPLORATION_EPSILON_END, jnp.float32),
     )
@@ -202,7 +202,7 @@ class DQNAtariAgent:
         params_key, carry_key = jax.random.split(key)
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
         buffer = FrameReplayBuffer(
-            capacity=self.config.REPLAY_CAPACITY,
+            capacity=self.config.replay_capacity,
             obs_shape=observation_shape,
             action_shape=tuple(spec.action_shape),
             action_dtype=action_dtype,
@@ -342,7 +342,7 @@ class DQNAtariAgent:
             decay=algorithm_state.hypers.RMSPROP_DECAY,
             eps=algorithm_state.hypers.OPTIMIZER_EPSILON,
         )
-        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.batch_size)
 
         def _loss_fn(params: VariableDict) -> jax.Array:
             q_values = jnp.asarray(train_state.apply_fn(params, obs))

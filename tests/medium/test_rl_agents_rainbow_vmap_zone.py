@@ -27,11 +27,11 @@ SPEC = EnvSpec(
 
 def _config() -> RainbowConfig:
     return RainbowConfig(
-        REPLAY_CAPACITY=16,
-        MIN_REPLAY_CAPACITY_FRACTION=0.25,
-        BATCH_SIZE=4,
-        LEARN_PERIOD_FRAMES=4,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+        replay_capacity=16,
+        min_replay_capacity_fraction=0.25,
+        batch_size=4,
+        learn_period_frames=4,
+        target_network_update_period_frames=8,
     )
 
 

@@ -16,11 +16,11 @@ GAMMA = 0.99
 
 def main() -> None:
     config = DQNAtariConfig(
-        REPLAY_CAPACITY=5_000,
-        MIN_REPLAY_CAPACITY_FRACTION=0.2,
-        BATCH_SIZE=32,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=4_000,
-        LEARNING_RATE=1e-4,
+        replay_capacity=5_000,
+        min_replay_capacity_fraction=0.2,
+        batch_size=32,
+        target_network_update_period_frames=4_000,
+        learning_rate=1e-4,
     )
     runtime_config = dqn_atari_runtime_from_dqn_zoo(
         config,
@@ -35,7 +35,7 @@ def main() -> None:
     env = make_atari_adapter(
         AleAtariConfig(
             game="Pong",
-            frame_skip=config.NUM_ACTION_REPEATS,
+            frame_skip=config.num_action_repeats,
         )
     )
     def train_fn(key: jax.Array):

@@ -113,11 +113,11 @@ class Replay(NamedTuple):
 
 def _run(*, truncates: bool) -> Replay:
     config = RainbowConfig(
-        REPLAY_CAPACITY=REPLAY_CAPACITY,
-        MIN_REPLAY_CAPACITY_FRACTION=0.25,
-        BATCH_SIZE=BATCH_SIZE,
-        LEARN_PERIOD_FRAMES=8,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=16,
+        replay_capacity=REPLAY_CAPACITY,
+        min_replay_capacity_fraction=0.25,
+        batch_size=BATCH_SIZE,
+        learn_period_frames=8,
+        target_network_update_period_frames=16,
         N_STEP=N_STEP,
     )
     agent = RainbowAgent(config)

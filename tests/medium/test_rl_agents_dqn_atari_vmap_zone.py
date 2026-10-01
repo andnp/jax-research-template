@@ -56,11 +56,11 @@ def _run_arm(
 
 def _agent() -> DQNAtariAgent:
     config = DQNAtariConfig(
-        REPLAY_CAPACITY=8,
-        MIN_REPLAY_CAPACITY_FRACTION=0.25,
-        BATCH_SIZE=2,
-        LEARN_PERIOD_FRAMES=4,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=40_000,
+        replay_capacity=8,
+        min_replay_capacity_fraction=0.25,
+        batch_size=2,
+        learn_period_frames=4,
+        target_network_update_period_frames=40_000,
     )
     runtime_config = dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1, num_train_frames_per_iteration=32)
     return DQNAtariAgent(config, runtime_config)

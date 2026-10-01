@@ -120,11 +120,11 @@ class Run(NamedTuple):
 
 def _run(warmup_fraction: float) -> Run:
     config = DQNAtariConfig(
-        REPLAY_CAPACITY=REPLAY_CAPACITY,
-        MIN_REPLAY_CAPACITY_FRACTION=warmup_fraction,
-        BATCH_SIZE=BATCH_SIZE,
-        LEARN_PERIOD_FRAMES=4,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+        replay_capacity=REPLAY_CAPACITY,
+        min_replay_capacity_fraction=warmup_fraction,
+        batch_size=BATCH_SIZE,
+        learn_period_frames=4,
+        target_network_update_period_frames=8,
     )
     runtime_config = dqn_atari_runtime_from_dqn_zoo(
         config,
@@ -164,10 +164,10 @@ def warmup_only_run() -> Run:
 def test_the_two_runs_straddle_the_replay_warmup_threshold(learning_run: Run) -> None:
     """The pair is only a control if one threshold is reachable and the other is not."""
     reachable = dqn_zoo_atari_min_replay_capacity(
-        DQNAtariConfig(REPLAY_CAPACITY=REPLAY_CAPACITY, MIN_REPLAY_CAPACITY_FRACTION=REACHABLE_WARMUP_FRACTION)
+        DQNAtariConfig(replay_capacity=REPLAY_CAPACITY, min_replay_capacity_fraction=REACHABLE_WARMUP_FRACTION)
     )
     unreachable = dqn_zoo_atari_min_replay_capacity(
-        DQNAtariConfig(REPLAY_CAPACITY=REPLAY_CAPACITY, MIN_REPLAY_CAPACITY_FRACTION=UNREACHABLE_WARMUP_FRACTION)
+        DQNAtariConfig(replay_capacity=REPLAY_CAPACITY, min_replay_capacity_fraction=UNREACHABLE_WARMUP_FRACTION)
     )
 
     assert reachable <= learning_run.transitions < unreachable

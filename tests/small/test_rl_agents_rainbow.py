@@ -277,11 +277,11 @@ class TestRainbowNetworkAndLoss:
 class TestRainbowOptimizer:
     def test_agent_init_builds_rmsprop_from_config(self) -> None:
         config = RainbowConfig(
-            REPLAY_CAPACITY=16,
-            LEARNING_RATE=1e-3,
-            RMSPROP_DECAY=0.8,
-            OPTIMIZER_EPSILON=1e-4,
-            RMSPROP_CENTERED=False,
+            replay_capacity=16,
+            learning_rate=1e-3,
+            rmsprop_decay=0.8,
+            optimizer_epsilon=1e-4,
+            rmsprop_centered=False,
         )
 
         train_state = RainbowAgent(config).init(jax.random.key(0), _toy_atari_spec()).algorithm_state.train_state
@@ -303,7 +303,7 @@ class TestRainbowOptimizer:
 class TestRainbowAgentInit:
     def test_step_metrics_and_target_schedule_follow_real_path(self) -> None:
         """Learning and target synchronization follow step-index cadence."""
-        config = RainbowConfig(REPLAY_CAPACITY=4, BATCH_SIZE=1, N_STEP=1, LEARN_PERIOD_FRAMES=16, TARGET_NETWORK_UPDATE_PERIOD_FRAMES=32)
+        config = RainbowConfig(replay_capacity=4, batch_size=1, N_STEP=1, learn_period_frames=16, target_network_update_period_frames=32)
         agent = RainbowAgent(config)
         state = agent.init(jax.random.key(0), _toy_atari_spec())
         timestep = Timestep(
@@ -325,7 +325,7 @@ class TestRainbowAgentInit:
         assert losses[5] == 0.0
         assert all(jnp.array_equal(left, right) for left, right in zip(jax.tree.leaves(targets[7]), jax.tree.leaves(targets[8]), strict=True)) is False
     def test_init_uses_per_buffer_with_logical_capacity(self) -> None:
-        agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=17))
+        agent = RainbowAgent(RainbowConfig(replay_capacity=17))
 
         buffer_state = agent.init(jax.random.key(0), _toy_atari_spec()).replay_state.buffer_state
 
@@ -334,7 +334,7 @@ class TestRainbowAgentInit:
 
     def test_init_rejects_a_continuous_action_space(self) -> None:
         """The target maximizes an expected value over the actions, so there must be a count."""
-        agent = RainbowAgent(RainbowConfig(REPLAY_CAPACITY=16))
+        agent = RainbowAgent(RainbowConfig(replay_capacity=16))
         continuous = EnvSpec(
             id="toy-continuous",
             observation_shape=(4, 84, 84, 1),

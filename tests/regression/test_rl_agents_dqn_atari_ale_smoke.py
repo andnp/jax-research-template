@@ -18,11 +18,11 @@ GAMMA = 0.99
 
 def test_dqn_atari_ale_smoke() -> None:
     config = DQNAtariConfig(
-        REPLAY_CAPACITY=16,
-        MIN_REPLAY_CAPACITY_FRACTION=0.25,
-        BATCH_SIZE=4,
-        LEARN_PERIOD_FRAMES=4,
-        TARGET_NETWORK_UPDATE_PERIOD_FRAMES=8,
+        replay_capacity=16,
+        min_replay_capacity_fraction=0.25,
+        batch_size=4,
+        learn_period_frames=4,
+        target_network_update_period_frames=8,
     )
     runtime_config = dqn_atari_runtime_from_dqn_zoo(
         config,
@@ -31,7 +31,7 @@ def test_dqn_atari_ale_smoke() -> None:
     )
     steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
     agent = DQNAtariAgent(config, runtime_config)
-    env = make_atari_adapter(AleAtariConfig(game="Pong", frame_skip=config.NUM_ACTION_REPEATS))
+    env = make_atari_adapter(AleAtariConfig(game="Pong", frame_skip=config.num_action_repeats))
 
     def train_fn(key: jax.Array):
         return run(agent, env, key, steps=steps, gamma=GAMMA)

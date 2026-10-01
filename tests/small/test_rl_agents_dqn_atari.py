@@ -74,16 +74,16 @@ class TestDQNAtariConfig:
     def test_defaults_keep_learner_fields_only(self) -> None:
         config = DQNAtariConfig()
 
-        assert config.REPLAY_CAPACITY == 1_000_000
-        assert config.MIN_REPLAY_CAPACITY_FRACTION == 0.05
-        assert config.BATCH_SIZE == 32
-        assert config.NUM_ACTION_REPEATS == 4
-        assert config.TARGET_NETWORK_UPDATE_PERIOD_FRAMES == 40_000
-        assert config.LEARN_PERIOD_FRAMES == 16
-        assert config.LEARNING_RATE == 0.00025
-        assert config.OPTIMIZER_EPSILON == 0.01 / 32**2
-        assert config.RMSPROP_DECAY == 0.95
-        assert config.RMSPROP_CENTERED is True
+        assert config.replay_capacity == 1_000_000
+        assert config.min_replay_capacity_fraction == 0.05
+        assert config.batch_size == 32
+        assert config.num_action_repeats == 4
+        assert config.target_network_update_period_frames == 40_000
+        assert config.learn_period_frames == 16
+        assert config.learning_rate == 0.00025
+        assert config.optimizer_epsilon == 0.01 / 32**2
+        assert config.rmsprop_decay == 0.95
+        assert config.rmsprop_centered is True
         assert config.EXPLORATION_EPSILON_BEGIN == 1.0
         assert config.EXPLORATION_EPSILON_END == 0.1
         assert config.EXPLORATION_EPSILON_DECAY_FRAME_FRACTION == 0.02
@@ -158,7 +158,7 @@ class TestDQNAtariEnvStepConversions:
 
 class TestDQNAtariAgent:
     def test_init_derives_the_network_and_buffer_from_the_spec_alone(self) -> None:
-        config = DQNAtariConfig(REPLAY_CAPACITY=8)
+        config = DQNAtariConfig(replay_capacity=8)
         agent = DQNAtariAgent(config, dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1))
 
         state = agent.init(jax.random.key(0), _ToyAtariEnv().spec())
@@ -173,10 +173,10 @@ class TestDQNAtariAgent:
         assert state.last_obs.dtype == jnp.uint8
         assert state.last_action.shape == ()
         assert int(algorithm_state.num_actions) == NUM_ACTIONS
-        assert state.replay_state.frame.shape == (config.REPLAY_CAPACITY, *OBSERVATION_SHAPE[1:])
+        assert state.replay_state.frame.shape == (config.replay_capacity, *OBSERVATION_SHAPE[1:])
 
     def test_init_rejects_a_continuous_action_space(self) -> None:
-        config = DQNAtariConfig(REPLAY_CAPACITY=8)
+        config = DQNAtariConfig(replay_capacity=8)
         agent = DQNAtariAgent(config, dqn_atari_runtime_from_dqn_zoo(config, num_iterations=1))
         spec = EnvSpec(
             id="continuous",
@@ -190,11 +190,11 @@ class TestDQNAtariAgent:
 
     def test_run_drives_the_agent_and_emits_a_fixed_metric_schema(self) -> None:
         config = DQNAtariConfig(
-            REPLAY_CAPACITY=16,
-            MIN_REPLAY_CAPACITY_FRACTION=0.25,
-            BATCH_SIZE=4,
-            LEARN_PERIOD_FRAMES=16,
-            TARGET_NETWORK_UPDATE_PERIOD_FRAMES=32,
+            replay_capacity=16,
+            min_replay_capacity_fraction=0.25,
+            batch_size=4,
+            learn_period_frames=16,
+            target_network_update_period_frames=32,
             EXPLORATION_EPSILON_DECAY_FRAME_FRACTION=0.5,
         )
         runtime_config = dqn_atari_runtime_from_dqn_zoo(

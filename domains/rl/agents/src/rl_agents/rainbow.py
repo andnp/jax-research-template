@@ -102,9 +102,9 @@ class RainbowHypers:
 
 def rainbow_hypers(config: RainbowConfig) -> RainbowHypers:
     return RainbowHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
-        OPTIMIZER_EPSILON=jnp.asarray(config.OPTIMIZER_EPSILON, jnp.float32),
-        RMSPROP_DECAY=jnp.asarray(config.RMSPROP_DECAY, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
+        OPTIMIZER_EPSILON=jnp.asarray(config.optimizer_epsilon, jnp.float32),
+        RMSPROP_DECAY=jnp.asarray(config.rmsprop_decay, jnp.float32),
         V_MIN=jnp.asarray(config.V_MIN, jnp.float32),
         V_MAX=jnp.asarray(config.V_MAX, jnp.float32),
     )
@@ -571,7 +571,7 @@ class RainbowAgent:
                 hypers=rainbow_hypers(self.config),
             ),
             _RainbowReplayState(
-                buffer_state=init_per_buffer(replay_prototype, self.config.REPLAY_CAPACITY),
+                buffer_state=init_per_buffer(replay_prototype, self.config.replay_capacity),
                 n_step=_init_n_step_accumulator(self.config, replay_prototype),
             ),
             carry_key,
@@ -686,7 +686,7 @@ class RainbowAgent:
         sampled_batch, importance_weights, batch_indices = per_sample(
             replay_state.buffer_state,
             keys[0],
-            batch_size=self.config.BATCH_SIZE,
+            batch_size=self.config.batch_size,
             beta=beta,
             prototype=_replay_prototype_from_state(replay_state.buffer_state),
         )
