@@ -1,6 +1,7 @@
 import dataclasses
 
-from research_runner.config import _merge_traced, _split_traced, _traced_paths, traced
+import pytest
+from research_runner.config import _merge_traced, _set_path, _split_traced, _traced_paths, traced
 
 
 @dataclasses.dataclass(frozen=True)
@@ -98,3 +99,15 @@ class TestSplitAndMerge:
         token = object()
 
         assert _merge_traced(Cfg(), {"agent.LR": token}).agent.LR is token
+
+
+class TestUnknownPaths:
+    def test_unknown_field_names_the_type_and_valid_fields(self):
+        """The error says which config lacked the field and what it has."""
+        with pytest.raises(ValueError, match=r"Opt has no field LEARNING_RTE; fields are LR, STEPS"):
+            _set_path(Cfg(), "agent.LEARNING_RTE", 1.0)
+
+    def test_path_through_a_non_config_value_is_rejected(self):
+        """A dotted path cannot descend into a plain number."""
+        with pytest.raises(ValueError, match=r"float has no field x; fields are none"):
+            _set_path(Cfg(), "gamma.x", 1.0)
