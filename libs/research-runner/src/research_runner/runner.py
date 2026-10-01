@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.metric import MetricSpec
+from experiment_definition.ownership import local_owner
 from experiment_definition.parameter import ParameterValue
 from experiment_definition.records import RunRow
 from experiment_definition.status import ExecutionStatus
@@ -62,6 +63,7 @@ def run_experiment(
             )
         experiment_id = experiment_row.id
 
+    owner = local_owner()
     execution_roots: list[Path] = []
     while True:
         with DatabaseManager(db_path) as database:
@@ -76,6 +78,7 @@ def run_experiment(
                 git_diff_blob=git_diff,
                 only=only,
                 group=group,
+                owner=owner,
             )
         if planned is None:
             break

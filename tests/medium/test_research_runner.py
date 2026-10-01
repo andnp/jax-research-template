@@ -14,6 +14,7 @@ import pytest
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.experiment import Experiment
+from experiment_definition.ownership import OwnerState, local_owner, local_owner_state
 from experiment_definition.status import RunState, run_state
 from research_runner.config import traced
 from research_runner.git import capture_git_metadata
@@ -122,6 +123,21 @@ class TestRunExperiment:
 
         assert len(completed_roots) == len(roots)
         assert completed_roots == roots
+
+    def test_planned_executions_are_owned_by_the_running_process(self, db_path: Path, executions_root: Path) -> None:
+        """
+        Every execution the runner plans records the runner's own process as its
+        owner, which reads as alive while that process runs.
+        """
+        exp = _make_experiment()
+        run_experiment(_spec(exp, _trivial_train, db_path))
+
+        with DatabaseManager(db_path) as database:
+            database.initialize()
+            owners = {execution.owner for execution in database.list_executions()}
+
+        assert owners == {local_owner()}
+        assert local_owner_state(local_owner()) is OwnerState.ALIVE
 
     def test_already_satisfied_returns_empty(self, db_path: Path, executions_root: Path) -> None:
         """
