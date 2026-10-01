@@ -629,7 +629,6 @@ def test_execute_batch_honors_results_root_override(tmp_path: Path) -> None:
 
 def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
     results_root = tmp_path / "eb_fail"
-    db_path = results_root / "experiments.sqlite"
     spec_file = _write_spec_file(tmp_path, results_root)
 
     # Sync experiment so the DB exists
