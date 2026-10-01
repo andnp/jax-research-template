@@ -168,6 +168,28 @@ class TestExperimentBuilder:
         with pytest.raises(ValueError, match="'reward' is already declared"):
             exp.add_metric("reward", every=10)
 
+    def test_metric_keeps_the_conditions_it_was_declared_under(self) -> None:
+        exp = Experiment("Test")
+        with exp.when(agent="sac"):
+            with exp.when(env="chlorine"):
+                exp.add_metric("alpha")
+        assert exp.metrics[0].conditions == {"agent": "sac", "env": "chlorine"}
+
+    def test_allows_one_metric_name_under_different_conditions(self) -> None:
+        exp = Experiment("Test")
+        with exp.when(env="a"):
+            exp.add_metric("residual")
+        with exp.when(env="b"):
+            exp.add_metric("residual")
+        assert [m.conditions for m in exp.metrics] == [{"env": "a"}, {"env": "b"}]
+
+    def test_rejects_a_metric_declared_twice_under_the_same_conditions(self) -> None:
+        exp = Experiment("Test")
+        with exp.when(agent="sac"):
+            exp.add_metric("alpha")
+            with pytest.raises(ValueError, match="'alpha' is already declared"):
+                exp.add_metric("alpha")
+
 
 class TestConditionalSweepAPI:
     def test_resolves_only_valid_conditional_configurations(self) -> None:

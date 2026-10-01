@@ -82,9 +82,7 @@ class Experiment:
 
     def add_parameter(self, name: str, values: Iterable[ParameterValue]) -> "Experiment":
         """Add a hyperparameter sweep axis; returns ``self`` for chaining."""
-        conditions: dict[str, ParameterValue] = {}
-        for frame in self._condition_stack:
-            conditions.update(frame)
+        conditions = self._active_conditions()
 
         # Register the component if not yet tracked
         if self._component_scope and self._component_scope not in self._state.components:
@@ -98,6 +96,12 @@ class Experiment:
         )
         self._state.parameters.append(spec)
         return self
+
+    def _active_conditions(self) -> dict[str, ParameterValue]:
+        conditions: dict[str, ParameterValue] = {}
+        for frame in self._condition_stack:
+            conditions.update(frame)
+        return conditions
 
     # ── Scoping context managers ──────────────────────────────────────────────
 
@@ -170,11 +174,15 @@ class Experiment:
         """Record one emitted metric; metrics not declared here are dropped.
 
         ``ema`` smooths a per-step metric, then ``every`` keeps one value in every ``every``
-        steps. A per-run value takes neither.
+        steps. A per-run value takes neither. Inside ``when(...)`` the metric is recorded only by
+        runs matching those conditions.
         """
-        if any(metric.name == name for metric in self._state.metrics):
-            raise ValueError(f"metric {name!r} is already declared")
-        self._state.metrics.append(MetricSpec(name=name, type=MetricType(kind), every=every, ema=ema))
+        conditions = self._active_conditions()
+        if any(metric.name == name and metric.conditions == conditions for metric in self._state.metrics):
+            raise ValueError(f"metric {name!r} is already declared under conditions {conditions}")
+        self._state.metrics.append(
+            MetricSpec(name=name, type=MetricType(kind), every=every, ema=ema, conditions=conditions),
+        )
         return self
 
     # ── Persistence ───────────────────────────────────────────────────────────
