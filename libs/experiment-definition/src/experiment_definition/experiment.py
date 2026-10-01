@@ -180,27 +180,18 @@ class Experiment:
         self,
         name: str,
         *,
+        every: int = 1,
+        ema: float | None = None,
         kind: str = "float",
     ) -> "Experiment":
-        """Whitelist a metric for collection by the instrumentation layer.
+        """Record one emitted metric; metrics not declared here are dropped.
 
-        Metrics not declared here are ignored by the collector, saving compute
-        and disk space.
-
-        Args:
-            name: Identifier used by the collector (e.g. ``"reward"``).
-            kind: Scalar data type — one of ``"float"``, ``"int"``, ``"bool"``.
-                Defaults to ``"float"``.
-
-        Returns:
-            ``self`` for optional chaining.
+        ``ema`` smooths a per-step metric, then ``every`` keeps one value in every ``every``
+        steps. A per-run value takes neither.
         """
-        self._state.metrics.append(
-            MetricSpec(
-                name=name,
-                type=MetricType(kind),
-            )
-        )
+        if any(metric.name == name for metric in self._state.metrics):
+            raise ValueError(f"metric {name!r} is already declared")
+        self._state.metrics.append(MetricSpec(name=name, type=MetricType(kind), every=every, ema=ema))
         return self
 
     # ── Persistence ───────────────────────────────────────────────────────────
