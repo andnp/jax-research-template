@@ -13,6 +13,9 @@ dependencies = [
     "research-plot",
 ]
 
+[project.optional-dependencies]
+testing = ["research-instrument"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -23,3 +26,4 @@ where = ["src"]
 [tool.uv.sources]
 experiment-definition = { workspace = true }
 research-plot = { workspace = true }
+research-instrument = { workspace = true }
