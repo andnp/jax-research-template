@@ -129,6 +129,25 @@ def list_live_execution_owners(conn: sqlite3.Connection, experiment_id: int) -> 
     return {int(row[0]): row[1] for row in rows}
 
 
+def transfer_owners(conn: sqlite3.Connection, expected: Mapping[int, str], new: Mapping[int, str]) -> list[int]:
+    """Give each live execution in ``expected`` the owner ``new`` names for it, if it still has the expected one."""
+    transferred: list[int] = []
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for execution_id, owner in expected.items():
+            updated = conn.execute(
+                f"UPDATE Executions SET owner = ? WHERE id = ? AND owner = ? AND status IN {sql_in(LIVE)}",
+                (new[execution_id], execution_id, owner),
+            )
+            if updated.rowcount == 1:
+                transferred.append(execution_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return transferred
+
+
 def _transition_many(
     conn: sqlite3.Connection,
     execution_ids: Iterable[int],

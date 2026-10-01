@@ -485,6 +485,13 @@ class DatabaseManager:
             self.conn, execution_ids, ExecutionStatus.FAILED, datetime.now(timezone.utc).isoformat()
         )
 
+    def transfer_owners(self, expected: Mapping[int, str], new: Mapping[int, str]) -> list[int]:
+        """Hand live executions to new owners in one transaction; return the ids transferred.
+
+        An execution whose owner is no longer the expected one, or that is no longer live, is skipped.
+        """
+        return _execution.transfer_owners(self.conn, expected, new)
+
     def reclaim_dead_executions(
         self,
         experiment_id: int,
