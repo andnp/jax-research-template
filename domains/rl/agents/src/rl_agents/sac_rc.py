@@ -52,6 +52,7 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from ml_components.regularization import l2_regularizer
+from research_runner.config import traced
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim
@@ -67,17 +68,20 @@ from rl_agents.sac import Actor, sac_alpha_loss
 
 @chex_struct(frozen=True, kw_only=True)
 class SACRCConfig:
-    LEARNING_RATE: float = 3e-4
+    LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
-    LEARNING_STARTS: int = 5_000
-    TRAIN_FREQUENCY: int = 1
-    ALPHA: float = 0.2
+    LEARNING_STARTS: int = traced(5_000)
+    TRAIN_FREQUENCY: int = traced(1)
+    ALPHA: float = traced(0.2)
     TARGET_ENTROPY: float | None = None
-    BETA: float = 1.0
+    BETA: float = traced(1.0)
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
+
+    def build(self) -> SACRCAgent:
+        return SACRCAgent(self)
 
 
 @chex_struct(frozen=True)
