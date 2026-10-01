@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from experiment_definition.experiment import Experiment
 from experiment_definition.status import RunState, run_state
 from research_runner.git import capture_git_metadata
 from research_runner.runner import execute_batch, run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult
+from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
 
 def _trivial_train_fn(ctx: ExecutionContext) -> ExecutionResult:
     return ExecutionResult()
+
+
+def _spec(experiment: Experiment, train: Callable[[ExecutionContext], ExecutionResult], db_path: Path) -> ExperimentSpec:
+    return ExperimentSpec(experiment=experiment, train_fn=train, results_root=db_path.parent, capture_git=False)
 
 
 def _make_experiment(name: str = "TestSweep") -> Experiment:
@@ -44,7 +49,8 @@ def _make_experiment(name: str = "TestSweep") -> Experiment:
 class TestRunExperiment:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "experiments.sqlite"
+        (tmp_path / "results").mkdir()
+        return tmp_path / "results" / "experiments.sqlite"
 
     @pytest.fixture()
     def executions_root(self, tmp_path: Path) -> Path:
@@ -56,13 +62,7 @@ class TestRunExperiment:
         verify execution roots, DB status, manifest, and artifacts.
         """
         exp = _make_experiment()
-        roots = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        roots = run_experiment(_spec(exp, _trivial_train_fn, db_path))
 
         assert isinstance(roots, list)
         assert len(roots) >= 1
@@ -101,11 +101,7 @@ class TestRunExperiment:
         completed_roots: list[Path] = []
 
         roots = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
+            _spec(exp, _trivial_train_fn, db_path),
             on_batch_complete=lambda root: completed_roots.append(root),
         )
 
@@ -118,22 +114,10 @@ class TestRunExperiment:
         runs are already COMPLETED.
         """
         exp = _make_experiment()
-        first = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        first = run_experiment(_spec(exp, _trivial_train_fn, db_path))
         assert len(first) >= 1
 
-        second = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        second = run_experiment(_spec(exp, _trivial_train_fn, db_path))
         assert second == []
 
 
@@ -146,11 +130,7 @@ class TestRunExperiment:
         exp = _make_experiment()
 
         selected = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
+            _spec(exp, _trivial_train_fn, db_path),
             only={"seed": "0"},
         )
         assert len(selected) == 1
@@ -162,13 +142,7 @@ class TestRunExperiment:
             )
         assert [run.seed for run in runs] == [0]
 
-        remaining = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        remaining = run_experiment(_spec(exp, _trivial_train_fn, db_path))
         assert len(remaining) == 1
 
     def test_only_matching_nothing_executes_nothing(self, db_path: Path, executions_root: Path) -> None:
@@ -176,11 +150,7 @@ class TestRunExperiment:
         exp = _make_experiment()
 
         roots = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
+            _spec(exp, _trivial_train_fn, db_path),
             only={"seed": "99"},
         )
 
@@ -193,7 +163,8 @@ class TestRunExperiment:
 class TestExecuteBatch:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "experiments.sqlite"
+        (tmp_path / "results").mkdir()
+        return tmp_path / "results" / "experiments.sqlite"
 
     @pytest.fixture()
     def executions_root(self, tmp_path: Path) -> Path:
@@ -322,7 +293,8 @@ class TestCaptureGitMetadata:
 class TestMidSweepCrashRecovery:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "experiments.sqlite"
+        (tmp_path / "results").mkdir()
+        return tmp_path / "results" / "experiments.sqlite"
 
     @pytest.fixture()
     def executions_root(self, tmp_path: Path) -> Path:
@@ -355,21 +327,9 @@ class TestMidSweepCrashRecovery:
             return ExecutionResult()
 
         with pytest.raises(RuntimeError, match="boom"):
-            run_experiment(
-                db_path,
-                exp,
-                flaky_train_fn,
-                executions_root=executions_root,
-                capture_git=False,
-            )
+            run_experiment(_spec(exp, flaky_train_fn, db_path))
 
-        roots = run_experiment(
-            db_path,
-            exp,
-            flaky_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        roots = run_experiment(_spec(exp, flaky_train_fn, db_path))
 
         assert set(calls) == {"cnn", "mlp"}
         assert len(roots) == 2
@@ -384,7 +344,8 @@ class TestMidSweepCrashRecovery:
 class TestDynamicArmCoverage:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "experiments.sqlite"
+        (tmp_path / "results").mkdir()
+        return tmp_path / "results" / "experiments.sqlite"
 
     @pytest.fixture()
     def executions_root(self, tmp_path: Path) -> Path:
@@ -425,13 +386,7 @@ class TestDynamicArmCoverage:
                 seen.add((lr, seed))
             return ExecutionResult()
 
-        run_experiment(
-            db_path,
-            exp,
-            recording_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        run_experiment(_spec(exp, recording_train_fn, db_path))
 
         assert seen == {(1e-3, 0), (1e-3, 1), (3e-4, 0), (3e-4, 1)}
 
@@ -451,7 +406,8 @@ class TestDynamicArmCoverage:
 class TestStaleExecutionReclaim:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
-        return tmp_path / "experiments.sqlite"
+        (tmp_path / "results").mkdir()
+        return tmp_path / "results" / "experiments.sqlite"
 
     @pytest.fixture()
     def executions_root(self, tmp_path: Path) -> Path:
@@ -498,13 +454,7 @@ class TestStaleExecutionReclaim:
         self._orphan_running_execution(db_path, executions_root)
         exp = self._make_single_run_experiment()
 
-        roots = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
-        )
+        roots = run_experiment(_spec(exp, _trivial_train_fn, db_path))
 
         assert roots == []
         with DatabaseManager(db_path) as database:
@@ -525,11 +475,7 @@ class TestStaleExecutionReclaim:
         exp = self._make_single_run_experiment()
 
         roots = run_experiment(
-            db_path,
-            exp,
-            _trivial_train_fn,
-            executions_root=executions_root,
-            capture_git=False,
+            _spec(exp, _trivial_train_fn, db_path),
             reclaim_stale_after_seconds=60,
         )
 

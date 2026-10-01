@@ -17,7 +17,7 @@ from research_analysis.non_finite import NonFiniteValuesError, substitute_non_fi
 from research_analysis.reporting import bakeoff_report
 from research_cli.main import app
 from research_runner.runner import run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult
+from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
 from typer.testing import CliRunner
 
 SEEDS = 6
@@ -47,9 +47,7 @@ def dataset(tmp_path: Path) -> ExperimentDataset:
     db_path = tmp_path / "experiments.sqlite"
     # The crashing run is planned last, so the sweep has run every other seed when the crash propagates.
     with pytest.raises(RuntimeError, match="simulated crash"):
-        run_experiment(
-            db_path, experiment, train, executions_root=tmp_path / "executions", capture_git=False, max_runs_per_batch=1
-        )
+        run_experiment(ExperimentSpec(experiment=experiment, train_fn=train, results_root=tmp_path, capture_git=False, max_runs_per_batch=1))
     return load_experiment_dataset(db_path, "divergence")
 
 

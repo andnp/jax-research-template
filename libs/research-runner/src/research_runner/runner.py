@@ -10,7 +10,6 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from experiment_definition.db import DatabaseManager, PlannedExecution
-from experiment_definition.experiment import Experiment
 from experiment_definition.parameter import ParameterValue
 from experiment_definition.records import RunRow
 from experiment_definition.status import ExecutionStatus
@@ -19,48 +18,36 @@ from research_instrument.seed_batch import write_seed_batch_curve
 from research_store.store import Store
 
 from .git import capture_git_metadata
-from .types import BatchTrainer, ExecutionContext, ExecutionResult, RunPoint
+from .types import ExecutionContext, ExecutionResult, ExperimentSpec, RunPoint
 
 
 def run_experiment(
-    db_path: Path,
-    experiment: Experiment,
-    train_fn: Callable[[ExecutionContext], ExecutionResult],
+    spec: ExperimentSpec,
     *,
-    executions_root: Path,
-    metrics_db_path: Path | None = None,
     max_runs_per_batch: int | None = None,
-    capture_git: bool = True,
     on_batch_complete: Callable[[Path], None] | None = None,
     reclaim_stale_after_seconds: float | None = None,
-    static_parameter_names: frozenset[str] | None = None,
-    metric_subsample_factor: int = 1,
     only: Mapping[str, str] | None = None,
     group: str | None = None,
 ):
-    """``only`` restricts which pending runs execute, per the planning service matcher.
+    """Sync the spec, then plan and execute its pending batches until none remain.
 
-    ``group`` restricts execution to the batches whose ``RunBatch.group_key`` matches.
+    ``max_runs_per_batch`` overrides the spec's. ``only`` restricts which pending runs
+    execute, per the planning service matcher. ``group`` restricts execution to the
+    batches whose ``RunBatch.group_key`` matches.
     """
+    db_path = spec.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    static_parameter_names = _resolve_static_parameter_names(
-        experiment,
-        train_fn,
-        static_parameter_names,
-    )
-    experiment.sync(
-        db_path,
-        static_names=None if static_parameter_names is None else lambda _: static_parameter_names,
-    )
+    spec.sync(db_path)
 
-    git_commit, git_diff = capture_git_metadata() if capture_git else (None, None)
+    git_commit, git_diff = capture_git_metadata() if spec.capture_git else (None, None)
 
     with DatabaseManager(db_path) as database:
         database.initialize()
-        experiment_row = database.get_experiment(experiment.name)
+        experiment_row = database.get_experiment(spec.experiment.name)
         if experiment_row is None:
             raise RuntimeError(
-                f"Experiment {experiment.name!r} was not synced into {db_path}.",
+                f"Experiment {spec.experiment.name!r} was not synced into {db_path}.",
             )
         experiment_id = experiment_row.id
 
@@ -72,8 +59,8 @@ def run_experiment(
                 database.reclaim_stale_executions(experiment_id, reclaim_stale_after_seconds)
             planned = database.plan_next_execution_batch(
                 experiment_id,
-                executions_root,
-                max_runs_per_batch=max_runs_per_batch,
+                spec.executions_root,
+                max_runs_per_batch=max_runs_per_batch if max_runs_per_batch is not None else spec.max_runs_per_batch,
                 git_commit=git_commit,
                 git_diff_blob=git_diff,
                 only=only,
@@ -85,10 +72,10 @@ def run_experiment(
         root = execute_batch(
             db_path,
             planned,
-            train_fn,
-            metrics_db_path=metrics_db_path,
+            spec.train_fn,
+            metrics_db_path=spec.metrics_db_path,
             capture_git=False,
-            metric_subsample_factor=metric_subsample_factor,
+            metric_subsample_factor=spec.metric_subsample_factor,
         )
         execution_roots.append(root)
         if on_batch_complete is not None:
@@ -183,22 +170,6 @@ def execute_batch(
         raise
 
     return execution_root
-
-
-def _resolve_static_parameter_names(
-    experiment: Experiment,
-    train_fn: Callable[[ExecutionContext], ExecutionResult],
-    explicit_names: frozenset[str] | None,
-) -> frozenset[str] | None:
-    if explicit_names is not None:
-        return explicit_names
-    if not isinstance(train_fn, BatchTrainer):
-        return None
-    return frozenset(
-        name
-        for name in experiment.parameter_names
-        if name != "seed" and name not in train_fn.parameter_schema.dynamic_keys
-    )
 
 
 def _write_artifacts(context: ExecutionContext, result: ExecutionResult) -> dict[str, str]:

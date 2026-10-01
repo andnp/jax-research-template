@@ -368,21 +368,12 @@ def run(
 
     for name, factory in specs.items():
         experiment_spec = _with_results_root(factory(), results_root)
-        max_runs_per_batch = max_runs if max_runs is not None else experiment_spec.max_runs_per_batch
-
         _record_declared_plan(module, name, experiment_spec)
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
-            experiment_spec.db_path,
-            experiment_spec.experiment,
-            experiment_spec.train_fn,
-            executions_root=experiment_spec.executions_root,
-            metrics_db_path=experiment_spec.metrics_db_path,
-            max_runs_per_batch=max_runs_per_batch,
-            capture_git=experiment_spec.capture_git,
+            experiment_spec,
+            max_runs_per_batch=max_runs,
             reclaim_stale_after_seconds=reclaim_stale_after,
-            static_parameter_names=experiment_spec.static_parameter_names,
-            metric_subsample_factor=experiment_spec.metric_subsample_factor,
             only=only_clauses,
             group=group,
         )
