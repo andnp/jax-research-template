@@ -69,7 +69,9 @@ which a prior run reported outperforming AdamW for QRC's h-head)."""
 
 
 @chex_struct(frozen=True, kw_only=True)
-class QRCConfig:
+class QRCFields:
+    """QRC's hyperparameters without an agent to build, for configs whose ``build`` returns a QRC variant."""
+
     learning_rate: float = traced(3e-4)
     buffer_size: int = 100_000
     batch_size: int = 64
@@ -81,6 +83,10 @@ class QRCConfig:
     epsilon_fraction: float = traced(0.5)
     beta: float = traced(1.0)
     h_regularization: HRegularization = "adamw"
+
+
+@chex_struct(frozen=True, kw_only=True)
+class QRCConfig(QRCFields):
     hidden_width: int = 64
     env_name: str = "CartPole-v1"
     seed: int = 42
