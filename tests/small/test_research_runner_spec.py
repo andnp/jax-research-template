@@ -14,12 +14,12 @@ from research_runner.types import ExperimentSpec
 
 @dataclass(frozen=True)
 class _TracedRate:
-    LEARNING_RATE: float = traced(1e-3)
+    learning_rate: float = traced(1e-3)
 
 
 @dataclass(frozen=True)
 class _StaticRate:
-    LEARNING_RATE: float = 1e-3
+    learning_rate: float = 1e-3
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ def test_parameters_setting_traced_fields_vary_within_a_batch(tmp_path: Path) ->
 def test_each_run_is_batched_by_the_traced_fields_of_its_own_choice(tmp_path: Path) -> None:
     experiment = Experiment("choices")
     experiment.add_parameter("agent", ["traced", "static"])
-    experiment.add_parameter("agent.LEARNING_RATE", [1e-4, 1e-3])
+    experiment.add_parameter("agent.learning_rate", [1e-4, 1e-3])
     experiment.add_parameter("seed", [0])
     choices = {"agent": {"traced": _TracedRate(), "static": _StaticRate()}}
     spec = ExperimentSpec(experiment, config=_Agents(), choices=choices, train=_train, results_root=tmp_path)
@@ -71,17 +71,17 @@ def test_each_run_is_batched_by_the_traced_fields_of_its_own_choice(tmp_path: Pa
     spec.sync(spec.db_path)
 
     assert _zones(spec.db_path, experiment.name) == {
-        (("agent",), ("agent.LEARNING_RATE",)),
-        (("agent", "agent.LEARNING_RATE"), ()),
+        (("agent",), ("agent.learning_rate",)),
+        (("agent", "agent.learning_rate"), ()),
     }
 
 
 @pytest.mark.parametrize(
     ("name", "value", "error"),
     [
-        pytest.param("agent.LEARNING_RTE", 1e-3, "_TracedRate has no field LEARNING_RTE", id="bad-path"),
+        pytest.param("agent.learning_rte", 1e-3, "_TracedRate has no field learning_rte", id="bad-path"),
         pytest.param("agent", "missing", "'missing' is not a choice for agent", id="bad-choice"),
-        pytest.param("agent.LEARNING_RATE", "fast", "agent.LEARNING_RATE expects float", id="wrong-type"),
+        pytest.param("agent.learning_rate", "fast", "agent.learning_rate expects float", id="wrong-type"),
     ],
 )
 def test_sync_rejects_a_parameter_its_config_cannot_take(tmp_path: Path, name: str, value: ParameterValue, error: str) -> None:
