@@ -33,7 +33,7 @@ from typing import Generator, Iterable
 
 from .ablation import AblationSpec
 from .component import Component
-from .metric import MetricFrequency, MetricSpec, MetricType
+from .metric import MetricSpec, MetricType
 from .parameter import ParameterSpec, ParameterValue
 
 
@@ -181,7 +181,6 @@ class Experiment:
         name: str,
         *,
         kind: str = "float",
-        frequency: str | None = None,
     ) -> "Experiment":
         """Whitelist a metric for collection by the instrumentation layer.
 
@@ -192,7 +191,6 @@ class Experiment:
             name: Identifier used by the collector (e.g. ``"reward"``).
             kind: Scalar data type — one of ``"float"``, ``"int"``, ``"bool"``.
                 Defaults to ``"float"``.
-            frequency: Optional legacy collection cadence.
 
         Returns:
             ``self`` for optional chaining.
@@ -201,7 +199,6 @@ class Experiment:
             MetricSpec(
                 name=name,
                 type=MetricType(kind),
-                frequency=MetricFrequency(frequency) if frequency is not None else None,
             )
         )
         return self

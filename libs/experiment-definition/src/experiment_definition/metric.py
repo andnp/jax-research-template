@@ -7,12 +7,6 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 
-class MetricFrequency(StrEnum):
-    PER_EPISODE = "per_episode"
-    PER_UPDATE = "per_update"
-    EVAL_ONLY = "eval_only"
-
-
 class MetricType(StrEnum):
     FLOAT = "float"
     INT = "int"
@@ -20,15 +14,7 @@ class MetricType(StrEnum):
 
 
 class MetricSpec(BaseModel):
-    """Declares an observable metric that the instrumentation layer should record.
-
-    Args:
-        name: Identifier used by the collector (e.g. "reward").
-        type: Data type of the scalar.
-        frequency: Optional legacy collection cadence.
-    """
+    """Declares an observable metric that the instrumentation layer should record."""
 
     name: str
     type: MetricType
-    # Remove when all core and project callers stop passing frequency.
-    frequency: MetricFrequency | None = None
