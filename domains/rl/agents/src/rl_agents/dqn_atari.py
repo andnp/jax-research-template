@@ -61,9 +61,9 @@ class DQNAtariConfig(DQNZooAtariConfig):
 
 @chex_struct(frozen=True, kw_only=True)
 class DQNAtariRuntimeConfig:
-    TOTAL_TRAIN_ENV_STEPS: int = 50_000_000
-    SEED: int = 42
-    EVAL_EXPLORATION_EPSILON: float = 0.05
+    total_train_env_steps: int = 50_000_000
+    seed: int = 42
+    eval_exploration_epsilon: float = 0.05
 
 
 def dqn_atari_runtime_from_dqn_zoo(
@@ -83,9 +83,9 @@ def dqn_atari_runtime_from_dqn_zoo(
     # With action repeat, one env.step advances num_action_repeats frames, so frame-based schedules must divide by that repeat count.
     total_train_frames = num_iterations * num_train_frames_per_iteration
     return DQNAtariRuntimeConfig(
-        TOTAL_TRAIN_ENV_STEPS=dqn_zoo_atari_frames_to_env_steps(total_train_frames, config.num_action_repeats),
-        SEED=seed,
-        EVAL_EXPLORATION_EPSILON=eval_exploration_epsilon,
+        total_train_env_steps=dqn_zoo_atari_frames_to_env_steps(total_train_frames, config.num_action_repeats),
+        seed=seed,
+        eval_exploration_epsilon=eval_exploration_epsilon,
     )
 
 
@@ -95,9 +95,9 @@ def dqn_zoo_atari_total_train_frames(config: DQNAtariConfig, runtime_config: DQN
 
 
 def dqn_zoo_atari_total_train_env_steps(runtime_config: DQNAtariRuntimeConfig) -> int:
-    if runtime_config.TOTAL_TRAIN_ENV_STEPS < 0:
-        raise ValueError("TOTAL_TRAIN_ENV_STEPS must be non-negative.")
-    return runtime_config.TOTAL_TRAIN_ENV_STEPS
+    if runtime_config.total_train_env_steps < 0:
+        raise ValueError("total_train_env_steps must be non-negative.")
+    return runtime_config.total_train_env_steps
 
 
 def dqn_zoo_atari_exploration_decay_env_steps(config: DQNAtariConfig, runtime_config: DQNAtariRuntimeConfig) -> int:

@@ -30,7 +30,7 @@ def main() -> None:
     )
     env_steps = dqn_zoo_atari_total_train_env_steps(runtime_config)
 
-    rng = jax.random.key(runtime_config.SEED)
+    rng = jax.random.key(runtime_config.seed)
     agent = DQNAtariAgent(config, runtime_config)
     env = make_atari_adapter(
         AleAtariConfig(

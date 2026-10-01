@@ -105,17 +105,17 @@ class TestDQNAtariConfig:
     def test_runtime_defaults_preserve_previous_training_budget(self) -> None:
         runtime_config = DQNAtariRuntimeConfig()
 
-        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
-        assert runtime_config.SEED == 42
-        assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
+        assert runtime_config.total_train_env_steps == 50_000_000
+        assert runtime_config.seed == 42
+        assert runtime_config.eval_exploration_epsilon == 0.05
 
     def test_runtime_helper_preserves_dqn_zoo_baseline(self) -> None:
         config = DQNAtariConfig()
         runtime_config = dqn_atari_runtime_from_dqn_zoo(config)
 
-        assert runtime_config.TOTAL_TRAIN_ENV_STEPS == 50_000_000
-        assert runtime_config.SEED == 42
-        assert runtime_config.EVAL_EXPLORATION_EPSILON == 0.05
+        assert runtime_config.total_train_env_steps == 50_000_000
+        assert runtime_config.seed == 42
+        assert runtime_config.eval_exploration_epsilon == 0.05
 
     @pytest.mark.parametrize("config", [DQNAtariConfig(), RainbowConfig()], ids=["dqn_atari", "rainbow"])
     def test_rmsprop_builder_matches_literal_dqn_zoo_settings(self, config: DQNZooAtariConfig) -> None:
