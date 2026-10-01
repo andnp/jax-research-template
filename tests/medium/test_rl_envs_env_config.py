@@ -1,7 +1,7 @@
 """Environment configs build the environment they name and compare by value."""
 
 import pytest
-from rl_envs.env_config import GymnaxConfig
+from rl_envs.env_config import GymnaxConfig, ProcessControlConfig
 
 
 def test_gymnax_config_builds_an_environment_and_its_params() -> None:
@@ -24,3 +24,18 @@ def test_gymnax_configs_compare_and_hash_by_value() -> None:
     assert GymnaxConfig("CartPole-v1") == GymnaxConfig("CartPole-v1")
     assert hash(GymnaxConfig("CartPole-v1")) == hash(GymnaxConfig("CartPole-v1"))
     assert GymnaxConfig("Pendulum-v1") != GymnaxConfig("Pendulum-v1", NORMALIZED=True)
+
+
+def test_process_control_config_builds_an_environment_without_params() -> None:
+    env, env_params = ProcessControlConfig("chlorine").build()
+
+    assert env_params is None
+    assert env.spec().id == "process_control:chlorine"
+
+
+def test_process_control_scenario_reaches_the_environment_id() -> None:
+    nominal, _ = ProcessControlConfig("h2s_scrubber", SCENARIO="nominal").build()
+    shifted, _ = ProcessControlConfig("h2s_scrubber", SCENARIO="load_shift").build()
+
+    assert nominal.spec().id.endswith(":nominal")
+    assert shifted.spec().id.endswith(":load_shift")
