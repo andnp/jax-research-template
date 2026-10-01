@@ -134,15 +134,21 @@ grid you forgot about.
 ## Recovering a crashed sweep
 
 A runner killed without unwinding never writes a terminal status, so its execution stays
-`RUNNING` and keeps claiming runs that are then neither satisfied nor re-plannable. The
-sweep stalls short of completion. Reclaim them:
+`RUNNING` and keeps claiming runs that are then neither satisfied nor re-plannable.
+
+Every execution records the process that owns it, and `run` (with or without `--workers`)
+and `submit` check those owners before planning: a live execution whose owner is dead is
+marked `FAILED`, so its runs replan. Relaunch the same command; it prints how many it
+reclaimed. Nothing depends on how long a batch takes, so a slow but healthy process is
+never reclaimed.
+
+The line also counts live executions it could not judge: an owner on another host, a
+Slurm task with no `squeue`/`sacct` available, or an execution planned before ownership
+existed. Release those yourself:
 
 ```bash
-uv run research experiment run <spec_file.py> --spec <factory> --reclaim-stale-after 1800
+uv run research experiment invalidate <db_path> --execution <id> [<id> ...]
 ```
-
-Keep the threshold comfortably longer than a real batch takes, or you will reclaim work
-from a slow but healthy process.
 
 ## Two definition rules that cost whole sweeps
 

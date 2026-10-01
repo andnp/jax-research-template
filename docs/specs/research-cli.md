@@ -71,6 +71,7 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Groups work into **"vmap-zones"**: a batch is one static configuration, and the parameters that vary inside it set fields the config marks `traced(...)`.
     - Project experiment definitions declare parameter values normally; they do not mark axes static or call `jax.vmap`.
     - Records each execution as `RUNNING`, then `COMPLETED` or `FAILED`. A `FAILED` execution is retried on the next run.
+    - Plans every execution with the running process as its owner. Before planning, it fails each live execution whose owner is dead (see [Reclaim](#reclaim-before-launch)).
 - `research experiment status <db_path> [--experiment <slug>]`:
     - Reports total, completed, failed and pending logical runs per experiment.
 - `research experiment list <db_path>`:
@@ -78,16 +79,22 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
 - `research experiment executions <db_path> [--experiment <slug>] [--status <status>] [--git-commit <sha>]`:
     - Lists executions with status, hostname, start time and commit.
 - `research experiment invalidate <db_path> (--execution <id> | --git-commit <sha>)`:
-    - Marks executions `INVALID` so their runs become plannable again. This is also how a run killed mid-execution — left claimed as `RUNNING` — is released.
+    - Marks executions `INVALID` so their runs become plannable again. This is how a live execution whose owner cannot be resolved is released (see [Reclaim](#reclaim-before-launch)).
 - `research experiment execute-batch --execution-id <id> --spec-file <file> --spec <name>`:
     - Executes a single already-planned execution in the spec's database. This is the entry point a scheduler invokes.
 - `research experiment submit <spec_file> [--slurm-config <file.json>] [slurm options] [--dry-run]`:
-    - Plans every outstanding batch up front, writes a Slurm array script, and submits it. The planned executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` must never re-plan them.
+    - Reclaims dead executions, then plans every outstanding batch up front, writes a Slurm array script, and submits it with `sbatch --parsable`. Each planned execution is handed from the submitting process to the array task that will run it (`slurm:<job id>_<index>`) once the job id exists. The executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` leaves them alone while their task is alive.
+    - If `sbatch` fails, every planned execution is marked `FAILED`.
     - `--slurm-config` loads a JSON `SlurmConfig`; explicit flags override its values.
 - `research experiment report <spec_file> [--output-dir <path>] [--json]`:
     - Runs the spec's declared `@analysis_plan` and writes `report.json`, `report.md`, and figures to `--output-dir`, defaulting to `<results_root>/reports/<experiment>/<UTC time>/`. An `--output-dir` outside the results root is refused (exit 1) so the report stays with its results.
     - Prints a short summary, or with `--json` only the report document.
     - Exits 0 with results, 1 when the spec has no declared plan or no database, 2 when loading has fatal diagnostics, and 3 when an analysis fails (for example a diverged run or an incomplete block). Failed reports are still written, with their diagnostics and no results.
+
+#### Reclaim before launch
+Every execution records an owner, the process whose death means it will never finish: `local:<host>:<boot>:<pid>:<start ticks>` for a local process and `slurm:<array job id>_<task index>` for a Slurm array task. `run`, `run --workers` and `submit` (but not `submit --dry-run`) sync the spec, then ask each live execution's owner whether it is still running and mark the dead owners' `PENDING` and `RUNNING` executions `FAILED`, once, before planning. A local owner is judged by the host (a process from another boot is dead, one on another host is unknown); a Slurm owner is judged by `squeue`, then `sacct`.
+
+They print one line, such as `Reclaimed 2 dead execution(s)`. Live executions whose owner cannot be checked (another host, no Slurm client) or that have no owner (planned before ownership existed) are left alone and counted in that line; release them with `research experiment invalidate --execution <id>`. There is no time threshold: a slow but live execution is never reclaimed.
 
 `run` and `submit` (but not `submit --dry-run`) append the spec's declared plan to `<results_root>/analysis-plans.jsonl` before any execution starts. `report` labels its document exploratory unless that history shows the same plan was in force when every included execution started. Statistics live in `research-analysis`; the CLI only wires a spec's declared plan to it. See the [reporting API](research-reporting-api.md).
 

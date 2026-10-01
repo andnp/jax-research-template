@@ -15,8 +15,8 @@ today means hand-slicing a sweep into several processes, and that has failed in 
   (`cli/src/research_cli/cpu_cap.py`), to the *lowest-numbered* N CPUs, then restores full affinity. It sizes XLA's
   thread pool but assigns no cores. The only thing that stops parallel processes oversubscribing the machine is a
   project-local launcher that pins each slice with `taskset`.
-- **Concurrent reclaims crash each other.** `reclaim_stale_executions` selects stale executions inside a transaction
-  but updates them after it closes, so two runners can both fail the same execution, and the second crashes with
+- **Concurrent reclaims crash each other.** The start-time reclaim (since removed) selected stale executions inside a transaction
+  but updated them after it closed, so two runners can both fail the same execution, and the second crashes with
   `Illegal execution transition: FAILED -> FAILED` (`_execution_repository.py`).
 - **Nothing knows about memory.** Two sweeps in one day were stopped by the host for low memory, with no way to
   size the number of concurrent processes to fit.
@@ -69,7 +69,7 @@ how many seeds an experiment should have, and more than one supervisor per exper
 `--workers W` turns `run` into a **supervisor**. The supervisor loads the spec and syncs the experiment, but never
 initialises a JAX backend (no array operation, no device query). It:
 
-1. syncs the experiment, then reclaims stale executions **once** (`--reclaim-stale-after`), before any worker starts;
+1. syncs the experiment, then reclaims the executions of dead owners **once**, before any worker starts;
 2. lists the pending groups, each identified by a stable **group key** (4.5);
 3. starts one **worker** per group, as a subprocess running today's single-process loop restricted to that group
    (`--group KEY`, `--max-runs b`), with the environment `NPROC=c` and `JAX_PLATFORMS=cpu`;
@@ -134,8 +134,8 @@ limit or toggle in v1; add them if the cache grows or causes trouble.
   environment version, ablation, static config JSON, vmap zone JSON). `list_unsatisfied_run_batches`,
   `plan_next_execution_batch` and `run_experiment` take `group: str | None`, restricting planning to that group. The
   CLI's `run` takes `--group KEY` (hidden; the supervisor passes it).
-- **Atomic reclaim.** `reclaim_stale_executions` selects and updates inside one `BEGIN IMMEDIATE` transaction, with
-  the update conditioned on `status = 'RUNNING'`, so a concurrent reclaim is a no-op rather than a crash.
+- **Atomic reclaim.** `reclaim_dead_executions` transitions inside one `BEGIN IMMEDIATE` transaction, only the rows
+  whose status and owner are unchanged since the probe, so a concurrent reclaim is a no-op rather than a crash.
 - **Busy timeout.** `DatabaseManager.connect` sets `PRAGMA busy_timeout` to 30 s, matching `metrics.sqlite`, so many
   workers finishing at once wait for the write lock instead of failing after Python's 5 s default.
 - **No affinity cap.** `RESEARCH_MAX_CPUS` and `cpu_cap.py` are removed. A single-process run is capped with `NPROC`,
@@ -150,7 +150,6 @@ research experiment run SPEC --spec NAME
     [--max-runs B]                 # seeds per batch (existing flag)
     [--worker-memory GB]           # projection before any worker has reported (default 4)
     [--memory-reserve GB]          # memory kept free (default 15% of MemTotal)
-    [--reclaim-stale-after S]      # done once by the supervisor when --workers is set
     [--only key=value ...]         # restricts which groups the supervisor schedules
 ```
 
@@ -171,7 +170,7 @@ research experiment run SPEC --spec NAME
   - SIGTERM to the supervisor leaves no child process;
   - SIGKILL to the supervisor leaves no child process (parent-death signal);
   - a worker that SIGKILLs itself mid-batch: the supervisor exits nonzero, that execution is FAILED, and a relaunch
-    without `--reclaim-stale-after` completes its runs.
+    completes its runs.
 - **performance (targeted, not a PR gate):** `NPROC` caps a real critic update under concurrent load, measured as
   CPU time over wall time per worker.
 
@@ -192,5 +191,5 @@ research experiment run SPEC --spec NAME
    between batches with a larger `NPROC` costs a process start and a (cached) compile. Revisit if telemetry shows
    the tail underusing the budget.
 3. **Liveness beyond one supervisor.** Fail-on-death (4.1) covers workers the supervisor started. A killed
-   supervisor's in-flight executions still need `--reclaim-stale-after` or `invalidate` on the next launch. A
-   heartbeat or lease column would remove that; it needs a schema change.
+   supervisor's in-flight executions are failed by the ownership reclaim on the next launch, once their owner process is
+   gone; a supervisor on another host is UNKNOWN and needs `invalidate`.
