@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Literal
 
 import pytest
 from research_runner.config import _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
@@ -133,3 +134,25 @@ class TestNumericAndBoolChecks:
         """A bool is not a number, and a non-integral float is not an int."""
         with pytest.raises(ValueError, match=rf"agent.X expects {annotation.__name__}, got {value!r}"):
             _check_value(annotation, "agent.X", value)
+
+
+class TestStrAndLiteralChecks:
+    def test_accepts_str_and_matching_literal(self):
+        """A string fits a str field, and a listed option fits a Literal."""
+        assert _check_value(str, "env.NAME", "a") == "a"
+        assert _check_value(Literal["mlp", "cnn"], "agent.NET", "cnn") == "cnn"
+
+    def test_rejects_a_non_str_for_a_str_field(self):
+        """A number is not a string."""
+        with pytest.raises(ValueError, match="env.NAME expects str, got 3"):
+            _check_value(str, "env.NAME", 3)
+
+    def test_rejects_an_unlisted_literal_naming_the_options(self):
+        """The error lists the valid options."""
+        with pytest.raises(ValueError, match=r"agent.NET expects one of \('mlp', 'cnn'\), got 'rnn'"):
+            _check_value(Literal["mlp", "cnn"], "agent.NET", "rnn")
+
+    def test_a_bool_does_not_match_a_numeric_literal(self):
+        """True equals 1 in Python but is not the option 1."""
+        with pytest.raises(ValueError):
+            _check_value(Literal[1, 2], "agent.K", True)
