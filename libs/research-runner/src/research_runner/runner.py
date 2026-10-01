@@ -139,11 +139,12 @@ def execute_batch(
         started = time.perf_counter()
         configs = [_build_config(spec.config, spec.choices, point.hyperparameters) for point in points]
         seeds = [run.seed for run in runs]
-        outputs = _run_batch(spec.train, spec.experiment.metrics, configs, seeds)
+        metrics = _metrics_for(spec.experiment.metrics, points)
+        outputs = _run_batch(spec.train, metrics, configs, seeds)
         _write_metrics(
             resolved_metrics_db,
             outputs,
-            spec.experiment.metrics,
+            metrics,
             experiment_id=experiment_row.id,
             execution_id=planned.execution_id,
             run_ids=[point.run_id for point in points],
@@ -151,7 +152,7 @@ def execute_batch(
         )
         metadata: dict[str, object] = {
             "runtime": _runtime_telemetry(len(points), time.perf_counter() - started),
-            "metrics": {metric.name: {"every": metric.every, "ema": metric.ema} for metric in spec.experiment.metrics},
+            "metrics": {metric.name: {"every": metric.every, "ema": metric.ema} for metric in metrics},
         }
 
         manifest = {
@@ -185,6 +186,26 @@ def execute_batch(
         raise
 
     return execution_root
+
+
+def _metrics_for(metrics: Sequence[MetricSpec], points: Sequence[_RunPoint]) -> list[MetricSpec]:
+    """Keep the declarations whose ``when()`` conditions every run in the batch satisfies."""
+    selected: list[MetricSpec] = []
+    for metric in metrics:
+        for key in metric.conditions:
+            if all(key not in point.hyperparameters for point in points):
+                raise ValueError(f"metric {metric.name!r} is conditioned on {key!r}, which no run in this batch declares")
+        matches = [
+            all(point.hyperparameters.get(key) == value for key, value in metric.conditions.items()) for point in points
+        ]
+        if all(matches):
+            selected.append(metric)
+        elif any(matches):
+            raise ValueError(
+                f"metric {metric.name!r} with conditions {metric.conditions} matches only some runs in this batch; "
+                "conditional metrics must be conditioned on static parameters",
+            )
+    return selected
 
 
 def _write_metrics(

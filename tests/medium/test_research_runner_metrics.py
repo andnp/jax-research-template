@@ -18,6 +18,7 @@ from research_runner.types import ExperimentSpec
 @dataclass(frozen=True)
 class _Toy:
     offset: float = traced(0.0)
+    mode: str = "a"
 
 
 def _train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
@@ -140,3 +141,52 @@ def test_the_manifest_records_how_each_metric_was_sampled(tmp_path: Path) -> Non
     expected = {"reward": {"every": 2, "ema": 0.9}, "score": {"every": 1, "ema": None}}
     assert manifest["metadata"]["metrics"] == expected
     assert json.loads(artifacts.metadata_json)["metrics"] == expected
+
+
+def _manifest_metrics(spec: ExperimentSpec[_Toy], planned: PlannedExecution) -> dict[str, object]:
+    manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
+    return manifest["metadata"]["metrics"]
+
+
+def test_a_conditional_metric_is_recorded_by_runs_that_match(tmp_path: Path) -> None:
+    experiment = _experiment("matching").add_parameter("mode", ["a"])
+    with experiment.when(mode="a"):
+        experiment.add_metric("score")
+    spec, planned = _plan(tmp_path, experiment)
+
+    execute_batch(spec.db_path, planned, spec, capture_git=False)
+
+    with sqlite3.connect(spec.metrics_db_path) as connection:
+        names = connection.execute("SELECT DISTINCT metric_name FROM scalar_metrics").fetchall()
+    assert (names, list(_manifest_metrics(spec, planned))) == ([("score",)], ["score"])
+
+
+def test_a_conditional_metric_is_dropped_for_runs_that_do_not_match(tmp_path: Path) -> None:
+    experiment = _experiment("other-mode").add_parameter("mode", ["a"])
+    with experiment.when(mode="b"):
+        experiment.add_metric("emitted_only_by_mode_b")
+    spec, planned = _plan(tmp_path, experiment)
+
+    execute_batch(spec.db_path, planned, spec, capture_git=False)
+
+    assert _manifest_metrics(spec, planned) == {}
+
+
+def test_a_metric_conditioned_on_a_per_run_value_fails_when_a_batch_mixes_it(tmp_path: Path) -> None:
+    experiment = _experiment("mixed")
+    with experiment.when(seed=1):
+        experiment.add_metric("score")
+    spec, planned = _plan(tmp_path, experiment)
+
+    with pytest.raises(ValueError, match="static parameters"):
+        execute_batch(spec.db_path, planned, spec, capture_git=False)
+
+
+def test_a_metric_conditioned_on_an_undeclared_parameter_fails_loudly(tmp_path: Path) -> None:
+    experiment = _experiment("undeclared")
+    with experiment.when(agent="sac"):
+        experiment.add_metric("score")
+    spec, planned = _plan(tmp_path, experiment)
+
+    with pytest.raises(ValueError, match="conditioned on 'agent', which no run in this batch declares"):
+        execute_batch(spec.db_path, planned, spec, capture_git=False)
