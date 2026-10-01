@@ -130,7 +130,7 @@ To run a hyperparameter sweep instead of a single training script, define it dec
 
    ```python
    experiment.add_parameter("env", ENV_NAMES)                     # a named choice
-   experiment.add_parameter("agent.LEARNING_RATE", [1e-3, 3e-4])  # a dotted config path
+   experiment.add_parameter("agent.learning_rate", [1e-3, 3e-4])  # a dotted config path
    experiment.add_parameter("seed", range(30))
    experiment.add_metric("loop/reward", ema=0.999, every=500)      # smoothed, then one value in 500
 
