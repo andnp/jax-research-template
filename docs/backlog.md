@@ -22,7 +22,7 @@ This backlog contains actionable tickets derived from the [ROADMAP.md](ROADMAP.m
 ### [CORE-003] `experiment-definition` Fluent API
 - **Description:** Implement the builder pattern for defining experiments.
 - **Acceptance Criteria:**
-    - Support `add_parameter` with `is_static` flag.
+    - Support `add_parameter(name, values)` sweep axes.
     - Support `with exp.for_component(...)` and `exp.when(...)` triggers.
     - `exp.sync()` successfully populates the SQLite DB.
 
