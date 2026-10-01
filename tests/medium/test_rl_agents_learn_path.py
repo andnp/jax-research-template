@@ -349,7 +349,7 @@ def _run_td3(learning_starts: int) -> Run:
         learning_starts=learning_starts,
         buffer_size=BUFFER_SIZE,
         batch_size=BATCH_SIZE,
-        POLICY_DELAY=1,
+        policy_delay=1,
     )
     agent = td3.TD3Agent(config)
     env = ToyContinuousEpisodeEnv()

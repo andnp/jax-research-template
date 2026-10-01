@@ -22,13 +22,13 @@ def _make_env(env_name: str) -> MujocoPlaygroundAdapter:
 def _short_agent(env_name: str) -> TD3Agent:
     return TD3Agent(
         TD3Config(
-            ENV_NAME=env_name,
+            env_name=env_name,
             total_timesteps=STEPS,
             learning_starts=50,
             buffer_size=64,
             batch_size=16,
-            TRAIN_FREQUENCY=1,
-            POLICY_DELAY=2,
+            train_frequency=1,
+            policy_delay=2,
         )
     )
 

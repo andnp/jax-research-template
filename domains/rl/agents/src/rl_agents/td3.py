@@ -8,7 +8,7 @@ bootstrap bug class the loop contract exists to prevent.
 The three ideas TD3 adds to a deterministic actor-critic all live in the learning branch:
 clipped double-Q and target policy smoothing in :func:`td3_critic_loss`, and the delayed
 policy update in :meth:`TD3Agent._learn`. The delay covers *both* Polyak updates as well
-as the actor step, so with ``POLICY_DELAY > 1`` the target networks stay stationary
+as the actor step, so with ``policy_delay > 1`` the target networks stay stationary
 between actor updates.
 """
 
@@ -45,14 +45,14 @@ class TD3Config:
     batch_size: int = 256
     total_timesteps: int = 1_000_000
     learning_starts: int = traced(25_000)
-    TRAIN_FREQUENCY: int = traced(1)
-    TAU: float = traced(0.005)
-    POLICY_DELAY: int = traced(2)
-    EXPLORATION_NOISE: float = traced(0.1)
-    POLICY_NOISE: float = traced(0.2)
-    NOISE_CLIP: float = traced(0.5)
-    ENV_NAME: str = "MountainCarContinuous-v0"
-    SEED: int = 42
+    train_frequency: int = traced(1)
+    tau: float = traced(0.005)
+    policy_delay: int = traced(2)
+    exploration_noise: float = traced(0.1)
+    policy_noise: float = traced(0.2)
+    noise_clip: float = traced(0.5)
+    env_name: str = "MountainCarContinuous-v0"
+    seed: int = 42
 
     def build(self) -> TD3Agent:
         return TD3Agent(self)
@@ -83,12 +83,12 @@ def td3_hypers(config: TD3Config) -> TD3Hypers:
     return TD3Hypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        TAU=jnp.asarray(config.TAU, jnp.float32),
-        POLICY_DELAY=jnp.asarray(config.POLICY_DELAY, jnp.int32),
-        EXPLORATION_NOISE=jnp.asarray(config.EXPLORATION_NOISE, jnp.float32),
-        POLICY_NOISE=jnp.asarray(config.POLICY_NOISE, jnp.float32),
-        NOISE_CLIP=jnp.asarray(config.NOISE_CLIP, jnp.float32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
+        TAU=jnp.asarray(config.tau, jnp.float32),
+        POLICY_DELAY=jnp.asarray(config.policy_delay, jnp.int32),
+        EXPLORATION_NOISE=jnp.asarray(config.exploration_noise, jnp.float32),
+        POLICY_NOISE=jnp.asarray(config.policy_noise, jnp.float32),
+        NOISE_CLIP=jnp.asarray(config.noise_clip, jnp.float32),
     )
 
 

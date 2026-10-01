@@ -27,7 +27,7 @@ _EXPECTED_TRACED = [
     ),
     pytest.param(
         TD3Config,
-        {"EXPLORATION_NOISE", "learning_rate", "learning_starts", "NOISE_CLIP", "POLICY_DELAY", "POLICY_NOISE", "TAU", "TRAIN_FREQUENCY"},
+        {"exploration_noise", "learning_rate", "learning_starts", "noise_clip", "policy_delay", "policy_noise", "tau", "train_frequency"},
         id="td3",
     ),
     pytest.param(
