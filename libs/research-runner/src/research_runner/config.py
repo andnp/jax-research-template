@@ -3,7 +3,7 @@
 import dataclasses
 from collections.abc import Iterator, Mapping
 from types import UnionType
-from typing import TYPE_CHECKING, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Literal, Union, get_args, get_origin, get_type_hints
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -38,11 +38,15 @@ def _get_path(config: object, path: str) -> object:
     return config
 
 
+def _require_field(config: object, name: str) -> None:
+    names = [field.name for field in dataclasses.fields(config)] if dataclasses.is_dataclass(config) else []
+    if name not in names:
+        raise ValueError(f"{type(config).__name__} has no field {name}; fields are {', '.join(names) or 'none'}")
+
+
 def _set_path[C: DataclassInstance](config: C, path: str, value: object) -> C:
     head, _, rest = path.partition(".")
-    names = [field.name for field in dataclasses.fields(config)] if dataclasses.is_dataclass(config) else []
-    if head not in names:
-        raise ValueError(f"{type(config).__name__} has no field {head}; fields are {', '.join(names) or 'none'}")
+    _require_field(config, head)
     if rest:
         value = _set_path(getattr(config, head), rest, value)
     return dataclasses.replace(config, **{head: value})
@@ -106,4 +110,24 @@ def _apply_choices[C: DataclassInstance](config: C, choices: Mapping[str, Mappin
         if not isinstance(name, str) or name not in options:
             raise ValueError(f"{name!r} is not a choice for {path}; choices are {', '.join(options)}")
         config = _set_path(config, path, options[name])
+    return config
+
+
+def _field_annotation(config: object, path: str) -> object:
+    *parents, leaf = path.split(".")
+    owner = config
+    for name in parents:
+        _require_field(owner, name)
+        owner = getattr(owner, name)
+    _require_field(owner, leaf)
+    return get_type_hints(type(owner))[leaf]
+
+
+def _build_config[C: DataclassInstance](base: C, choices: Mapping[str, Mapping[str, object]], params: Mapping[str, object]) -> C:
+    """Build one run's config: choices first, then each dotted path, type-checked. `seed` is not a config field."""
+    config = _apply_choices(base, choices, params)
+    for path, value in params.items():
+        if path == "seed" or path in choices:
+            continue
+        config = _set_path(config, path, _check_value(_field_annotation(config, path), path, value))
     return config
