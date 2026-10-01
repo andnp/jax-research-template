@@ -2,7 +2,7 @@ import dataclasses
 from typing import Literal
 
 import pytest
-from research_runner.config import _apply_choices, _build_config, _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
+from research_runner.config import _apply_choices, _build_config, _check_value, _merge_traced, _set_path, _split_traced, _static_names, _traced_paths, traced
 
 
 @dataclasses.dataclass(frozen=True)
@@ -243,3 +243,15 @@ class TestBuildConfig:
         """A choice name that is not offered lists the offered ones."""
         with pytest.raises(ValueError, match="'c' is not a choice for env; choices are a, b"):
             _build_config(Cfg(), self.CHOICES, {"env": "c"})
+
+
+class TestStaticNames:
+    def test_traced_paths_and_seed_are_not_static(self):
+        """Parameters setting traced fields vary within a batch, as does the seed."""
+        names = ["agent.LR", "agent.STEPS", "gamma", "seed"]
+
+        assert _static_names(Cfg(), names) == {"agent.STEPS"}
+
+    def test_a_choice_is_always_static(self):
+        """A choice swaps a whole object, so it splits batches."""
+        assert _static_names(Cfg(), ["env", "agent.LR"]) == {"env"}
