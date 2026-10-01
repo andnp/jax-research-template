@@ -28,10 +28,7 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
         return _json_stable(hyper_params)
 
     vmap_zone = json.loads(vmap_zone_json)
-    static_keys = list(vmap_zone.get("static_keys", []))
-    if not static_keys:
-        return _json_stable(hyper_params)
-
+    static_keys = vmap_zone.get("static_keys", [])
     static_params = {key: hyper_params[key] for key in static_keys if key in hyper_params}
     return _json_stable(static_params)
 

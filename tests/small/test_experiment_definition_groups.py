@@ -82,3 +82,22 @@ def test_groups_with_and_without_an_ablation_list_together(tmp_path: Path) -> No
             database.add_run(experiment_id, None, None, hyper_id, 0, ablation)
 
         assert len(database.list_unsatisfied_run_batches(experiment_id)) == 2
+
+
+def test_all_traced_sweep_batches_together_in_chunks(tmp_path: Path) -> None:
+    """Runs differing only in traced values share a group, chunked by max_runs_per_batch."""
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        experiment_id = database.add_experiment("traced-test")
+        version = database.add_component_version(database.add_component("algo", "ALGO"), "algo-v1")
+        zone = {"static_keys": [], "dynamic_keys": ["agent.learning_rate"]}
+        for learning_rate in (0.1, 0.2, 0.3):
+            hyper_id = database.add_hyperparam_config({"agent.learning_rate": learning_rate})
+            for seed in (0, 1):
+                database.add_run(experiment_id, version, None, hyper_id, seed, vmap_zone=zone)
+
+        whole = database.list_unsatisfied_run_batches(experiment_id)
+        chunked = database.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=4)
+
+        assert [len(b.run_ids) for b in whole] == [6]
+        assert [len(b.run_ids) for b in chunked] == [4, 2]
