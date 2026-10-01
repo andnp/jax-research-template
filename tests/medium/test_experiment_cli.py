@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.status import RunState, run_state
 from research_cli.main import app
@@ -253,6 +254,18 @@ def test_experiment_plan_with_spec(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "my_spec" in result.output
     assert "batch" in result.output.lower()
+
+
+@pytest.mark.parametrize("command", ["plan", "run"])
+def test_a_parameter_the_config_lacks_is_reported_without_a_traceback(tmp_path: Path, command: str) -> None:
+    spec_file = _write_spec_file(tmp_path, tmp_path / "typo")
+    spec_file.write_text(spec_file.read_text().replace('add_parameter("learning_rate"', 'add_parameter("learning_rte"'))
+
+    result = runner.invoke(app, ["experiment", command, str(spec_file)])
+
+    assert result.exit_code == 1
+    assert "Error: Toy has no field learning_rte" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 def test_experiment_run_with_spec(tmp_path: Path) -> None:
