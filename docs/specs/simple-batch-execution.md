@@ -260,6 +260,21 @@ Two keywords cover every current use. `ema` smooths with an exponential moving
 average. `every` keeps one value in every `n`. Smoothing always runs before
 thinning, which is the only order that makes sense. A 0-d value takes neither.
 
+**Conditional metrics.** Inside `experiment.when(...)` a metric is recorded only
+by runs whose parameters match those conditions, as for `add_parameter`:
+
+```python
+with experiment.when(agent="sac"):
+    experiment.add_metric("alpha", every=500)     # SAC runs only
+with experiment.when(env="chlorine"):
+    experiment.add_metric("env/chlorine_residual")
+```
+
+The same name may be declared under different conditions, but not twice under
+the same ones. Conditions must be on parameters that are constant within a
+batch: a declaration that matches only some runs of a batch, or that names a
+parameter no run declares, fails with an error naming the metric.
+
 **Where it happens.** The runner applies the declarations inside the
 `jit(vmap(...))`. Undeclared metrics and the final agent state are never
 outputs, so XLA can skip the work that only they need, and only thinned curves
@@ -270,7 +285,8 @@ with an error naming both the missing key and the emitted keys. `every` or
 `ema` on a 0-d value fails the same way.
 
 **Identity.** `every` and `ema` are recording choices, not part of the study:
-changing them does not re-plan runs. The execution manifest records the
+changing them does not re-plan runs, and neither do a metric's conditions. The
+execution manifest records the declarations applied to each batch and the
 values that produced each stored curve.
 
 This replaces `REPORTED_METRICS`, the metric projectors, the PPO override and
