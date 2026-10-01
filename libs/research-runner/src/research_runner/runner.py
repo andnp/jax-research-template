@@ -148,8 +148,7 @@ def execute_batch(
         result = train_fn(context)
         _write_metrics(context, result, metric_subsample_factor)
         artifact_uris = _write_artifacts(context, result)
-        metadata = dict(result.metadata)
-        metadata["runtime"] = _runtime_telemetry(len(points), time.perf_counter() - started)
+        metadata: dict[str, object] = {"runtime": _runtime_telemetry(len(points), time.perf_counter() - started)}
         if artifact_uris:
             metadata["artifacts"] = artifact_uris
 

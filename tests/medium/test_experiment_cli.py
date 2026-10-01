@@ -223,7 +223,7 @@ def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
                 experiment.add_parameter("seed", [0])
 
                 def train(ctx: ExecutionContext) -> ExecutionResult:
-                    return ExecutionResult(metadata={{"trained": True}})
+                    return ExecutionResult()
 
                 return ExperimentSpec(
                     experiment=experiment,

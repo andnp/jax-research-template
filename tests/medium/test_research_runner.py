@@ -23,7 +23,7 @@ def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
 
 
 def _trivial_train_fn(ctx: ExecutionContext) -> ExecutionResult:
-    return ExecutionResult(metadata={"trained": True})
+    return ExecutionResult()
 
 
 def _make_experiment(name: str = "TestSweep") -> Experiment:
@@ -78,7 +78,6 @@ class TestRunExperiment:
                 assert manifest_path.exists(), f"Manifest missing at {manifest_path}"
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 assert manifest["experiment_slug"] == "TestSweep"
-                assert manifest["metadata"]["trained"] is True
 
                 exec_id = manifest["execution_id"]
                 execution = database.get_execution(exec_id)
@@ -92,7 +91,6 @@ class TestRunExperiment:
                 assert artifact_metadata["run_ids"] == manifest["run_ids"]
                 assert "static_config_json" in artifact_metadata
                 assert "vmap_zone_json" in artifact_metadata
-                assert artifact_metadata["trained"] is True
                 assert artifact_metadata["metrics_db_path"] == manifest["metrics_db_path"]
 
     def test_on_batch_complete_invoked(self, db_path: Path, executions_root: Path) -> None:
@@ -294,7 +292,7 @@ class TestExecuteBatch:
             with DatabaseManager(db_path) as database:
                 database.initialize()
                 database.update_execution_status(ctx.execution_id, "FAILED")
-            return ExecutionResult(metadata={"trained": True})
+            return ExecutionResult()
 
         with pytest.raises(ValueError, match="FAILED -> COMPLETED"):
             execute_batch(
@@ -354,7 +352,7 @@ class TestMidSweepCrashRecovery:
             calls.append(str(ctx.static_config["arch"]))
             if len(calls) == 1:
                 raise RuntimeError("boom")
-            return ExecutionResult(metadata={"trained": True})
+            return ExecutionResult()
 
         with pytest.raises(RuntimeError, match="boom"):
             run_experiment(
@@ -425,7 +423,7 @@ class TestDynamicArmCoverage:
                 assert isinstance(lr, float)
                 assert isinstance(seed, int)
                 seen.add((lr, seed))
-            return ExecutionResult(metadata={"trained": True})
+            return ExecutionResult()
 
         run_experiment(
             db_path,

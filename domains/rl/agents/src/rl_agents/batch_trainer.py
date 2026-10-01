@@ -336,11 +336,6 @@ class GenericBatchTrainer:
         result = run_batch(train_one, dynamic_axes, batch.seeds)
         curves, artifacts = result
         return ExecutionResult(
-            metadata={
-                "algorithm": spec.name,
-                "env_name": batch.static(ENV_NAME, str),
-                "seed_values": list(batch.seeds),
-            },
             metric_curves={name: values.tolist() for name, values in curves.items()},
             artifacts=dict(artifacts),
         )

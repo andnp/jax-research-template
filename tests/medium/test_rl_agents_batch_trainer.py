@@ -964,7 +964,6 @@ class TestAlgorithmRegistry:
             )
             result = trainer(context)
 
-            assert result.metadata["algorithm"] == algorithm
             assert set(result.metric_curves) == metric_names[algorithm]
             assert all(len(curve) == 4 for metric in result.metric_curves.values() for curve in metric)
             assert set(result.artifacts) == artifact_names[algorithm]

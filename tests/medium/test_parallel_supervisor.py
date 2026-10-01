@@ -16,6 +16,7 @@ import textwrap
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -42,14 +43,13 @@ def _write_spec(tmp_path: Path) -> Path:
 
 
             def train(ctx: ExecutionContext) -> ExecutionResult:
-                start = time.time()
                 marker = Path(os.environ.get("TOY_KILL_MARKER", "{tmp_path}/unused"))
                 learning_rate = ctx.points[0].hyperparameters["learning_rate"]
                 if str(learning_rate) == os.environ.get("TOY_KILL_LR") and not marker.exists():
                     marker.touch()
                     os.kill(os.getpid(), signal.SIGKILL)
                 time.sleep(float(os.environ["TOY_SLEEP"]))
-                return ExecutionResult(metadata={{"nproc": int(os.environ["NPROC"]), "start": start, "end": time.time()}})
+                return ExecutionResult()
 
 
             @spec
@@ -87,6 +87,8 @@ class _Supervisor:
 class _Execution:
     status: str
     run_ids: list[int]
+    start_time: str | None
+    end_time: str | None
     metadata: dict[str, object]
 
 
@@ -144,7 +146,7 @@ def _executions(tmp_path: Path) -> list[_Execution]:
             artifacts = database.get_execution_artifacts(row.id)
             metadata = json.loads(artifacts.metadata_json) if artifacts and artifacts.metadata_json else {}
             run_ids = [run.id for run in database.list_execution_runs(row.id)]
-            executions.append(_Execution(row.status, run_ids, metadata))
+            executions.append(_Execution(row.status, run_ids, row.start_time, row.end_time, metadata))
     return executions
 
 
@@ -163,7 +165,10 @@ def _runtime(execution: _Execution) -> dict[str, object]:
 
 
 def _peak_concurrent_nproc(executions: list[_Execution]) -> int:
-    intervals = [(float(str(e.metadata["start"])), float(str(e.metadata["end"])), int(str(e.metadata["nproc"]))) for e in executions]
+    intervals = [
+        (datetime.fromisoformat(str(e.start_time)), datetime.fromisoformat(str(e.end_time)), int(str(_runtime(e)["nproc"])))
+        for e in executions
+    ]
     return max(sum(nproc for start, end, nproc in intervals if start <= instant <= end) for instant, _, _ in intervals)
 
 
@@ -180,8 +185,7 @@ class TestCompletion:
         executions = _executions(tmp_path)
         assert [e.status for e in executions] == ["COMPLETED"] * 3
         assert len(_completed_runs(tmp_path)) == 6
-        assert sorted(int(str(e.metadata["nproc"])) for e in executions) == [1, 1, 2]
-        assert all(e.metadata["nproc"] == _runtime(e)["nproc"] for e in executions)
+        assert sorted(int(str(_runtime(e)["nproc"])) for e in executions) == [1, 1, 2]
         assert _peak_concurrent_nproc(executions) <= _BUDGET
         output = supervisor.output()
         assert output.count("worker start") == 3
