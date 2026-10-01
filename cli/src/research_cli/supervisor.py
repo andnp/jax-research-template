@@ -1,6 +1,8 @@
 """Parallel local experiment runs: one worker subprocess per pending group, within a thread and memory budget.
 
 The supervisor process only syncs, plans and reads the database; it never initialises a JAX backend.
+It plans a group's batches, owned by itself, when it admits the group, and fails a worker's executions
+that are still live when the worker exits nonzero or the supervisor stops.
 """
 
 from __future__ import annotations
@@ -15,11 +17,11 @@ import time
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from types import FrameType
 
 from experiment_definition.db import DatabaseManager, RunBatch
+from experiment_definition.ownership import local_owner
 from experiment_definition.records import ExecutionArtifactRow
 from experiment_definition.status import ExecutionStatus
 from research_runner.types import ExperimentSpec
@@ -75,7 +77,6 @@ class SupervisorSettings:
     max_runs: int | None
     worker_memory_bytes: int
     memory_reserve_bytes: int | None
-    only: Sequence[str]
     only_clauses: Mapping[str, str] | None
 
 
@@ -84,7 +85,7 @@ class _Worker:
     group: PendingGroup
     threads: int
     process: subprocess.Popen[bytes]
-    started_at: datetime
+    execution_ids: list[int]
 
 
 class _StopRequest:
@@ -134,6 +135,9 @@ def _prepare(experiment_spec: ExperimentSpec, settings: SupervisorSettings) -> i
 class _Supervisor:
     def __init__(self, experiment_spec: ExperimentSpec, settings: SupervisorSettings, experiment_id: int) -> None:
         self._db_path = experiment_spec.db_path
+        self._executions_root = experiment_spec.executions_root
+        self._max_runs_per_batch = settings.max_runs if settings.max_runs is not None else experiment_spec.max_runs_per_batch
+        self._owner = local_owner()
         self._settings = settings
         self._experiment_id = experiment_id
         self._running: list[_Worker] = []
@@ -182,21 +186,35 @@ class _Supervisor:
                 err=True,
             )
         if admission is Admission.ADMIT:
-            self._running.append(self._start(waiting.popleft(), threads))
+            worker = self._start(waiting.popleft(), threads)
+            if worker is not None:
+                self._running.append(worker)
         return admission
 
-    def _start(self, group: PendingGroup, threads: int) -> _Worker:
+    def _start(self, group: PendingGroup, threads: int) -> _Worker | None:
         settings = self._settings
+        with DatabaseManager(self._db_path) as database:
+            planned = database.plan_experiment_execution_batches(
+                self._experiment_id,
+                self._executions_root,
+                max_runs_per_batch=self._max_runs_per_batch,
+                only=settings.only_clauses,
+                group=group.key,
+                owner=self._owner,
+            )
+        execution_ids = [item.execution_id for item in planned]
+        if not execution_ids:
+            _log(f"worker skip group={group.key}: nothing left to plan")
+            return None
+
         command = [
-            sys.executable, "-m", "research_cli.main", "experiment", "run", str(settings.spec_file.resolve()),
-            "--spec", settings.spec_name, "--group", group.key,
+            sys.executable, "-m", "research_cli.main", "experiment", "execute-batch",
+            "--spec-file", str(settings.spec_file.resolve()), "--spec", settings.spec_name,
         ]
-        if settings.max_runs is not None:
-            command += ["--max-runs", str(settings.max_runs)]
         if settings.results_root is not None:
             command += ["--results-root", settings.results_root]
-        for clause in settings.only:
-            command += ["--only", clause]
+        for execution_id in execution_ids:
+            command += ["--execution-id", str(execution_id)]
         env = {
             **os.environ,
             "NPROC": str(threads),
@@ -205,12 +223,16 @@ class _Supervisor:
             "JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS": "1.0",
             SUPERVISOR_PID_ENV: str(os.getpid()),
         }
-        started_at = datetime.now(timezone.utc)
         # The worker sets its own parent-death signal at startup, which avoids a preexec_fn in a
         # process whose imported libraries may already run threads.
-        process = subprocess.Popen(command, env=env, process_group=0)
+        try:
+            process = subprocess.Popen(command, env=env, process_group=0)
+        except OSError as error:
+            self._failed += 1
+            _log(f"worker start failed group={group.key}: {error}; {self._fail(execution_ids)}", err=True)
+            return None
         _log(f"worker start group={group.key} pending={group.pending_runs} nproc={threads} pid={process.pid}")
-        return _Worker(group, threads, process, started_at)
+        return _Worker(group, threads, process, execution_ids)
 
     def _reap(self) -> bool:
         finished = [worker for worker in self._running if worker.process.poll() is not None]
@@ -243,12 +265,13 @@ class _Supervisor:
         )
         if returncode != 0:
             self._failed += 1
-            with DatabaseManager(self._db_path) as database:
-                failed = database.fail_group_executions_started_since(
-                    self._experiment_id, worker.group.key, worker.started_at
-                )
-            line += f" failed_executions={failed}"
+            line += f" {self._fail(worker.execution_ids)}"
         _log(line)
+
+    def _fail(self, execution_ids: list[int]) -> str:
+        with DatabaseManager(self._db_path) as database:
+            failed = database.fail_executions(execution_ids)
+        return f"failed_executions={failed}"
 
     def _read_projection(self) -> int:
         with DatabaseManager(self._db_path) as database:

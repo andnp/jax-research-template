@@ -10,6 +10,7 @@ import json
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import textwrap
@@ -103,13 +104,15 @@ def launch(tmp_path: Path) -> Iterator[Callable[..., _Supervisor]]:
     launched: list[_Supervisor] = []
     spec_file = _write_spec(tmp_path)
 
-    def start(*, sleep: float, **toy_env: str) -> _Supervisor:
+    def start(*, sleep: float, budget: int = _BUDGET, worker_memory: str = "0.01", max_runs: int | None = None, **toy_env: str) -> _Supervisor:
         log = tmp_path / f"supervisor-{len(launched)}.log"
         env = {**os.environ, "TOY_SLEEP": str(sleep), **toy_env}
         command = [
             sys.executable, "-m", "research_cli.main", "experiment", "run", str(spec_file),
-            "--workers", str(_BUDGET), "--worker-memory", "0.01", "--memory-reserve", "0",
+            "--workers", str(budget), "--worker-memory", worker_memory, "--memory-reserve", "0",
         ]
+        if max_runs is not None:
+            command += ["--max-runs", str(max_runs)]
         with log.open("wb") as handle:
             process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, env=env)
         supervisor = _Supervisor(process, log)
@@ -144,7 +147,10 @@ def _executions(tmp_path: Path) -> list[_Execution]:
     if not db_path.exists():
         return []
     with DatabaseManager(db_path) as database:
-        experiment = database.get_experiment("toy")
+        try:
+            experiment = database.get_experiment("toy")
+        except sqlite3.OperationalError:
+            return []  # the supervisor is still creating the schema
         if experiment is None:
             return []
         executions: list[_Execution] = []
@@ -215,7 +221,7 @@ class TestShutdown:
         assert len(workers) == 3
 
     def test_sigterm_fails_the_stopped_workers_executions(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
-        """Executions a terminated worker left RUNNING become FAILED, so a relaunch replans them."""
+        """Executions the supervisor planned for a terminated worker become FAILED, so a relaunch replans them."""
         supervisor = launch(sleep=600.0)
         _wait_until(lambda: _running_count(tmp_path) == 3, "three running executions")
 
@@ -224,12 +230,34 @@ class TestShutdown:
         assert supervisor.wait() != 0
         assert [e.status for e in _executions(tmp_path)] == ["FAILED"] * 3
 
+    def test_groups_not_yet_admitted_are_never_planned(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
+        """With room for one worker, stopping the supervisor leaves one FAILED execution and nothing PENDING."""
+        supervisor = launch(sleep=600.0, budget=1)
+        _wait_until(lambda: _running_count(tmp_path) == 1, "one running execution")
+
+        supervisor.process.send_signal(signal.SIGTERM)
+
+        assert supervisor.wait() != 0
+        assert [e.status for e in _executions(tmp_path)] == ["FAILED"]
+
+
+class TestAdmission:
+    def test_an_impossible_admission_exits_without_planning_anything(
+        self, launch: Callable[..., _Supervisor], tmp_path: Path
+    ) -> None:
+        """A worker that can never fit in memory fails the launch before any execution is planned."""
+        supervisor = launch(sleep=0.1, worker_memory="1000000")
+
+        assert supervisor.wait() == 1, supervisor.output()
+        assert _executions(tmp_path) == []
+        assert "worker start" not in supervisor.output()
+
 
 class TestWorkerDeath:
     def test_a_killed_worker_fails_its_execution_and_a_relaunch_completes(
         self, launch: Callable[..., _Supervisor], tmp_path: Path
     ) -> None:
-        """A worker that dies by SIGKILL mid-batch fails the sweep, and a plain relaunch finishes its runs."""
+        """A worker that dies by SIGKILL mid-batch fails the sweep with its execution FAILED, and a relaunch finishes its runs."""
         supervisor = launch(sleep=0.1, TOY_KILL_LR="0.2", TOY_KILL_MARKER=str(tmp_path / "killed"))
 
         assert supervisor.wait() != 0
@@ -238,6 +266,21 @@ class TestWorkerDeath:
         assert "status=signal SIGKILL" in supervisor.output()
 
         relaunch = launch(sleep=0.1)
+
+        assert relaunch.wait() == 0, relaunch.output()
+        assert len(_completed_runs(tmp_path)) == 6
+
+    def test_a_killed_worker_also_fails_the_batches_it_never_started(
+        self, launch: Callable[..., _Supervisor], tmp_path: Path
+    ) -> None:
+        """Batches planned for a dead worker but never started must not stay PENDING, or a relaunch cannot replan them."""
+        supervisor = launch(sleep=0.1, max_runs=1, TOY_KILL_LR="0.2", TOY_KILL_MARKER=str(tmp_path / "killed"))
+
+        assert supervisor.wait() != 0
+        statuses = sorted(e.status for e in _executions(tmp_path))
+        assert statuses == ["COMPLETED"] * 4 + ["FAILED"] * 2, supervisor.output()
+
+        relaunch = launch(sleep=0.1, max_runs=1)
 
         assert relaunch.wait() == 0, relaunch.output()
         assert len(_completed_runs(tmp_path)) == 6

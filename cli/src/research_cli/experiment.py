@@ -377,7 +377,6 @@ def run(
             max_runs=max_runs,
             worker_memory_bytes=int(worker_memory * GIB),
             memory_reserve_bytes=None if memory_reserve is None else int(memory_reserve * GIB),
-            only=only or [],
             only_clauses=only_clauses,
         )
         raise typer.Exit(code=supervise(experiment_spec, settings))
