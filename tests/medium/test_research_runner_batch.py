@@ -114,6 +114,12 @@ def test_a_per_run_value_takes_no_sampling(every: int, ema: float | None) -> Non
         _run_batch(_train, _declared("count", every=every, ema=ema), [_Toy()], [0])
 
 
+@pytest.mark.parametrize(("every", "ema"), [(2, None), (1, 0.9)])
+def test_a_runner_timing_takes_no_sampling(every: int, ema: float | None) -> None:
+    with pytest.raises(ValueError, match="'runner/execute_seconds' is one value per batch"):
+        _run_batch(_train, _declared("runner/execute_seconds", every=every, ema=ema), [_Toy()], [0])
+
+
 def test_declared_runner_timings_are_returned_as_batch_scalars() -> None:
     outputs = _run_batch(_train, _metrics("count", "runner/compile_seconds", "runner/execute_seconds"), [_Toy(), _Toy()], [0, 1])
 
