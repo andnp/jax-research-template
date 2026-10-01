@@ -516,17 +516,6 @@ class DatabaseManager:
             ownerless=[i for i, owner in owners.items() if owner is None],
         )
 
-    def fail_group_executions_started_since(self, experiment_id: int, group: str, since: datetime) -> list[int]:
-        """Fail the RUNNING executions of one group that started at or after ``since``.
-
-        For a worker that died without unwinding: one worker runs a group at a time, so these
-        are that worker's executions, and failing them lets the next launch replan their runs
-        without a stale-reclaim threshold.
-        """
-        return _planning.fail_group_executions_started_since(
-            self.conn, experiment_id, group, since.astimezone(timezone.utc).isoformat()
-        )
-
     def plan_experiment_execution_batches(
         self,
         experiment_id: int,

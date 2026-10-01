@@ -6,14 +6,13 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from pathlib import Path
 
 from . import _execution_repository as _execution
 from ._database_utils import _json_stable
 from ._types import PlannedExecution, RunBatch
 from .records import RunRow, _record_from_row, _run_matches
-from .status import CLAIMING, ExecutionStatus, sql_in
+from .status import CLAIMING, sql_in
 
 _CLAIMED_RUNS_SQL = (
     "SELECT DISTINCT er.run_id AS run_id "
@@ -53,19 +52,6 @@ def _batch_key(
 
 def _group_key(batch_key: _BatchKey) -> str:
     return hashlib.sha256(json.dumps(batch_key).encode()).hexdigest()[:12]
-
-
-def _planned_group_key(
-    algo_version_id: int | None,
-    env_version_id: int | None,
-    ablation: str | None,
-    metadata_json: str,
-) -> str:
-    # A re-sync may have changed the runs' zones since planning, so use the batch as planned.
-    metadata = json.loads(metadata_json)
-    return _group_key(
-        (algo_version_id, env_version_id, ablation, metadata["static_config_json"], metadata["vmap_zone_json"])
-    )
 
 
 def list_unsatisfied_run_batches(
@@ -124,34 +110,6 @@ def list_unsatisfied_run_batches(
                 )
             )
     return batches
-
-
-def fail_group_executions_started_since(
-    conn: sqlite3.Connection,
-    experiment_id: int,
-    group: str,
-    since: str,
-) -> list[int]:
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        rows = conn.execute(
-            "SELECT DISTINCT e.id, r.algo_version_id, r.env_version_id, r.ablation, ea.metadata_json "
-            "FROM Executions e "
-            "INNER JOIN ExecutionArtifacts ea ON ea.execution_id = e.id "
-            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-            "INNER JOIN Runs r ON r.id = er.run_id "
-            f"WHERE r.experiment_id = ? AND e.status = '{ExecutionStatus.RUNNING}' AND e.start_time >= ?",
-            (experiment_id, since),
-        ).fetchall()
-        failed = sorted({int(row[0]) for row in rows if _planned_group_key(row[1], row[2], row[3], row[4]) == group})
-        for execution_id in failed:
-            _execution._transition(conn, execution_id, ExecutionStatus.FAILED, None, now)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    return failed
 
 
 def _plan_execution(
