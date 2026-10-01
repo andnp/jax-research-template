@@ -88,3 +88,26 @@ def test_a_non_integer_seed_is_rejected(seed: int) -> None:
 def test_a_seed_count_that_does_not_match_the_configs_is_rejected() -> None:
     with pytest.raises(ValueError, match="one seed per config, got 2 configs and 1 seeds"):
         _run_batch(_train, _metrics("count"), [_Toy(), _Toy()], [0])
+
+
+def _declared(name: str, *, every: int = 1, ema: float | None = None) -> tuple[MetricSpec, ...]:
+    return Experiment("batch").add_metric(name, every=every, ema=ema).metrics
+
+
+def test_a_per_step_metric_keeps_one_value_in_every_n_steps() -> None:
+    outputs = _run_batch(_train, _declared("curve", every=2), [_Toy(steps=5)], [0])
+
+    np.testing.assert_allclose(outputs["curve"], [[0.0, 2.0, 4.0]])
+
+
+def test_a_per_step_metric_is_smoothed_before_it_is_thinned() -> None:
+    outputs = _run_batch(_train, _declared("curve", ema=0.5, every=2), [_Toy(steps=4)], [0])
+
+    # z = 0.5 z + 0.5 x over x = 0, 1, 2, 3 gives 0, 0.5, 1.25, 2.125; steps 0 and 2 are kept.
+    np.testing.assert_allclose(outputs["curve"], [[0.0, 1.25]])
+
+
+@pytest.mark.parametrize(("every", "ema"), [(2, None), (1, 0.9)])
+def test_a_per_run_value_takes_no_sampling(every: int, ema: float | None) -> None:
+    with pytest.raises(ValueError, match="'count' is one value per run"):
+        _run_batch(_train, _declared("count", every=every, ema=ema), [_Toy()], [0])
