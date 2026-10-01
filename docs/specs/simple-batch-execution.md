@@ -568,10 +568,6 @@ databases and stay readable through `research_analysis`. A migrated spec that
 is run again will re-plan its runs, as `docs/experiment-efficiency.md` warns
 for any re-identified study.
 
-Another session is currently changing `experiment_definition.metric`
-(removing `MetricSpec.frequency`). Phase 2's `add_metric` change touches the
-same file, so it starts after that change lands.
-
 ## Alternatives considered
 
 | Option | Why not |
