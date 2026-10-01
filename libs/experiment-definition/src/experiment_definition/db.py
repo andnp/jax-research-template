@@ -620,9 +620,9 @@ class DatabaseManager:
     def find_executions_by_hyperparams(self, experiment_id: int, where: Mapping[str, str]) -> list[ExecutionRow]:
         """Return COMPLETED/FAILED executions whose covered runs all match ``where``.
 
-        Each clause compares the CLI string against ``str()`` of the
-        JSON-decoded hyperparameter value, so ``learning_rate=0.001`` matches
-        a stored float ``0.001`` but not an equal value spelled ``1e-3``. An
+        Clauses follow the ``--only`` semantics: a clause matches a
+        hyperparameter, ``seed`` or ``ablation`` by its ``str()`` value,
+        comma-separated values are alternatives, and clauses are AND-ed. An
         execution batch is included only when every run it covers satisfies
         every clause -- a partially matching batch is skipped, since
         invalidating runs the caller did not select is worse than

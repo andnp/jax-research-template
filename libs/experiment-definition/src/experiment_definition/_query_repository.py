@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from ._types import PlannedExecution
-from .records import ExecutionRow, RunRow, _record_from_row
+from .records import ExecutionRow, RunRow, _record_from_row, _run_matches
 from .status import FINISHED, ExecutionStatus, sql_in
 
 
@@ -110,17 +110,14 @@ def find_executions_by_hyperparams(
     for row in rows:
         execution = _record_from_row(ExecutionRow, row)
         runs = list_execution_runs(conn, execution.id)
-        if runs and all(_hyperparams_match(conn, run.hyper_id, where) for run in runs):
+        if runs and all(_run_selected(conn, run, where) for run in runs):
             matched.append(execution)
     return matched
 
 
-def _hyperparams_match(conn: sqlite3.Connection, hyper_id: int, where: Mapping[str, str]) -> bool:
-    config = _definition.get_hyperparam_config(conn, hyper_id)
-    if config is None:
-        return False
-    params = config.hyperparameters
-    return all(key in params and str(params[key]) == value for key, value in where.items())
+def _run_selected(conn: sqlite3.Connection, run: RunRow, where: Mapping[str, str]) -> bool:
+    config = _definition.get_hyperparam_config(conn, run.hyper_id)
+    return config is not None and _run_matches(config.hyperparameters, run, where)
 
 
 def list_executions(

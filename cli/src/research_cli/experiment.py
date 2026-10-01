@@ -429,7 +429,7 @@ def invalidate(
     where: list[str] | None = typer.Option(
         None,
         "--where",
-        help="Invalidate executions whose covered runs all match hyperparameter key=value (repeatable, requires --experiment).",
+        help="Invalidate executions whose covered runs all match key=value over hyperparameters, seed or ablation; a,b lists alternatives (repeatable, requires --experiment).",
     ),
     invalidate_all: bool = typer.Option(
         False,

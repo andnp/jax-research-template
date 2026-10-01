@@ -901,6 +901,59 @@ def test_find_executions_by_hyperparams_compares_json_value_str(populated_db: Po
     assert db.find_executions_by_hyperparams(exp_id, {"learning_rate": "1e-3"}) == []
 
 
+def _completed_execution(db: DatabaseManager, *run_ids: int) -> int:
+    execution_id = db.add_execution(hostname="n1")
+    for run_id in run_ids:
+        db.link_execution_run(execution_id, run_id)
+    db.update_execution_status(execution_id, "COMPLETED")
+    return execution_id
+
+
+def test_find_executions_by_hyperparams_matches_seed(populated_db: Populated) -> None:
+    """Seed is not stored in the hyperparameter config, so it must be matched from the run."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    seed_three = _completed_execution(db, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=3))
+    _completed_execution(db, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=4))
+
+    matched = db.find_executions_by_hyperparams(exp_id, {"seed": "3"})
+
+    assert [row.id for row in matched] == [seed_three]
+
+
+def test_find_executions_by_hyperparams_matches_ablation(populated_db: Populated) -> None:
+    """The ablation column is selectable like a hyperparameter."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    ablated = _completed_execution(db, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=0, ablation="no_aux"))
+    _completed_execution(db, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=1))
+
+    matched = db.find_executions_by_hyperparams(exp_id, {"ablation": "no_aux"})
+
+    assert [row.id for row in matched] == [ablated]
+
+
+def test_find_executions_by_hyperparams_treats_commas_as_alternatives(populated_db: Populated) -> None:
+    """Comma-separated values select any of the listed values, as in --only."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    executions = {
+        seed: _completed_execution(db, db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=seed))
+        for seed in (1, 2, 3)
+    }
+
+    matched = db.find_executions_by_hyperparams(exp_id, {"seed": "1,3"})
+
+    assert [row.id for row in matched] == [executions[1], executions[3]]
+
+
+def test_find_executions_by_hyperparams_skips_batch_with_unselected_seed(populated_db: Populated) -> None:
+    """A batch covering a selected and an unselected seed is skipped rather than invalidated."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    selected = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=3)
+    unselected = db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=4)
+    _completed_execution(db, selected, unselected)
+
+    assert db.find_executions_by_hyperparams(exp_id, {"seed": "3"}) == []
+
+
 def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
     e_pending = db.add_execution(hostname="n1", git_commit="ccc333")
     e_running = db.add_execution(hostname="n2", git_commit="ccc333")
