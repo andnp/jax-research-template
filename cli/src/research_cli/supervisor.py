@@ -34,6 +34,7 @@ from research_cli.parallel_policy import (
     worker_projection,
     worker_threads,
 )
+from research_cli.reclaim import reclaim_dead
 
 SUPERVISOR_PID_ENV = "RESEARCH_SUPERVISOR_PID"
 GIB = 2**30
@@ -127,9 +128,7 @@ def _prepare(experiment_spec: ExperimentSpec, settings: SupervisorSettings) -> i
         experiment = database.get_experiment(experiment_spec.experiment.name)
         if experiment is None:
             raise RuntimeError(f"Experiment {experiment_spec.experiment.name!r} was not synced.")
-        if settings.reclaim_stale_after is not None:
-            reclaimed = database.reclaim_stale_executions(experiment.id, settings.reclaim_stale_after)
-            _log(f"reclaimed {len(reclaimed)} stale execution(s)")
+        _log(reclaim_dead(database, experiment.id))
     return experiment.id
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import socket
 import textwrap
 from pathlib import Path
 
@@ -277,6 +279,59 @@ def test_experiment_run_with_spec(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "my_spec" in result.output
     assert "completed" in result.output.lower()
+
+
+def _orphan_with_owner(tmp_path: Path, results_root: Path, owner: str | None) -> Path:
+    """Plan and start the toy spec's only batch for ``owner``, leaving it RUNNING as a crashed run would."""
+    spec_file = _write_spec_file(tmp_path, results_root)
+    assert runner.invoke(app, ["experiment", "plan", str(spec_file)]).exit_code == 0
+    with DatabaseManager(results_root / "experiments.sqlite") as database:
+        database.initialize()
+        exp_row = database.get_experiment("test-experiment")
+        assert exp_row is not None
+        planned = database.plan_experiment_execution_batches(exp_row.id, results_root / "executions", owner=owner)
+        database.update_execution_status(planned[0].execution_id, "RUNNING")
+    return spec_file
+
+
+def test_run_reclaims_an_execution_whose_owner_died_and_completes_it(tmp_path: Path) -> None:
+    """A batch left RUNNING by a process from another boot is failed up front, so its run replans."""
+    dead_owner = f"local:{socket.gethostname()}:another-boot:1:1"
+    spec_file = _orphan_with_owner(tmp_path, tmp_path / "dead", dead_owner)
+
+    result = runner.invoke(app, ["experiment", "run", str(spec_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "Reclaimed 1 dead execution(s)" in result.output
+    assert "1 execution(s) completed" in result.output
+
+
+def test_submit_reclaims_dead_executions_before_planning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Submit frees the run a dead owner held, so the new Slurm job covers it."""
+    dead_owner = f"local:{socket.gethostname()}:another-boot:1:1"
+    spec_file = _orphan_with_owner(tmp_path, tmp_path / "submit_dead", dead_owner)
+    fake_sbatch = tmp_path / "sbatch"
+    fake_sbatch.write_text("#!/bin/sh\necho 4812\n")
+    fake_sbatch.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    result = runner.invoke(app, ["experiment", "submit", str(spec_file), "--script-path", str(tmp_path / "slurm.sh")])
+
+    assert result.exit_code == 0, result.output
+    assert "Reclaimed 1 dead execution(s)" in result.output
+    assert "submitted 1 batch(es) as Slurm job 4812" in result.output
+
+
+def test_run_leaves_an_execution_it_cannot_attribute_and_says_how_to_release_it(tmp_path: Path) -> None:
+    """An ownerless live execution blocks its run; run reports it and points at invalidate instead of guessing."""
+    spec_file = _orphan_with_owner(tmp_path, tmp_path / "ownerless", None)
+
+    result = runner.invoke(app, ["experiment", "run", str(spec_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "Reclaimed 0 dead execution(s); 1 without an owner" in result.output
+    assert "research experiment invalidate" in result.output
+    assert "0 execution(s) completed" in result.output
 
 
 def test_experiment_run_with_spec_filter(tmp_path: Path) -> None:

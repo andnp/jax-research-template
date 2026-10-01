@@ -25,6 +25,7 @@ from research_runner.types import ExperimentSpec
 from rich.console import Console
 from rich.markdown import Markdown
 
+from research_cli.reclaim import reclaim_dead
 from research_cli.supervisor import GIB, SupervisorSettings, supervise
 
 experiment_app = typer.Typer(help="Manage experiments.")
@@ -89,6 +90,16 @@ def _sync(experiment_spec: ExperimentSpec, db_path: Path) -> frozenset[int]:
     except ValueError as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=1) from error
+
+
+def _reclaim_dead(experiment_spec: ExperimentSpec) -> str:
+    with DatabaseManager(experiment_spec.db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment(experiment_spec.experiment.name)
+        if exp_row is None:
+            typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
+            raise typer.Exit(code=1)
+        return reclaim_dead(database, exp_row.id)
 
 
 def _record_declared_plan(module: ModuleType, name: str, experiment_spec: ExperimentSpec) -> None:
@@ -380,6 +391,8 @@ def run(
         experiment_spec = _with_results_root(factory(), results_root)
         _sync(experiment_spec, experiment_spec.db_path)
         _record_declared_plan(module, name, experiment_spec)
+        if group is None:
+            typer.echo(_reclaim_dead(experiment_spec))
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
             experiment_spec,
@@ -605,6 +618,7 @@ def submit(
                 if exp_row is None:
                     typer.echo(f"Error: experiment '{experiment_spec.experiment.name}' not synced.", err=True)
                     raise typer.Exit(code=1)
+                typer.echo(reclaim_dead(database, exp_row.id))
                 planned = database.plan_experiment_execution_batches(
                     exp_row.id,
                     experiment_spec.executions_root,
