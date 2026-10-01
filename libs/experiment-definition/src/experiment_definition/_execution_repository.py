@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
-from .status import LIVE, TRANSITIONS, ExecutionStatus
+from .status import TRANSITIONS, ExecutionStatus
 
 # The planned batch's identity; the dead-worker sweep and resume read these back.
 _PLANNER_KEYS = frozenset({"run_ids", "static_config_json", "vmap_zone_json"})
@@ -119,15 +119,7 @@ def update_execution_status(
 
 
 def fail_live_execution(conn: sqlite3.Connection, execution_id: int, end_time: str) -> None:
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        row = conn.execute("SELECT status FROM Executions WHERE id = ?", (execution_id,)).fetchone()
-        if row is not None and row[0] in LIVE:
-            _transition(conn, execution_id, ExecutionStatus.FAILED, None, end_time)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    _transition_many(conn, [execution_id], ExecutionStatus.FAILED, end_time)
 
 
 def _transition_many(
