@@ -47,12 +47,7 @@ class TestComponent:
 class TestParameterSpec:
     def test_basic(self) -> None:
         p = ParameterSpec(name="lr", values=[1e-3, 3e-4])
-        assert p.is_static is False
         assert p.conditions == {}
-
-    def test_static_flag(self) -> None:
-        p = ParameterSpec(name="env_steps", values=[1_000_000], is_static=True)
-        assert p.is_static is True
 
     def test_with_conditions(self) -> None:
         p = ParameterSpec(name="gae_lambda", values=[0.9, 0.95], conditions={"use_gae": True})
@@ -87,11 +82,6 @@ class TestExperimentBuilder:
         assert len(exp._state.parameters) == 1
         assert exp._state.parameters[0].name == "seed"
         assert exp._state.parameters[0].values == [0, 1, 2]
-
-    def test_add_parameter_is_static(self) -> None:
-        exp = Experiment("Test")
-        exp.add_parameter("env_steps", [1_000_000], is_static=True)
-        assert exp._state.parameters[0].is_static is True
 
     def test_for_component_scopes_parameter(self) -> None:
         exp = Experiment("Test")

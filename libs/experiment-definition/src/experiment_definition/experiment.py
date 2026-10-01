@@ -80,25 +80,8 @@ class Experiment:
 
     # ── Parameter API ─────────────────────────────────────────────────────────
 
-    def add_parameter(
-        self,
-        name: str,
-        values: Iterable[ParameterValue],
-        *,
-        is_static: bool = False,
-    ) -> "Experiment":
-        """Add a hyperparameter sweep axis.
-
-        Args:
-            name: Parameter name.
-            values: Iterable of candidate values.
-            is_static: When ``True`` the parameter triggers JAX recompilation;
-                the runner groups PENDING work into separate JIT kernels per
-                unique static configuration.
-
-        Returns:
-            ``self`` for optional chaining.
-        """
+    def add_parameter(self, name: str, values: Iterable[ParameterValue]) -> "Experiment":
+        """Add a hyperparameter sweep axis; returns ``self`` for chaining."""
         conditions: dict[str, ParameterValue] = {}
         for frame in self._condition_stack:
             conditions.update(frame)
@@ -110,7 +93,6 @@ class Experiment:
         spec = ParameterSpec(
             name=name,
             values=list(values),
-            is_static=is_static,
             component=self._component_scope,
             conditions=conditions,
         )
@@ -211,7 +193,7 @@ class Experiment:
         and newly declared runs are appended.
 
         ``static_names`` names, for one run's parameters (without ``seed``), those that
-        decide which batch it joins; without it, the parameters declared ``is_static``.
+        decide which batch it joins; without it, every one of them does.
         """
         from .db import sync_to_db
 

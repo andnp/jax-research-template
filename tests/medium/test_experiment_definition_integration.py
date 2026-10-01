@@ -71,10 +71,11 @@ class TestSyncToDb:
             row = con.execute("SELECT name, description FROM Experiments").fetchone()
         assert row == ("My Sweep", "hello")
 
-    def test_parameter_specs_stored(self, db_path: Path) -> None:
+    def test_a_bare_sync_batches_by_every_parameter_but_the_seed(self, db_path: Path) -> None:
         exp = Experiment("Test")
-        exp.add_parameter("lr", [1e-3, 3e-4], is_static=False)
-        exp.add_parameter("env_steps", [1_000_000], is_static=True)
+        exp.add_parameter("seed", [0])
+        exp.add_parameter("lr", [1e-3, 3e-4])
+        exp.add_parameter("env_steps", [1_000_000])
         exp.sync(db_path)
 
         with DatabaseManager(db_path) as database:
@@ -82,16 +83,15 @@ class TestSyncToDb:
             assert experiment_row is not None
             runs = database.list_runs(experiment_row.id)
 
-        assert runs[0].vmap_zone is not None
-        assert "env_steps" in runs[0].vmap_zone["static_keys"]
-        assert "lr" in runs[0].vmap_zone["dynamic_keys"]
+        zone = {"static_keys": ["env_steps", "lr"], "dynamic_keys": []}
+        assert [run.vmap_zone for run in runs] == [zone, zone]
 
     def test_runs_store_vmap_zone_metadata(self, db_path: Path) -> None:
         exp = Experiment("Vmap Zone Test")
         exp.add_parameter("seed", [0])
         exp.add_parameter("lr", [1e-3, 3e-4])
-        exp.add_parameter("arch", ["mlp"], is_static=True)
-        exp.sync(db_path)
+        exp.add_parameter("arch", ["mlp"])
+        exp.sync(db_path, static_names=lambda _: {"arch"})
 
         with sqlite3.connect(db_path) as con:
             rows = con.execute("SELECT id, vmap_zone_json FROM Runs ORDER BY id").fetchall()

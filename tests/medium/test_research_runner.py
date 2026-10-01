@@ -301,7 +301,7 @@ class TestMidSweepCrashRecovery:
         exp = Experiment("CrashSweep", description="test experiment")
         exp.add_parameter("seed", [0])
         with exp.for_component(algo):
-            exp.add_parameter("arch", ["cnn", "mlp"], is_static=True)
+            exp.add_parameter("arch", ["cnn", "mlp"])
         with exp.for_component(env):
             exp.add_parameter("gamma", [0.99])
         return exp
@@ -351,7 +351,7 @@ class TestDynamicArmCoverage:
         exp = Experiment("ArmSweep", description="test experiment")
         exp.add_parameter("seed", [0, 1])
         with exp.for_component(algo):
-            exp.add_parameter("arch", ["mlp"], is_static=True)
+            exp.add_parameter("arch", ["mlp"])
             exp.add_parameter("lr", [1e-3, 3e-4])
         return exp
 
