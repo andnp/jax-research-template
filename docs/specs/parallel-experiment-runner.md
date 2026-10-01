@@ -71,19 +71,23 @@ initialises a JAX backend (no array operation, no device query). It:
 
 1. syncs the experiment, then reclaims the executions of dead owners **once**, before any worker starts;
 2. lists the pending groups, each identified by a stable **group key** (4.5);
-3. starts one **worker** per group, as a subprocess running today's single-process loop restricted to that group
-   (`--group KEY`, `--max-runs b`), with the environment `NPROC=c` and `JAX_PLATFORMS=cpu`;
+3. when it admits a group, **plans** that group's batches itself (`--max-runs b`, `--only`), owned by the supervisor,
+   then starts one **worker** per group: a subprocess running `research experiment execute-batch` with that group's
+   execution ids in planned order, with the environment `NPROC=c` and `JAX_PLATFORMS=cpu`. Groups not yet admitted
+   are not planned, so nothing is left `PENDING` for them;
 4. keeps the sum of running workers' `c` at or below `W` (4.2), and admits a worker only when its projected memory
    fits (4.3);
 5. starts each worker in its own process group with the parent-death signal set to SIGTERM (`PR_SET_PDEATHSIG`), so
    the kernel stops the workers if the supervisor dies for any reason, including SIGKILL;
 6. on SIGINT or SIGTERM, terminates every worker's process group and waits for it;
-7. when a worker exits abnormally (nonzero, or killed by a signal), marks FAILED every `RUNNING` execution of that
-   worker's group whose `start_time` is at or after the worker's start. Only one worker per group runs at a time, so
-   those executions are that worker's. Its runs are then retried by the next launch without a reclaim threshold;
+7. when a worker exits nonzero, is killed by a signal, or fails to start, marks FAILED those of its planned executions
+   that are still `PENDING` or `RUNNING`; finished executions are untouched. Its runs are then retried by the next
+   launch without a reclaim threshold. The same applies to every running worker on SIGINT or SIGTERM. A supervisor
+   killed outright leaves its executions to the ownership reclaim on the next launch;
 8. exits nonzero if any worker failed.
 
-A worker runs its group's batches in turn, so the in-process jit cache is reused across them. Workers never reclaim.
+A worker runs its group's batches in turn, so the in-process jit cache is reused across them. A worker that fails a
+batch, or receives SIGTERM or SIGINT, fails its own not-yet-run executions before it exits. Workers never reclaim.
 
 Without `--workers`, `run` behaves as it does today.
 
@@ -132,8 +136,8 @@ limit or toggle in v1; add them if the cache grows or causes trouble.
 
 - **Group key.** `RunBatch` carries `group_key`: a short stable hash of its grouping tuple (algorithm version,
   environment version, ablation, static config JSON, vmap zone JSON). `list_unsatisfied_run_batches`,
-  `plan_next_execution_batch` and `run_experiment` take `group: str | None`, restricting planning to that group. The
-  CLI's `run` takes `--group KEY` (hidden; the supervisor passes it).
+  `plan_next_execution_batch` and `plan_experiment_execution_batches` take `group: str | None`, restricting planning
+  to that group; the latter also takes `only`. The supervisor plans one group's batches with it.
 - **Atomic reclaim.** `reclaim_dead_executions` transitions inside one `BEGIN IMMEDIATE` transaction, only the rows
   whose status and owner are unchanged since the probe, so a concurrent reclaim is a no-op rather than a crash.
 - **Busy timeout.** `DatabaseManager.connect` sets `PRAGMA busy_timeout` to 30 s, matching `metrics.sqlite`, so many
@@ -169,8 +173,10 @@ research experiment run SPEC --spec NAME
     workers' `NPROC` never exceeds `W`;
   - SIGTERM to the supervisor leaves no child process;
   - SIGKILL to the supervisor leaves no child process (parent-death signal);
-  - a worker that SIGKILLs itself mid-batch: the supervisor exits nonzero, that execution is FAILED, and a relaunch
-    completes its runs.
+  - a worker that SIGKILLs itself mid-batch: the supervisor exits nonzero, that execution and its unstarted batches
+    are FAILED, and a relaunch completes its runs;
+  - SIGTERM with groups not yet admitted leaves no `PENDING` execution for them;
+  - an admission that can never fit exits without planning anything.
 - **performance (targeted, not a PR gate):** `NPROC` caps a real critic update under concurrent load, measured as
   CPU time over wall time per worker.
 
