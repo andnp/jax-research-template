@@ -1,7 +1,7 @@
 import dataclasses
 
 import pytest
-from research_runner.config import _merge_traced, _set_path, _split_traced, _traced_paths, traced
+from research_runner.config import _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
 
 
 @dataclasses.dataclass(frozen=True)
@@ -111,3 +111,25 @@ class TestUnknownPaths:
         """A dotted path cannot descend into a plain number."""
         with pytest.raises(ValueError, match=r"float has no field x; fields are none"):
             _set_path(Cfg(), "gamma.x", 1.0)
+
+
+class TestNumericAndBoolChecks:
+    @pytest.mark.parametrize(
+        ("annotation", "value", "expected"),
+        [(int, 3, 3), (int, 3.0, 3), (float, 0.5, 0.5), (float, 2, 2.0), (bool, True, True)],
+    )
+    def test_accepts_values_that_fit_the_field(self, annotation: type, value: object, expected: object):
+        """Integral floats fit int fields and ints fit float fields."""
+        checked = _check_value(annotation, "agent.X", value)
+
+        assert checked == expected
+        assert type(checked) is annotation
+
+    @pytest.mark.parametrize(
+        ("annotation", "value"),
+        [(int, 2.5), (int, True), (int, "3"), (float, True), (float, "0.5"), (bool, 1), (bool, "yes")],
+    )
+    def test_rejects_values_that_do_not_fit_the_field(self, annotation: type, value: object):
+        """A bool is not a number, and a non-integral float is not an int."""
+        with pytest.raises(ValueError, match=rf"agent.X expects {annotation.__name__}, got {value!r}"):
+            _check_value(annotation, "agent.X", value)
