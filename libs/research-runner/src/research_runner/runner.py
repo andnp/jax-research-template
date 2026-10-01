@@ -141,7 +141,10 @@ def execute_batch(
             run_ids=[point.run_id for point in points],
             seeds=seeds,
         )
-        metadata: dict[str, object] = {"runtime": _runtime_telemetry(len(points), time.perf_counter() - started)}
+        metadata: dict[str, object] = {
+            "runtime": _runtime_telemetry(len(points), time.perf_counter() - started),
+            "metrics": {metric.name: {"every": metric.every, "ema": metric.ema} for metric in spec.experiment.metrics},
+        }
 
         manifest = {
             "experiment_slug": experiment_row.name,
