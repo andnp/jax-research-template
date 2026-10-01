@@ -180,7 +180,8 @@ class ExperimentSpec:
         )
 
     def sync(self, db_path: Path | str):
-        return self.experiment.sync(db_path, static_parameter_names=self.static_parameter_names)
+        names = self.static_parameter_names
+        return self.experiment.sync(db_path, static_names=None if names is None else lambda _: names)
 
     @property
     def db_path(self) -> Path:

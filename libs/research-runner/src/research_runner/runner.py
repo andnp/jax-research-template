@@ -48,7 +48,10 @@ def run_experiment(
         train_fn,
         static_parameter_names,
     )
-    experiment.sync(db_path, static_parameter_names=static_parameter_names)
+    experiment.sync(
+        db_path,
+        static_names=None if static_parameter_names is None else lambda _: static_parameter_names,
+    )
 
     git_commit, git_diff = capture_git_metadata() if capture_git else (None, None)
 

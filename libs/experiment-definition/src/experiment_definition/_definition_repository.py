@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -84,7 +84,7 @@ def sync_runs(
     configs: list[dict[str, ParameterValue]],
     state: "_ExperimentState",
     *,
-    static_parameter_names: frozenset[str] | None = None,
+    static_names: Callable[[Mapping[str, ParameterValue]], Iterable[str]] | None = None,
 ) -> set[int]:
     from .component import ComponentType
 
@@ -107,7 +107,7 @@ def sync_runs(
 
         for abl_name, abl_overrides in ablation_list:
             final_hyper = {**hyper_config, **abl_overrides}
-            vmap_zone = _vmap_zone_for_hyper_config(state, final_hyper, static_parameter_names=static_parameter_names)
+            vmap_zone = _vmap_zone_for_hyper_config(state, final_hyper, static_names)
             hyper_id = _upsert_hyperparam_config(cur, final_hyper)
             vmap_json = _json_stable(vmap_zone)
 
@@ -136,17 +136,13 @@ def sync_runs(
 def _vmap_zone_for_hyper_config(
     state: "_ExperimentState",
     hyper_config: dict[str, ParameterValue],
-    *,
-    static_parameter_names: frozenset[str] | None = None,
+    static_names: Callable[[Mapping[str, ParameterValue]], Iterable[str]] | None,
 ) -> dict[str, list[str]]:
-    static_keys = sorted(
-        {
-            param.name
-            for param in state.parameters
-            if (param.is_static if static_parameter_names is None else param.name in static_parameter_names)
-            and param.name in hyper_config
-        }
-    )
+    if static_names is None:
+        names = {param.name for param in state.parameters if param.is_static}
+    else:
+        names = set(static_names(hyper_config))
+    static_keys = sorted(names & set(hyper_config))
     dynamic_keys = sorted(key for key in hyper_config if key not in static_keys)
     return {"static_keys": static_keys, "dynamic_keys": dynamic_keys}
 

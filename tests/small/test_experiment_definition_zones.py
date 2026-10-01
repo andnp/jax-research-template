@@ -31,8 +31,8 @@ def test_experiments_sharing_a_grid_batch_by_their_own_zones(tmp_path: Path) -> 
     last sync decide how the other experiment is batched.
     """
     db_path = tmp_path / "experiments.sqlite"
-    _grid("vmapped").sync(db_path, static_parameter_names=frozenset({"arch"}))
-    _grid("per-lr").sync(db_path, static_parameter_names=frozenset({"arch", "lr"}))
+    _grid("vmapped").sync(db_path, static_names=lambda _: {"arch"})
+    _grid("per-lr").sync(db_path, static_names=lambda _: {"arch", "lr"})
 
     with DatabaseManager(db_path) as database:
         vmapped = _batch_shapes(database, "vmapped")
@@ -57,15 +57,15 @@ def test_resync_heals_zones_lost_when_upgrading_a_shared_database(tmp_path: Path
     """
     db_path = tmp_path / "experiments.sqlite"
     vmapped, per_lr = _grid("vmapped"), _grid("per-lr")
-    vmapped.sync(db_path, static_parameter_names=frozenset({"arch"}))
-    per_lr.sync(db_path, static_parameter_names=frozenset({"arch", "lr"}))
+    vmapped.sync(db_path, static_names=lambda _: {"arch"})
+    per_lr.sync(db_path, static_names=lambda _: {"arch", "lr"})
     _downgrade_to_config_zones(db_path, '{"dynamic_keys": [], "static_keys": ["arch", "lr"]}')
     with DatabaseManager(db_path) as database:
         database.initialize()
         assert len(_batch_shapes(database, "vmapped")) == 2
 
-    vmapped.sync(db_path, static_parameter_names=frozenset({"arch"}))
-    per_lr.sync(db_path, static_parameter_names=frozenset({"arch", "lr"}))
+    vmapped.sync(db_path, static_names=lambda _: {"arch"})
+    per_lr.sync(db_path, static_names=lambda _: {"arch", "lr"})
 
     with DatabaseManager(db_path) as database:
         assert _batch_shapes(database, "vmapped") == [({"arch": "mlp"}, 4)]

@@ -117,7 +117,7 @@ def test_fail_group_executions_survives_a_split_change_while_running(tmp_path: P
     experiment.add_parameter("seed", [0, 1])
     experiment.add_parameter("arch", ["mlp"])
     experiment.add_parameter("lr", [1e-3, 3e-4])
-    experiment.sync(db_path, static_parameter_names=frozenset({"arch"}))
+    experiment.sync(db_path, static_names=lambda _: {"arch"})
     since = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 
     with DatabaseManager(db_path) as database:
@@ -128,7 +128,7 @@ def test_fail_group_executions_survives_a_split_change_while_running(tmp_path: P
         assert planned is not None
         database.update_execution_status(planned.execution_id, "RUNNING", start_time="2026-01-01T12:00:01+00:00")
 
-    experiment.sync(db_path, static_parameter_names=frozenset({"arch", "lr"}))
+    experiment.sync(db_path, static_names=lambda _: {"arch", "lr"})
 
     with DatabaseManager(db_path) as database:
         failed = database.fail_group_executions_started_since(experiment_row.id, batch.group_key, since)

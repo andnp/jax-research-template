@@ -26,6 +26,7 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -200,7 +201,7 @@ class Experiment:
         self,
         db_path: Path | str,
         *,
-        static_parameter_names: frozenset[str] | None = None,
+        static_names: Callable[[Mapping[str, ParameterValue]], Iterable[str]] | None = None,
     ):
         """Persist the experiment definition to a SQLite database, returning its run ids.
 
@@ -209,9 +210,9 @@ class Experiment:
         matching metadata is reused, matching logical runs are left intact,
         and newly declared runs are appended.
 
-        Args:
-            db_path: Path to the target SQLite file.
+        ``static_names`` names, for one run's parameters (without ``seed``), those that
+        decide which batch it joins; without it, the parameters declared ``is_static``.
         """
         from .db import sync_to_db
 
-        return sync_to_db(db_path, self._state, static_parameter_names=static_parameter_names)
+        return sync_to_db(db_path, self._state, static_names=static_names)

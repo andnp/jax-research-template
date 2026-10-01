@@ -8,7 +8,7 @@ programmatic access without the Fluent API.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,7 +40,7 @@ def sync_to_db(
     db_path: Path | str,
     state: "_ExperimentState",
     *,
-    static_parameter_names: frozenset[str] | None = None,
+    static_names: Callable[[Mapping[str, ParameterValue]], Iterable[str]] | None = None,
 ):
     """Materialise the experiment definition into a SQLite file.
 
@@ -83,7 +83,7 @@ def sync_to_db(
                 comp_version_ids,
                 configs,
                 state,
-                static_parameter_names=static_parameter_names,
+                static_names=static_names,
             )
     finally:
         con.close()
