@@ -12,8 +12,8 @@ class TestQRCConfig:
         assert cfg.learning_rate == 3e-4
         assert cfg.buffer_size == 100_000
         assert cfg.batch_size == 64
-        assert cfg.EPSILON_START == 1.0
-        assert cfg.EPSILON_END == 0.05
+        assert cfg.epsilon_start == 1.0
+        assert cfg.epsilon_end == 0.05
         assert cfg.BETA == 1.0
         assert cfg.HIDDEN_WIDTH == 64
         assert cfg.H_REGULARIZATION == "adamw"

@@ -37,9 +37,9 @@ class DQNConfig:
     TRAIN_FREQUENCY: int = traced(1)
     TARGET_NETWORK_FREQUENCY: int = traced(1_000)
     TAU: float = traced(1.0)  # Soft update
-    EPSILON_START: float = traced(1.0)
-    EPSILON_END: float = traced(0.05)
-    EPSILON_FRACTION: float = traced(0.5)
+    epsilon_start: float = traced(1.0)
+    epsilon_end: float = traced(0.05)
+    epsilon_fraction: float = traced(0.5)
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
     network_preset: Literal["mlp", "nature_cnn"] = "mlp"

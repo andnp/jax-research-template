@@ -133,13 +133,13 @@ class ReplayQConfig(Protocol):
     def TAU(self) -> float: ...
 
     @property
-    def EPSILON_START(self) -> float: ...
+    def epsilon_start(self) -> float: ...
 
     @property
-    def EPSILON_END(self) -> float: ...
+    def epsilon_end(self) -> float: ...
 
     @property
-    def EPSILON_FRACTION(self) -> float: ...
+    def epsilon_fraction(self) -> float: ...
 
 
 @chex_struct(frozen=True)
@@ -170,9 +170,9 @@ def replay_q_hypers(config: ReplayQConfig):
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
-        EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
-        EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
-        EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
+        EPSILON_START=jnp.asarray(config.epsilon_start, jnp.float32),
+        EPSILON_END=jnp.asarray(config.epsilon_end, jnp.float32),
+        EPSILON_FRACTION=jnp.asarray(config.epsilon_fraction, jnp.float32),
         TOTAL_TIMESTEPS=jnp.asarray(config.total_timesteps, jnp.float32),
     )
 

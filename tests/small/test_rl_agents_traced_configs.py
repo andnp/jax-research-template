@@ -13,7 +13,7 @@ from rl_agents.sac_rc import SACRCConfig
 from rl_agents.td3 import TD3Config
 
 _REPLAY_Q = {
-    "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "learning_rate",
+    "epsilon_end", "epsilon_fraction", "epsilon_start", "learning_rate",
     "learning_starts", "TARGET_NETWORK_FREQUENCY", "TAU", "TRAIN_FREQUENCY",
 }
 _EXPECTED_TRACED = [
@@ -22,7 +22,7 @@ _EXPECTED_TRACED = [
     pytest.param(DuelingDQNConfig, _REPLAY_Q, id="dueling-dqn"),
     pytest.param(
         QRCConfig,
-        {"BETA", "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "learning_rate", "learning_starts", "TRAIN_FREQUENCY"},
+        {"BETA", "epsilon_end", "epsilon_fraction", "epsilon_start", "learning_rate", "learning_starts", "TRAIN_FREQUENCY"},
         id="qrc",
     ),
     pytest.param(

@@ -76,9 +76,9 @@ class QRCConfig:
     total_timesteps: int = 200_000
     learning_starts: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
-    EPSILON_START: float = traced(1.0)
-    EPSILON_END: float = traced(0.05)
-    EPSILON_FRACTION: float = traced(0.5)
+    epsilon_start: float = traced(1.0)
+    epsilon_end: float = traced(0.05)
+    epsilon_fraction: float = traced(0.5)
     BETA: float = traced(1.0)
     H_REGULARIZATION: HRegularization = "adamw"
     HIDDEN_WIDTH: int = 64
@@ -116,9 +116,9 @@ def qrc_hypers(config: QRCConfig) -> QRCHypers:
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
-        EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
-        EPSILON_FRACTION=jnp.asarray(config.EPSILON_FRACTION, jnp.float32),
+        EPSILON_START=jnp.asarray(config.epsilon_start, jnp.float32),
+        EPSILON_END=jnp.asarray(config.epsilon_end, jnp.float32),
+        EPSILON_FRACTION=jnp.asarray(config.epsilon_fraction, jnp.float32),
         TOTAL_TIMESTEPS=jnp.asarray(config.total_timesteps, jnp.float32),
         BETA=jnp.asarray(config.BETA, jnp.float32),
     )
