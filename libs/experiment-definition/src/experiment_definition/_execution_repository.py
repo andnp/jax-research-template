@@ -11,7 +11,7 @@ from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row, execu
 from .status import LIVE, TRANSITIONS, ExecutionStatus, sql_in
 
 # The planned batch's identity; the dead-worker sweep and resume read these back.
-_PLANNER_KEYS = frozenset({"run_ids", "static_config_json", "vmap_zone_json"})
+_PLANNER_KEYS = frozenset({"static_config_json", "vmap_zone_json"})
 
 
 def add_execution(

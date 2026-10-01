@@ -380,7 +380,7 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
     db.record_execution_artifacts(
         execution_id,
         "/tmp/executions/old",
-        metadata={"run_ids": [1], "static_config_json": "{}"},
+        metadata={"static_config_json": "{}"},
     )
 
     db.record_execution_artifacts(
@@ -396,7 +396,6 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
     assert artifact.root_path == "/tmp/executions/new"
     assert artifact.manifest_path == "/tmp/executions/new/manifest.json"
     assert json.loads(artifact.metadata_json or "{}") == {
-        "run_ids": [1],
         "static_config_json": "{}",
         "trained": True,
     }
@@ -875,7 +874,7 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
     assert artifacts is not None
     assert artifacts.root_path == planned[0].root_path
     assert artifacts.manifest_path == planned[0].manifest_path
-    assert '"run_ids": [1, 2]' in (artifacts.metadata_json or "")
+    assert [run.id for run in db.list_execution_runs(planned[0].execution_id)] == [1, 2]
 
     assert db.plan_experiment_execution_batches(exp_id, "/tmp/experiment-executions") == []
 

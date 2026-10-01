@@ -104,7 +104,7 @@ class TestRunExperiment:
                 assert artifacts is not None
                 assert artifacts.root_path == str(root)
                 artifact_metadata = json.loads(artifacts.metadata_json or "{}")
-                assert artifact_metadata["run_ids"] == manifest["run_ids"]
+                assert [run.id for run in database.list_execution_runs(exec_id)] == manifest["run_ids"]
                 assert "static_config_json" in artifact_metadata
                 assert "vmap_zone_json" in artifact_metadata
                 assert artifact_metadata["metrics_db_path"] == manifest["metrics_db_path"]

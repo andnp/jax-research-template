@@ -139,7 +139,6 @@ def plan_batch_with_artifacts(
         root_path,
         manifest_path,
         {
-            "run_ids": batch.run_ids,
             "static_config_json": _json_stable(batch.static_config),
             "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
         },
