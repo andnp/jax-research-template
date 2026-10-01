@@ -68,6 +68,14 @@ class RunRow(_Record):
         return json.loads(value) if isinstance(value, str) else value
 
 
+def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: Mapping[str, str]) -> bool:
+    fields: dict[str, object] = {**hyperparams, "seed": run.seed, "ablation": run.ablation}
+    return all(
+        key in fields and str(fields[key]) in set(value.split(","))
+        for key, value in only.items()
+    )
+
+
 class ExecutionRow(_Record):
     id: int
     status: str

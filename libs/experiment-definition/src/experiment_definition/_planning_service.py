@@ -13,7 +13,7 @@ from . import _execution_repository as _execution
 from ._database_utils import _json_stable
 from ._types import PlannedExecution, RunBatch
 from .parameter import ParameterValue
-from .records import RunRow, _record_from_row
+from .records import RunRow, _record_from_row, _run_matches
 from .status import CLAIMING, ExecutionStatus, sql_in
 
 _CLAIMED_RUNS_SQL = (
@@ -36,14 +36,6 @@ def _static_config_json(hyper_json: str, vmap_zone_json: str | None) -> str:
 
     static_params = {key: hyper_params[key] for key in static_keys if key in hyper_params}
     return _json_stable(static_params)
-
-
-def _run_matches(hyperparams: Mapping[str, ParameterValue], run: RunRow, only: Mapping[str, str]) -> bool:
-    fields: dict[str, object] = {**hyperparams, "seed": run.seed, "ablation": run.ablation}
-    return all(
-        key in fields and str(fields[key]) in set(value.split(","))
-        for key, value in only.items()
-    )
 
 
 type _BatchKey = tuple[int | None, int | None, str | None, str, str | None]
