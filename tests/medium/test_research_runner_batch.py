@@ -65,7 +65,8 @@ def test_a_run_is_reproduced_by_its_seed() -> None:
 
 
 def test_a_declared_metric_that_is_not_emitted_names_the_emitted_ones() -> None:
-    with pytest.raises(ValueError, match=r"'loss' is declared but not emitted; emitted metrics are \['count', 'curve', 'flag', 'noise'\]"):
+    emitted = r"\['count', 'curve', 'flag', 'noise', 'runner/compile_seconds', 'runner/execute_seconds'\]"
+    with pytest.raises(ValueError, match=rf"'loss' is declared but not emitted; emitted metrics are {emitted}"):
         _run_batch(_train, _metrics("loss"), [_Toy()], [0])
 
 

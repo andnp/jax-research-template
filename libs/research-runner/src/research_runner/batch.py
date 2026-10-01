@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -20,12 +21,17 @@ if TYPE_CHECKING:
 type _Train[C] = Callable[[C, jax.Array], tuple[object, Mapping[str, jax.Array]]]
 
 _DTYPES = {bool: jnp.bool_, int: jnp.int32, float: jnp.float32}
+_RUNNER_METRICS = ("runner/compile_seconds", "runner/execute_seconds")
 
 
 def _run_batch[C: DataclassInstance](
     train: _Train[C], metrics: Sequence[MetricSpec], configs: Sequence[C], seeds: Sequence[int]
 ) -> dict[str, np.ndarray]:
-    """Run every config with its seed in one ``jit(vmap(train))``; return each declared metric, run-major."""
+    """Run every config with its seed in one ``jit(vmap(train))``; return each declared metric, run-major.
+
+    The batch's own ``runner/compile_seconds`` and ``runner/execute_seconds`` are returned as
+    scalars when declared.
+    """
     if not configs:
         raise ValueError("a batch needs at least one config")
     if any(isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds):
@@ -44,15 +50,20 @@ def _run_batch[C: DataclassInstance](
 
     def one(traced: dict[str, jax.Array], key: jax.Array) -> dict[str, jax.Array]:
         _, emitted = train(_merge_traced(static, traced), key)
-        return {metric.name: _record(metric, emitted) for metric in metrics}
+        return {metric.name: _record(metric, emitted) for metric in metrics if metric.name not in _RUNNER_METRICS}
 
-    return {name: np.asarray(value) for name, value in jax.device_get(jax.jit(jax.vmap(one))(stacked, keys)).items()}
+    start = time.perf_counter()
+    compiled = jax.jit(jax.vmap(one)).lower(stacked, keys).compile()
+    compiled_at = time.perf_counter()
+    outputs = {name: np.asarray(value) for name, value in jax.device_get(compiled(stacked, keys)).items()}
+    timings = {"runner/compile_seconds": compiled_at - start, "runner/execute_seconds": time.perf_counter() - compiled_at}
+    return outputs | {metric.name: np.asarray(timings[metric.name]) for metric in metrics if metric.name in timings}
 
 
 def _record(metric: MetricSpec, emitted: Mapping[str, jax.Array]) -> jax.Array:
     """One run's declared metric: smoothed and thinned if per-step, as emitted if per-run."""
     if metric.name not in emitted:
-        raise ValueError(f"metric {metric.name!r} is declared but not emitted; emitted metrics are {sorted(emitted)}")
+        raise ValueError(f"metric {metric.name!r} is declared but not emitted; emitted metrics are {sorted([*emitted, *_RUNNER_METRICS])}")
     value = emitted[metric.name]
     if value.ndim > 0:
         return thin_metric(value, ema=metric.ema, every=metric.every)
