@@ -18,18 +18,18 @@ def main() -> None:
 
     config = PPOConfig(
         total_timesteps=200_000,
-        NUM_STEPS=64,
-        UPDATE_EPOCHS=4,
-        NUM_MINIBATCHES=4,
+        num_steps=64,
+        update_epochs=4,
+        num_minibatches=4,
         learning_rate=3e-4,
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
     )
 
     # Each seed gets its own PRNGKey
-    rng = jax.random.PRNGKey(config.SEED)
+    rng = jax.random.PRNGKey(config.seed)
     rng_seeds = jax.random.split(rng, NUM_SEEDS)
 
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
 

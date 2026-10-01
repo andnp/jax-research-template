@@ -9,7 +9,7 @@ The golden numbers in `ppo_golden_baseline.json` were measured on the PRE-PORT `
 and MUST NOT be re-baselined. A breach is a report-and-diagnose, never an update.
 
 Why the gate cannot pin a single trajectory. The port moves per-step work across
-`jax.random.split` boundaries: the pre-port loop consumed `2 * NUM_STEPS + UPDATE_EPOCHS`
+`jax.random.split` boundaries: the pre-port loop consumed `2 * num_steps + update_epochs`
 splits per update, ordered `(act, step)` per rollout step and then one `permute` per epoch,
 while `rl_components.loop.run` splits three ways per iteration and the agent splits three
 more. Reshuffling those splits changes which key each sample draws from, so every sampled
@@ -64,17 +64,17 @@ _GOLDEN_PATH = Path(__file__).with_name("ppo_golden_baseline.json")
 
 _CONFIG = PPOConfig(
     total_timesteps=1024,
-    NUM_STEPS=32,
-    ENV_NAME="CartPole-v1",
-    NORMALIZE_OBSERVATIONS=True,
-    SEED=42,
+    num_steps=32,
+    env_name="CartPole-v1",
+    normalize_observations=True,
+    seed=42,
 )
 
 # The discount the golden run used, which now lives on `run` rather than on the config.
 _GAMMA = 0.99
 
 # The pre-port metric was `traj_batch.info["returned_episode_returns"].mean()` over the
-# NUM_STEPS rollout: the rollout mean of a `LogWrapper` statistic that itself carried the
+# num_steps rollout: the rollout mean of a `LogWrapper` statistic that itself carried the
 # last completed episode's return forward at every step. `LogWrapper` wraps the fused
 # `step` the port removes, so the same signal is rebuilt from the loop's own metrics in
 # `_smoothed_return_curve`. It is a smoothed learning-progress signal, not any single
@@ -85,7 +85,7 @@ _CHECKPOINTS = (0, 7, 15, 23, 31)
 # ~45, a bare RNG reshuffle moved the mean by up to 3.0 SE while a materially wrong discount
 # (GAMMA 0.99 -> 0.50) moved it by 4.9 SE, so signal and stream noise were the same size. At
 # 512 keys the three emulated reshuffles land at 2.24, 1.89 and 1.70 SE while GAMMA 0.50,
-# GAE_LAMBDA 0.50 and GAE_LAMBDA 0.0 land at 9.1, 16.9 and 27.4 SE.
+# gae_lambda 0.50 and gae_lambda 0.0 land at 9.1, 16.9 and 27.4 SE.
 _NUM_SEEDS = 512
 
 # k = 6 sits 2.7x above the largest reshuffle deviation measured above and 1.5x below the
@@ -124,7 +124,7 @@ def _smoothed_return_curve(metrics: dict[str, jax.Array]) -> jax.Array:
     return on the boundary step and zero everywhere else. Carrying the most recent impulse
     forward reproduces `LogWrapper.returned_episode_returns` exactly, including its zero
     before any episode has finished, and the loop's metric index equals the pre-port
-    environment-step index, so reshaping into `NUM_STEPS` windows recovers the same
+    environment-step index, so reshaping into `num_steps` windows recovers the same
     per-update grouping the golden numbers were averaged over.
 
     Args:
@@ -141,7 +141,7 @@ def _smoothed_return_curve(metrics: dict[str, jax.Array]) -> jax.Array:
     )
     latest = jax.lax.cummax(impulse_index, axis=1)
     carried = jnp.where(latest >= 0, jnp.take_along_axis(episode_return, jnp.maximum(latest, 0), axis=1), 0.0)
-    return carried.reshape(_NUM_SEEDS, steps // _CONFIG.NUM_STEPS, _CONFIG.NUM_STEPS).mean(axis=-1)
+    return carried.reshape(_NUM_SEEDS, steps // _CONFIG.num_steps, _CONFIG.num_steps).mean(axis=-1)
 
 
 def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
@@ -151,7 +151,7 @@ def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
         The per-seed rollout-mean smoothed returns, shaped `(_NUM_SEEDS, num_updates)`, and
         the per-seed final observation counts, shaped `(_NUM_SEEDS,)`.
     """
-    raw_env, env_params = gymnax.make(_CONFIG.ENV_NAME)
+    raw_env, env_params = gymnax.make(_CONFIG.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(_CONFIG)
 
@@ -166,7 +166,7 @@ def _run_seed_sweep() -> tuple[jax.Array, jax.Array]:
         )
 
     train_fn = jax.jit(jax.vmap(train_one_key))
-    keys = jax.vmap(jax.random.PRNGKey)(jnp.arange(_CONFIG.SEED, _CONFIG.SEED + _NUM_SEEDS))
+    keys = jax.vmap(jax.random.PRNGKey)(jnp.arange(_CONFIG.seed, _CONFIG.seed + _NUM_SEEDS))
     final_state, metrics = train_fn(keys)
     return _smoothed_return_curve(metrics), final_state.agent_state.obs_norm_state.observation_count
 

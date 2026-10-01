@@ -11,11 +11,11 @@ GAMMA = 0.99
 LATE_FRACTION = 0.9
 """Fraction of the horizon after which an episode counts towards the final score."""
 
-_config = PPOConfig(total_timesteps=80_000, ENV_NAME="CartPole-v1", NORMALIZE_OBSERVATIONS=True)
+_config = PPOConfig(total_timesteps=80_000, env_name="CartPole-v1", normalize_observations=True)
 
 
 def test_ppo_cartpole_learns() -> None:
-    raw_env, env_params = gymnax.make(_config.ENV_NAME)
+    raw_env, env_params = gymnax.make(_config.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(_config)
 
@@ -31,7 +31,7 @@ def test_ppo_cartpole_learns() -> None:
 
     train_jit = jax.jit(train_fn)
 
-    _, metrics = train_jit(jax.random.PRNGKey(_config.SEED))
+    _, metrics = train_jit(jax.random.PRNGKey(_config.seed))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
     # on the boundary step and zero everywhere else, so it must be masked, not averaged.

@@ -18,8 +18,8 @@ class TestRewardScaleValidation:
     @pytest.mark.parametrize("reward_scale", [0.0, -1.0, float("inf"), float("nan")])
     def test_agent_rejects_non_positive_or_non_finite_reward_scale(self, reward_scale: float) -> None:
         """The scale multiplies every stored reward, so a zero or NaN must not reach a rollout."""
-        with pytest.raises(ValueError, match="REWARD_SCALE"):
-            PPOAgent(PPOConfig(REWARD_SCALE=reward_scale))
+        with pytest.raises(ValueError, match="reward_scale"):
+            PPOAgent(PPOConfig(reward_scale=reward_scale))
 
 
 class TestPPOClippedObjective:
@@ -126,14 +126,14 @@ class TestPPOConfig:
         """The defaults are the published PPO hyperparameters."""
         cfg = PPOConfig()
         assert cfg.learning_rate == 2.5e-4
-        assert cfg.GAE_LAMBDA == 0.95
-        assert cfg.CLIP_EPS == 0.2
-        assert cfg.REWARD_SCALE == 1.0
-        assert cfg.ENV_NAME == "MountainCar-v0"
+        assert cfg.gae_lambda == 0.95
+        assert cfg.clip_eps == 0.2
+        assert cfg.reward_scale == 1.0
+        assert cfg.env_name == "MountainCar-v0"
 
     def test_custom_values(self) -> None:
         """Explicit fields override their defaults."""
-        cfg = PPOConfig(learning_rate=1e-3, ENV_NAME="CartPole-v1", REWARD_SCALE=2.5)
+        cfg = PPOConfig(learning_rate=1e-3, env_name="CartPole-v1", reward_scale=2.5)
         assert cfg.learning_rate == 1e-3
-        assert cfg.REWARD_SCALE == 2.5
-        assert cfg.ENV_NAME == "CartPole-v1"
+        assert cfg.reward_scale == 2.5
+        assert cfg.env_name == "CartPole-v1"

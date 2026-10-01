@@ -12,8 +12,8 @@ GAMMA = 0.99
 
 def dump_hlo(agent: str = "ppo") -> None:
     if agent == "ppo":
-        config = PPOConfig(total_timesteps=100, ENV_NAME="CartPole-v1")
-        raw_env, env_params = gymnax.make(config.ENV_NAME)
+        config = PPOConfig(total_timesteps=100, env_name="CartPole-v1")
+        raw_env, env_params = gymnax.make(config.env_name)
         env = make_gymnax_env(raw_env)
         ppo_agent = PPOAgent(config)
         def train_fn(key: jax.Array):

@@ -13,15 +13,15 @@ GAMMA = 0.99
 def main() -> None:
     config = PPOConfig(
         total_timesteps=500_000,
-        NUM_STEPS=64,
-        UPDATE_EPOCHS=4,
-        NUM_MINIBATCHES=4,
+        num_steps=64,
+        update_epochs=4,
+        num_minibatches=4,
         learning_rate=3e-4,
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    rng = jax.random.PRNGKey(config.seed)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):
@@ -29,7 +29,7 @@ def main() -> None:
 
     train_jit = jax.jit(train_fn)
 
-    print(f"--- Training PPO on {config.ENV_NAME} ---")
+    print(f"--- Training PPO on {config.env_name} ---")
     print("Compiling...")
     compile_start = time.time()
     _, metrics = jax.block_until_ready(train_jit(rng))
@@ -52,7 +52,7 @@ def main() -> None:
     plt.plot(returns)
     plt.xlabel("Episode")
     plt.ylabel("Episode Return")
-    plt.title(f"PPO on {config.ENV_NAME} (SPS: {sps:.0f})")
+    plt.title(f"PPO on {config.env_name} (SPS: {sps:.0f})")
     plt.savefig("ppo_results.png")
     print("Plot saved as ppo_results.png")
 

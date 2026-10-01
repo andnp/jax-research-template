@@ -59,7 +59,7 @@ _RESET_OBSERVATION = jnp.array([0.5, -0.25], dtype=jnp.float32)
 
 def _config(reward_scale: float = 1.0) -> PPOConfig:
     """A rollout short enough that a handful of steps spans a whole window."""
-    return PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, REWARD_SCALE=reward_scale)
+    return PPOConfig(num_steps=_NUM_STEPS, num_minibatches=1, update_epochs=1, reward_scale=reward_scale)
 
 
 def _timestep(
@@ -113,7 +113,7 @@ class TestRolloutSlotLayout:
         assert jnp.array_equal(slot.obs, _FIRST_OBSERVATION), "the slot must hold the state the action was chosen from"
         assert jnp.array_equal(slot.action, first.action), "the slot must hold the action that opened the transition"
         assert jnp.array_equal(slot.value, _value_of(state, _FIRST_OBSERVATION))
-        assert jnp.array_equal(slot.reward, jnp.asarray(6.0, jnp.float32)), "REWARD_SCALE must reach the stored reward"
+        assert jnp.array_equal(slot.reward, jnp.asarray(6.0, jnp.float32)), "reward_scale must reach the stored reward"
         assert jnp.array_equal(slot.discount, jnp.asarray(_GAMMA, jnp.float32))
         assert not bool(slot.episode_end)
 
@@ -355,7 +355,7 @@ class TestContinuousPolicy:
 class TestObservationNormalization:
     def test_large_magnitude_observations_stay_finite(self) -> None:
         """Normalization is the whole reason a 1e6 observation does not blow the update up."""
-        agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
+        agent = PPOAgent(PPOConfig(num_steps=_NUM_STEPS, num_minibatches=1, update_epochs=1, normalize_observations=True))
         steps = 2 * _NUM_STEPS
 
         def train_fn(key: jax.Array):
@@ -365,7 +365,7 @@ class TestObservationNormalization:
 
         for leaf in jax.tree_util.tree_leaves(final_state.agent_state.train_state.params):
             assert bool(jnp.all(jnp.isfinite(leaf)))
-        assert bool(jnp.all(jnp.abs(final_state.agent_state.rollout.obs) <= PPOConfig().OBS_NORM_CLIP))
+        assert bool(jnp.all(jnp.abs(final_state.agent_state.rollout.obs) <= PPOConfig().obs_norm_clip))
 
     def test_the_statistics_advance_once_per_iteration(self) -> None:
         """One sample per iteration, from the observation the agent acts from.
@@ -374,7 +374,7 @@ class TestObservationNormalization:
         one more, because a run of `N` iterations closes only `N - 1` transitions.
         """
         steps = 3 * _NUM_STEPS
-        agent = PPOAgent(PPOConfig(NUM_STEPS=_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1, NORMALIZE_OBSERVATIONS=True))
+        agent = PPOAgent(PPOConfig(num_steps=_NUM_STEPS, num_minibatches=1, update_epochs=1, normalize_observations=True))
 
         def train_fn(key: jax.Array):
             return run(agent, ToyEpisodeEnv(), key, steps=steps, gamma=_GAMMA)

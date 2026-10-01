@@ -1,12 +1,12 @@
 {
   "config": {
-    "ENV_NAME": "CartPole-v1",
-    "SEED": 42,
+    "env_name": "CartPole-v1",
+    "seed": 42,
     "TOTAL_TIMESTEPS": 1024,
-    "NUM_STEPS": 32,
-    "NUM_MINIBATCHES": 4,
-    "UPDATE_EPOCHS": 4,
-    "NORMALIZE_OBSERVATIONS": true,
+    "num_steps": 32,
+    "num_minibatches": 4,
+    "update_epochs": 4,
+    "normalize_observations": true,
     "num_updates": 32
   },
   "port_gate": {

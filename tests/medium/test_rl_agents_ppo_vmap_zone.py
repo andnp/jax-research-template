@@ -52,7 +52,7 @@ class TestAgentVmapZone:
         reached the kernel -- which is what happens the moment a hyperparameter is read off
         the static agent object instead of the traced state.
         """
-        config = PPOConfig(NUM_STEPS=_AGENT_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1)
+        config = PPOConfig(num_steps=_AGENT_NUM_STEPS, num_minibatches=1, update_epochs=1)
         agent = PPOAgent(config)
         base_hypers = ppo_hypers(config)
         learning_rates = jnp.array([1e-1, 1e-4], dtype=jnp.float32)
@@ -76,7 +76,7 @@ class TestAgentVmapZone:
         Guards the negative direction: divergence has to come from the swept value, not
         from the batching itself.
         """
-        config = PPOConfig(NUM_STEPS=_AGENT_NUM_STEPS, NUM_MINIBATCHES=1, UPDATE_EPOCHS=1)
+        config = PPOConfig(num_steps=_AGENT_NUM_STEPS, num_minibatches=1, update_epochs=1)
         agent = PPOAgent(config)
         base_hypers = ppo_hypers(config)
         learning_rates = jnp.array([1e-3, 1e-3], dtype=jnp.float32)

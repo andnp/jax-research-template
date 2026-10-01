@@ -49,25 +49,25 @@ from rl_networks.networks import ActorCritic, ContinuousActorCritic
 class PPOConfig:
     # Training Hyperparameters
     learning_rate: float = traced(2.5e-4)
-    NUM_STEPS: int = 128
+    num_steps: int = 128
     total_timesteps: int = 500_000
-    UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
+    update_epochs: int = 4
+    num_minibatches: int = 4
 
     # PPO Specifics
-    GAE_LAMBDA: float = traced(0.95)
-    CLIP_EPS: float = traced(0.2)
-    ENT_COEF: float = traced(0.01)
-    VF_COEF: float = traced(0.5)
-    MAX_GRAD_NORM: float = traced(0.5)
-    REWARD_SCALE: float = 1.0
-    NORMALIZE_OBSERVATIONS: bool = False
-    OBS_NORM_EPS: float = traced(1e-8)
-    OBS_NORM_CLIP: float = traced(10.0)
+    gae_lambda: float = traced(0.95)
+    clip_eps: float = traced(0.2)
+    ent_coef: float = traced(0.01)
+    vf_coef: float = traced(0.5)
+    max_grad_norm: float = traced(0.5)
+    reward_scale: float = 1.0
+    normalize_observations: bool = False
+    obs_norm_eps: float = traced(1e-8)
+    obs_norm_clip: float = traced(10.0)
 
     # Environment
-    ENV_NAME: str = "MountainCar-v0"
-    SEED: int = 42
+    env_name: str = "MountainCar-v0"
+    seed: int = 42
 
     def build(self) -> PPOAgent:
         return PPOAgent(self)
@@ -154,7 +154,7 @@ class PPOTransition:
         action: ``a_{i-1}``, the action that opened the transition.
         log_prob: The behaviour policy's log-probability of ``action``, for the ratio.
         value: ``V(s_{i-1})`` as estimated when that action was selected.
-        reward: The reward ``ts_i`` closed the transition with, after ``REWARD_SCALE``.
+        reward: The reward ``ts_i`` closed the transition with, after ``reward_scale``.
         discount: ``ts_i.discount``: the bootstrap coefficient, ``0`` on termination and
             ``gamma`` on continuation and truncation alike.
         episode_end: ``ts_i.episode_end``: the trajectory break, true on termination and
@@ -166,8 +166,8 @@ class PPOTransition:
             the cross-episode leak, because at a boundary that value is ``V(s_0_new)``.
         valid: ``step_index > 0``. False on exactly one iteration of the whole run --
             global ``t = 0``, the only iteration that closes no transition -- so the first
-            rollout holds ``NUM_STEPS - 1`` valid slots and every later one holds
-            ``NUM_STEPS``.
+            rollout holds ``num_steps - 1`` valid slots and every later one holds
+            ``num_steps``.
     """
 
     obs: jax.Array
@@ -200,7 +200,7 @@ def ppo_gae(rollout: PPOTransition, gae_lambda: jax.Array) -> tuple[jax.Array, j
     under both ``truncation_policy`` values, which is why PPO needs no ``gamma`` of its own.
 
     Args:
-        rollout: One rollout window, leading axis ``NUM_STEPS``.
+        rollout: One rollout window, leading axis ``num_steps``.
         gae_lambda: The trace-decay parameter, traced so a sweep can batch over it.
 
     Returns:
@@ -375,14 +375,14 @@ class PPOHypers:
 def ppo_hypers(config: PPOConfig) -> PPOHypers:
     return PPOHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        GAE_LAMBDA=jnp.asarray(config.GAE_LAMBDA, jnp.float32),
-        CLIP_EPS=jnp.asarray(config.CLIP_EPS, jnp.float32),
-        ENT_COEF=jnp.asarray(config.ENT_COEF, jnp.float32),
-        VF_COEF=jnp.asarray(config.VF_COEF, jnp.float32),
-        MAX_GRAD_NORM=jnp.asarray(config.MAX_GRAD_NORM, jnp.float32),
-        REWARD_SCALE=jnp.asarray(config.REWARD_SCALE, jnp.float32),
-        OBS_NORM_EPS=jnp.asarray(config.OBS_NORM_EPS, jnp.float32),
-        OBS_NORM_CLIP=jnp.asarray(config.OBS_NORM_CLIP, jnp.float32),
+        GAE_LAMBDA=jnp.asarray(config.gae_lambda, jnp.float32),
+        CLIP_EPS=jnp.asarray(config.clip_eps, jnp.float32),
+        ENT_COEF=jnp.asarray(config.ent_coef, jnp.float32),
+        VF_COEF=jnp.asarray(config.vf_coef, jnp.float32),
+        MAX_GRAD_NORM=jnp.asarray(config.max_grad_norm, jnp.float32),
+        REWARD_SCALE=jnp.asarray(config.reward_scale, jnp.float32),
+        OBS_NORM_EPS=jnp.asarray(config.obs_norm_eps, jnp.float32),
+        OBS_NORM_CLIP=jnp.asarray(config.obs_norm_clip, jnp.float32),
     )
 
 
@@ -402,9 +402,9 @@ class PPOAgentState:
             through which ``step`` reaches the network.
         obs_norm_state: Running observation statistics. Present, and inert, when
             normalization is off, so the scan carry does not change shape with the flag.
-        rollout: The rollout window under construction, leading axis ``NUM_STEPS``. Slot
-            ``step_index % NUM_STEPS`` is written every iteration and the window is
-            consumed on the iteration where that index reaches ``NUM_STEPS - 1``.
+        rollout: The rollout window under construction, leading axis ``num_steps``. Slot
+            ``step_index % num_steps`` is written every iteration and the window is
+            consumed on the iteration where that index reaches ``num_steps - 1``.
         last_obs: The observation the pending action was selected from, stored already
             normalized because the loss reruns the network on exactly that input.
         last_action: The action that opened the pending transition. Its rank is also where
@@ -436,16 +436,16 @@ class PPOAgent:
     """Proximal policy optimization over a rollout window the agent fills itself.
 
     PPO is on-policy, so what replaces the replay buffer of the off-policy agents is a
-    fixed ``NUM_STEPS`` window written one slot per loop iteration. The window is consumed
-    -- GAE, then ``UPDATE_EPOCHS`` passes over ``NUM_MINIBATCHES`` shuffled minibatches --
-    on the iteration whose slot index is ``NUM_STEPS - 1``, under a ``lax.cond`` whose
+    fixed ``num_steps`` window written one slot per loop iteration. The window is consumed
+    -- GAE, then ``update_epochs`` passes over ``num_minibatches`` shuffled minibatches --
+    on the iteration whose slot index is ``num_steps - 1``, under a ``lax.cond`` whose
     predicate reads ``step_index`` alone. That keeps the predicate unbatched under
     ``jax.vmap`` over seeds, so the cond stays a cond and the update does not execute on
     every step of every seed.
 
     Because the window is indexed by the iteration at which a transition *completes*
-    (see :class:`PPOTransition`), the first window holds ``NUM_STEPS - 1`` valid slots and
-    every window after it holds ``NUM_STEPS``. There is no per-rollout boundary artefact:
+    (see :class:`PPOTransition`), the first window holds ``num_steps - 1`` valid slots and
+    every window after it holds ``num_steps``. There is no per-rollout boundary artefact:
     ``step_index`` counts iterations of the whole run, so exactly one slot of one window is
     ever invalid.
 
@@ -480,11 +480,11 @@ class PPOAgent:
                 Python scalar. ``GAMMA`` is not read at all.
 
         Raises:
-            ValueError: If ``REWARD_SCALE`` is not finite and positive, which would scale
+            ValueError: If ``reward_scale`` is not finite and positive, which would scale
                 every stored reward to zero, infinity or NaN in silence.
         """
-        if not math.isfinite(config.REWARD_SCALE) or config.REWARD_SCALE <= 0.0:
-            raise ValueError(f"REWARD_SCALE must be finite and > 0, got {config.REWARD_SCALE!r}")
+        if not math.isfinite(config.reward_scale) or config.reward_scale <= 0.0:
+            raise ValueError(f"reward_scale must be finite and > 0, got {config.reward_scale!r}")
         self.config = config
 
     def init(self, key: chex.PRNGKey, spec: EnvSpec) -> PPOAgentState:
@@ -517,8 +517,8 @@ class PPOAgent:
         hypers = ppo_hypers(self.config)
         # Normalization casts to float32; without it the raw observation rides through, so
         # the stored dtype follows the flag or the first slot write is a silent promotion.
-        stored_obs_dtype = jnp.dtype(jnp.float32) if self.config.NORMALIZE_OBSERVATIONS else observation_dtype
-        num_steps = self.config.NUM_STEPS
+        stored_obs_dtype = jnp.dtype(jnp.float32) if self.config.normalize_observations else observation_dtype
+        num_steps = self.config.num_steps
         scalars = jnp.zeros((num_steps,), dtype=jnp.float32)
 
         return PPOAgentState(
@@ -573,11 +573,11 @@ class PPOAgent:
         """
         hypers = state.hypers
         is_continuous = state.last_action.ndim == 1
-        num_steps = self.config.NUM_STEPS
+        num_steps = self.config.num_steps
         carry_key, action_key, update_key = jax.random.split(state.key, 3)
 
         obs_norm_state = _maybe_update_observation_norm_state(
-            state.obs_norm_state, timestep.observation, enabled=self.config.NORMALIZE_OBSERVATIONS
+            state.obs_norm_state, timestep.observation, enabled=self.config.normalize_observations
         )
         _, bootstrap_value = state.train_state.apply_fn(
             state.train_state.params,
@@ -650,7 +650,7 @@ class PPOAgent:
             obs_norm_state,
             eps=hypers.OBS_NORM_EPS,
             clip=hypers.OBS_NORM_CLIP,
-            enabled=self.config.NORMALIZE_OBSERVATIONS,
+            enabled=self.config.normalize_observations,
         )
 
     def _update(
@@ -662,7 +662,7 @@ class PPOAgent:
         *,
         is_continuous: bool,
     ) -> tuple[TrainState, tuple[jax.Array, jax.Array, jax.Array, jax.Array]]:
-        """Run GAE over the finished window, then ``UPDATE_EPOCHS`` passes of minibatch ascent.
+        """Run GAE over the finished window, then ``update_epochs`` passes of minibatch ascent.
 
         The advantages and targets are computed once and closed over: they do not depend on
         the parameters being updated, so recomputing them per epoch would be both wasted
@@ -705,16 +705,16 @@ class PPOAgent:
             del unused
             train_state, epoch_key = carry
             epoch_key, permutation_key = jax.random.split(epoch_key)
-            permutation = jax.random.permutation(permutation_key, self.config.NUM_STEPS)
+            permutation = jax.random.permutation(permutation_key, self.config.num_steps)
 
             def shuffle_leaf(leaf: jax.Array) -> jax.Array:
-                return jnp.take(leaf, permutation, axis=0).reshape((self.config.NUM_MINIBATCHES, -1, *leaf.shape[1:]))
+                return jnp.take(leaf, permutation, axis=0).reshape((self.config.num_minibatches, -1, *leaf.shape[1:]))
 
             shuffled = jax.tree_util.tree_map(shuffle_leaf, (rollout, advantages, targets))
             train_state, losses = jax.lax.scan(_minibatch, train_state, shuffled)
             return (train_state, epoch_key), losses
 
-        (train_state, _), losses = jax.lax.scan(_epoch, (train_state, key), None, self.config.UPDATE_EPOCHS)
+        (train_state, _), losses = jax.lax.scan(_epoch, (train_state, key), None, self.config.update_epochs)
         total_loss, value_loss, policy_loss, entropy = losses
         return train_state, (
             jnp.mean(total_loss).astype(jnp.float32),

@@ -35,7 +35,7 @@ _CASES = [
         id="gac",
     ),
     pytest.param(
-        PPOConfig, {"total_timesteps": _STEPS, "NUM_STEPS": 2, "UPDATE_EPOCHS": 1, "NUM_MINIBATCHES": 1}, _CARTPOLE, id="ppo"
+        PPOConfig, {"total_timesteps": _STEPS, "num_steps": 2, "update_epochs": 1, "num_minibatches": 1}, _CARTPOLE, id="ppo"
     ),
     pytest.param(TD3Config, _REPLAY, _PENDULUM, id="td3"),
     pytest.param(SACConfig, _REPLAY, _PENDULUM, id="sac"),

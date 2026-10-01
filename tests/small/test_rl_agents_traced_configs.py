@@ -40,7 +40,7 @@ _EXPECTED_TRACED = [
     ),
     pytest.param(
         PPOConfig,
-        {"CLIP_EPS", "ENT_COEF", "GAE_LAMBDA", "learning_rate", "MAX_GRAD_NORM", "OBS_NORM_CLIP", "OBS_NORM_EPS", "VF_COEF"},
+        {"clip_eps", "ent_coef", "gae_lambda", "learning_rate", "max_grad_norm", "obs_norm_clip", "obs_norm_eps", "vf_coef"},
         id="ppo",
     ),
     pytest.param(SACConfig, {"alpha", "learning_rate", "learning_starts", "tau", "train_frequency"}, id="sac"),

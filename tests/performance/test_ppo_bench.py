@@ -12,15 +12,15 @@ GAMMA = 0.99
 def test_ppo_speed(benchmark: Any) -> None:
     config = PPOConfig(
         total_timesteps=100_000,
-        NUM_STEPS=64,
-        UPDATE_EPOCHS=4,
-        NUM_MINIBATCHES=4,
+        num_steps=64,
+        update_epochs=4,
+        num_minibatches=4,
         learning_rate=3e-4,
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    rng = jax.random.PRNGKey(config.seed)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):

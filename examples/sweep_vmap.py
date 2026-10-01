@@ -16,10 +16,10 @@ def sweep_vmap_ppo() -> None:
 
     config = PPOConfig(
         total_timesteps=steps_per_agent,
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
     )
 
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = PPOAgent(config)
     def train_fn(key: jax.Array):
