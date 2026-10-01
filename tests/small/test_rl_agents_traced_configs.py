@@ -3,6 +3,7 @@
 import pytest
 from research_runner.config import _traced_paths
 from rl_agents.batch_trainer import _algorithm_metadata
+from rl_agents.double_dqn import DoubleDQNConfig
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.replay_q_agent import ReplayQHypers
 
@@ -12,6 +13,7 @@ _STATIC_EXCEPTIONS = {"reward_scale", "target_entropy"}
 # Double and Dueling DQN share DQNAgent's ReplayQHypers and declare no init-swept fields.
 _CASES = [
     pytest.param(DQNConfig, DQNAgent, ReplayQHypers, id="dqn"),
+    pytest.param(DoubleDQNConfig, DQNAgent, ReplayQHypers, id="double-dqn"),
 ]
 
 
