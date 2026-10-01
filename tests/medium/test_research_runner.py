@@ -38,7 +38,7 @@ class _Toy:
 type _Train = Callable[[_Toy, jax.Array], tuple[object, Mapping[str, jax.Array]]]
 
 
-def _trivial_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+def _trivial_train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
     return None, {}
 
 
@@ -77,7 +77,7 @@ class TestRunExperiment:
         verify execution roots, DB status, manifest, and artifacts.
         """
         exp = _make_experiment()
-        roots = run_experiment(_spec(exp, _trivial_train_fn, db_path))
+        roots = run_experiment(_spec(exp, _trivial_train, db_path))
 
         assert isinstance(roots, list)
         assert len(roots) >= 1
@@ -116,7 +116,7 @@ class TestRunExperiment:
         completed_roots: list[Path] = []
 
         roots = run_experiment(
-            _spec(exp, _trivial_train_fn, db_path),
+            _spec(exp, _trivial_train, db_path),
             on_batch_complete=lambda root: completed_roots.append(root),
         )
 
@@ -129,10 +129,10 @@ class TestRunExperiment:
         runs are already COMPLETED.
         """
         exp = _make_experiment()
-        first = run_experiment(_spec(exp, _trivial_train_fn, db_path))
+        first = run_experiment(_spec(exp, _trivial_train, db_path))
         assert len(first) >= 1
 
-        second = run_experiment(_spec(exp, _trivial_train_fn, db_path))
+        second = run_experiment(_spec(exp, _trivial_train, db_path))
         assert second == []
 
 
@@ -145,7 +145,7 @@ class TestRunExperiment:
         exp = _make_experiment()
 
         selected = run_experiment(
-            _spec(exp, _trivial_train_fn, db_path),
+            _spec(exp, _trivial_train, db_path),
             only={"seed": "0"},
         )
         assert len(selected) == 1
@@ -157,7 +157,7 @@ class TestRunExperiment:
             )
         assert [run.seed for run in runs] == [0]
 
-        remaining = run_experiment(_spec(exp, _trivial_train_fn, db_path))
+        remaining = run_experiment(_spec(exp, _trivial_train, db_path))
         assert len(remaining) == 1
 
     def test_only_matching_nothing_executes_nothing(self, db_path: Path, executions_root: Path) -> None:
@@ -165,7 +165,7 @@ class TestRunExperiment:
         exp = _make_experiment()
 
         roots = run_experiment(
-            _spec(exp, _trivial_train_fn, db_path),
+            _spec(exp, _trivial_train, db_path),
             only={"seed": "99"},
         )
 
@@ -207,7 +207,7 @@ class TestExecuteBatch:
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
-        root = execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train_fn, db_path), capture_git=False)
+        root = execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train, db_path), capture_git=False)
 
         assert root == Path(planned.root_path)
         assert (root / "manifest.json").exists()
@@ -225,11 +225,11 @@ class TestExecuteBatch:
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
-        def _failing_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+        def _failing_train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             raise RuntimeError("Training exploded")
 
         with pytest.raises(RuntimeError, match="Training exploded"):
-            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train_fn, db_path), capture_git=False)
+            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train, db_path), capture_git=False)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -245,7 +245,7 @@ class TestExecuteBatch:
         planned = planned._replace(static_config={"missing": "value"})
 
         with pytest.raises(ValueError, match="static parameter"):
-            execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train_fn, db_path), capture_git=False)
+            execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train, db_path), capture_git=False)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -259,14 +259,14 @@ class TestExecuteBatch:
         """A failed status transition does not replace the completion error."""
         planned = self._plan_one_batch(db_path, executions_root)
 
-        def _failing_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+        def _failing_train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             with DatabaseManager(db_path) as database:
                 database.initialize()
                 database.update_execution_status(planned.execution_id, "FAILED")
             return None, {}
 
         with pytest.raises(ValueError, match="FAILED -> COMPLETED"):
-            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train_fn, db_path), capture_git=False)
+            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train, db_path), capture_git=False)
 
 
 
@@ -308,23 +308,23 @@ class TestMidSweepCrashRecovery:
 
     def test_resumes_after_first_batch_crashes(self, db_path: Path, executions_root: Path) -> None:
         """
-        A sweep with 2 batches whose train_fn raises on its very first call
+        A sweep with 2 batches whose train raises on its very first call
         must, after a retry, still reach every batch: the un-executed batch
         must never be stranded as an unplannable PENDING execution.
         """
         exp = self._make_two_batch_experiment()
         calls: list[str] = []
 
-        def flaky_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+        def flaky_train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             calls.append(config.arch)
             if len(calls) == 1:
                 raise RuntimeError("boom")
             return None, {}
 
         with pytest.raises(RuntimeError, match="boom"):
-            run_experiment(_spec(exp, flaky_train_fn, db_path))
+            run_experiment(_spec(exp, flaky_train, db_path))
 
-        roots = run_experiment(_spec(exp, flaky_train_fn, db_path))
+        roots = run_experiment(_spec(exp, flaky_train, db_path))
 
         assert set(calls) == {"cnn", "mlp"}
         assert len(roots) == 2
@@ -355,7 +355,7 @@ class TestDynamicArmCoverage:
             exp.add_parameter("lr", [1e-3, 3e-4])
         return exp
 
-    def test_every_swept_arm_reaches_train_fn(self, db_path: Path, executions_root: Path) -> None:
+    def test_every_swept_arm_is_trained(self, db_path: Path, executions_root: Path) -> None:
         """
         A batch keyed on the static config may still hold several dynamic arms.
         Every declared (lr, seed) pair must be trained, in one batch, and no run
@@ -364,11 +364,11 @@ class TestDynamicArmCoverage:
         exp = self._make_static_plus_dynamic_experiment()
         exp.add_metric("lr").add_metric("seed")
 
-        def recording_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+        def recording_train(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             assert config.arch == "mlp"
             return None, {"lr": jnp.asarray(config.lr), "seed": key[1]}
 
-        roots = run_experiment(_spec(exp, recording_train_fn, db_path))
+        roots = run_experiment(_spec(exp, recording_train, db_path))
 
         with sqlite3.connect(db_path.parent / "metrics.sqlite") as connection:
             rows = connection.execute("SELECT run_id, metric_name, value FROM scalar_metrics").fetchall()
@@ -440,7 +440,7 @@ class TestStaleExecutionReclaim:
         self._orphan_running_execution(db_path, executions_root)
         exp = self._make_single_run_experiment()
 
-        roots = run_experiment(_spec(exp, _trivial_train_fn, db_path))
+        roots = run_experiment(_spec(exp, _trivial_train, db_path))
 
         assert roots == []
         with DatabaseManager(db_path) as database:
@@ -461,7 +461,7 @@ class TestStaleExecutionReclaim:
         exp = self._make_single_run_experiment()
 
         roots = run_experiment(
-            _spec(exp, _trivial_train_fn, db_path),
+            _spec(exp, _trivial_train, db_path),
             reclaim_stale_after_seconds=60,
         )
 
