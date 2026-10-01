@@ -27,6 +27,7 @@ import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_utils.pytree import tree_lerp
+from research_runner.config import traced
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim
@@ -41,17 +42,20 @@ from rl_networks.networks import Critic
 
 @chex_struct(frozen=True, kw_only=True)
 class SACConfig:
-    LEARNING_RATE: float = 3e-4
+    LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     TOTAL_TIMESTEPS: int = 1_000_000
-    LEARNING_STARTS: int = 5_000
-    TRAIN_FREQUENCY: int = 1
-    TAU: float = 0.005
-    ALPHA: float = 0.2
+    LEARNING_STARTS: int = traced(5_000)
+    TRAIN_FREQUENCY: int = traced(1)
+    TAU: float = traced(0.005)
+    ALPHA: float = traced(0.2)
     TARGET_ENTROPY: float | None = None
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
+
+    def build(self) -> SACAgent:
+        return SACAgent(self)
 
 
 @chex_struct(frozen=True)

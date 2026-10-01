@@ -10,6 +10,7 @@ from rl_agents.greedy_ac import GACAgent, GACConfig, GACHypers
 from rl_agents.ppo import PPOAgent, PPOConfig, PPOHypers
 from rl_agents.qrc import QRCAgent, QRCConfig, QRCHypers
 from rl_agents.replay_q_agent import ReplayQHypers
+from rl_agents.sac import SACAgent, SACConfig, SACHypers
 from rl_agents.td3 import TD3Agent, TD3Config, TD3Hypers
 
 # Fields the derivation marks dynamic but the config keeps static: PPO checks REWARD_SCALE in Python.
@@ -24,6 +25,7 @@ _CASES = [
     pytest.param(TD3Config, TD3Agent, TD3Hypers, id="td3"),
     pytest.param(GACConfig, GACAgent, GACHypers, id="gac"),
     pytest.param(PPOConfig, PPOAgent, PPOHypers, id="ppo"),
+    pytest.param(SACConfig, SACAgent, SACHypers, id="sac"),
 ]
 
 
