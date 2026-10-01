@@ -682,6 +682,99 @@ def test_execute_batch_honors_results_root_override(tmp_path: Path) -> None:
     assert not (results_root / "metrics.sqlite").exists()
 
 
+def _write_two_batch_spec_file(tmp_path: Path, results_root: Path) -> Path:
+    spec_file = tmp_path / "two_batch_spec.py"
+    spec_file.write_text(
+        textwrap.dedent(f"""\
+            import os
+            from dataclasses import dataclass
+            from pathlib import Path
+            from research_runner.registry import spec
+            from research_runner.types import ExperimentSpec
+            from experiment_definition.component import Component, ComponentType
+            from experiment_definition.experiment import Experiment
+
+            @dataclass(frozen=True)
+            class Toy:
+                learning_rate: float = 0.01
+
+            @spec
+            def my_spec() -> ExperimentSpec:
+                experiment = Experiment("test-experiment", description="Test")
+                with experiment.for_component(Component(name="test-algo", path=Path("algo.py"), type=ComponentType.ALGO)):
+                    experiment.add_parameter("learning_rate", [0.01])
+                with experiment.for_component(Component(name="test-env", path=Path("env.py"), type=ComponentType.ENV)):
+                    pass
+                experiment.add_parameter("seed", [0, 1])
+
+                def train(config, key):
+                    if os.environ.get("TOY_TRAIN_FAILS"):
+                        raise RuntimeError("toy train failed")
+                    return None, {{}}
+
+                return ExperimentSpec(
+                    experiment,
+                    config=Toy(),
+                    train=train,
+                    results_root=Path("{results_root}"),
+                    max_runs_per_batch=1,
+                    capture_git=False,
+                )
+        """),
+    )
+    return spec_file
+
+
+def _plan_two_batches(tmp_path: Path, results_root: Path) -> tuple[Path, Path, list[int]]:
+    spec_file = _write_two_batch_spec_file(tmp_path, results_root)
+    db_path = results_root / "experiments.sqlite"
+    plan_result = runner.invoke(app, ["experiment", "plan", str(spec_file)])
+    assert plan_result.exit_code == 0, plan_result.output
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        exp_row = database.get_experiment("test-experiment")
+        assert exp_row is not None
+        planned = database.plan_experiment_execution_batches(exp_row.id, results_root / "executions", max_runs_per_batch=1)
+    return spec_file, db_path, [p.execution_id for p in planned]
+
+
+def _execute_batches(spec_file: Path, execution_ids: list[int]):
+    args = ["experiment", "execute-batch", "--spec-file", str(spec_file), "--spec", "my_spec"]
+    for execution_id in execution_ids:
+        args += ["--execution-id", str(execution_id)]
+    return runner.invoke(app, args)
+
+
+def _execution_statuses(db_path: Path, execution_ids: list[int]) -> list[str]:
+    with DatabaseManager(db_path) as database:
+        rows = [database.get_execution(execution_id) for execution_id in execution_ids]
+    return [row.status for row in rows if row is not None]
+
+
+def test_execute_batch_runs_several_executions_in_one_process(tmp_path: Path) -> None:
+    """Repeated --execution-id runs every planned execution and completes each."""
+    spec_file, db_path, execution_ids = _plan_two_batches(tmp_path, tmp_path / "multi")
+    assert len(execution_ids) == 2
+
+    result = _execute_batches(spec_file, execution_ids)
+
+    assert result.exit_code == 0, result.output
+    assert _execution_statuses(db_path, execution_ids) == ["COMPLETED", "COMPLETED"]
+
+
+def test_execute_batch_failure_fails_the_unrun_executions_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing first execution must not leave the later planned ones PENDING for a dead process."""
+    spec_file, db_path, execution_ids = _plan_two_batches(tmp_path, tmp_path / "multi_fail")
+    monkeypatch.setenv("TOY_TRAIN_FAILS", "1")
+
+    result = _execute_batches(spec_file, execution_ids)
+
+    assert result.exit_code != 0
+    assert _execution_statuses(db_path, execution_ids) == ["FAILED", "FAILED"]
+
+
 def test_execute_batch_nonexistent_execution_fails(tmp_path: Path) -> None:
     results_root = tmp_path / "eb_fail"
     spec_file = _write_spec_file(tmp_path, results_root)

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
+import signal
 import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from types import ModuleType
+from types import FrameType, ModuleType
 
 import typer
 from experiment_definition.db import DatabaseManager
@@ -525,7 +526,9 @@ def invalidate(
 
 @experiment_app.command("execute-batch")
 def execute_batch_cmd(
-    execution_id: int = typer.Option(..., "--execution-id", help="Planned execution ID to run."),
+    execution_ids: list[int] = typer.Option(
+        ..., "--execution-id", help="Planned execution ID to run; repeat to run several in order in this process."
+    ),
     spec_file: Path = typer.Option(..., "--spec-file", help="Path to the Python spec file."),
     spec: str = typer.Option(..., "--spec", help="Name of the spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
@@ -540,21 +543,34 @@ def execute_batch_cmd(
 
     experiment_spec = _with_results_root(next(iter(specs.values()))(), results_root)
 
+    planned = []
     with DatabaseManager(experiment_spec.db_path) as database:
         database.initialize()
-        planned = database.get_planned_execution(execution_id)
+        for execution_id in execution_ids:
+            item = database.get_planned_execution(execution_id)
+            if item is None:
+                typer.echo(f"Error: planned execution {execution_id} not found.", err=True)
+                raise typer.Exit(code=1)
+            planned.append(item)
 
-    if planned is None:
-        typer.echo(f"Error: planned execution {execution_id} not found.", err=True)
-        raise typer.Exit(code=1)
+    previous_handler = signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    try:
+        for item in planned:
+            root = execute_batch(
+                experiment_spec.db_path,
+                item,
+                experiment_spec,
+                capture_git=experiment_spec.capture_git,
+            )
+            typer.echo(f"Execution {item.execution_id} completed: {root}")
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
+        with DatabaseManager(experiment_spec.db_path) as database:
+            database.fail_executions(execution_ids)
 
-    root = execute_batch(
-        experiment_spec.db_path,
-        planned,
-        experiment_spec,
-        capture_git=experiment_spec.capture_git,
-    )
-    typer.echo(f"Execution {execution_id} completed: {root}")
+
+def _exit_on_sigterm(signum: int, _frame: FrameType | None) -> None:
+    raise SystemExit(128 + signum)
 
 
 @experiment_app.command("submit")

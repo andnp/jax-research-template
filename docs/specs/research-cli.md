@@ -80,8 +80,8 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Lists executions with status, hostname, start time and commit.
 - `research experiment invalidate <db_path> (--execution <id> | --git-commit <sha>)`:
     - Marks executions `INVALID` so their runs become plannable again. This is how a live execution whose owner cannot be resolved is released (see [Reclaim](#reclaim-before-launch)).
-- `research experiment execute-batch --execution-id <id> --spec-file <file> --spec <name>`:
-    - Executes a single already-planned execution in the spec's database. This is the entry point a scheduler invokes.
+- `research experiment execute-batch --execution-id <id> [--execution-id <id> ...] --spec-file <file> --spec <name>`:
+    - Executes already-planned executions in the spec's database, in the order given, in one process. This is the entry point a scheduler or the `--workers` supervisor invokes. If one fails, or the process receives SIGTERM or SIGINT, every given execution that has not finished is marked `FAILED` before the process exits nonzero.
 - `research experiment submit <spec_file> [--slurm-config <file.json>] [slurm options] [--dry-run]`:
     - Reclaims dead executions, then plans every outstanding batch up front, writes a Slurm array script, and submits it with `sbatch --parsable`. Each planned execution is handed from the submitting process to the array task that will run it (`slurm:<job id>_<index>`) once the job id exists. The executions stay `PENDING` until Slurm runs each one through `execute-batch`, so a local `run` leaves them alone while their task is alive.
     - If `sbatch` fails, every planned execution is marked `FAILED`.
