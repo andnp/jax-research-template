@@ -18,7 +18,7 @@ def main() -> None:
         BATCH_SIZE=128,
         LEARNING_STARTS=1000,
         TARGET_NETWORK_FREQUENCY=500,
-        LEARNING_RATE=1e-3,
+        learning_rate=1e-3,
         ENV_NAME="CartPole-v1",
         SEED=42,
     )

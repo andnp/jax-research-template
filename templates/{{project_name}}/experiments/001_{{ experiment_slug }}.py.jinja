@@ -36,7 +36,7 @@ def train(config: RLConfig[object], key: jax.Array) -> tuple[object, dict[str, j
 def build_experiment() -> Experiment:
     experiment = Experiment(EXPERIMENT_NAME, description={{ description | tojson }})
     with experiment.for_component(PPO_COMPONENT):
-        experiment.add_parameter("agent.LEARNING_RATE", [2.5e-4])
+        experiment.add_parameter("agent.learning_rate", [2.5e-4])
     with experiment.for_component(ENV_COMPONENT):
         experiment.add_parameter("env", list(ENVS))
     experiment.add_parameter("seed", list(SEEDS))

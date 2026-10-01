@@ -13,7 +13,7 @@ from rl_agents.sac_rc import SACRCConfig
 from rl_agents.td3 import TD3Config
 
 _REPLAY_Q = {
-    "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "LEARNING_RATE",
+    "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "learning_rate",
     "LEARNING_STARTS", "TARGET_NETWORK_FREQUENCY", "TAU", "TRAIN_FREQUENCY",
 }
 _EXPECTED_TRACED = [
@@ -22,29 +22,29 @@ _EXPECTED_TRACED = [
     pytest.param(DuelingDQNConfig, _REPLAY_Q, id="dueling-dqn"),
     pytest.param(
         QRCConfig,
-        {"BETA", "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "LEARNING_RATE", "LEARNING_STARTS", "TRAIN_FREQUENCY"},
+        {"BETA", "EPSILON_END", "EPSILON_FRACTION", "EPSILON_START", "learning_rate", "LEARNING_STARTS", "TRAIN_FREQUENCY"},
         id="qrc",
     ),
     pytest.param(
         TD3Config,
-        {"EXPLORATION_NOISE", "LEARNING_RATE", "LEARNING_STARTS", "NOISE_CLIP", "POLICY_DELAY", "POLICY_NOISE", "TAU", "TRAIN_FREQUENCY"},
+        {"EXPLORATION_NOISE", "learning_rate", "LEARNING_STARTS", "NOISE_CLIP", "POLICY_DELAY", "POLICY_NOISE", "TAU", "TRAIN_FREQUENCY"},
         id="td3",
     ),
     pytest.param(
         GACConfig,
         {
             "ACTOR_LEARNING_RATE", "ENTROPY_WEIGHT", "H_REGULARIZATION", "INFERENCE_SIGMA_MIN",
-            "LEARNING_RATE", "LEARNING_STARTS", "TRAINING_SIGMA_MIN", "TRAIN_FREQUENCY",
+            "learning_rate", "LEARNING_STARTS", "TRAINING_SIGMA_MIN", "TRAIN_FREQUENCY",
         },
         id="gac",
     ),
     pytest.param(
         PPOConfig,
-        {"CLIP_EPS", "ENT_COEF", "GAE_LAMBDA", "LEARNING_RATE", "MAX_GRAD_NORM", "OBS_NORM_CLIP", "OBS_NORM_EPS", "VF_COEF"},
+        {"CLIP_EPS", "ENT_COEF", "GAE_LAMBDA", "learning_rate", "MAX_GRAD_NORM", "OBS_NORM_CLIP", "OBS_NORM_EPS", "VF_COEF"},
         id="ppo",
     ),
-    pytest.param(SACConfig, {"ALPHA", "LEARNING_RATE", "LEARNING_STARTS", "TAU", "TRAIN_FREQUENCY"}, id="sac"),
-    pytest.param(SACRCConfig, {"ALPHA", "BETA", "LEARNING_RATE", "LEARNING_STARTS", "TRAIN_FREQUENCY"}, id="sac-rc"),
+    pytest.param(SACConfig, {"ALPHA", "learning_rate", "LEARNING_STARTS", "TAU", "TRAIN_FREQUENCY"}, id="sac"),
+    pytest.param(SACRCConfig, {"ALPHA", "BETA", "learning_rate", "LEARNING_STARTS", "TRAIN_FREQUENCY"}, id="sac-rc"),
 ]
 
 

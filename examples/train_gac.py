@@ -42,7 +42,7 @@ def train_gac(
         BUFFER_SIZE=50_000,
         BATCH_SIZE=64,
         LEARNING_STARTS=500,
-        LEARNING_RATE=3e-4,
+        learning_rate=3e-4,
         ACTOR_LEARNING_RATE=3e-4,
         ACTOR_PERCENTILE=0.1,
         ENTROPY_WEIGHT=0.01,

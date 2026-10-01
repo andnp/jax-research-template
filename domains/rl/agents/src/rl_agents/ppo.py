@@ -48,7 +48,7 @@ from rl_networks.networks import ActorCritic, ContinuousActorCritic
 @chex_struct(frozen=True)
 class PPOConfig:
     # Training Hyperparameters
-    LEARNING_RATE: float = traced(2.5e-4)
+    learning_rate: float = traced(2.5e-4)
     NUM_STEPS: int = 128
     total_timesteps: int = 500_000
     UPDATE_EPOCHS: int = 4
@@ -374,7 +374,7 @@ class PPOHypers:
 
 def ppo_hypers(config: PPOConfig) -> PPOHypers:
     return PPOHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         GAE_LAMBDA=jnp.asarray(config.GAE_LAMBDA, jnp.float32),
         CLIP_EPS=jnp.asarray(config.CLIP_EPS, jnp.float32),
         ENT_COEF=jnp.asarray(config.ENT_COEF, jnp.float32),

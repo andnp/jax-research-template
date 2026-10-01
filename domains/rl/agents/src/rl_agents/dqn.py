@@ -29,7 +29,7 @@ from rl_agents.replay_q_agent import QApplyFn, ReplayQAgent
 
 @chex_struct(frozen=True, kw_only=True)
 class DQNConfig:
-    LEARNING_RATE: float = traced(3e-4)
+    learning_rate: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     total_timesteps: int = 200_000

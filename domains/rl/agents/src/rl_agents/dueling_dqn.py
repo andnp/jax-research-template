@@ -29,7 +29,7 @@ from rl_agents.double_q import DoubleQAgent
 
 @chex_struct(frozen=True, kw_only=True)
 class DuelingDQNConfig:
-    LEARNING_RATE: float = traced(3e-4)
+    learning_rate: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     total_timesteps: int = 200_000

@@ -109,7 +109,7 @@ class ReplayQConfig(Protocol):
     """
 
     @property
-    def LEARNING_RATE(self) -> float: ...
+    def learning_rate(self) -> float: ...
 
     @property
     def BUFFER_SIZE(self) -> int: ...
@@ -165,7 +165,7 @@ class ReplayQHypers:
 
 def replay_q_hypers(config: ReplayQConfig):
     return ReplayQHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
@@ -250,7 +250,7 @@ class ReplayQAgent:
                 train_state=TrainState.create(
                     apply_fn=network.apply,
                     params=params,
-                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32)),
+                    tx=optax.inject_hyperparams(optax.adam)(learning_rate=jnp.asarray(self.config.learning_rate, jnp.float32)),
                 ),
                 target_params=params,
                 num_actions=jnp.asarray(spec.num_actions, dtype=jnp.int32),

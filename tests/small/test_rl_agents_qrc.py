@@ -9,7 +9,7 @@ from rl_agents.qrc import QRCConfig, QRCNetwork, qrc_loss
 class TestQRCConfig:
     def test_defaults(self) -> None:
         cfg = QRCConfig()
-        assert cfg.LEARNING_RATE == 3e-4
+        assert cfg.learning_rate == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.BATCH_SIZE == 64
         assert cfg.EPSILON_START == 1.0
@@ -19,8 +19,8 @@ class TestQRCConfig:
         assert cfg.H_REGULARIZATION == "adamw"
 
     def test_custom_config(self) -> None:
-        cfg = QRCConfig(LEARNING_RATE=1e-3, BUFFER_SIZE=1000, ENV_NAME="Acrobot-v1", BETA=0.5)
-        assert cfg.LEARNING_RATE == 1e-3
+        cfg = QRCConfig(learning_rate=1e-3, BUFFER_SIZE=1000, ENV_NAME="Acrobot-v1", BETA=0.5)
+        assert cfg.learning_rate == 1e-3
         assert cfg.BUFFER_SIZE == 1000
         assert cfg.ENV_NAME == "Acrobot-v1"
         assert cfg.BETA == 0.5

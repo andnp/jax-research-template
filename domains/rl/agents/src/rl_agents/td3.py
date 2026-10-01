@@ -40,7 +40,7 @@ from rl_networks.networks import Critic
 
 @chex_struct(frozen=True, kw_only=True)
 class TD3Config:
-    LEARNING_RATE: float = traced(3e-4)
+    learning_rate: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 256
     total_timesteps: int = 1_000_000
@@ -81,7 +81,7 @@ class TD3Hypers:
 
 def td3_hypers(config: TD3Config) -> TD3Hypers:
     return TD3Hypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
@@ -278,7 +278,7 @@ class TD3Agent:
             obs_dtype=observation_dtype,
         )
 
-        lr = jnp.asarray(self.config.LEARNING_RATE, jnp.float32)
+        lr = jnp.asarray(self.config.learning_rate, jnp.float32)
         return init_replay_agent_state(
             TD3AlgorithmState(
                 actor_state=TrainState.create(

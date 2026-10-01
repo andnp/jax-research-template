@@ -70,7 +70,7 @@ which a prior run reported outperforming AdamW for QRC's h-head)."""
 
 @chex_struct(frozen=True, kw_only=True)
 class QRCConfig:
-    LEARNING_RATE: float = traced(3e-4)
+    learning_rate: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     total_timesteps: int = 200_000
@@ -113,7 +113,7 @@ class QRCHypers:
 
 def qrc_hypers(config: QRCConfig) -> QRCHypers:
     return QRCHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
@@ -339,7 +339,7 @@ class QRCAgent:
             return _make_tx(params, learning_rate, weight_decay, h_regularization)
 
         tx = optax.inject_hyperparams(make_tx)(
-            learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32),
+            learning_rate=jnp.asarray(self.config.learning_rate, jnp.float32),
             weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
         )
 

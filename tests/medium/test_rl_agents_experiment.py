@@ -14,7 +14,7 @@ _ENV = GymnaxConfig("CartPole-v1")
 
 def _dqn(learning_rate: float = 3e-4) -> DQNConfig:
     return DQNConfig(
-        LEARNING_RATE=learning_rate,
+        learning_rate=learning_rate,
         BUFFER_SIZE=64,
         BATCH_SIZE=8,
         LEARNING_STARTS=8,

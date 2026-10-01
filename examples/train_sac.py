@@ -16,7 +16,7 @@ def main() -> None:
         BUFFER_SIZE=100_000,
         BATCH_SIZE=256,
         LEARNING_STARTS=1000,
-        LEARNING_RATE=1e-3,
+        learning_rate=1e-3,
         ENV_NAME="MountainCarContinuous-v0",
         SEED=42,
     )

@@ -125,7 +125,7 @@ class TestPPOConfig:
     def test_defaults(self) -> None:
         """The defaults are the published PPO hyperparameters."""
         cfg = PPOConfig()
-        assert cfg.LEARNING_RATE == 2.5e-4
+        assert cfg.learning_rate == 2.5e-4
         assert cfg.GAE_LAMBDA == 0.95
         assert cfg.CLIP_EPS == 0.2
         assert cfg.REWARD_SCALE == 1.0
@@ -133,7 +133,7 @@ class TestPPOConfig:
 
     def test_custom_values(self) -> None:
         """Explicit fields override their defaults."""
-        cfg = PPOConfig(LEARNING_RATE=1e-3, ENV_NAME="CartPole-v1", REWARD_SCALE=2.5)
-        assert cfg.LEARNING_RATE == 1e-3
+        cfg = PPOConfig(learning_rate=1e-3, ENV_NAME="CartPole-v1", REWARD_SCALE=2.5)
+        assert cfg.learning_rate == 1e-3
         assert cfg.REWARD_SCALE == 2.5
         assert cfg.ENV_NAME == "CartPole-v1"

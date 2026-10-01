@@ -71,7 +71,7 @@ class GACConfig:
     """Hyperparameters for the Greedy Actor-Critic algorithm.
 
     Attributes:
-        LEARNING_RATE: Critic learning rate.
+        learning_rate: Critic learning rate.
         ACTOR_LEARNING_RATE: Actor learning rate.
         BUFFER_SIZE: Capacity of the uniform replay buffer.
         BATCH_SIZE: Minibatch size for both actor and critic updates.
@@ -93,7 +93,7 @@ class GACConfig:
         SEED: Random seed for reproducibility.
     """
 
-    LEARNING_RATE: float = traced(3e-4)
+    learning_rate: float = traced(3e-4)
     ACTOR_LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
@@ -526,7 +526,7 @@ class GACHypers:
 
 def gac_hypers(config: GACConfig) -> GACHypers:
     return GACHypers(
-        LEARNING_RATE=jnp.asarray(config.LEARNING_RATE, jnp.float32),
+        LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         ACTOR_LEARNING_RATE=jnp.asarray(config.ACTOR_LEARNING_RATE, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
@@ -626,7 +626,7 @@ class GACAgent:
                     tx=optax.chain(
                         optax.clip_by_global_norm(1.0),
                         optax.inject_hyperparams(optax.adamw)(
-                            learning_rate=jnp.asarray(self.config.LEARNING_RATE, jnp.float32), weight_decay=0.1
+                            learning_rate=jnp.asarray(self.config.learning_rate, jnp.float32), weight_decay=0.1
                         ),
                     ),
                 ),

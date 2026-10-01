@@ -10,13 +10,13 @@ from rl_components.distributions import TanhNormalDiag
 
 
 class _MutableSACConfig(Protocol):
-    LEARNING_RATE: float
+    learning_rate: float
 
 
 class TestSACConfig:
     def test_defaults(self) -> None:
         cfg = SACConfig()
-        assert cfg.LEARNING_RATE == 3e-4
+        assert cfg.learning_rate == 3e-4
         assert cfg.BUFFER_SIZE == 100_000
         assert cfg.TAU == 0.005
         assert cfg.ALPHA == 0.2
@@ -26,7 +26,7 @@ class TestSACConfig:
         cfg = SACConfig()
         try:
             mutable_cfg = cast(_MutableSACConfig, cfg)
-            mutable_cfg.LEARNING_RATE = 0.1
+            mutable_cfg.learning_rate = 0.1
             raise AssertionError("Should have raised")
         except AttributeError:
             pass

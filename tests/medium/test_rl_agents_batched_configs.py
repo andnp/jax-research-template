@@ -48,8 +48,8 @@ def test_runs_differing_in_traced_fields_share_one_batch(
     agent_cls: Callable[..., AgentConfig[object]], fields: dict[str, int], env: GymnaxConfig
 ) -> None:
     configs = [
-        RLConfig(agent=agent_cls(**fields, LEARNING_RATE=1e-3), env=env, gamma=0.9),
-        RLConfig(agent=agent_cls(**fields, LEARNING_RATE=3e-4), env=env, gamma=0.99),
+        RLConfig(agent=agent_cls(**fields, learning_rate=1e-3), env=env, gamma=0.9),
+        RLConfig(agent=agent_cls(**fields, learning_rate=3e-4), env=env, gamma=0.99),
     ]
     metrics = Experiment("agents").add_metric("loop/reward").metrics
 
