@@ -2,7 +2,8 @@
 
 import dataclasses
 from collections.abc import Iterator, Mapping
-from typing import TYPE_CHECKING, Literal, get_args, get_origin
+from types import UnionType
+from typing import TYPE_CHECKING, Literal, Union, get_args, get_origin
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -67,6 +68,16 @@ def _merge_traced[C: DataclassInstance](static: C, values: Mapping[str, object])
 
 def _check_value(annotation: object, path: str, value: object) -> object:
     """Return the value as its field's type, or raise if it is not one. Annotations not known here pass through."""
+    if get_origin(annotation) in (Union, UnionType):
+        members = [member for member in get_args(annotation) if member is not type(None)]
+        if value is None and len(members) < len(get_args(annotation)):
+            return value
+        for member in members:
+            try:
+                return _check_value(member, path, value)
+            except ValueError:
+                continue
+        raise ValueError(f"{path} expects {annotation}, got {value!r}")
     if get_origin(annotation) is Literal:
         options = get_args(annotation)
         if any(type(option) is type(value) and option == value for option in options):
