@@ -31,7 +31,7 @@ from research_runner.types import ExperimentSpec
 from rl_agents.experiment import RLConfig, rl_train
 
 experiment.add_parameter("env", ENV_NAMES)                     # a named choice
-experiment.add_parameter("agent.LEARNING_RATE", [1e-3, 3e-4])  # a dotted config path
+experiment.add_parameter("agent.learning_rate", [1e-3, 3e-4])  # a dotted config path
 experiment.add_parameter("seed", range(30))
 experiment.add_metric("loop/reward", ema=0.999, every=500)      # record, smoothed and thinned
 experiment.add_metric("critic_loss", every=100)
@@ -181,12 +181,12 @@ It reads vmappability off the config and recording off the experiment.
 ```python
 @chex_struct(frozen=True, kw_only=True)
 class DQNConfig:
-    LEARNING_RATE: float = traced(1e-3)
-    TRAIN_FREQUENCY: int = traced(1)
-    EPSILON_END: float = traced(0.05)
-    BUFFER_SIZE: int = 10_000        # sets array shapes: static
-    TOTAL_TIMESTEPS: int = 100_000   # scan length: static
-    NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
+    learning_rate: float = traced(1e-3)
+    train_frequency: int = traced(1)
+    epsilon_end: float = traced(0.05)
+    buffer_size: int = 10_000        # sets array shapes: static
+    total_timesteps: int = 100_000   # scan length: static
+    network_preset: Literal["mlp", "nature_cnn"] = "mlp"
 
     def build(self) -> DQNAgent:
         return DQNAgent(self)
@@ -209,28 +209,28 @@ helpers stay private to the runner.
 The spec's `config` is an ordinary config object: the experiment's defaults.
 Each parameter name is either:
 
-- a **dotted path** to a field, such as `agent.LEARNING_RATE` or `gamma`, whose
+- a **dotted path** to a field, such as `agent.learning_rate` or `gamma`, whose
   value replaces that field; or
 - a **choice**, a path listed in `choices`, such as `env`, whose value names
   which object goes there.
 
 ```python
 choices={
-    "agent": {"dqn": DQNConfig(), "qrc": QRCConfig(BETA=1.0)},
+    "agent": {"dqn": DQNConfig(), "qrc": QRCConfig(beta=1.0)},
     "env": {name: GymnaxConfig(name) for name in ENV_NAMES},
 }
 ```
 
-Choices are applied before paths, so `agent.LEARNING_RATE` sets the field on
+Choices are applied before paths, so `agent.learning_rate` sets the field on
 whichever agent `agent` picked. `seed` is the only reserved name. Values stay
 flat JSON scalars, so storage, hashing, `--only` filters and
 `research_analysis` keep working unchanged.
 
 Errors name what is wrong at sync time, before anything runs:
 
-- `agent.LEARNING_RTE`: "QRCConfig has no field LEARNING_RTE; fields are ...";
+- `agent.learning_rte`: "QRCConfig has no field learning_rte; fields are ...";
 - `env="Acrobat-v1"`: "'Acrobat-v1' is not a choice for env; choices are ...";
-- a value of the wrong type for its field: "agent.TRAIN_FREQUENCY expects int, got 2.5".
+- a value of the wrong type for its field: "agent.train_frequency expects int, got 2.5".
 
 This replaces `rl_config`, the `AGENTS`/`ENVS` registries,
 `make_algorithm_batch_trainer`, `make_env_factory` and `_config_kwargs`. A
@@ -351,7 +351,7 @@ class RLConfig:
 
 def rl_train(config: RLConfig, key):
     env, env_params = config.env.build()
-    return loop.run(config.agent.build(), env, key, steps=config.agent.TOTAL_TIMESTEPS,
+    return loop.run(config.agent.build(), env, key, steps=config.agent.total_timesteps,
                     gamma=config.gamma, env_params=env_params)
 ```
 
@@ -413,14 +413,14 @@ def train(config, key):
     return final, {**m, "returned_episode_returns": episode_return_curve(m)}
 
 experiment.add_parameter("env", ENV_NAMES)
-experiment.add_parameter("agent.LEARNING_RATE", learning_rates)  # traced on PPOConfig
+experiment.add_parameter("agent.learning_rate", learning_rates)  # traced on PPOConfig
 experiment.add_parameter("seed", SEED_VALUES)
 experiment.add_metric("returned_episode_returns", every=100)
 
 ExperimentSpec(
     experiment,
-    config=RLConfig(agent=PPOConfig(), env=GymnaxConfig(ENV_NAMES[0], NORMALIZED=True)),
-    choices={"env": {name: GymnaxConfig(name, NORMALIZED=True) for name in ENV_NAMES}},
+    config=RLConfig(agent=PPOConfig(), env=GymnaxConfig(ENV_NAMES[0], normalized=True)),
+    choices={"env": {name: GymnaxConfig(name, normalized=True) for name in ENV_NAMES}},
     train=train, max_runs_per_batch=32, ...)
 ```
 
@@ -458,13 +458,13 @@ After:
 
 ```python
 class DQNConfig:
-    LEARNING_STARTS: int = traced(1_000)
+    learning_starts: int = traced(1_000)
     ...
     def build(self) -> DQNAgent:
         return DQNAgent(self)
 
 class DQNAgent:
-    def step(self, state, timestep, t): ... t >= self.config.LEARNING_STARTS ...
+    def step(self, state, timestep, t): ... t >= self.config.learning_starts ...
 ```
 
 ### A project extra (actor-free-qrc)
@@ -492,7 +492,7 @@ After, a JAX function:
 def train(config, key):
     final, m = rl_train(config, key)
     score = m["loop/reward"][-SCORE_WINDOW:].mean()
-    threshold = CASES[config.env.NAME].pass_threshold   # static: read in Python at trace time
+    threshold = CASES[config.env.name].pass_threshold   # static: read in Python at trace time
     return final, {**m, "reward_last100": score, "passed": score >= threshold}
 
 experiment.add_metric("reward_last100")
@@ -547,10 +547,10 @@ needs a class.
 | --- | --- | --- | --- | --- |
 | learning-dynamics | algorithm dispatch | env `choices` + a `train` that emits the curve it declares | ~3 lines | its declared curve comes from core's PPO branch today; the spec now derives it. Two harness tests read the removed `HyperparamConfigRow.vmap_zone` |
 | generative-replay | algorithm dispatch | env `choices` + `rl_train` | ~15 lines | `scenario` becomes a field on `ProcessControlConfig`; `test_harness_contract.py` reads the removed `HyperparamConfigRow.vmap_zone` |
-| iterated-gtd | dispatch + `extra_specs` | agent `choices` including its GI-QRC configs | ~77 lines | `NUM_HEADS` and `ARCHITECTURE` stay static; drop the duplicate `sac_rc` name |
+| iterated-gtd | dispatch + `extra_specs` | agent `choices` including its GI-QRC configs | ~77 lines | `num_heads` and `architecture` stay static; drop the duplicate `sac_rc` name |
 | actor-free-qrc | dispatch + decorator trainers | a `train` that emits scores | ~180 lines | `plateau_scalars` is a Python loop over curves; it moves to analysis or becomes JAX |
 | process-control-baselines | dispatch wrapper, controller trainers, bare `run_batch` | `train` functions; evaluation rollouts run inside `train` after the loop and emit `eval/*` metrics | ~475 lines | its stored `telemetry` artifact becomes declared per-step metrics; controller rollouts are time-major, so emit time-first |
-| reversible-rank-rl | 6 custom trainers, bespoke loops | an `MRPConfig` with traced `LR_PRIMAL`, `ETA`, `LAMBDA_DUAL`, plus one `train` | ~490 lines | `lr_dual = lr_primal * eta` moves into `train`; window scalars become JAX; the lane tuner reads runner-recorded batch timing |
+| reversible-rank-rl | 6 custom trainers, bespoke loops | an `MRPConfig` with traced `lr_primal`, `eta`, `lambda_dual`, plus one `train` | ~490 lines | `lr_dual = lr_primal * eta` moves into `train`; window scalars become JAX; the lane tuner reads runner-recorded batch timing |
 | missingness-rl | fake `ExecutionContext` around the PPO trainer | a `train` with evaluation | ~800 lines | it writes `metrics.sqlite` itself today; its ragged per-episode curves become dense per-step metrics plus analysis; its four timing metrics become declared `runner/*` scalars, with `steps_per_second` and `wall_time_seconds` derived in its analysis |
 
 The work runs in five phases. Each phase is a series of small commits on
@@ -560,7 +560,7 @@ before any code is written.
 1. **Core, additive.** Add `traced` and the private config helpers (paths,
    choices, errors) with their tests. Add metric thinning. Mark `traced()` on
    each agent config, one commit per agent, matching today's `Hypers` field
-   sets. Keep `REWARD_SCALE` static, because PPO validates it in Python. Add
+   sets. Keep `reward_scale` static, because PPO validates it in Python. Add
    the env config dataclasses and `rl_agents.experiment`.
 2. **Core, the contract switch, in one bundled commit.** Give `ExperimentSpec`
    `config`, `choices` and `train` in place of `train_fn`, and make
@@ -579,7 +579,7 @@ before any code is written.
    one commit, so the superproject never pins a core that its projects cannot
    import.
 
-Parameter names change (`learning_rate` becomes `agent.LEARNING_RATE`), which
+Parameter names change (`learning_rate` becomes `agent.learning_rate`), which
 changes every hyperparameter-config hash. Completed studies keep their
 databases and stay readable through `research_analysis`. A migrated spec that
 is run again will re-plan its runs, as `docs/experiment-efficiency.md` warns
@@ -607,7 +607,7 @@ for phase 1, and all three are now settled.
 
 | Question | Decision |
 | --- | --- |
-| Parameter names | Dotted config paths (`agent.LEARNING_RATE`, `gamma`) plus named choices (`env`). Accept the re-hash: completed studies stay readable, and only specs that are re-run re-plan. |
+| Parameter names | Dotted config paths (`agent.learning_rate`, `gamma`) plus named choices (`env`). Accept the re-hash: completed studies stay readable, and only specs that are re-run re-plan. |
 | Config construction | A base config object plus `choices`. No core registries and no config-builder function. |
 | Metrics | Core names, selects and derives no metric. Emitters name their own; the experiment declares each recorded metric; undeclared metrics are dropped. Modelled on rl-control-template's `Collector`. |
 | Problem classes | None assumed. Continual, episodic and prediction problems use one path. PPO's `returned_episode_returns` branch is deleted. |
@@ -624,8 +624,8 @@ Settled in phase 1:
       including through `dataclasses.replace`
       (`tests/medium/test_research_runner_config_chex.py`), so agent configs
       stay `chex_struct` classes.
-- [x] Keep `SAC.TARGET_ENTROPY` static, because whether it is `None` must
-      agree across a batch. Trace `ALPHA` only.
+- [x] Keep `SAC.target_entropy` static, because whether it is `None` must
+      agree across a batch. Trace `alpha` only.
 - [x] Decide what `every=n` does when a run's length is not a multiple of `n`:
       keep the last partial step or drop it. `every=n` keeps steps 0, n, 2n,
       ... like ml_instrumentation's `Subsample`, so there is no partial block;
