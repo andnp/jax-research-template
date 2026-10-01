@@ -286,7 +286,7 @@ with an error naming both the missing key and the emitted keys. `every` or
 
 **Identity.** `every` and `ema` are recording choices, not part of the study:
 changing them does not re-plan runs, and neither do a metric's conditions. The
-execution manifest records the declarations applied to each batch and the
+execution's artifact metadata records the declarations applied to each batch and the
 values that produced each stored curve.
 
 This replaces `REPORTED_METRICS`, the metric projectors, the PPO override and
@@ -611,7 +611,7 @@ for phase 1, and all three are now settled.
 | Config construction | A base config object plus `choices`. No core registries and no config-builder function. |
 | Metrics | Core names, selects and derives no metric. Emitters name their own; the experiment declares each recorded metric; undeclared metrics are dropped. Modelled on rl-control-template's `Collector`. |
 | Problem classes | None assumed. Continual, episodic and prediction problems use one path. PPO's `returned_episode_returns` branch is deleted. |
-| Metric sampling | Two keywords, `ema` then `every`, applied inside `jit(vmap(...))`. Not part of study identity; the manifest records them. |
+| Metric sampling | Two keywords, `ema` then `every`, applied inside `jit(vmap(...))`. Not part of study identity; the execution's artifact metadata records them. |
 | Spec shape | `ExperimentSpec(experiment, config, choices, train)`. `train` returns `(state, metrics)` like `loop.run`; the runner discards the state on device. No `run` function, no `Results` type, no artifact hook. |
 | Where `traced()` lives | `research_runner.config`. |
 | Migration scope | All seven projects, in one migration. The old layer is deleted at the end. |

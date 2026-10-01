@@ -155,7 +155,7 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    ```bash
    uv run research experiment run sweep.py --spec my_sweep
    ```
-   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists the declared metrics to `metrics.sqlite` and each batch's manifest under the execution root.
+   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists the declared metrics to `metrics.sqlite` and each batch's runtime and sampling metadata to its `ExecutionArtifacts` row.
 
    A single-process run caps XLA's CPU thread pool with the `NPROC` environment variable, e.g. `NPROC=4 uv run research experiment run sweep.py --spec my_sweep`. `XLA_FLAGS` thread-count settings and `OMP_NUM_THREADS`/`MKL_NUM_THREADS` do not cap it. With JAX 0.11.1, a jitted matmul scan used 6.45 cores unset, 1.00 with `NPROC=1`, and 3.83 with `NPROC=4`.
 
