@@ -97,7 +97,6 @@ def execution_columns(alias: str = "") -> str:
 class ExecutionArtifactRow(_Record):
     execution_id: int
     root_path: str
-    manifest_path: str | None
     metadata_json: str | None
     created_at: str
 

@@ -360,7 +360,6 @@ def test_record_execution_artifacts_round_trip(db: DatabaseManager) -> None:
     db.record_execution_artifacts(
         execution_id,
         "/tmp/executions/1",
-        manifest_path="/tmp/executions/1/manifest.json",
         metadata={"cohort": "seed-0-3"},
     )
 
@@ -368,7 +367,6 @@ def test_record_execution_artifacts_round_trip(db: DatabaseManager) -> None:
 
     assert artifact is not None
     assert artifact.root_path == "/tmp/executions/1"
-    assert artifact.manifest_path == "/tmp/executions/1/manifest.json"
     assert artifact.metadata_json == '{"cohort": "seed-0-3"}'
 
 
@@ -386,7 +384,6 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
     db.record_execution_artifacts(
         execution_id,
         "/tmp/executions/new",
-        manifest_path="/tmp/executions/new/manifest.json",
         metadata={"trained": True},
     )
 
@@ -394,7 +391,6 @@ def test_record_execution_artifacts_updates_existing_row(db: DatabaseManager) ->
 
     assert artifact is not None
     assert artifact.root_path == "/tmp/executions/new"
-    assert artifact.manifest_path == "/tmp/executions/new/manifest.json"
     assert json.loads(artifact.metadata_json or "{}") == {
         "static_config_json": "{}",
         "trained": True,
@@ -868,12 +864,10 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
 
     assert len(planned) == 1
     assert planned[0].root_path.endswith(f"/{planned[0].execution_id}")
-    assert planned[0].manifest_path.endswith(f"/{planned[0].execution_id}/manifest.json")
 
     artifacts = db.get_execution_artifacts(planned[0].execution_id)
     assert artifacts is not None
     assert artifacts.root_path == planned[0].root_path
-    assert artifacts.manifest_path == planned[0].manifest_path
     assert [run.id for run in db.list_execution_runs(planned[0].execution_id)] == [1, 2]
 
     assert db.plan_experiment_execution_batches(exp_id, "/tmp/experiment-executions") == []

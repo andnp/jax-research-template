@@ -447,12 +447,11 @@ class DatabaseManager:
         execution_id: int,
         root_path: str,
         *,
-        manifest_path: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
         """Create or update canonical artifact linkage for an execution."""
         with self.conn:
-            _execution.record_execution_artifacts(self.conn, execution_id, root_path, manifest_path, metadata)
+            _execution.record_execution_artifacts(self.conn, execution_id, root_path, metadata)
 
     def get_execution_artifacts(self, execution_id: int) -> ExecutionArtifactRow | None:
         """Fetch canonical artifact linkage for an execution."""

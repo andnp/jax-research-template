@@ -132,15 +132,13 @@ def plan_batch_with_artifacts(
 ) -> PlannedExecution:
     execution_id = _plan_execution(conn, batch.run_ids, git_commit, git_diff_blob, owner)
     root_path = str(Path(artifacts_root) / str(execution_id))
-    manifest_path = str(Path(root_path) / "manifest.json")
     _execution.record_execution_artifacts(
         conn,
         execution_id,
         root_path,
-        manifest_path,
         {
             "static_config_json": _json_stable(batch.static_config),
             "vmap_zone_json": _json_stable(batch.vmap_zone) if batch.vmap_zone is not None else None,
         },
     )
-    return PlannedExecution(execution_id, batch.run_ids, root_path, manifest_path, batch.static_config, batch.vmap_zone)
+    return PlannedExecution(execution_id, batch.run_ids, root_path, batch.static_config, batch.vmap_zone)

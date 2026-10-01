@@ -32,6 +32,5 @@ class PlannedExecution(NamedTuple):
     execution_id: int
     run_ids: list[int]
     root_path: str
-    manifest_path: str
     static_config: Mapping[str, ParameterValue]
     vmap_zone: Mapping[str, list[str]] | None

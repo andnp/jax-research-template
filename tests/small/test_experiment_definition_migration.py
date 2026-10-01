@@ -66,3 +66,26 @@ def test_executions_gain_an_owner_column_on_initialize(tmp_path: Path) -> None:
 
     assert execution is not None
     assert (execution.hostname, execution.owner) == ("legacy-host", None)
+
+
+def test_database_with_a_manifest_path_column_still_records_artifacts(tmp_path: Path) -> None:
+    """Databases written while artifacts had a manifest path keep their column, which is no longer read or written."""
+    db_path = tmp_path / "experiments.sqlite"
+    with sqlite3.connect(db_path) as con:
+        con.execute(
+            "CREATE TABLE ExecutionArtifacts (execution_id INTEGER PRIMARY KEY, root_path TEXT NOT NULL, "
+            "manifest_path TEXT, metadata_json TEXT, "
+            "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))"
+        )
+        con.execute("INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path) VALUES (1, '/old', '/old/manifest.json')")
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        assert database.add_execution() == 1
+        before = database.get_execution_artifacts(1)
+        database.record_execution_artifacts(1, "/new", metadata={"metrics_db_path": "m.sqlite"})
+        after = database.get_execution_artifacts(1)
+
+    assert before is not None and before.root_path == "/old"
+    assert after is not None and after.root_path == "/new"
+    assert after.metadata_json == '{"metrics_db_path": "m.sqlite"}'

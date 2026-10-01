@@ -110,7 +110,6 @@ CREATE_EXECUTION_ARTIFACTS = """
 CREATE TABLE IF NOT EXISTS ExecutionArtifacts (
     execution_id   INTEGER PRIMARY KEY REFERENCES Executions(id),
     root_path      TEXT    NOT NULL,
-    manifest_path  TEXT,
     metadata_json  TEXT,
     created_at     TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

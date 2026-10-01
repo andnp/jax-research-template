@@ -49,7 +49,7 @@ def test_execution_statuses_complete() -> None:
         (CREATE_RUNS, ["Runs", "algo_version_id", "env_version_id", "hyper_id", "seed", "ablation", "UNIQUE("]),
         (CREATE_EXECUTIONS, ["Executions", "PENDING", "RUNNING", "COMPLETED", "FAILED", "INVALID", "jax_config_json", "git_commit", "git_diff_blob"]),
         (CREATE_EXECUTION_RUNS, ["ExecutionRuns", "execution_id", "run_id", "PRIMARY KEY"]),
-        (CREATE_EXECUTION_ARTIFACTS, ["ExecutionArtifacts", "execution_id", "root_path", "manifest_path", "metadata_json"]),
+        (CREATE_EXECUTION_ARTIFACTS, ["ExecutionArtifacts", "execution_id", "root_path", "metadata_json"]),
         (CREATE_LATEST_VERSIONS_VIEW, ["ComponentLatestVersions", "MAX(version_number)", "GROUP BY component_id"]),
     ],
 )

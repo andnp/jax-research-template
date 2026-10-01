@@ -55,7 +55,6 @@ def record_execution_artifacts(
     conn: sqlite3.Connection,
     execution_id: int,
     root_path: str,
-    manifest_path: str | None,
     metadata: dict[str, object] | None,
 ) -> None:
     existing = conn.execute(
@@ -72,19 +71,18 @@ def record_execution_artifacts(
         merged_metadata.update(metadata)
     metadata_json = json.dumps(merged_metadata, sort_keys=True) if merged_metadata else None
     conn.execute(
-        "INSERT INTO ExecutionArtifacts(execution_id, root_path, manifest_path, metadata_json) "
-        "VALUES (?, ?, ?, ?) "
+        "INSERT INTO ExecutionArtifacts(execution_id, root_path, metadata_json) "
+        "VALUES (?, ?, ?) "
         "ON CONFLICT(execution_id) DO UPDATE SET "
         "root_path = excluded.root_path, "
-        "manifest_path = excluded.manifest_path, "
         "metadata_json = excluded.metadata_json",
-        (execution_id, root_path, manifest_path, metadata_json),
+        (execution_id, root_path, metadata_json),
     )
 
 
 def get_execution_artifacts(conn: sqlite3.Connection, execution_id: int) -> ExecutionArtifactRow | None:
     row = conn.execute(
-        "SELECT execution_id, root_path, manifest_path, metadata_json, created_at "
+        "SELECT execution_id, root_path, metadata_json, created_at "
         "FROM ExecutionArtifacts WHERE execution_id = ?",
         (execution_id,),
     ).fetchone()

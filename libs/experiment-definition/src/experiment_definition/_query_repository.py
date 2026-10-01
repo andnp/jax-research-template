@@ -153,7 +153,6 @@ def get_planned_execution(conn: sqlite3.Connection, execution_id: int) -> Planne
         execution_id=execution_id,
         run_ids=run_ids,
         root_path=artifacts.root_path,
-        manifest_path=artifacts.manifest_path or "",
         static_config=json.loads(metadata.get("static_config_json", "{}")),
         vmap_zone=json.loads(vmap_zone_json) if vmap_zone_json is not None else None,
     )
