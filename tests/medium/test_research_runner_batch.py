@@ -112,3 +112,22 @@ def test_a_per_step_metric_is_smoothed_before_it_is_thinned() -> None:
 def test_a_per_run_value_takes_no_sampling(every: int, ema: float | None) -> None:
     with pytest.raises(ValueError, match="'count' is one value per run"):
         _run_batch(_train, _declared("count", every=every, ema=ema), [_Toy()], [0])
+
+
+def test_declared_runner_timings_are_returned_as_batch_scalars() -> None:
+    outputs = _run_batch(_train, _metrics("count", "runner/compile_seconds", "runner/execute_seconds"), [_Toy(), _Toy()], [0, 1])
+
+    assert outputs["runner/compile_seconds"].shape == ()
+    assert outputs["runner/compile_seconds"] > 0
+    assert outputs["runner/execute_seconds"] > 0
+
+
+def test_undeclared_runner_timings_are_dropped() -> None:
+    outputs = _run_batch(_train, _metrics("count", "runner/execute_seconds"), [_Toy()], [0])
+
+    assert set(outputs) == {"count", "runner/execute_seconds"}
+
+
+def test_an_unknown_runner_metric_is_not_emitted() -> None:
+    with pytest.raises(ValueError, match="'runner/steps_per_second' is declared but not emitted"):
+        _run_batch(_train, _metrics("runner/steps_per_second"), [_Toy()], [0])
