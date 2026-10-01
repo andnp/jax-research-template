@@ -65,6 +65,7 @@ def sync_to_db(
             for ddl in ALL_DDL:
                 con.execute(ddl)
             _migrate_run_vmap_zone(con)
+            _migrate_execution_owner(con)
             cur = con.cursor()
 
             # ── Experiment row ────────────────────────────────────────────────
@@ -100,6 +101,13 @@ def _migrate_run_vmap_zone(conn: sqlite3.Connection) -> None:
         "UPDATE Runs SET vmap_zone_json = "
         "(SELECT hc.vmap_zone_json FROM HyperparamConfigs hc WHERE hc.id = Runs.hyper_id)"
     )
+
+
+def _migrate_execution_owner(conn: sqlite3.Connection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(Executions)")}
+    if "owner" in columns:
+        return
+    conn.execute("ALTER TABLE Executions ADD COLUMN owner TEXT")
 
 
 # ── Config generation ─────────────────────────────────────────────────────────
@@ -228,6 +236,7 @@ class DatabaseManager:
             for ddl in ALL_DDL:
                 self.conn.execute(ddl)
             _migrate_run_vmap_zone(self.conn)
+            _migrate_execution_owner(self.conn)
             self.conn.commit()
         except Exception:
             self.conn.rollback()

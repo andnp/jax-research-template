@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
-from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row
+from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row, execution_columns
 from .status import TRANSITIONS, ExecutionStatus
 
 # The planned batch's identity; the dead-worker sweep and resume read these back.
@@ -48,8 +48,7 @@ def record_execution_git_metadata(
 
 def get_execution(conn: sqlite3.Connection, execution_id: int) -> ExecutionRow | None:
     row = conn.execute(
-        "SELECT id, status, hostname, start_time, end_time, git_commit, git_diff_blob, jax_config_json "
-        "FROM Executions WHERE id = ?",
+        f"SELECT {execution_columns()} FROM Executions WHERE id = ?",
         (execution_id,),
     ).fetchone()
     return _record_from_row(ExecutionRow, row) if row else None

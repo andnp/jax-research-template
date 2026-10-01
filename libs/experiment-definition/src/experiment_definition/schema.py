@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS Executions (
     end_time        TEXT,
     git_commit      TEXT,
     git_diff_blob   TEXT,
-    jax_config_json TEXT
+    jax_config_json TEXT,
+    owner           TEXT
 );
 """
 

@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from . import _definition_repository as _definition
 from . import _execution_repository as _execution
 from ._types import PlannedExecution
-from .records import ExecutionRow, RunRow, _record_from_row, _run_matches
+from .records import ExecutionRow, RunRow, _record_from_row, _run_matches, execution_columns
 from .status import FINISHED, ExecutionStatus, sql_in
 
 
@@ -30,7 +30,7 @@ def get_latest_completed_execution_for_run(
     run_id: int,
 ) -> ExecutionRow | None:
     row = conn.execute(
-        "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, e.git_commit, e.git_diff_blob, e.jax_config_json "
+        f"SELECT {execution_columns('e')} "
         "FROM Executions e "
         "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
         f"WHERE er.run_id = ? AND e.status = '{ExecutionStatus.COMPLETED}' "
@@ -75,8 +75,7 @@ def find_finished_execution_ids_by_commit(conn: sqlite3.Connection, git_commit: 
 
 def find_executions_for_experiment(conn: sqlite3.Connection, experiment_id: int) -> list[ExecutionRow]:
     rows = conn.execute(
-        "SELECT DISTINCT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-        "e.git_commit, e.git_diff_blob, e.jax_config_json "
+        f"SELECT DISTINCT {execution_columns('e')} "
         "FROM Executions e "
         "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
         "INNER JOIN Runs r ON r.id = er.run_id "
@@ -132,8 +131,7 @@ def list_executions(
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = conn.execute(
-        "SELECT e.id, e.status, e.hostname, e.start_time, e.end_time, "
-        "e.git_commit, e.git_diff_blob, e.jax_config_json "
+        f"SELECT {execution_columns('e')} "
         f"FROM Executions e{where} ORDER BY e.id DESC",
         params,
     ).fetchall()

@@ -85,6 +85,13 @@ class ExecutionRow(_Record):
     git_commit: str | None
     git_diff_blob: str | None
     jax_config_json: str | None
+    owner: str | None
+
+
+def execution_columns(alias: str = "") -> str:
+    """The SELECT list that fills an ``ExecutionRow``, optionally qualified by a table alias."""
+    prefix = f"{alias}." if alias else ""
+    return ", ".join(f"{prefix}{field}" for field in ExecutionRow.model_fields)
 
 
 class ExecutionArtifactRow(_Record):

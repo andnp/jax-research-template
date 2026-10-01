@@ -47,3 +47,22 @@ def test_legacy_database_keeps_its_batches_after_upgrade(tmp_path: Path) -> None
 
     assert zones == {_ZONE_JSON}
     assert [(batch.static_config, len(batch.run_ids)) for batch in batches] == [({"arch": "mlp"}, 2)]
+
+
+def test_executions_gain_an_owner_column_on_initialize(tmp_path: Path) -> None:
+    """A database written before ownership gets a NULL owner on its executions, and re-initializing is harmless."""
+    db_path = tmp_path / "experiments.sqlite"
+    with sqlite3.connect(db_path) as con:
+        con.execute(
+            "CREATE TABLE Executions (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT NOT NULL DEFAULT 'PENDING', "
+            "hostname TEXT, start_time TEXT, end_time TEXT, git_commit TEXT, git_diff_blob TEXT, jax_config_json TEXT)"
+        )
+        con.execute("INSERT INTO Executions(hostname) VALUES ('legacy-host')")
+
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        database.initialize()
+        execution = database.get_execution(1)
+
+    assert execution is not None
+    assert (execution.hostname, execution.owner) == ("legacy-host", None)
