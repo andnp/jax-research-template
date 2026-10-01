@@ -27,7 +27,7 @@ _CASES = [
     pytest.param(DQNConfig, _REPLAY, _CARTPOLE, id="dqn"),
     pytest.param(DoubleDQNConfig, _REPLAY, _CARTPOLE, id="double-dqn"),
     pytest.param(DuelingDQNConfig, _REPLAY, _CARTPOLE, id="dueling-dqn"),
-    pytest.param(QRCConfig, {**_REPLAY, "HIDDEN_WIDTH": 8}, _CARTPOLE, id="qrc"),
+    pytest.param(QRCConfig, {**_REPLAY, "hidden_width": 8}, _CARTPOLE, id="qrc"),
     pytest.param(
         GACConfig,
         {**_REPLAY, "NUM_SAMPLES": 2, "NUM_RAND_ACTIONS": 1, "HIDDEN_SIZE": 8},

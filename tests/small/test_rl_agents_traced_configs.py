@@ -22,7 +22,7 @@ _EXPECTED_TRACED = [
     pytest.param(DuelingDQNConfig, _REPLAY_Q, id="dueling-dqn"),
     pytest.param(
         QRCConfig,
-        {"BETA", "epsilon_end", "epsilon_fraction", "epsilon_start", "learning_rate", "learning_starts", "TRAIN_FREQUENCY"},
+        {"beta", "epsilon_end", "epsilon_fraction", "epsilon_start", "learning_rate", "learning_starts", "train_frequency"},
         id="qrc",
     ),
     pytest.param(

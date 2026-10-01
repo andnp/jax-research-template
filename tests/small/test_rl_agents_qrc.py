@@ -14,22 +14,22 @@ class TestQRCConfig:
         assert cfg.batch_size == 64
         assert cfg.epsilon_start == 1.0
         assert cfg.epsilon_end == 0.05
-        assert cfg.BETA == 1.0
-        assert cfg.HIDDEN_WIDTH == 64
-        assert cfg.H_REGULARIZATION == "adamw"
+        assert cfg.beta == 1.0
+        assert cfg.hidden_width == 64
+        assert cfg.h_regularization == "adamw"
 
     def test_custom_config(self) -> None:
-        cfg = QRCConfig(learning_rate=1e-3, buffer_size=1000, ENV_NAME="Acrobot-v1", BETA=0.5)
+        cfg = QRCConfig(learning_rate=1e-3, buffer_size=1000, env_name="Acrobot-v1", beta=0.5)
         assert cfg.learning_rate == 1e-3
         assert cfg.buffer_size == 1000
-        assert cfg.ENV_NAME == "Acrobot-v1"
-        assert cfg.BETA == 0.5
+        assert cfg.env_name == "Acrobot-v1"
+        assert cfg.beta == 0.5
 
     def test_no_target_network_knobs(self) -> None:
         """QRC has no target network, so it must not carry those DQN-only knobs."""
         cfg = QRCConfig()
-        assert not hasattr(cfg, "TARGET_NETWORK_FREQUENCY")
-        assert not hasattr(cfg, "TAU")
+        assert not hasattr(cfg, "target_network_frequency")
+        assert not hasattr(cfg, "tau")
 
 
 class TestQRCNetwork:

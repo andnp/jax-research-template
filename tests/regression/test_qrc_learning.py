@@ -46,7 +46,7 @@ reduction and do not transfer to another one.
 
 
 def _cartpole_return(config: QRCConfig) -> jax.Array:
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = QRCAgent(config)
 
@@ -54,7 +54,7 @@ def _cartpole_return(config: QRCConfig) -> jax.Array:
         return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(train_fn)
-    _, metrics = train_jit(jax.random.PRNGKey(config.SEED))
+    _, metrics = train_jit(jax.random.PRNGKey(config.seed))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return on
     # the boundary step and zero everywhere else, so it must be masked, not averaged.
@@ -65,7 +65,7 @@ def _cartpole_return(config: QRCConfig) -> jax.Array:
 
 
 def test_qrc_cartpole_learns() -> None:
-    config = QRCConfig(ENV_NAME="CartPole-v1", total_timesteps=50_000)
+    config = QRCConfig(env_name="CartPole-v1", total_timesteps=50_000)
     final_return = _cartpole_return(config)
     print(f"Final mean return: {final_return}")
     assert final_return > 100, f"QRC failed to learn CartPole. Return: {final_return}"
@@ -73,8 +73,8 @@ def test_qrc_cartpole_learns() -> None:
 
 def _acrobot_seed_means(style: HRegularization) -> np.ndarray:
     """Mean of each seed's last ``FLOOR_EPISODES`` completed episode returns."""
-    config = QRCConfig(ENV_NAME="Acrobot-v1", total_timesteps=50_000, H_REGULARIZATION=style)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    config = QRCConfig(env_name="Acrobot-v1", total_timesteps=50_000, h_regularization=style)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = QRCAgent(config)
 
@@ -82,7 +82,7 @@ def _acrobot_seed_means(style: HRegularization) -> np.ndarray:
         return run(agent, env, key, steps=config.total_timesteps, gamma=GAMMA, env_params=env_params)
 
     train_jit = jax.jit(jax.vmap(train_fn))
-    _, metrics = train_jit(jax.random.split(jax.random.key(config.SEED), FLOOR_SEEDS))
+    _, metrics = train_jit(jax.random.split(jax.random.key(config.seed), FLOOR_SEEDS))
 
     returns = np.asarray(metrics["loop/episode_return"])
     ends = np.asarray(metrics["loop/episode_end"]).astype(bool)

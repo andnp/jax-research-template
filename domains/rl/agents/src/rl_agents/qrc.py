@@ -17,7 +17,7 @@ Two design decisions carried over from the reference implementation:
 
 That second decision is why :class:`QRCAgent` cannot be a
 :class:`rl_agents.replay_q_agent.ReplayQAgent`, despite being a discrete-action
-replay agent with an epsilon schedule: it has no ``TAU``, no target-network
+replay agent with an epsilon schedule: it has no ``tau``, no target-network
 frequency and no ``target_params``, and its loss needs the current ``epsilon``,
 which no target rule in that family takes. It also has no eligibility trace to
 reset at an episode boundary -- the ``h``-head is an ordinary ``nn.Dense``
@@ -63,7 +63,7 @@ type QRCApplyFn = Callable[..., tuple[jax.Array, jax.Array]]
 """``QRCNetwork.apply``, as reached through ``TrainState.apply_fn``."""
 
 type HRegularization = Literal["adamw", "l2"]
-"""How the h-head's ``BETA`` regularises: decoupled AdamW weight decay (matches the
+"""How the h-head's ``beta`` regularises: decoupled AdamW weight decay (matches the
 reference) or an L2 term added directly to the loss (this project's prior behaviour,
 which a prior run reported outperforming AdamW for QRC's h-head)."""
 
@@ -75,15 +75,15 @@ class QRCConfig:
     batch_size: int = 64
     total_timesteps: int = 200_000
     learning_starts: int = traced(1_000)
-    TRAIN_FREQUENCY: int = traced(1)
+    train_frequency: int = traced(1)
     epsilon_start: float = traced(1.0)
     epsilon_end: float = traced(0.05)
     epsilon_fraction: float = traced(0.5)
-    BETA: float = traced(1.0)
-    H_REGULARIZATION: HRegularization = "adamw"
-    HIDDEN_WIDTH: int = 64
-    ENV_NAME: str = "CartPole-v1"
-    SEED: int = 42
+    beta: float = traced(1.0)
+    h_regularization: HRegularization = "adamw"
+    hidden_width: int = 64
+    env_name: str = "CartPole-v1"
+    seed: int = 42
 
     def build(self) -> QRCAgent:
         return QRCAgent(self)
@@ -115,12 +115,12 @@ def qrc_hypers(config: QRCConfig) -> QRCHypers:
     return QRCHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
         EPSILON_START=jnp.asarray(config.epsilon_start, jnp.float32),
         EPSILON_END=jnp.asarray(config.epsilon_end, jnp.float32),
         EPSILON_FRACTION=jnp.asarray(config.epsilon_fraction, jnp.float32),
         TOTAL_TIMESTEPS=jnp.asarray(config.total_timesteps, jnp.float32),
-        BETA=jnp.asarray(config.BETA, jnp.float32),
+        BETA=jnp.asarray(config.beta, jnp.float32),
     )
 
 
@@ -247,7 +247,7 @@ def qrc_loss_batch(
     Regularising the h-head (Ghiassian et al. 2020, §3.2) is normally the
     caller's optimizer's job, not this loss's: with ``h_regularization="adamw"``,
     ``h_head`` params get decoupled weight decay via their own ``optax.adamw``
-    (see ``_make_tx``/``BETA``), not an L2 term added in here -- an in-loss L2
+    (see ``_make_tx``/``beta``), not an L2 term added in here -- an in-loss L2
     term would have its gradient rescaled per-parameter by Adam's
     ``1/sqrt(v_hat)``, which is not the same regulariser as AdamW's decoupled
     decay. ``h_regularization="l2"`` adds that L2 term directly instead, using
@@ -321,7 +321,7 @@ class QRCAgent:
         observation_shape = tuple(spec.observation_shape)
         observation_dtype = jnp.dtype(spec.observation_dtype)
         action_dtype = jnp.dtype(spec.action_dtype)
-        network = QRCNetwork(spec.num_actions, hidden_width=self.config.HIDDEN_WIDTH)
+        network = QRCNetwork(spec.num_actions, hidden_width=self.config.hidden_width)
 
         params_key, carry_key = jax.random.split(key)
         buffer = ReplayBuffer(
@@ -333,14 +333,14 @@ class QRCAgent:
         )
 
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
-        h_regularization = self.config.H_REGULARIZATION
+        h_regularization = self.config.h_regularization
 
         def make_tx(learning_rate: jax.Array | float, weight_decay: jax.Array | float) -> optax.GradientTransformation:
             return _make_tx(params, learning_rate, weight_decay, h_regularization)
 
         tx = optax.inject_hyperparams(make_tx)(
             learning_rate=jnp.asarray(self.config.learning_rate, jnp.float32),
-            weight_decay=jnp.asarray(self.config.BETA, jnp.float32),
+            weight_decay=jnp.asarray(self.config.beta, jnp.float32),
         )
 
         return init_replay_agent_state(
@@ -463,7 +463,7 @@ class QRCAgent:
                 discounts,
                 epsilon,
                 apply_fn=train_state.apply_fn,
-                h_regularization=self.config.H_REGULARIZATION,
+                h_regularization=self.config.h_regularization,
                 beta=hypers.BETA,
             )
 
