@@ -192,12 +192,7 @@ class TestExecuteBatch:
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
-        root = execute_batch(
-            db_path,
-            planned,
-            _trivial_train_fn,
-            capture_git=False,
-        )
+        root = execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train_fn, db_path), capture_git=False)
 
         assert root == Path(planned.root_path)
         assert (root / "manifest.json").exists()
@@ -219,12 +214,7 @@ class TestExecuteBatch:
             raise RuntimeError("Training exploded")
 
         with pytest.raises(RuntimeError, match="Training exploded"):
-            execute_batch(
-                db_path,
-                planned,
-                _failing_train_fn,
-                capture_git=False,
-            )
+            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train_fn, db_path), capture_git=False)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -240,12 +230,7 @@ class TestExecuteBatch:
         planned = planned._replace(static_config={"missing": "value"})
 
         with pytest.raises(ValueError, match="static parameter"):
-            execute_batch(
-                db_path,
-                planned,
-                _trivial_train_fn,
-                capture_git=False,
-            )
+            execute_batch(db_path, planned, _spec(_make_experiment(), _trivial_train_fn, db_path), capture_git=False)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -266,12 +251,7 @@ class TestExecuteBatch:
             return ExecutionResult()
 
         with pytest.raises(ValueError, match="FAILED -> COMPLETED"):
-            execute_batch(
-                db_path,
-                planned,
-                _failing_train_fn,
-                capture_git=False,
-            )
+            execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train_fn, db_path), capture_git=False)
 
 
 

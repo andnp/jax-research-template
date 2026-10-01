@@ -1,12 +1,29 @@
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
 from research_runner.runner import execute_batch
-from research_runner.types import ExecutionContext, ExecutionResult
+from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+
+
+def _spec(
+    experiment: Experiment,
+    train: Callable[[ExecutionContext], ExecutionResult],
+    results_root: Path,
+    *,
+    metric_subsample_factor: int = 1,
+) -> ExperimentSpec:
+    return ExperimentSpec(
+        experiment=experiment,
+        train_fn=train,
+        results_root=results_root,
+        metric_subsample_factor=metric_subsample_factor,
+        capture_git=False,
+    )
 
 
 def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
@@ -33,14 +50,7 @@ def test_execute_batch_persists_result_curves(tmp_path: Path) -> None:
             metric_curves={"reward": ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0))}
         )
 
-    execute_batch(
-        database_path,
-        planned,
-        train,
-        metrics_db_path=metrics_path,
-        capture_git=False,
-        metric_subsample_factor=2,
-    )
+    execute_batch(database_path, planned, _spec(experiment, train, tmp_path, metric_subsample_factor=2), capture_git=False)
 
     with sqlite3.connect(metrics_path) as connection:
         rows = connection.execute(
@@ -76,7 +86,7 @@ def test_execute_batch_persists_result_scalars(tmp_path: Path) -> None:
             execution_scalars={"batch_score": 1.875},
         )
 
-    execute_batch(database_path, planned, train, metrics_db_path=metrics_path, capture_git=False)
+    execute_batch(database_path, planned, _spec(experiment, train, tmp_path), capture_git=False)
 
     with sqlite3.connect(metrics_path) as connection:
         rows = connection.execute(
@@ -109,7 +119,7 @@ def test_execute_batch_completes_diverged_curves(tmp_path: Path) -> None:
     def train(context: ExecutionContext) -> ExecutionResult:
         return ExecutionResult(metric_curves={"reward": ((1.0, float("nan")),)})
 
-    execute_batch(database_path, planned, train, metrics_db_path=tmp_path / "metrics.sqlite", capture_git=False)
+    execute_batch(database_path, planned, _spec(experiment, train, tmp_path), capture_git=False)
 
     with DatabaseManager(database_path) as database:
         execution = database.get_execution(planned.execution_id)
@@ -140,7 +150,7 @@ def test_execute_batch_persists_result_artifacts(tmp_path: Path) -> None:
         assert len(context.points) == 1
         return ExecutionResult(artifacts={"summary": {"value": 3}})
 
-    execute_batch(database_path, planned, train, capture_git=False)
+    execute_batch(database_path, planned, _spec(experiment, train, tmp_path), capture_git=False)
 
     manifest = json.loads(Path(planned.manifest_path).read_text(encoding="utf-8"))
     assert manifest["metadata"]["artifacts"]["summary"].startswith("research://")
@@ -164,7 +174,7 @@ def test_execute_batch_records_runtime_telemetry(tmp_path: Path, monkeypatch: py
         planned = database.plan_next_execution_batch(experiment_row.id, tmp_path / "executions")
         assert planned is not None
 
-    execute_batch(database_path, planned, lambda context: ExecutionResult(), capture_git=False)
+    execute_batch(database_path, planned, _spec(experiment, lambda context: ExecutionResult(), tmp_path), capture_git=False)
 
     with DatabaseManager(database_path) as database:
         artifacts = database.get_execution_artifacts(planned.execution_id)

@@ -546,10 +546,8 @@ def execute_batch_cmd(
     root = execute_batch(
         db_path,
         planned,
-        experiment_spec.train_fn,
-        metrics_db_path=experiment_spec.metrics_db_path,
+        experiment_spec,
         capture_git=experiment_spec.capture_git,
-        metric_subsample_factor=experiment_spec.metric_subsample_factor,
     )
     typer.echo(f"Execution {execution_id} completed: {root}")
 

@@ -72,10 +72,8 @@ def run_experiment(
         root = execute_batch(
             db_path,
             planned,
-            spec.train_fn,
-            metrics_db_path=spec.metrics_db_path,
+            spec,
             capture_git=False,
-            metric_subsample_factor=spec.metric_subsample_factor,
         )
         execution_roots.append(root)
         if on_batch_complete is not None:
@@ -87,11 +85,9 @@ def run_experiment(
 def execute_batch(
     db_path: Path,
     planned: PlannedExecution,
-    train_fn: Callable[[ExecutionContext], ExecutionResult],
+    spec: ExperimentSpec,
     *,
-    metrics_db_path: Path | None = None,
     capture_git: bool = True,
-    metric_subsample_factor: int = 1,
 ):
     try:
         with DatabaseManager(db_path) as database:
@@ -102,7 +98,7 @@ def execute_batch(
             experiment_row = _resolve_experiment(database, runs)
             static_config = planned.static_config
             points = _resolve_points(database, runs, static_config)
-            resolved_metrics_db = metrics_db_path or db_path.parent / "metrics.sqlite"
+            resolved_metrics_db = spec.metrics_db_path
 
             if capture_git:
                 git_commit, git_diff = capture_git_metadata()
@@ -132,8 +128,8 @@ def execute_batch(
     try:
         execution_root.mkdir(parents=True, exist_ok=True)
         started = time.perf_counter()
-        result = train_fn(context)
-        _write_metrics(context, result, metric_subsample_factor)
+        result = spec.train_fn(context)
+        _write_metrics(context, result, spec.metric_subsample_factor)
         artifact_uris = _write_artifacts(context, result)
         metadata: dict[str, object] = {"runtime": _runtime_telemetry(len(points), time.perf_counter() - started)}
         if artifact_uris:
