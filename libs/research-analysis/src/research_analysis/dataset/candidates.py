@@ -47,7 +47,6 @@ def _resolve_artifact(artifact: ExecutionArtifactRow | None) -> ResolvedArtifact
     return ResolvedArtifacts(
         reference=RunArtifacts(
             root_path=Path(artifact.root_path),
-            manifest_path=Path(artifact.manifest_path) if artifact.manifest_path is not None else None,
             metadata=metadata_values,
         ),
         metrics_db_path=Path(metadata.metrics_db_path),

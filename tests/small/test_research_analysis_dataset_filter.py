@@ -52,7 +52,7 @@ def _dataset() -> ExperimentDataset:
         metrics,
         (ComponentVersionProvenance(1, "ppo", "ALGO", 7, 1, "abc123"),),
         artifacts={
-            (run_id, execution_id): RunArtifacts(Path(f"/runs/{run_id}"), None, {}) for _, _, run_id, execution_id in _RUNS
+            (run_id, execution_id): RunArtifacts(Path(f"/runs/{run_id}"), {}) for _, _, run_id, execution_id in _RUNS
         },
         diagnostics=(DatasetDiagnostic(DiagnosticCode.RUN_FAILED, "run 4 failed", 4, 12),),
         accounting=RunAccounting(cells=(CellAccounting((("condition_name", "b"),), 3, 2, 1, 0, {}, {}),)),

@@ -125,7 +125,6 @@ class RunArtifacts:
     """Artifact location and metadata recorded for one completed run."""
 
     root_path: Path
-    manifest_path: Path | None
     metadata: Mapping[str, object]
 
 
