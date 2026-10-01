@@ -516,16 +516,13 @@ class DatabaseManager:
         artifacts_root: str | Path,
         *,
         max_runs_per_batch: int | None = None,
-        manifest_name: str = "manifest.json",
-        hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: Mapping[str, ParameterValue] | None = None,
     ) -> list[PlannedExecution]:
         """Plan execution batches and register deterministic artifact paths."""
         return self._plan_batches(
-            experiment_id, artifacts_root, None, max_runs_per_batch, manifest_name,
-            hostname, git_commit, git_diff_blob, jax_config, None, None,
+            experiment_id, artifacts_root, None, max_runs_per_batch,
+            git_commit, git_diff_blob, None, None,
         )
 
     def plan_next_execution_batch(
@@ -534,11 +531,8 @@ class DatabaseManager:
         artifacts_root: str | Path,
         *,
         max_runs_per_batch: int | None = None,
-        manifest_name: str = "manifest.json",
-        hostname: str | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
-        jax_config: Mapping[str, ParameterValue] | None = None,
         only: Mapping[str, str] | None = None,
         group: str | None = None,
     ) -> PlannedExecution | None:
@@ -548,8 +542,8 @@ class DatabaseManager:
         restricts planning to the batches whose ``RunBatch.group_key`` matches.
         """
         planned = self._plan_batches(
-            experiment_id, artifacts_root, 1, max_runs_per_batch, manifest_name,
-            hostname, git_commit, git_diff_blob, jax_config, only, group,
+            experiment_id, artifacts_root, 1, max_runs_per_batch,
+            git_commit, git_diff_blob, only, group,
         )
         return planned[0] if planned else None
 
@@ -559,11 +553,8 @@ class DatabaseManager:
         artifacts_root: str | Path,
         limit: int | None,
         max_runs_per_batch: int | None,
-        manifest_name: str,
-        hostname: str | None,
         git_commit: str | None,
         git_diff_blob: str | None,
-        jax_config: Mapping[str, ParameterValue] | None,
         only: Mapping[str, str] | None,
         group: str | None,
     ) -> list[PlannedExecution]:
@@ -572,7 +563,7 @@ class DatabaseManager:
             batches = _planning.list_unsatisfied_run_batches(self.conn, experiment_id, max_runs_per_batch, only, group)
             planned = [
                 _planning.plan_batch_with_artifacts(
-                    self.conn, batch, Path(artifacts_root), manifest_name, hostname, git_commit, git_diff_blob, jax_config
+                    self.conn, batch, Path(artifacts_root), git_commit, git_diff_blob
                 )
                 for batch in batches[:limit]
             ]

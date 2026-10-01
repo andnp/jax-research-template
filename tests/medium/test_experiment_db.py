@@ -650,16 +650,13 @@ def test_plan_experiment_execution_batches_creates_one_execution_per_batch(db: D
 
     execution_ids = [
         planned.execution_id
-        for planned in db.plan_experiment_execution_batches(
-            exp_id, "/tmp/executions", hostname="batch-planner",
-        )
+        for planned in db.plan_experiment_execution_batches(exp_id, "/tmp/executions")
     ]
 
     assert len(execution_ids) == 2
     first_batch_runs = db.list_execution_runs(execution_ids[0])
     second_batch_runs = db.list_execution_runs(execution_ids[1])
     assert [len(first_batch_runs), len(second_batch_runs)] == [1, 2]
-    assert all(_require(db.get_execution(execution_id)).hostname == "batch-planner" for execution_id in execution_ids)
 
 
 def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
@@ -682,9 +679,7 @@ def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
             database.initialize()
             return [
                 planned.execution_id
-                for planned in database.plan_experiment_execution_batches(
-                    exp_id, tmp_path / "executions", hostname="planner",
-                )
+                for planned in database.plan_experiment_execution_batches(exp_id, tmp_path / "executions")
             ]
 
     def run_plan(_: int):
@@ -714,11 +709,7 @@ def test_plan_experiment_execution_batches_records_artifact_paths(db: DatabaseMa
     db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=0, vmap_zone=vmap_zone)
     db.add_run(exp_id, algo_ver, env_ver, hyper_id, seed=1, vmap_zone=vmap_zone)
 
-    planned = db.plan_experiment_execution_batches(
-        exp_id,
-        "/tmp/experiment-executions",
-        hostname="facade-node",
-    )
+    planned = db.plan_experiment_execution_batches(exp_id, "/tmp/experiment-executions")
 
     assert len(planned) == 1
     assert planned[0].root_path.endswith(f"/{planned[0].execution_id}")
