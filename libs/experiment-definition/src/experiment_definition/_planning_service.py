@@ -182,7 +182,7 @@ def plan_batch_with_artifacts(
     execution_id = _plan_execution(conn, batch.run_ids, hostname, git_commit, git_diff_blob, jax_config)
     root_path = str(Path(artifacts_root) / str(execution_id))
     manifest_path = str(Path(root_path) / manifest_name)
-    _execution._record_execution_artifacts(
+    _execution.record_execution_artifacts(
         conn,
         execution_id,
         root_path,

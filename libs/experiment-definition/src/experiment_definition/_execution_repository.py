@@ -62,16 +62,6 @@ def record_execution_artifacts(
     manifest_path: str | None,
     metadata: dict[str, object] | None,
 ) -> None:
-    _record_execution_artifacts(conn, execution_id, root_path, manifest_path, metadata)
-
-
-def _record_execution_artifacts(
-    conn: sqlite3.Connection,
-    execution_id: int,
-    root_path: str,
-    manifest_path: str | None,
-    metadata: dict[str, object] | None,
-) -> None:
     existing = conn.execute(
         "SELECT metadata_json FROM ExecutionArtifacts WHERE execution_id = ?",
         (execution_id,),
