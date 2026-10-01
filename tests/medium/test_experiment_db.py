@@ -820,7 +820,7 @@ def test_invalidate_execution_makes_runs_unsatisfied(populated_db: Populated) ->
     assert run_id in _unsatisfied_run_ids(db, exp_id)
 
 
-def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
+def test_find_finished_execution_ids_by_commit(db: DatabaseManager) -> None:
     e1 = db.add_execution(hostname="n1", git_commit="aaa111")
     db.update_execution_status(e1, "COMPLETED")
     e2 = db.add_execution(hostname="n2", git_commit="aaa111")
@@ -828,12 +828,7 @@ def test_invalidate_executions_by_commit(db: DatabaseManager) -> None:
     e3 = db.add_execution(hostname="n3", git_commit="bbb222")
     db.update_execution_status(e3, "COMPLETED")
 
-    invalidated = db.invalidate_executions_by_commit("aaa111")
-
-    assert sorted(invalidated) == sorted([e1, e2])
-    assert _require(db.get_execution(e1)).status == "INVALID"
-    assert _require(db.get_execution(e2)).status == "INVALID"
-    assert _require(db.get_execution(e3)).status == "COMPLETED"
+    assert db.find_finished_execution_ids_by_commit("aaa111") == [e1, e2]
 
 
 def test_find_executions_by_hyperparams_matches_full_batch(populated_db: Populated) -> None:
@@ -945,19 +940,14 @@ def test_find_executions_by_hyperparams_skips_batch_with_unselected_seed(populat
     assert db.find_executions_by_hyperparams(exp_id, {"seed": "3"}) == []
 
 
-def test_invalidate_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
-    e_pending = db.add_execution(hostname="n1", git_commit="ccc333")
+def test_find_finished_execution_ids_by_commit_skips_pending_and_running(db: DatabaseManager) -> None:
+    db.add_execution(hostname="n1", git_commit="ccc333")
     e_running = db.add_execution(hostname="n2", git_commit="ccc333")
     db.update_execution_status(e_running, "RUNNING")
     e_completed = db.add_execution(hostname="n3", git_commit="ccc333")
     db.update_execution_status(e_completed, "COMPLETED")
 
-    invalidated = db.invalidate_executions_by_commit("ccc333")
-
-    assert invalidated == [e_completed]
-    assert _require(db.get_execution(e_pending)).status == "PENDING"
-    assert _require(db.get_execution(e_running)).status == "RUNNING"
-    assert _require(db.get_execution(e_completed)).status == "INVALID"
+    assert db.find_finished_execution_ids_by_commit("ccc333") == [e_completed]
 
 
 # ---------------------------------------------------------------------------

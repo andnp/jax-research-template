@@ -65,12 +65,12 @@ def invalidate_execution(conn: sqlite3.Connection, execution_id: int) -> bool:
     return True
 
 
-def invalidate_executions_by_commit(conn: sqlite3.Connection, git_commit: str) -> list[int]:
+def find_finished_execution_ids_by_commit(conn: sqlite3.Connection, git_commit: str) -> list[int]:
     rows = conn.execute(
-        f"SELECT id FROM Executions WHERE git_commit = ? AND status IN {sql_in(FINISHED)}",
+        f"SELECT id FROM Executions WHERE git_commit = ? AND status IN {sql_in(FINISHED)} ORDER BY id",
         (git_commit,),
     ).fetchall()
-    return _execution._transition_many(conn, [int(row[0]) for row in rows], ExecutionStatus.INVALID)
+    return [int(row[0]) for row in rows]
 
 
 def find_executions_for_experiment(conn: sqlite3.Connection, experiment_id: int) -> list[ExecutionRow]:

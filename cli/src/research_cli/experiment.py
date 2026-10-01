@@ -494,22 +494,11 @@ def invalidate(
     if not yes:
         typer.confirm(f"Invalidate executions matching {'; '.join(parts)}?", abort=True)
 
-    invalidated: list[int] = []
     with DatabaseManager(db_path) as db:
         db.initialize()
-        if execution:
-            for eid in execution:
-                if db.invalidate_execution(eid):
-                    invalidated.append(eid)
-        if git_commit:
-            already = set(invalidated)
-            invalidated.extend(eid for eid in db.invalidate_executions_by_commit(git_commit) if eid not in already)
-        if matched_where_ids:
-            already = set(invalidated)
-            invalidated.extend(eid for eid in matched_where_ids if eid not in already and db.invalidate_execution(eid))
-        if matched_all_ids:
-            already = set(invalidated)
-            invalidated.extend(eid for eid in matched_all_ids if eid not in already and db.invalidate_execution(eid))
+        commit_ids = db.find_finished_execution_ids_by_commit(git_commit) if git_commit else []
+        selected = dict.fromkeys([*(execution or []), *commit_ids, *matched_where_ids, *matched_all_ids])
+        invalidated = db.invalidate_executions(selected)
 
     if not invalidated:
         typer.echo("Warning: no executions were invalidated.", err=True)

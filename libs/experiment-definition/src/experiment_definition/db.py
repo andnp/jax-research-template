@@ -604,8 +604,8 @@ class DatabaseManager:
         """Mark each existing, not yet INVALID execution INVALID in one transaction; return the ids invalidated."""
         return _execution._transition_many(self.conn, execution_ids, ExecutionStatus.INVALID)
 
-    def invalidate_executions_by_commit(self, git_commit: str):
-        return _query.invalidate_executions_by_commit(self.conn, git_commit)
+    def find_finished_execution_ids_by_commit(self, git_commit: str) -> list[int]:
+        return _query.find_finished_execution_ids_by_commit(self.conn, git_commit)
 
     def find_executions_for_experiment(self, experiment_id: int) -> list[ExecutionRow]:
         """Return every COMPLETED/FAILED execution covering a run of ``experiment_id``.
