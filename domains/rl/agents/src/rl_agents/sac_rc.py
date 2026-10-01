@@ -452,6 +452,7 @@ class SACRCAgent:
         hypers = learner_state.hypers
         actor, critic = _networks(action_dim)
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
+        _, alpha_sample_key = jax.random.split(alpha_key)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, learner_state.alpha_state.params["log_alpha"])[0])
 
@@ -485,7 +486,9 @@ class SACRCAgent:
         actor_state = actor_state.apply_gradients(grads=actor_grads)
 
         def alpha_loss_fn(params: VariableDict) -> jax.Array:
-            return sac_alpha_loss(params, actor_state.params, obs, learner_state.target_entropy, alpha_key, actor=actor)
+            return sac_alpha_loss(
+                params, actor_state.params, obs, learner_state.target_entropy, alpha_sample_key, actor=actor
+            )
 
         alpha_loss, alpha_grads = jax.value_and_grad(alpha_loss_fn)(alpha_state.params)
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)

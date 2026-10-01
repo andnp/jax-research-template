@@ -231,15 +231,14 @@ def sac_alpha_loss(
         actor_params: Policy parameters, whose log-probabilities are the measured entropy.
         obs: Observations to measure the policy's entropy at.
         target_entropy: The entropy the temperature is tuned to reach.
-        key: PRNG key for the action sample.
+        key: Root key split into one action-sampling key per observation.
         actor: The policy module.
 
     Returns:
         The scalar loss.
     """
-    _, sample_key = jax.random.split(key)
     _, log_probs = jax.vmap(actor.sample, in_axes=(None, 0, 0))(
-        actor_params, obs, jax.random.split(sample_key, obs.shape[0])
+        actor_params, obs, jax.random.split(key, obs.shape[0])
     )
     return -jnp.mean(cast(jax.Array, alpha_params["log_alpha"]) * (log_probs + target_entropy))
 
@@ -444,6 +443,7 @@ class SACAgent:
         hypers = learner_state.hypers
         actor, critic = _networks(action_dim)
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
+        _, alpha_sample_key = jax.random.split(alpha_key)
         obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
         alpha = jnp.exp(cast(jax.Array, learner_state.alpha_state.params["log_alpha"])[0])
 
@@ -470,7 +470,7 @@ class SACAgent:
 
         alpha_state = with_hyperparams(learner_state.alpha_state, learning_rate=hypers.LEARNING_RATE)
         alpha_loss, alpha_grads = jax.value_and_grad(partial(sac_alpha_loss, actor=actor))(
-            alpha_state.params, actor_state.params, obs, learner_state.target_entropy, alpha_key
+            alpha_state.params, actor_state.params, obs, learner_state.target_entropy, alpha_sample_key
         )
         alpha_state = alpha_state.apply_gradients(grads=alpha_grads)
 
