@@ -89,13 +89,13 @@ def _check_value(annotation: object, path: str, value: object) -> object:
         raise ValueError(f"{path} expects one of {options}, got {value!r}")
     if not isinstance(annotation, type):
         return value
-    is_number = isinstance(value, int | float) and not isinstance(value, bool)
+    number = value if isinstance(value, int | float) and not isinstance(value, bool) else None
     if annotation in (bool, str) and isinstance(value, annotation):
         return value
-    if annotation is int and is_number and float(value).is_integer():
-        return int(value)
-    if annotation is float and is_number:
-        return float(value)
+    if annotation is int and number is not None and float(number).is_integer():
+        return int(number)
+    if annotation is float and number is not None:
+        return float(number)
     if annotation in (bool, int, float, str):
         raise ValueError(f"{path} expects {annotation.__name__}, got {value!r}")
     return value
