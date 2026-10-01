@@ -146,11 +146,12 @@ from a slow but healthy process.
 
 ## Two definition rules that cost whole sweeps
 
-**Let the selected trainer classify axes.** Core-owned trainers publish which fields
-are structural and which are dynamically batchable. Project definitions should declare
-parameter values without `is_static`; the runner derives one structural configuration per
-execution and binds dynamic values to the trainer's batch axis. Custom trainers must
-publish the same schema rather than silently ignoring dynamic values.
+**Let the config classify axes.** A run's batch is decided by the fields its own config
+marks `traced(...)`: runs that differ only in traced values share one compiled
+`jit(vmap(train))`, and every other parameter splits batches. Declare parameter values
+plainly and mark vmappability on the config field, not in the spec. Every parameter must
+be a config field or a choice, so a label such as `condition_name` needs a field (or a
+`choices` entry) on the config; a name the config does not have fails at sync.
 
 **Name the arm axis `condition_name`, or declare the name you used.** Reports read arms
 from `ExperimentDimensions.condition`, which defaults to a hyperparameter called
