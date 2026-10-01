@@ -2,7 +2,7 @@ import dataclasses
 from typing import Literal
 
 import pytest
-from research_runner.config import _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
+from research_runner.config import _apply_choices, _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
 
 
 @dataclasses.dataclass(frozen=True)
@@ -180,3 +180,27 @@ class TestUnionChecks:
     def test_passes_through_annotations_it_does_not_know(self):
         """Unrecognised annotations are the field's own business."""
         assert _check_value(tuple[int, ...], "agent.SIZES", (1, 2)) == (1, 2)
+
+
+class TestApplyChoices:
+    CHOICES = {"env": {"a": Env(NAME="a"), "b": Env(NAME="b", NOISE=0.2)}}
+
+    def test_selected_choice_replaces_the_sub_config(self):
+        """The named object is placed at the choice's path."""
+        config = _apply_choices(Cfg(), self.CHOICES, {"env": "b"})
+
+        assert config.env == Env(NAME="b", NOISE=0.2)
+
+    def test_unselected_choice_keeps_the_base_object(self):
+        """A run that does not name the choice keeps the base config's value."""
+        assert _apply_choices(Cfg(), self.CHOICES, {"gamma": 0.5}) == Cfg()
+
+    def test_unknown_name_lists_the_choices(self):
+        """The error names the bad value, the path and the valid names."""
+        with pytest.raises(ValueError, match=r"'c' is not a choice for env; choices are a, b"):
+            _apply_choices(Cfg(), self.CHOICES, {"env": "c"})
+
+    def test_non_string_name_is_not_a_choice(self):
+        """Choice names are strings, so a number never matches."""
+        with pytest.raises(ValueError, match="1 is not a choice for env"):
+            _apply_choices(Cfg(), self.CHOICES, {"env": 1})
