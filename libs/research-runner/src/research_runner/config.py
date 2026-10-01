@@ -95,3 +95,15 @@ def _check_value(annotation: object, path: str, value: object) -> object:
     if annotation in (bool, int, float, str):
         raise ValueError(f"{path} expects {annotation.__name__}, got {value!r}")
     return value
+
+
+def _apply_choices[C: DataclassInstance](config: C, choices: Mapping[str, Mapping[str, object]], params: Mapping[str, object]) -> C:
+    """Swap in the named object for each choice a run's parameters select. Unselected choices keep the base object."""
+    for path, options in choices.items():
+        if path not in params:
+            continue
+        name = params[path]
+        if not isinstance(name, str) or name not in options:
+            raise ValueError(f"{name!r} is not a choice for {path}; choices are {', '.join(options)}")
+        config = _set_path(config, path, options[name])
+    return config
