@@ -39,6 +39,9 @@ def _get_path(config: object, path: str) -> object:
 
 def _set_path[C: DataclassInstance](config: C, path: str, value: object) -> C:
     head, _, rest = path.partition(".")
+    names = [field.name for field in dataclasses.fields(config)] if dataclasses.is_dataclass(config) else []
+    if head not in names:
+        raise ValueError(f"{type(config).__name__} has no field {head}; fields are {', '.join(names) or 'none'}")
     if rest:
         value = _set_path(getattr(config, head), rest, value)
     return dataclasses.replace(config, **{head: value})
