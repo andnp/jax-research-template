@@ -425,7 +425,7 @@ class DatabaseManager:
                     {"jax_version": "0.4.30", "platform": "gpu", "devices": 4}
         """
         with self.conn:
-            return _execution.add_execution(self.conn, hostname, git_commit, git_diff_blob, jax_config)
+            return _execution.add_execution(self.conn, hostname, git_commit, git_diff_blob, jax_config, None)
 
     def record_execution_git_metadata(
         self,
@@ -534,11 +534,12 @@ class DatabaseManager:
         max_runs_per_batch: int | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
+        owner: str | None = None,
     ) -> list[PlannedExecution]:
-        """Plan execution batches and register deterministic artifact paths."""
+        """Plan execution batches and register deterministic artifact paths, owned by ``owner``."""
         return self._plan_batches(
             experiment_id, artifacts_root, None, max_runs_per_batch,
-            git_commit, git_diff_blob, None, None,
+            git_commit, git_diff_blob, None, None, owner,
         )
 
     def plan_next_execution_batch(
@@ -551,6 +552,7 @@ class DatabaseManager:
         git_diff_blob: str | None = None,
         only: Mapping[str, str] | None = None,
         group: str | None = None,
+        owner: str | None = None,
     ) -> PlannedExecution | None:
         """Plan and return the next unsatisfied execution batch, or None when none remain.
 
@@ -559,7 +561,7 @@ class DatabaseManager:
         """
         planned = self._plan_batches(
             experiment_id, artifacts_root, 1, max_runs_per_batch,
-            git_commit, git_diff_blob, only, group,
+            git_commit, git_diff_blob, only, group, owner,
         )
         return planned[0] if planned else None
 
@@ -573,13 +575,14 @@ class DatabaseManager:
         git_diff_blob: str | None,
         only: Mapping[str, str] | None,
         group: str | None,
+        owner: str | None,
     ) -> list[PlannedExecution]:
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             batches = _planning.list_unsatisfied_run_batches(self.conn, experiment_id, max_runs_per_batch, only, group)
             planned = [
                 _planning.plan_batch_with_artifacts(
-                    self.conn, batch, Path(artifacts_root), git_commit, git_diff_blob
+                    self.conn, batch, Path(artifacts_root), git_commit, git_diff_blob, owner
                 )
                 for batch in batches[:limit]
             ]

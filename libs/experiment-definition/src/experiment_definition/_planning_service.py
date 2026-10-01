@@ -159,8 +159,9 @@ def _plan_execution(
     run_ids: list[int],
     git_commit: str | None,
     git_diff_blob: str | None,
+    owner: str | None,
 ) -> int:
-    execution_id = _execution.add_execution(conn, None, git_commit, git_diff_blob, None)
+    execution_id = _execution.add_execution(conn, None, git_commit, git_diff_blob, None, owner)
     for run_id in run_ids:
         _execution.link_execution_run(conn, execution_id, run_id)
     return execution_id
@@ -172,8 +173,9 @@ def plan_batch_with_artifacts(
     artifacts_root: str | Path,
     git_commit: str | None,
     git_diff_blob: str | None,
+    owner: str | None,
 ) -> PlannedExecution:
-    execution_id = _plan_execution(conn, batch.run_ids, git_commit, git_diff_blob)
+    execution_id = _plan_execution(conn, batch.run_ids, git_commit, git_diff_blob, owner)
     root_path = str(Path(artifacts_root) / str(execution_id))
     manifest_path = str(Path(root_path) / "manifest.json")
     _execution.record_execution_artifacts(

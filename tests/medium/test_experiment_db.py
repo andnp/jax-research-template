@@ -659,6 +659,22 @@ def test_plan_experiment_execution_batches_creates_one_execution_per_batch(db: D
     assert [len(first_batch_runs), len(second_batch_runs)] == [1, 2]
 
 
+def test_planned_executions_record_their_owner(populated_db: Populated) -> None:
+    """Both planner entry points store the owner they were given; omitting it leaves the row ownerless."""
+    db, exp_id, algo_ver_id, env_ver_id, hyper_id = populated_db
+    for seed in range(3):
+        db.add_run(exp_id, algo_ver_id, env_ver_id, hyper_id, seed=seed, vmap_zone=None)
+
+    next_batch = db.plan_next_execution_batch(exp_id, "/tmp/executions", max_runs_per_batch=1, owner="local:h:b:1:2")
+    rest = db.plan_experiment_execution_batches(exp_id, "/tmp/executions", max_runs_per_batch=1, owner="slurm:7_0")
+    ownerless = db.add_execution(hostname="n1")
+
+    assert next_batch is not None
+    owners = [_require(db.get_execution(planned.execution_id)).owner for planned in [next_batch, *rest]]
+    assert owners == ["local:h:b:1:2", "slurm:7_0", "slurm:7_0"]
+    assert _require(db.get_execution(ownerless)).owner is None
+
+
 def test_concurrent_batch_planning_has_one_winner(tmp_path: Path) -> None:
     """
     Two database connections planning the same experiment create one batch.

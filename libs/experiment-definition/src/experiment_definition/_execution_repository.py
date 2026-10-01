@@ -21,12 +21,13 @@ def add_execution(
     git_commit: str | None,
     git_diff_blob: str | None,
     jax_config: Mapping[str, ParameterValue] | None,
+    owner: str | None,
 ) -> int:
     jax_json = json.dumps(jax_config, sort_keys=True) if jax_config is not None else None
     cur = conn.execute(
-        "INSERT INTO Executions(hostname, git_commit, git_diff_blob, jax_config_json) "
-        "VALUES (?, ?, ?, ?)",
-        (hostname, git_commit, git_diff_blob, jax_json),
+        "INSERT INTO Executions(hostname, git_commit, git_diff_blob, jax_config_json, owner) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (hostname, git_commit, git_diff_blob, jax_json, owner),
     )
     if cur.lastrowid is None:
         raise RuntimeError("Insert failed: no execution ID returned.")
