@@ -2,7 +2,7 @@ import dataclasses
 from typing import Literal
 
 import pytest
-from research_runner.config import _apply_choices, _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
+from research_runner.config import _apply_choices, _build_config, _check_value, _merge_traced, _set_path, _split_traced, _traced_paths, traced
 
 
 @dataclasses.dataclass(frozen=True)
@@ -204,3 +204,42 @@ class TestApplyChoices:
         """Choice names are strings, so a number never matches."""
         with pytest.raises(ValueError, match="1 is not a choice for env"):
             _apply_choices(Cfg(), self.CHOICES, {"env": 1})
+
+
+class TestBuildConfig:
+    CHOICES = {"env": {"a": Env(NAME="a"), "b": Env(NAME="b")}}
+
+    def test_sets_dotted_paths_on_the_base_config(self):
+        """Each parameter replaces the field its path names."""
+        config = _build_config(Cfg(), self.CHOICES, {"agent.LR": 0.5, "gamma": 0.9})
+
+        assert config == Cfg(agent=Opt(LR=0.5), gamma=0.9)
+
+    def test_choices_apply_before_paths(self):
+        """A path sets its field on whichever object the choice picked."""
+        config = _build_config(Cfg(), self.CHOICES, {"env.NOISE": 0.3, "env": "b"})
+
+        assert config.env == Env(NAME="b", NOISE=0.3)
+
+    def test_seed_is_not_a_config_field(self):
+        """seed selects the run's key and never touches the config."""
+        assert _build_config(Cfg(), self.CHOICES, {"seed": 3}) == Cfg()
+
+    def test_converts_values_to_the_field_type(self):
+        """An int given for a float field is stored as a float."""
+        assert type(_build_config(Cfg(), {}, {"gamma": 1}).gamma) is float
+
+    def test_unknown_field_is_reported(self):
+        """A mistyped path names the config and its fields."""
+        with pytest.raises(ValueError, match="Opt has no field LEARNING_RTE; fields are LR, STEPS"):
+            _build_config(Cfg(), {}, {"agent.LEARNING_RTE": 1.0})
+
+    def test_wrongly_typed_value_is_reported(self):
+        """A value of the wrong type names the path and the expected type."""
+        with pytest.raises(ValueError, match=r"agent.STEPS expects int, got 2.5"):
+            _build_config(Cfg(), {}, {"agent.STEPS": 2.5})
+
+    def test_unknown_choice_is_reported(self):
+        """A choice name that is not offered lists the offered ones."""
+        with pytest.raises(ValueError, match="'c' is not a choice for env; choices are a, b"):
+            _build_config(Cfg(), self.CHOICES, {"env": "c"})
