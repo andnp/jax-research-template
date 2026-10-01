@@ -5,6 +5,7 @@ import os
 import resource
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,7 +21,15 @@ from research_instrument.seed_batch import write_seed_batch_curve
 from .batch import _run_batch
 from .config import _build_config
 from .git import capture_git_metadata
-from .types import ExperimentSpec, RunPoint
+from .types import ExperimentSpec
+
+
+@dataclass(frozen=True, slots=True)
+class _RunPoint:
+    """One logical run's resolved hyperparameters, including its seed."""
+
+    run_id: int
+    hyperparameters: Mapping[str, ParameterValue]
 
 
 def run_experiment(
@@ -238,9 +247,9 @@ def _resolve_points(
     database: DatabaseManager,
     runs: list[RunRow],
     static_config: Mapping[str, ParameterValue],
-) -> tuple[RunPoint, ...]:
+) -> tuple[_RunPoint, ...]:
     config_cache: dict[int, dict[str, ParameterValue]] = {}
-    points: list[RunPoint] = []
+    points: list[_RunPoint] = []
     for run in runs:
         if run.hyper_id not in config_cache:
             hyper_config = database.get_hyperparam_config(run.hyper_id)
@@ -254,5 +263,5 @@ def _resolve_points(
                     f"Run {run.id} static parameter {key!r} ({hyperparameters.get(key)!r}) "
                     f"does not match the batch's static config value {value!r}.",
                 )
-        points.append(RunPoint(run_id=run.id, hyperparameters=hyperparameters))
+        points.append(_RunPoint(run_id=run.id, hyperparameters=hyperparameters))
     return tuple(points)

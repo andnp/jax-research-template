@@ -16,14 +16,6 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class RunPoint:
-    """One logical run's resolved hyperparameters, including its seed."""
-
-    run_id: int
-    hyperparameters: Mapping[str, ParameterValue]
-
-
-@dataclass(frozen=True, slots=True)
 class ExperimentSpec[C: DataclassInstance]:
     """An experiment, its base config with named choices, its JAX ``train`` and the results tree it writes.
 
