@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 type _Train[C] = Callable[[C, jax.Array], tuple[object, Mapping[str, jax.Array]]]
 
-_DTYPES = {bool: jnp.bool_, int: jnp.int32, float: jnp.float32}
+_DTYPES: dict[type, type[jnp.generic]] = {bool: jnp.bool_, int: jnp.int32, float: jnp.float32}
 _RUNNER_METRICS = ("runner/compile_seconds", "runner/execute_seconds")
 
 
