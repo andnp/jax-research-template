@@ -11,6 +11,7 @@ from types import ModuleType
 
 import typer
 from experiment_definition.db import DatabaseManager
+from experiment_definition.ownership import local_owner
 from experiment_definition.status import RunState, run_state
 from research_analysis.plan import registered_plans
 from research_analysis.plan_report import run_plan
@@ -572,6 +573,7 @@ def submit(
 
     module = _load_spec_module(spec_file)
     specs = _discover_specs(module, spec)
+    planner_owner = local_owner()
 
     for name, factory in specs.items():
         experiment_spec = _with_results_root(factory(), results_root)
@@ -607,6 +609,7 @@ def submit(
                     exp_row.id,
                     experiment_spec.executions_root,
                     max_runs_per_batch=experiment_spec.max_runs_per_batch,
+                    owner=planner_owner,
                 )
                 if not planned:
                     typer.echo(f"Spec '{name}': no unsatisfied batches, skipping.")
@@ -629,6 +632,7 @@ def submit(
             db_path,
             spec_file,
             name,
+            planner_owner=planner_owner,
             script_path=script_path,
             results_root=experiment_spec.results_root,
             dry_run=dry_run,
@@ -640,7 +644,7 @@ def submit(
                 "(dry-run, not submitted; execution IDs in the script are provisional)"
             )
         else:
-            typer.echo(f"Spec '{name}': submitted {len(execution_ids)} batch(es) — {job_result}")
+            typer.echo(f"Spec '{name}': submitted {len(execution_ids)} batch(es) as Slurm job {job_result}")
 
 
 _REPORT_EXIT_CODES = {ReportStatus.OK: 0, ReportStatus.LOAD_FAILED: 2, ReportStatus.ANALYSIS_FAILED: 3}

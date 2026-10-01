@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from experiment_definition.db import DatabaseManager
 from experiment_definition.experiment import Experiment
+from experiment_definition.ownership import local_owner
 from research_cluster.config import SlurmConfig
 from research_cluster.script import build_job_script, build_sbatch_flags, write_job_script
 from research_cluster.submit import submit_experiment
@@ -144,6 +145,7 @@ def test_submit_experiment_dry_run(tmp_path: Path) -> None:
         db_path=Path("/data/exp.sqlite"),
         spec_file=Path("/specs/train.py"),
         spec_name="my_spec",
+        planner_owner=local_owner(),
         script_path=script_path,
         dry_run=True,
     )
@@ -152,10 +154,7 @@ def test_submit_experiment_dry_run(tmp_path: Path) -> None:
     assert "#!/bin/bash" in script_path.read_text()
 
 
-def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failed scheduler submission marks every submitted execution failed."""
+def _plan_two_batches(tmp_path: Path) -> tuple[Path, list[int]]:
     db_path = tmp_path / "experiments.sqlite"
     experiment = Experiment("ClusterSweep", description="cluster test")
     experiment.add_parameter("seed", [0, 1])
@@ -165,14 +164,50 @@ def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
         experiment_row = database.get_experiment("ClusterSweep")
         assert experiment_row is not None
         planned = database.plan_experiment_execution_batches(
-            experiment_row.id, tmp_path / "executions",
+            experiment_row.id, tmp_path / "executions", max_runs_per_batch=1, owner=local_owner(),
         )
-    execution_ids = [batch.execution_id for batch in planned]
+    return db_path, [batch.execution_id for batch in planned]
 
+
+def _fake_sbatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
     fake_sbatch = tmp_path / "sbatch"
-    fake_sbatch.write_text("#!/bin/sh\nexit 1\n")
+    fake_sbatch.write_text(f"#!/bin/sh\n{body}\n")
     fake_sbatch.chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+
+def test_submit_experiment_hands_each_execution_to_its_array_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Array task i of the submitted job owns the i-th execution, whatever cluster suffix sbatch prints."""
+    db_path, execution_ids = _plan_two_batches(tmp_path)
+    _fake_sbatch(tmp_path, monkeypatch, "echo '4812;cluster'")
+
+    job_id = submit_experiment(
+        SlurmConfig(),
+        execution_ids=execution_ids,
+        db_path=db_path,
+        spec_file=tmp_path / "spec.py",
+        spec_name="spec",
+        planner_owner=local_owner(),
+        script_path=tmp_path / "slurm.sh",
+    )
+
+    assert job_id == "4812"
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        executions = [database.get_execution(execution_id) for execution_id in execution_ids]
+    owners = [execution.owner for execution in executions if execution is not None]
+    assert owners == [f"slurm:4812_{index}" for index in range(len(execution_ids))]
+    assert len(execution_ids) == 2
+
+
+def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed scheduler submission marks every submitted execution failed."""
+    db_path, execution_ids = _plan_two_batches(tmp_path)
+    _fake_sbatch(tmp_path, monkeypatch, "exit 1")
 
     with pytest.raises(subprocess.CalledProcessError):
         submit_experiment(
@@ -181,6 +216,7 @@ def test_submit_experiment_marks_ids_failed_when_sbatch_errors(
             db_path=db_path,
             spec_file=tmp_path / "spec.py",
             spec_name="spec",
+            planner_owner=local_owner(),
             script_path=tmp_path / "slurm.sh",
         )
 

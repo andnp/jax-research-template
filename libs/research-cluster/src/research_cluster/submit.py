@@ -6,6 +6,7 @@ from pathlib import Path
 from experiment_definition.db import DatabaseManager
 
 from .config import SlurmConfig
+from .ownership import format_slurm_owner
 from .script import build_job_script, write_job_script
 
 
@@ -16,6 +17,7 @@ def submit_experiment(
     spec_file: Path,
     spec_name: str,
     *,
+    planner_owner: str,
     working_dir: Path | None = None,
     script_path: Path | None = None,
     results_root: Path | None = None,
@@ -38,7 +40,7 @@ def submit_experiment(
 
     try:
         result = subprocess.run(
-            ["sbatch", str(out_path)],
+            ["sbatch", "--parsable", str(out_path)],
             capture_output=True,
             text=True,
             check=True,
@@ -48,4 +50,12 @@ def submit_experiment(
             database.initialize()
             database.fail_executions(execution_ids)
         raise
-    return result.stdout.strip()
+
+    job_id = result.stdout.strip().partition(";")[0]
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        database.transfer_owners(
+            {execution_id: planner_owner for execution_id in execution_ids},
+            {execution_id: format_slurm_owner(job_id, index) for index, execution_id in enumerate(execution_ids)},
+        )
+    return job_id
