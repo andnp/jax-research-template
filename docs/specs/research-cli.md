@@ -68,8 +68,8 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
     - Syncs the definition and reports the batches that would run, without creating executions.
 - `research experiment run <spec_file> [--max-runs <n>]`:
     - Plans one batch at a time and executes it before planning the next, so an interrupted sweep leaves no unexecuted `PENDING` executions stranded.
-    - Groups work into **"vmap-zones"**: a batch is one structural configuration, and the parameters that vary inside it arrive through the selected trainer's typed batch binding.
-    - Core-owned trainers publish which fields are dynamically batchable. Project experiment definitions declare parameter values normally; they do not mark axes static or call `jax.vmap`.
+    - Groups work into **"vmap-zones"**: a batch is one static configuration, and the parameters that vary inside it set fields the config marks `traced(...)`.
+    - Project experiment definitions declare parameter values normally; they do not mark axes static or call `jax.vmap`.
     - Records each execution as `RUNNING`, then `COMPLETED` or `FAILED`. A `FAILED` execution is retried on the next run.
 - `research experiment status <db_path> [--experiment <slug>]`:
     - Reports total, completed, failed and pending logical runs per experiment.
@@ -116,13 +116,11 @@ Commands taking a spec file accept `--spec <name>` to select a single factory an
             - Never run mutating environment commands such as `uv sync`, `uv pip install`, cache cleanup, or package upgrades.
 
 ## 3. The "vmap-zone" Batching Logic
-The orchestrator groups work by a trainer-owned parameter schema. Structural parameters change the compiled kernel; dynamic parameters are passed as one aligned batch axis.
+The orchestrator groups work by each run's config. Parameters that set a field marked `traced(...)` vary within one compiled kernel; every other parameter changes the kernel.
 
-- Core-owned algorithm trainers publish this schema alongside their batch entrypoint.
-- The runner validates and binds each execution's static values and dynamic axes before training.
-- The shared batch driver owns `jit`/`vmap`, seed-key construction, axis-length validation, and result alignment.
-- Custom algorithms can provide a local trainer adapter using the same port without changing their experiment declaration.
-- Work is batched such that each `vmap-zone` corresponds to exactly one structural configuration.
+- At sync, the runner builds each run's config from its parameters, so a bad path, choice or value fails before anything runs, and records the run's static keys.
+- At execute, a private batch function owns `jit`/`vmap`, seed-key construction, and recording only the experiment's declared metrics.
+- Work is batched such that each `vmap-zone` corresponds to exactly one static configuration.
 
 This ensures high accelerator utilization without asking projects to understand the runner's internal batching model.
 
@@ -156,7 +154,7 @@ doctor:
 ## 4. User Workflows
 
 ### Workflow A: The Hyperparameter Sweep
-1. Researcher defines an `Experiment` (parameter values and metrics) and a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`, in a project file, e.g. `projects/new-idea/sweep.py`. A shared algorithm trainer supplies structural/dynamic parameter knowledge; the project does not mark vmap axes.
+1. Researcher defines an `Experiment` (parameter values and metrics) and a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`, in a project file, e.g. `projects/new-idea/sweep.py`. The spec's base config, its `choices` and its `train` function say what runs; the project does not mark vmap axes.
 2. Runs `uv run research experiment plan sweep.py --spec my_sweep` to preview the batches that would run, with no side effects.
 3. Runs `uv run research experiment run sweep.py --spec my_sweep`. The CLI groups work into vmap-zones sharing static parameters and dispatches them, writing intent/provenance to `experiments.sqlite` and metric series to `metrics.sqlite`.
 4. If the run is interrupted, rerunning the same `run` command re-plans and executes only the unsatisfied runs; completed work is never repeated.
