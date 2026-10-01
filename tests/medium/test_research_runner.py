@@ -253,6 +253,20 @@ class TestExecuteBatch:
             assert execution is not None
             assert execution.status == "FAILED"
 
+    def test_a_spec_refuses_another_experiments_execution(self, db_path: Path, executions_root: Path) -> None:
+        """Two specs share one results database; neither may run the other's batch, nor change it."""
+        planned = self._plan_one_batch(db_path, executions_root)
+        other = _make_experiment("OtherSweep")
+        other.sync(db_path)
+        with DatabaseManager(db_path) as database:
+            before = database.get_execution(planned.execution_id)
+
+        with pytest.raises(ValueError, match="belongs to experiment 'TestSweep'"):
+            execute_batch(db_path, planned, _spec(other, _trivial_train, db_path), capture_git=False)
+
+        with DatabaseManager(db_path) as database:
+            assert database.get_execution(planned.execution_id) == before
+
     def test_failure_preserves_original_error_after_failed_transition(
         self, db_path: Path, executions_root: Path,
     ) -> None:
