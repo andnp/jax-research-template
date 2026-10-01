@@ -1,5 +1,8 @@
 """Small tests for research_instrument.thinning — on-device metric thinning."""
 
+from functools import partial
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -48,3 +51,14 @@ def test_ema_accepts_integer_input_without_truncating() -> None:
     out = thin_metric(jnp.asarray(x), ema=0.5)
 
     np.testing.assert_allclose(np.asarray(out), reference_moving_average(x, 0.5), rtol=1e-5)
+
+
+def test_thins_a_batch_of_runs_under_jit_and_vmap() -> None:
+    x = np.random.default_rng(1).normal(size=(4, 11)).astype(np.float32)
+
+    thin = jax.jit(jax.vmap(partial(thin_metric, ema=0.8, every=4)))
+    out = thin(jnp.asarray(x))
+
+    expected = np.stack([reference_subsample(reference_moving_average(r, 0.8), 4) for r in x])
+    assert out.shape == (4, 3)
+    np.testing.assert_allclose(np.asarray(out), expected, rtol=1e-5, atol=1e-6)
