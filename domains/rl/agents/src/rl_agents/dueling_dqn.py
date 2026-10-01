@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax_nn.initializers import stable_orthogonal
 from jax_nn.typed_module import TypedApply
+from research_runner.config import traced
 from rl_components.heads import DuelingHead
 from rl_components.structs import chex_struct
 
@@ -28,20 +29,23 @@ from rl_agents.double_q import DoubleQAgent
 
 @chex_struct(frozen=True, kw_only=True)
 class DuelingDQNConfig:
-    LEARNING_RATE: float = 3e-4
+    LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
-    LEARNING_STARTS: int = 1_000
-    TRAIN_FREQUENCY: int = 1
-    TARGET_NETWORK_FREQUENCY: int = 1_000
-    TAU: float = 1.0  # Soft update
-    EPSILON_START: float = 1.0
-    EPSILON_END: float = 0.05
-    EPSILON_FRACTION: float = 0.5
+    LEARNING_STARTS: int = traced(1_000)
+    TRAIN_FREQUENCY: int = traced(1)
+    TARGET_NETWORK_FREQUENCY: int = traced(1_000)
+    TAU: float = traced(1.0)  # Soft update
+    EPSILON_START: float = traced(1.0)
+    EPSILON_END: float = traced(0.05)
+    EPSILON_FRACTION: float = traced(0.5)
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
     NETWORK_PRESET: Literal["mlp", "nature_cnn"] = "mlp"
+
+    def build(self) -> DuelingDQNAgent:
+        return DuelingDQNAgent(self)
 
 
 class DuelingQNetwork(TypedApply[jax.Array], nn.Module):
