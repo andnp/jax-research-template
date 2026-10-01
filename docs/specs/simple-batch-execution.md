@@ -613,5 +613,7 @@ Still open, and settled in phase 1 rather than here:
       stay `chex_struct` classes.
 - [ ] Keep `SAC.TARGET_ENTROPY` static, because whether it is `None` must
       agree across a batch. Trace `ALPHA` only.
-- [ ] Decide what `every=n` does when a run's length is not a multiple of `n`:
-      keep the last partial step or drop it.
+- [x] Decide what `every=n` does when a run's length is not a multiple of `n`:
+      keep the last partial step or drop it. `every=n` keeps steps 0, n, 2n,
+      ... like ml_instrumentation's `Subsample`, so there is no partial block;
+      `ema` matches its `MovingAverage`.
