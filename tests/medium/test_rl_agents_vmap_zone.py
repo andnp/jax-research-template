@@ -45,7 +45,7 @@ class TestVmapZone:
         never reached the kernel -- the failure that existed while hyperparameters
         were closed over the agent object.
         """
-        config = DQNConfig(learning_starts=0, TRAIN_FREQUENCY=1, batch_size=2, buffer_size=64)
+        config = DQNConfig(learning_starts=0, train_frequency=1, batch_size=2, buffer_size=64)
         agent = DQNAgent(config)
         base_hypers = replay_q_hypers(config)
         learning_rates = jnp.array([1e-1, 1e-4], dtype=jnp.float32)
@@ -72,7 +72,7 @@ class TestVmapZone:
         Guards the negative direction: divergence has to come from the swept
         value, not from the batching itself.
         """
-        config = DQNConfig(learning_starts=0, TRAIN_FREQUENCY=1, batch_size=2, buffer_size=64)
+        config = DQNConfig(learning_starts=0, train_frequency=1, batch_size=2, buffer_size=64)
         agent = DQNAgent(config)
         base_hypers = replay_q_hypers(config)
         learning_rates = jnp.array([1e-3, 1e-3], dtype=jnp.float32)

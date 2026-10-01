@@ -14,7 +14,7 @@ from rl_agents.td3 import TD3Config
 
 _REPLAY_Q = {
     "epsilon_end", "epsilon_fraction", "epsilon_start", "learning_rate",
-    "learning_starts", "TARGET_NETWORK_FREQUENCY", "TAU", "TRAIN_FREQUENCY",
+    "learning_starts", "target_network_frequency", "tau", "train_frequency",
 }
 _EXPECTED_TRACED = [
     pytest.param(DQNConfig, _REPLAY_Q, id="dqn"),

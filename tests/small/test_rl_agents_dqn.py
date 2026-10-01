@@ -18,10 +18,10 @@ class TestDQNConfig:
         assert cfg.network_preset == "mlp"
 
     def test_custom_config(self) -> None:
-        cfg = DQNConfig(learning_rate=1e-3, buffer_size=1000, ENV_NAME="CartPole-v1")
+        cfg = DQNConfig(learning_rate=1e-3, buffer_size=1000, env_name="CartPole-v1")
         assert cfg.learning_rate == 1e-3
         assert cfg.buffer_size == 1000
-        assert cfg.ENV_NAME == "CartPole-v1"
+        assert cfg.env_name == "CartPole-v1"
 
 
 class TestQNetwork:

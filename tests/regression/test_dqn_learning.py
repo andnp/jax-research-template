@@ -14,11 +14,11 @@ LATE_FRACTION = 0.9
 
 def test_dqn_cartpole_learns() -> None:
     config = DQNConfig(
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
         total_timesteps=50_000,
     )
 
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = DQNAgent(config)
 
@@ -34,7 +34,7 @@ def test_dqn_cartpole_learns() -> None:
 
     train_jit = jax.jit(train_fn)
 
-    _, metrics = train_jit(jax.random.PRNGKey(config.SEED))
+    _, metrics = train_jit(jax.random.PRNGKey(config.seed))
 
     # ``loop/episode_return`` is a sparse impulse: it carries a completed episode's return
     # on the boundary step and zero everywhere else, so it must be masked, not averaged.

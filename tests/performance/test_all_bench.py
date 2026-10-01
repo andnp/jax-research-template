@@ -12,11 +12,11 @@ from rl_envs.gymnax_bridge import make_gymnax_env
 GAMMA = 0.99
 
 _ppo_config = PPOConfig(total_timesteps=10_000, ENV_NAME="CartPole-v1")
-_dqn_config = DQNConfig(total_timesteps=10_000, ENV_NAME="CartPole-v1")
+_dqn_config = DQNConfig(total_timesteps=10_000, env_name="CartPole-v1")
 _sac_config = SACConfig(total_timesteps=10_000, ENV_NAME="MountainCarContinuous-v0")
 _ppo_raw_env, _ppo_env_params = gymnax.make(_ppo_config.ENV_NAME)
 _ppo_env = make_gymnax_env(_ppo_raw_env)
-_dqn_raw_env, _dqn_env_params = gymnax.make(_dqn_config.ENV_NAME)
+_dqn_raw_env, _dqn_env_params = gymnax.make(_dqn_config.env_name)
 _dqn_env = make_gymnax_env(_dqn_raw_env)
 _sac_raw_env, _sac_env_params = gymnax.make(_sac_config.ENV_NAME)
 _sac_env = make_gymnax_env(_sac_raw_env)
@@ -44,7 +44,7 @@ def test_ppo_speed(benchmark: Any) -> None:
 
 @pytest.mark.benchmark(group="dqn")
 def test_dqn_speed(benchmark: Any) -> None:
-    rng = jax.random.PRNGKey(_dqn_config.SEED)
+    rng = jax.random.PRNGKey(_dqn_config.seed)
     agent = DQNAgent(_dqn_config)
 
     def train_fn(key: jax.Array):

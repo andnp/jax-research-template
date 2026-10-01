@@ -34,14 +34,14 @@ class DuelingDQNConfig:
     batch_size: int = 64
     total_timesteps: int = 200_000
     learning_starts: int = traced(1_000)
-    TRAIN_FREQUENCY: int = traced(1)
-    TARGET_NETWORK_FREQUENCY: int = traced(1_000)
-    TAU: float = traced(1.0)  # Soft update
+    train_frequency: int = traced(1)
+    target_network_frequency: int = traced(1_000)
+    tau: float = traced(1.0)  # Soft update
     epsilon_start: float = traced(1.0)
     epsilon_end: float = traced(0.05)
     epsilon_fraction: float = traced(0.5)
-    ENV_NAME: str = "MountainCar-v0"
-    SEED: int = 42
+    env_name: str = "MountainCar-v0"
+    seed: int = 42
     network_preset: Literal["mlp", "nature_cnn"] = "mlp"
 
     def build(self) -> DuelingDQNAgent:

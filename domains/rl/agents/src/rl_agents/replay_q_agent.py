@@ -124,13 +124,13 @@ class ReplayQConfig(Protocol):
     def learning_starts(self) -> int: ...
 
     @property
-    def TRAIN_FREQUENCY(self) -> int: ...
+    def train_frequency(self) -> int: ...
 
     @property
-    def TARGET_NETWORK_FREQUENCY(self) -> int: ...
+    def target_network_frequency(self) -> int: ...
 
     @property
-    def TAU(self) -> float: ...
+    def tau(self) -> float: ...
 
     @property
     def epsilon_start(self) -> float: ...
@@ -167,9 +167,9 @@ def replay_q_hypers(config: ReplayQConfig):
     return ReplayQHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
-        TAU=jnp.asarray(config.TAU, jnp.float32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
+        TARGET_NETWORK_FREQUENCY=jnp.asarray(config.target_network_frequency, jnp.int32),
+        TAU=jnp.asarray(config.tau, jnp.float32),
         EPSILON_START=jnp.asarray(config.epsilon_start, jnp.float32),
         EPSILON_END=jnp.asarray(config.epsilon_end, jnp.float32),
         EPSILON_FRACTION=jnp.asarray(config.epsilon_fraction, jnp.float32),

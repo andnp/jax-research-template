@@ -64,11 +64,11 @@ def main() -> None:
 
     # ── 3. Train ──────────────────────────────────────────────────────────────
     config = DQNConfig(
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
         total_timesteps=100_000,
-        SEED=42,
+        seed=42,
     )
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = DQNAgent(config)
     def train_one_key(key: jax.Array):
@@ -84,7 +84,7 @@ def main() -> None:
     train_fn = jax.jit(train_one_key)
 
     print("Training DQN on CartPole-v1 (100k steps)...")
-    rng = jax.random.key(config.SEED)
+    rng = jax.random.key(config.seed)
     final_state, metrics = train_fn(rng)
     print("✓ Training complete")
 
