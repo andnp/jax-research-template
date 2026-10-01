@@ -30,7 +30,7 @@ _CASES = [
     pytest.param(QRCConfig, {**_REPLAY, "hidden_width": 8}, _CARTPOLE, id="qrc"),
     pytest.param(
         GACConfig,
-        {**_REPLAY, "NUM_SAMPLES": 2, "NUM_RAND_ACTIONS": 1, "HIDDEN_SIZE": 8},
+        {**_REPLAY, "num_samples": 2, "num_rand_actions": 1, "hidden_size": 8},
         GymnaxConfig("MountainCarContinuous-v0", normalized=True),
         id="gac",
     ),

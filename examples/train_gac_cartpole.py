@@ -54,23 +54,23 @@ class ContinuousCartPole[StateT, ParamsT]:
 
 def main() -> None:
     config = GACConfig(
-        ENV_NAME="CartPole-v1",
+        env_name="CartPole-v1",
         total_timesteps=100_000,
         buffer_size=50_000,
         batch_size=32,
         learning_starts=1,
         learning_rate=3e-4,
-        ACTOR_LEARNING_RATE=3e-4,
-        NUM_SAMPLES=32,
-        ACTOR_PERCENTILE=0.1,
-        UNIFORM_WEIGHT=0.2,
-        ENTROPY_WEIGHT=0.01,
-        NUM_RAND_ACTIONS=10,
-        SEED=42,
+        actor_learning_rate=3e-4,
+        num_samples=32,
+        actor_percentile=0.1,
+        uniform_weight=0.2,
+        entropy_weight=0.01,
+        num_rand_actions=10,
+        seed=42,
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    rng = jax.random.PRNGKey(config.seed)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = ContinuousCartPole(make_gymnax_env(raw_env))
     agent = GACAgent(config)
     def train_fn(key: jax.Array):
@@ -78,7 +78,7 @@ def main() -> None:
 
     train_jit = jax.jit(train_fn)
 
-    print(f"--- Training GAC on {config.ENV_NAME} (continuous wrapper) ---")
+    print(f"--- Training GAC on {config.env_name} (continuous wrapper) ---")
     start = time.time()
     _, metrics = jax.block_until_ready(train_jit(rng))
     elapsed = time.time() - start
@@ -94,7 +94,7 @@ def main() -> None:
     plt.plot(returns)
     plt.xlabel("Episode")
     plt.ylabel("Episode Return")
-    plt.title(f"GAC on {config.ENV_NAME} (SPS: {sps:.0f})")
+    plt.title(f"GAC on {config.env_name} (SPS: {sps:.0f})")
 
     plt.subplot(1, 2, 2)
     for key in ("critic_loss", "actor_loss"):

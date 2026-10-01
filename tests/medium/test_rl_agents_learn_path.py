@@ -400,8 +400,8 @@ def _run_greedy_ac(learning_starts: int) -> Run:
         learning_starts=learning_starts,
         buffer_size=BUFFER_SIZE,
         batch_size=BATCH_SIZE,
-        NUM_SAMPLES=4,
-        NUM_RAND_ACTIONS=2,
+        num_samples=4,
+        num_rand_actions=2,
     )
     agent = greedy_ac.GACAgent(config)
     env = ToyContinuousEpisodeEnv()

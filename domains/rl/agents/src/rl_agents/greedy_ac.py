@@ -30,7 +30,7 @@ critic's ``TrainState.params`` and is persistent by design.
 Both batch losses take their network as an argument rather than constructing
 one. They used to build ``GACCritic()`` and ``GACActor(action_dim)`` with
 default widths, which silently disagreed with the trained parameters for any
-``HIDDEN_SIZE`` other than 256; the port needs the real network and so passes
+``hidden_size`` other than 256; the port needs the real network and so passes
 it in.
 """
 
@@ -72,46 +72,46 @@ class GACConfig:
 
     Attributes:
         learning_rate: Critic learning rate.
-        ACTOR_LEARNING_RATE: Actor learning rate.
+        actor_learning_rate: Actor learning rate.
         buffer_size: Capacity of the uniform replay buffer.
         batch_size: Minibatch size for both actor and critic updates.
         total_timesteps: Total environment steps per training run.
         learning_starts: Steps of random exploration before training begins.
-        TRAIN_FREQUENCY: Number of environment steps between training updates.
-        TAU: Target network polyak averaging coefficient.
-        NUM_SAMPLES: Number of action proposals per state for actor update.
-        ACTOR_PERCENTILE: Fraction of top-ranked proposals used for actor training.
-        UNIFORM_WEIGHT: Fraction of proposals that are uniform random (vs. actor-sampled).
-        ENTROPY_WEIGHT: Bonus weight for action entropy in actor loss.
-        NUM_RAND_ACTIONS: Number of action samples for next-state value estimation.
-        TRAINING_SIGMA_MIN: Minimum std dev for the actor during training.
-        INFERENCE_SIGMA_MIN: Minimum std dev for the actor during inference.
-        H_REGULARIZATION: L2 regularization weight for h-network parameters
+        train_frequency: Number of environment steps between training updates.
+        tau: Target network polyak averaging coefficient.
+        num_samples: Number of action proposals per state for actor update.
+        actor_percentile: Fraction of top-ranked proposals used for actor training.
+        uniform_weight: Fraction of proposals that are uniform random (vs. actor-sampled).
+        entropy_weight: Bonus weight for action entropy in actor loss.
+        num_rand_actions: Number of action samples for next-state value estimation.
+        training_sigma_min: Minimum std dev for the actor during training.
+        inference_sigma_min: Minimum std dev for the actor during inference.
+        h_regularization: L2 regularization weight for h-network parameters
             (QRC paper default 1.0 — only applied to the tiny h-head, ~256 params).
-        HIDDEN_SIZE: Width of hidden layers in actor and critic networks.
-        ENV_NAME: Gymnax environment name.
-        SEED: Random seed for reproducibility.
+        hidden_size: Width of hidden layers in actor and critic networks.
+        env_name: Gymnax environment name.
+        seed: Random seed for reproducibility.
     """
 
     learning_rate: float = traced(3e-4)
-    ACTOR_LEARNING_RATE: float = traced(3e-4)
+    actor_learning_rate: float = traced(3e-4)
     buffer_size: int = 100_000
     batch_size: int = 64
     total_timesteps: int = 200_000
     learning_starts: int = traced(1_000)
-    TRAIN_FREQUENCY: int = traced(1)
-    TAU: float = 0.005
-    NUM_SAMPLES: int = 32
-    ACTOR_PERCENTILE: float = 0.1
-    UNIFORM_WEIGHT: float = 0.2
-    ENTROPY_WEIGHT: float = traced(0.01)
-    NUM_RAND_ACTIONS: int = 10
-    TRAINING_SIGMA_MIN: float = traced(5e-3)
-    INFERENCE_SIGMA_MIN: float = traced(1e-4)
-    H_REGULARIZATION: float = traced(1.0)
-    HIDDEN_SIZE: int = 256
-    ENV_NAME: str = "MountainCarContinuous-v0"
-    SEED: int = 42
+    train_frequency: int = traced(1)
+    tau: float = 0.005
+    num_samples: int = 32
+    actor_percentile: float = 0.1
+    uniform_weight: float = 0.2
+    entropy_weight: float = traced(0.01)
+    num_rand_actions: int = 10
+    training_sigma_min: float = traced(5e-3)
+    inference_sigma_min: float = traced(1e-4)
+    h_regularization: float = traced(1.0)
+    hidden_size: int = 256
+    env_name: str = "MountainCarContinuous-v0"
+    seed: int = 42
 
     def build(self) -> GACAgent:
         return GACAgent(self)
@@ -376,7 +376,7 @@ def _propose_and_rank_topk(
     # STATIC BY NECESSITY: n_unif sizes jax.random.uniform's array and the concatenate
     # split point below, both of which must be Python ints at trace time. uniform_weight
     # therefore cannot ride the hypers pytree without a redesign (e.g. a soft mask over a
-    # fixed NUM_SAMPLES) -- out of scope here, so it stays on GACConfig.
+    # fixed num_samples) -- out of scope here, so it stays on GACConfig.
     n_unif = max(1, int(num_samples * uniform_weight))
     n_prop = num_samples - n_unif
 
@@ -403,7 +403,7 @@ def _propose_and_rank_topk(
     q_values = flat_q.reshape(B, num_samples)
     # STATIC BY NECESSITY: k is jax.lax.top_k's shape-determining argument, so it must be a
     # Python int at trace time. actor_percentile therefore cannot ride the hypers pytree
-    # without a redesign (e.g. a soft top-k mask over a fixed NUM_SAMPLES) -- out of scope
+    # without a redesign (e.g. a soft top-k mask over a fixed num_samples) -- out of scope
     # here, so it stays on GACConfig.
     k = max(1, min(int(actor_percentile * num_samples), num_samples))
     _, top_idxs = jax.lax.top_k(q_values, k)
@@ -507,10 +507,10 @@ class GACHypers:
     """The hyperparameters ``GACAgent.step`` reads as traced values.
 
     These ride the state pytree rather than the agent object so a sweep can ``vmap`` one
-    compiled kernel across a batch of arms. ``ACTOR_PERCENTILE`` and ``UNIFORM_WEIGHT`` are
+    compiled kernel across a batch of arms. ``actor_percentile`` and ``uniform_weight`` are
     deliberately absent: both are cast through Python ``int()`` to size an array (see the
     call sites in ``_propose_and_rank_topk``), so sweeping them would need a redesign and
-    stays out of scope here. ``TOTAL_TIMESTEPS`` is absent too: :class:`GACAgent` never
+    stays out of scope here. ``total_timesteps`` is absent too: :class:`GACAgent` never
     reads it.
     """
 
@@ -527,13 +527,13 @@ class GACHypers:
 def gac_hypers(config: GACConfig) -> GACHypers:
     return GACHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        ACTOR_LEARNING_RATE=jnp.asarray(config.ACTOR_LEARNING_RATE, jnp.float32),
+        ACTOR_LEARNING_RATE=jnp.asarray(config.actor_learning_rate, jnp.float32),
         LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
-        TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
-        ENTROPY_WEIGHT=jnp.asarray(config.ENTROPY_WEIGHT, jnp.float32),
-        TRAINING_SIGMA_MIN=jnp.asarray(config.TRAINING_SIGMA_MIN, jnp.float32),
-        INFERENCE_SIGMA_MIN=jnp.asarray(config.INFERENCE_SIGMA_MIN, jnp.float32),
-        H_REGULARIZATION=jnp.asarray(config.H_REGULARIZATION, jnp.float32),
+        TRAIN_FREQUENCY=jnp.asarray(config.train_frequency, jnp.int32),
+        ENTROPY_WEIGHT=jnp.asarray(config.entropy_weight, jnp.float32),
+        TRAINING_SIGMA_MIN=jnp.asarray(config.training_sigma_min, jnp.float32),
+        INFERENCE_SIGMA_MIN=jnp.asarray(config.inference_sigma_min, jnp.float32),
+        H_REGULARIZATION=jnp.asarray(config.h_regularization, jnp.float32),
     )
 
 
@@ -595,7 +595,7 @@ class GACAgent:
         observation_shape = tuple(spec.observation_shape)
         observation_dtype = jnp.dtype(spec.observation_dtype)
         action_dtype = jnp.dtype(spec.action_dtype)
-        actor, critic = _networks(action_dim, self.config.HIDDEN_SIZE)
+        actor, critic = _networks(action_dim, self.config.hidden_size)
 
         actor_key, critic_key, carry_key = jax.random.split(key, 3)
         zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
@@ -616,7 +616,7 @@ class GACAgent:
                     tx=optax.chain(
                         optax.clip_by_global_norm(1.0),
                         optax.inject_hyperparams(optax.adamw)(
-                            learning_rate=jnp.asarray(self.config.ACTOR_LEARNING_RATE, jnp.float32), weight_decay=0.1
+                            learning_rate=jnp.asarray(self.config.actor_learning_rate, jnp.float32), weight_decay=0.1
                         ),
                     ),
                 ),
@@ -663,7 +663,7 @@ class GACAgent:
             are worth reporting here because both optimizers clip at a global norm of 1.
         """
         action_dim = state.last_action.shape[0]
-        actor, _ = _networks(action_dim, self.config.HIDDEN_SIZE)
+        actor, _ = _networks(action_dim, self.config.hidden_size)
         buffer = ReplayBuffer.from_state(state.replay_state)
         carry_key, learn_key, action_key = jax.random.split(state.key, 3)
 
@@ -736,7 +736,7 @@ class GACAgent:
         """
         config = self.config
         hypers = learner_state.hypers
-        actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
+        actor, critic = _networks(action_dim, config.hidden_size)
         sample_key, next_key, proposal_key = jax.random.split(key, 3)
         obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, sample_key, config.batch_size)
 
@@ -745,7 +745,7 @@ class GACAgent:
             learner_state.actor_state.params,
             next_obs,
             jax.random.split(next_key, config.batch_size),
-            config.NUM_RAND_ACTIONS,
+            config.num_rand_actions,
             action_dim,
             hypers.INFERENCE_SIGMA_MIN,
             critic=critic,
@@ -776,9 +776,9 @@ class GACAgent:
             learner_state.actor_state.params,
             obs,
             jax.random.split(proposal_key, config.batch_size),
-            config.NUM_SAMPLES,
-            config.UNIFORM_WEIGHT,
-            config.ACTOR_PERCENTILE,
+            config.num_samples,
+            config.uniform_weight,
+            config.actor_percentile,
             action_dim,
             hypers.TRAINING_SIGMA_MIN,
             critic=critic,

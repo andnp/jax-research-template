@@ -33,8 +33,8 @@ _EXPECTED_TRACED = [
     pytest.param(
         GACConfig,
         {
-            "ACTOR_LEARNING_RATE", "ENTROPY_WEIGHT", "H_REGULARIZATION", "INFERENCE_SIGMA_MIN",
-            "learning_rate", "learning_starts", "TRAINING_SIGMA_MIN", "TRAIN_FREQUENCY",
+            "actor_learning_rate", "entropy_weight", "h_regularization", "inference_sigma_min",
+            "learning_rate", "learning_starts", "training_sigma_min", "train_frequency",
         },
         id="gac",
     ),

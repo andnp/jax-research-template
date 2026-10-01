@@ -37,20 +37,20 @@ def train_gac(
         seed: Random seed.
     """
     config = GACConfig(
-        ENV_NAME=env_name,
+        env_name=env_name,
         total_timesteps=total_timesteps,
         buffer_size=50_000,
         batch_size=64,
         learning_starts=500,
         learning_rate=3e-4,
-        ACTOR_LEARNING_RATE=3e-4,
-        ACTOR_PERCENTILE=0.1,
-        ENTROPY_WEIGHT=0.01,
-        SEED=seed,
+        actor_learning_rate=3e-4,
+        actor_percentile=0.1,
+        entropy_weight=0.01,
+        seed=seed,
     )
 
-    rng = jax.random.PRNGKey(config.SEED)
-    raw_env, env_params = gymnax.make(config.ENV_NAME)
+    rng = jax.random.PRNGKey(config.seed)
+    raw_env, env_params = gymnax.make(config.env_name)
     env = make_gymnax_env(raw_env)
     agent = GACAgent(config)
     def train_fn(key: jax.Array):
@@ -58,7 +58,7 @@ def train_gac(
 
     train_jit = jax.jit(train_fn)
 
-    print(f"--- Training GAC on {config.ENV_NAME} ---")
+    print(f"--- Training GAC on {config.env_name} ---")
     start = time.time()
     _, metrics = jax.block_until_ready(train_jit(rng))
     elapsed = time.time() - start
@@ -74,7 +74,7 @@ def train_gac(
     plt.plot(returns)
     plt.xlabel("Episode")
     plt.ylabel("Episode Return")
-    plt.title(f"GAC on {config.ENV_NAME} (SPS: {sps:.0f})")
+    plt.title(f"GAC on {config.env_name} (SPS: {sps:.0f})")
 
     plt.subplot(1, 2, 2)
     for key in ("critic_loss", "actor_loss"):
@@ -86,7 +86,7 @@ def train_gac(
     plt.legend()
 
     plt.tight_layout()
-    save_path = f"gac_{config.ENV_NAME.lower().replace('-', '_')}_results.png"
+    save_path = f"gac_{config.env_name.lower().replace('-', '_')}_results.png"
     plt.savefig(save_path)
     print(f"Plot saved as {save_path}")
 

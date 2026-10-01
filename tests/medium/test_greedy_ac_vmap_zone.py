@@ -17,11 +17,11 @@ def _config() -> GACConfig:
     return GACConfig(
         batch_size=2,
         buffer_size=64,
-        HIDDEN_SIZE=8,
+        hidden_size=8,
         learning_starts=0,
-        TRAIN_FREQUENCY=1,
-        NUM_SAMPLES=4,
-        NUM_RAND_ACTIONS=2,
+        train_frequency=1,
+        num_samples=4,
+        num_rand_actions=2,
     )
 
 
