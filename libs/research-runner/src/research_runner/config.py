@@ -63,3 +63,19 @@ def _merge_traced[C: DataclassInstance](static: C, values: Mapping[str, object])
     for path, value in values.items():
         config = _set_path(config, path, value)
     return config
+
+
+def _check_value(annotation: object, path: str, value: object) -> object:
+    """Return the value as its field's type, or raise if it is not one. Annotations not known here pass through."""
+    if not isinstance(annotation, type):
+        return value
+    is_number = isinstance(value, int | float) and not isinstance(value, bool)
+    if annotation is bool and isinstance(value, bool):
+        return value
+    if annotation is int and is_number and float(value).is_integer():
+        return int(value)
+    if annotation is float and is_number:
+        return float(value)
+    if annotation in (bool, int, float):
+        raise ValueError(f"{path} expects {annotation.__name__}, got {value!r}")
+    return value
