@@ -1,8 +1,9 @@
 # Simple RL Batch Execution
 
-> Status: PROPOSED (2026-09-30). Not implemented. When implemented, this
+> Status: IMPLEMENTED in core (2026-10-01); projects migrate next. This
 > supersedes the `*Hypers` split in `agent-param-split.md` and the trainer
-> contract described in `research-cli.md` and `parallel-experiment-runner.md`.
+> contract formerly described in `research-cli.md` and
+> `parallel-experiment-runner.md`.
 
 ## Summary
 
@@ -607,7 +608,7 @@ Still open, and settled in phase 1 rather than here:
       including through `dataclasses.replace`
       (`tests/medium/test_research_runner_config_chex.py`), so agent configs
       stay `chex_struct` classes.
-- [ ] Keep `SAC.TARGET_ENTROPY` static, because whether it is `None` must
+- [x] Keep `SAC.TARGET_ENTROPY` static, because whether it is `None` must
       agree across a batch. Trace `ALPHA` only.
 - [x] Decide what `every=n` does when a run's length is not a multiple of `n`:
       keep the last partial step or drop it. `every=n` keeps steps 0, n, 2n,
