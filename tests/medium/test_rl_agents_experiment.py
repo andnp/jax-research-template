@@ -46,4 +46,9 @@ def test_traced_fields_vary_across_a_vmapped_batch() -> None:
 
     _, metrics = jax.jit(jax.vmap(train))(gammas, keys)
 
-    assert metrics["loop/reward"].shape == (2, _STEPS)
+    discount = metrics["loop/discount"]
+    assert discount.shape == (2, _STEPS)
+    for row, gamma in zip(discount, gammas, strict=True):
+        bootstrapping = row[row != 0]
+        assert bootstrapping.size > 0
+        assert jnp.allclose(bootstrapping, gamma)
