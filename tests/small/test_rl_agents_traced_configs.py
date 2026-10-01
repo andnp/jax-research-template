@@ -6,6 +6,7 @@ from rl_agents.batch_trainer import _algorithm_metadata
 from rl_agents.double_dqn import DoubleDQNConfig
 from rl_agents.dqn import DQNAgent, DQNConfig
 from rl_agents.dueling_dqn import DuelingDQNConfig
+from rl_agents.qrc import QRCAgent, QRCConfig, QRCHypers
 from rl_agents.replay_q_agent import ReplayQHypers
 
 # Fields the derivation marks dynamic but the config keeps static: PPO checks REWARD_SCALE in Python.
@@ -16,6 +17,7 @@ _CASES = [
     pytest.param(DQNConfig, DQNAgent, ReplayQHypers, id="dqn"),
     pytest.param(DoubleDQNConfig, DQNAgent, ReplayQHypers, id="double-dqn"),
     pytest.param(DuelingDQNConfig, DQNAgent, ReplayQHypers, id="dueling-dqn"),
+    pytest.param(QRCConfig, QRCAgent, QRCHypers, id="qrc"),
 ]
 
 

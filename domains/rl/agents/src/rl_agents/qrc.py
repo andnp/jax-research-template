@@ -47,6 +47,7 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_nn.typed_module import TypedApply
 from ml_components.regularization import l2_regularizer
+from research_runner.config import traced
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.env_protocol import EnvSpec
@@ -69,20 +70,23 @@ which a prior run reported outperforming AdamW for QRC's h-head)."""
 
 @chex_struct(frozen=True, kw_only=True)
 class QRCConfig:
-    LEARNING_RATE: float = 3e-4
+    LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
-    LEARNING_STARTS: int = 1_000
-    TRAIN_FREQUENCY: int = 1
-    EPSILON_START: float = 1.0
-    EPSILON_END: float = 0.05
-    EPSILON_FRACTION: float = 0.5
-    BETA: float = 1.0
+    LEARNING_STARTS: int = traced(1_000)
+    TRAIN_FREQUENCY: int = traced(1)
+    EPSILON_START: float = traced(1.0)
+    EPSILON_END: float = traced(0.05)
+    EPSILON_FRACTION: float = traced(0.5)
+    BETA: float = traced(1.0)
     H_REGULARIZATION: HRegularization = "adamw"
     HIDDEN_WIDTH: int = 64
     ENV_NAME: str = "CartPole-v1"
     SEED: int = 42
+
+    def build(self) -> QRCAgent:
+        return QRCAgent(self)
 
 
 @chex_struct(frozen=True)
