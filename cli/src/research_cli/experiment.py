@@ -80,6 +80,16 @@ def _with_results_root(experiment_spec: ExperimentSpec, results_root: str | None
     return replace(experiment_spec, results_root=Path(results_root).resolve())
 
 
+def _sync(experiment_spec: ExperimentSpec, db_path: Path) -> frozenset[int]:
+    """Sync the spec, turning a config error in its parameters into a CLI error."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return experiment_spec.sync(db_path)
+    except ValueError as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
 def _record_declared_plan(module: ModuleType, name: str, experiment_spec: ExperimentSpec) -> None:
     """Snapshot the spec's declared plan before its runs start, so reports can show it predates the results."""
     plan_factory = registered_plans(module).get(name)
@@ -226,8 +236,7 @@ def plan(
         experiment_spec = _with_results_root(factory(), results_root)
         db_path = experiment_spec.db_path
 
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        experiment_spec.sync(db_path)
+        _sync(experiment_spec, db_path)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -268,8 +277,7 @@ def prune(
         experiment_spec = _with_results_root(factory(), results_root)
         db_path = experiment_spec.db_path
 
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        wanted = experiment_spec.sync(db_path)
+        wanted = _sync(experiment_spec, db_path)
 
         with DatabaseManager(db_path) as database:
             database.initialize()
@@ -350,6 +358,7 @@ def run(
             raise typer.Exit(code=1)
         name, factory = next(iter(specs.items()))
         experiment_spec = _with_results_root(factory(), results_root)
+        _sync(experiment_spec, experiment_spec.db_path)
         _record_declared_plan(module, name, experiment_spec)
         settings = SupervisorSettings(
             spec_file=spec_file,
@@ -368,6 +377,7 @@ def run(
 
     for name, factory in specs.items():
         experiment_spec = _with_results_root(factory(), results_root)
+        _sync(experiment_spec, experiment_spec.db_path)
         _record_declared_plan(module, name, experiment_spec)
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
@@ -584,8 +594,7 @@ def submit(
                 continue
             execution_ids = list(range(1, len(batch_sizes) + 1))
         else:
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            experiment_spec.sync(db_path)
+            _sync(experiment_spec, db_path)
             _record_declared_plan(module, name, experiment_spec)
 
             with DatabaseManager(db_path) as database:
