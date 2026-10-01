@@ -62,3 +62,22 @@ def test_thins_a_batch_of_runs_under_jit_and_vmap() -> None:
     expected = np.stack([reference_subsample(reference_moving_average(r, 0.8), 4) for r in x])
     assert out.shape == (4, 3)
     np.testing.assert_allclose(np.asarray(out), expected, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("x", "ema", "every", "message"),
+    [
+        (jnp.zeros(3), None, 0, "every"),
+        (jnp.zeros(3), None, -1, "every"),
+        (jnp.zeros(3), -0.1, 1, "ema"),
+        (jnp.zeros(3), 1.0, 1, "ema"),
+        (jnp.zeros(3), 1.5, 1, "ema"),
+        (jnp.zeros(()), None, 1, "1-D"),
+        (jnp.zeros((2, 3)), None, 1, "1-D"),
+    ],
+)
+def test_invalid_arguments_raise_value_error(
+    x: jax.Array, ema: float | None, every: int, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        thin_metric(x, ema=ema, every=every)
