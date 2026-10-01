@@ -126,7 +126,24 @@ When a shared library (e.g., `rl-agents`) needs custom modifications that are ex
 To run a hyperparameter sweep instead of a single training script, define it declaratively rather than hand-rolling a loop over `train.py`:
 
 1. **Define the sweep:**
-   In a project file (e.g. `projects/ppo-cartpole-sweep/sweep.py`), build an `experiment_definition.experiment.Experiment`, add parameter values with `add_parameter(name, values)`, declare metrics with `add_metric(name, kind=...)` (`kind` defaults to `"float"`), wire a shared algorithm trainer, and expose a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner`. Core-owned trainers derive vmap zones automatically; the CLI discovers exactly the factories registered by `@spec`.
+   In a project file (e.g. `projects/ppo-cartpole-sweep/experiments/001_sweep.py`), build an `experiment_definition.experiment.Experiment` and expose a module-level, zero-argument function returning `ExperimentSpec`, decorated with `@spec` from `research_runner.registry`. The CLI discovers exactly the factories registered by `@spec`.
+
+   ```python
+   experiment.add_parameter("env", ENV_NAMES)                     # a named choice
+   experiment.add_parameter("agent.LEARNING_RATE", [1e-3, 3e-4])  # a dotted config path
+   experiment.add_parameter("seed", range(30))
+   experiment.add_metric("loop/reward", ema=0.999, every=500)      # smoothed, then one value in 500
+
+   ExperimentSpec(
+       experiment,
+       config=RLConfig(agent=PPOConfig(), env=GymnaxConfig(ENV_NAMES[0])),
+       choices={"env": {name: GymnaxConfig(name) for name in ENV_NAMES}},
+       train=rl_train,
+       results_root=RESULTS_ROOT,
+   )
+   ```
+
+   Each parameter either sets a dotted path on the base `config` or names one of `choices`; `seed` is reserved. `train(config, key)` is a JAX function returning `(state, metrics)`, and `rl_agents.experiment.rl_train` is the default; wrap it to emit extra metrics. Only metrics declared with `add_metric` are recorded. Runs that differ only in fields their config marks `traced(...)` share one compiled `jit(vmap(train))`. A misspelt path, an unknown choice or a mistyped value fails at sync, before anything runs.
 
 2. **Preview the run (dry run):**
    ```bash
@@ -138,7 +155,7 @@ To run a hyperparameter sweep instead of a single training script, define it dec
    ```bash
    uv run research experiment run sweep.py --spec my_sweep
    ```
-   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists trainer metric series to `metrics.sqlite` and trainer artifacts under the execution root.
+   Results land under the project's `results/` directory: `experiments.sqlite` holds intent and provenance (per-execution git commit, git diff, and component source hashes), while the runner persists the declared metrics to `metrics.sqlite` and each batch's manifest under the execution root.
 
    A single-process run caps XLA's CPU thread pool with the `NPROC` environment variable, e.g. `NPROC=4 uv run research experiment run sweep.py --spec my_sweep`. `XLA_FLAGS` thread-count settings and `OMP_NUM_THREADS`/`MKL_NUM_THREADS` do not cap it. With JAX 0.11.1, a jitted matmul scan used 6.45 cores unset, 1.00 with `NPROC=1`, and 3.83 with `NPROC=4`.
 
