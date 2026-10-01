@@ -41,10 +41,10 @@ from rl_networks.networks import Critic
 @chex_struct(frozen=True, kw_only=True)
 class TD3Config:
     learning_rate: float = traced(3e-4)
-    BUFFER_SIZE: int = 100_000
-    BATCH_SIZE: int = 256
+    buffer_size: int = 100_000
+    batch_size: int = 256
     total_timesteps: int = 1_000_000
-    LEARNING_STARTS: int = traced(25_000)
+    learning_starts: int = traced(25_000)
     TRAIN_FREQUENCY: int = traced(1)
     TAU: float = traced(0.005)
     POLICY_DELAY: int = traced(2)
@@ -82,7 +82,7 @@ class TD3Hypers:
 def td3_hypers(config: TD3Config) -> TD3Hypers:
     return TD3Hypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
         POLICY_DELAY=jnp.asarray(config.POLICY_DELAY, jnp.int32),
@@ -271,7 +271,7 @@ class TD3Agent:
             jax.random.split(critic_key, 2), zero_obs, zero_action
         )
         buffer = ReplayBuffer(
-            capacity=self.config.BUFFER_SIZE,
+            capacity=self.config.buffer_size,
             obs_shape=observation_shape,
             action_shape=(action_dim,),
             action_dtype=action_dtype,
@@ -393,7 +393,7 @@ class TD3Agent:
         hypers = learner_state.hypers
         actor, critic = _networks(action_dim)
         sample_key, critic_key = jax.random.split(key)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.batch_size)
 
         critic_state = with_hyperparams(learner_state.critic_state, learning_rate=hypers.LEARNING_RATE)
         critic_loss, critic_grads = jax.value_and_grad(partial(td3_critic_loss, actor=actor, critic=critic))(

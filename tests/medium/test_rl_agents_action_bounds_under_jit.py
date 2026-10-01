@@ -25,7 +25,7 @@ from rl_envs.gymnax_bridge import make_gymnax_env
 
 
 def _agent() -> SACAgent:
-    return SACAgent(SACConfig(LEARNING_STARTS=2, BUFFER_SIZE=64, BATCH_SIZE=4))
+    return SACAgent(SACConfig(learning_starts=2, buffer_size=64, batch_size=4))
 
 
 def _run_jitted(env: EnvProtocol, params: object) -> dict[str, jax.Array]:

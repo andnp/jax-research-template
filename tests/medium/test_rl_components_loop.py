@@ -380,7 +380,7 @@ class TestIndexing:
     def test_the_agent_sees_the_scan_iteration_as_its_step_index(self) -> None:
         # Pins the VALUES, not merely how many are positive: a count-only assertion
         # survives a mutation to jnp.arange(steps) * 2, which would silently double the
-        # rate of every schedule keyed on step_index (epsilon, LEARNING_STARTS,
+        # rate of every schedule keyed on step_index (epsilon, learning_starts,
         # TRAIN_FREQUENCY, target sync).
         _, metrics = run(RecordAgent(), ToyEnv(terminate_at=3), jax.random.key(0), steps=9, gamma=GAMMA)
 

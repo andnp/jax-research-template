@@ -14,9 +14,9 @@ GAMMA = 0.99
 def main() -> None:
     config = DQNConfig(
         total_timesteps=100_000,
-        BUFFER_SIZE=50_000,
-        BATCH_SIZE=128,
-        LEARNING_STARTS=1000,
+        buffer_size=50_000,
+        batch_size=128,
+        learning_starts=1000,
         TARGET_NETWORK_FREQUENCY=500,
         learning_rate=1e-3,
         ENV_NAME="CartPole-v1",

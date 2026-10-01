@@ -19,7 +19,7 @@ from rl_agents.td3 import TD3Config
 from rl_envs.env_config import GymnaxConfig
 
 _STEPS = 4
-_REPLAY = {"total_timesteps": _STEPS, "BUFFER_SIZE": 8, "BATCH_SIZE": 2, "LEARNING_STARTS": 0}
+_REPLAY = {"total_timesteps": _STEPS, "buffer_size": 8, "batch_size": 2, "learning_starts": 0}
 _CARTPOLE = GymnaxConfig("CartPole-v1")
 _PENDULUM = GymnaxConfig("Pendulum-v1", normalized=True)
 

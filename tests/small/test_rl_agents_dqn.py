@@ -11,16 +11,16 @@ class TestDQNConfig:
     def test_defaults(self) -> None:
         cfg = DQNConfig()
         assert cfg.learning_rate == 3e-4
-        assert cfg.BUFFER_SIZE == 100_000
-        assert cfg.BATCH_SIZE == 64
+        assert cfg.buffer_size == 100_000
+        assert cfg.batch_size == 64
         assert cfg.EPSILON_START == 1.0
         assert cfg.EPSILON_END == 0.05
         assert cfg.network_preset == "mlp"
 
     def test_custom_config(self) -> None:
-        cfg = DQNConfig(learning_rate=1e-3, BUFFER_SIZE=1000, ENV_NAME="CartPole-v1")
+        cfg = DQNConfig(learning_rate=1e-3, buffer_size=1000, ENV_NAME="CartPole-v1")
         assert cfg.learning_rate == 1e-3
-        assert cfg.BUFFER_SIZE == 1000
+        assert cfg.buffer_size == 1000
         assert cfg.ENV_NAME == "CartPole-v1"
 
 

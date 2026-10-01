@@ -12,9 +12,9 @@ more would otherwise look identical.
 
 Every agent is run twice against the same seed and the same toy environment:
 
-- a *learning* run, whose ``LEARNING_STARTS`` sits strictly below the step budget, so the
+- a *learning* run, whose ``learning_starts`` sits strictly below the step budget, so the
   ``can_train`` branch genuinely fires;
-- a *warmup-only* run, whose ``LEARNING_STARTS`` equals the step budget, so the branch can
+- a *warmup-only* run, whose ``learning_starts`` equals the step budget, so the branch can
   never fire.
 
 The pair is the negative control: parameters must move in the first run and must stay
@@ -221,9 +221,9 @@ def _finish(
 def _run_dqn(learning_starts: int) -> Run:
     config = dqn.DQNConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = dqn.DQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
@@ -246,9 +246,9 @@ def _run_dqn(learning_starts: int) -> Run:
 def _run_double_dqn(learning_starts: int) -> Run:
     config = double_dqn.DoubleDQNConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = double_dqn.DoubleDQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
@@ -271,9 +271,9 @@ def _run_double_dqn(learning_starts: int) -> Run:
 def _run_dueling_dqn(learning_starts: int) -> Run:
     config = dueling_dqn.DuelingDQNConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = dueling_dqn.DuelingDQNAgent(config)
     env = ToyDiscreteEpisodeEnv()
@@ -296,9 +296,9 @@ def _run_dueling_dqn(learning_starts: int) -> Run:
 def _run_qrc(learning_starts: int) -> Run:
     config = qrc.QRCConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = qrc.QRCAgent(config)
     env = ToyDiscreteEpisodeEnv()
@@ -321,9 +321,9 @@ def _run_qrc(learning_starts: int) -> Run:
 def _run_sac(learning_starts: int) -> Run:
     config = sac.SACConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = sac.SACAgent(config)
     env = ToyContinuousEpisodeEnv()
@@ -346,9 +346,9 @@ def _run_sac(learning_starts: int) -> Run:
 def _run_td3(learning_starts: int) -> Run:
     config = td3.TD3Config(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
         POLICY_DELAY=1,
     )
     agent = td3.TD3Agent(config)
@@ -372,9 +372,9 @@ def _run_td3(learning_starts: int) -> Run:
 def _run_sac_rc(learning_starts: int) -> Run:
     config = sac_rc.SACRCConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
     )
     agent = sac_rc.SACRCAgent(config)
     env = ToyContinuousEpisodeEnv()
@@ -397,9 +397,9 @@ def _run_sac_rc(learning_starts: int) -> Run:
 def _run_greedy_ac(learning_starts: int) -> Run:
     config = greedy_ac.GACConfig(
         total_timesteps=TOTAL_TIMESTEPS,
-        LEARNING_STARTS=learning_starts,
-        BUFFER_SIZE=BUFFER_SIZE,
-        BATCH_SIZE=BATCH_SIZE,
+        learning_starts=learning_starts,
+        buffer_size=BUFFER_SIZE,
+        batch_size=BATCH_SIZE,
         NUM_SAMPLES=4,
         NUM_RAND_ACTIONS=2,
     )

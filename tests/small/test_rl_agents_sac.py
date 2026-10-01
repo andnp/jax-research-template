@@ -17,7 +17,7 @@ class TestSACConfig:
     def test_defaults(self) -> None:
         cfg = SACConfig()
         assert cfg.learning_rate == 3e-4
-        assert cfg.BUFFER_SIZE == 100_000
+        assert cfg.buffer_size == 100_000
         assert cfg.TAU == 0.005
         assert cfg.ALPHA == 0.2
         assert cfg.TARGET_ENTROPY is None

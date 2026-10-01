@@ -65,9 +65,9 @@ class TestDQNNatureEnvIntegration:
         config = DQNConfig(
             network_preset="nature_cnn",
             total_timesteps=STEPS,
-            LEARNING_STARTS=100,
-            BUFFER_SIZE=16,
-            BATCH_SIZE=4,
+            learning_starts=100,
+            buffer_size=16,
+            batch_size=4,
         )
         agent = DQNAgent(config)
         env = FakeAtariLikeEnv()
@@ -83,11 +83,11 @@ class TestDQNNatureEnvIntegration:
         buffer_state = final_state.agent_state.replay_state
         assert buffer_state.obs.dtype == jnp.uint8, "the spec's observation dtype must reach the buffer"
         assert int(buffer_state.count) == STEPS - 1, "the final action opens a transition that never closes"
-        assert jnp.all(metrics["loss"] == 0.0), "LEARNING_STARTS above the budget must keep the learn path shut"
+        assert jnp.all(metrics["loss"] == 0.0), "learning_starts above the budget must keep the learn path shut"
 
     def test_the_spec_selects_the_nature_network_without_an_observation_argument(self) -> None:
         """``init`` sees only the spec, so the CNN choice must follow from it alone."""
-        agent = DQNAgent(DQNConfig(network_preset="nature_cnn", BUFFER_SIZE=8))
+        agent = DQNAgent(DQNConfig(network_preset="nature_cnn", buffer_size=8))
 
         state = agent.init(jax.random.key(0), FakeAtariLikeEnv().spec())
 

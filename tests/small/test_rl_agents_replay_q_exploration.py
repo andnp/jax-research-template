@@ -17,7 +17,7 @@ EPSILON = 0.25
 NUM_KEYS = 8_000
 
 EXPLORATION = dict(
-    BUFFER_SIZE=8, LEARNING_STARTS=1_000, EPSILON_START=EPSILON, EPSILON_END=EPSILON, total_timesteps=100
+    buffer_size=8, learning_starts=1_000, EPSILON_START=EPSILON, EPSILON_END=EPSILON, total_timesteps=100
 )
 
 SPEC = EnvSpec(id="toy", observation_shape=(2,), action_shape=(), num_actions=NUM_ACTIONS)

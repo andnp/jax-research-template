@@ -73,10 +73,10 @@ class GACConfig:
     Attributes:
         learning_rate: Critic learning rate.
         ACTOR_LEARNING_RATE: Actor learning rate.
-        BUFFER_SIZE: Capacity of the uniform replay buffer.
-        BATCH_SIZE: Minibatch size for both actor and critic updates.
+        buffer_size: Capacity of the uniform replay buffer.
+        batch_size: Minibatch size for both actor and critic updates.
         total_timesteps: Total environment steps per training run.
-        LEARNING_STARTS: Steps of random exploration before training begins.
+        learning_starts: Steps of random exploration before training begins.
         TRAIN_FREQUENCY: Number of environment steps between training updates.
         TAU: Target network polyak averaging coefficient.
         NUM_SAMPLES: Number of action proposals per state for actor update.
@@ -95,10 +95,10 @@ class GACConfig:
 
     learning_rate: float = traced(3e-4)
     ACTOR_LEARNING_RATE: float = traced(3e-4)
-    BUFFER_SIZE: int = 100_000
-    BATCH_SIZE: int = 64
+    buffer_size: int = 100_000
+    batch_size: int = 64
     total_timesteps: int = 200_000
-    LEARNING_STARTS: int = traced(1_000)
+    learning_starts: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
     TAU: float = 0.005
     NUM_SAMPLES: int = 32
@@ -528,7 +528,7 @@ def gac_hypers(config: GACConfig) -> GACHypers:
     return GACHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
         ACTOR_LEARNING_RATE=jnp.asarray(config.ACTOR_LEARNING_RATE, jnp.float32),
-        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         ENTROPY_WEIGHT=jnp.asarray(config.ENTROPY_WEIGHT, jnp.float32),
         TRAINING_SIGMA_MIN=jnp.asarray(config.TRAINING_SIGMA_MIN, jnp.float32),
@@ -601,7 +601,7 @@ class GACAgent:
         zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
         zero_action = jnp.zeros((action_dim,), dtype=action_dtype)
         buffer = ReplayBuffer(
-            capacity=self.config.BUFFER_SIZE,
+            capacity=self.config.buffer_size,
             obs_shape=observation_shape,
             action_shape=(action_dim,),
             action_dtype=action_dtype,
@@ -738,13 +738,13 @@ class GACAgent:
         hypers = learner_state.hypers
         actor, critic = _networks(action_dim, config.HIDDEN_SIZE)
         sample_key, next_key, proposal_key = jax.random.split(key, 3)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, sample_key, config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, sample_key, config.batch_size)
 
         next_actions = _select_best_next_action(
             learner_state.critic_state.params,
             learner_state.actor_state.params,
             next_obs,
-            jax.random.split(next_key, config.BATCH_SIZE),
+            jax.random.split(next_key, config.batch_size),
             config.NUM_RAND_ACTIONS,
             action_dim,
             hypers.INFERENCE_SIGMA_MIN,
@@ -775,7 +775,7 @@ class GACAgent:
             critic_state.params,
             learner_state.actor_state.params,
             obs,
-            jax.random.split(proposal_key, config.BATCH_SIZE),
+            jax.random.split(proposal_key, config.batch_size),
             config.NUM_SAMPLES,
             config.UNIFORM_WEIGHT,
             config.ACTOR_PERCENTILE,

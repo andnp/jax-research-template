@@ -71,10 +71,10 @@ which a prior run reported outperforming AdamW for QRC's h-head)."""
 @chex_struct(frozen=True, kw_only=True)
 class QRCConfig:
     learning_rate: float = traced(3e-4)
-    BUFFER_SIZE: int = 100_000
-    BATCH_SIZE: int = 64
+    buffer_size: int = 100_000
+    batch_size: int = 64
     total_timesteps: int = 200_000
-    LEARNING_STARTS: int = traced(1_000)
+    learning_starts: int = traced(1_000)
     TRAIN_FREQUENCY: int = traced(1)
     EPSILON_START: float = traced(1.0)
     EPSILON_END: float = traced(0.05)
@@ -114,7 +114,7 @@ class QRCHypers:
 def qrc_hypers(config: QRCConfig) -> QRCHypers:
     return QRCHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         EPSILON_START=jnp.asarray(config.EPSILON_START, jnp.float32),
         EPSILON_END=jnp.asarray(config.EPSILON_END, jnp.float32),
@@ -325,7 +325,7 @@ class QRCAgent:
 
         params_key, carry_key = jax.random.split(key)
         buffer = ReplayBuffer(
-            capacity=self.config.BUFFER_SIZE,
+            capacity=self.config.buffer_size,
             obs_shape=observation_shape,
             action_shape=tuple(spec.action_shape),
             action_dtype=action_dtype,
@@ -451,7 +451,7 @@ class QRCAgent:
             learning_rate=hypers.LEARNING_RATE,
             weight_decay=hypers.BETA,
         )
-        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.batch_size)
 
         def loss_fn(params: VariableDict) -> jax.Array:
             return qrc_loss_batch(

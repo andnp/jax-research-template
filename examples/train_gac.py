@@ -39,9 +39,9 @@ def train_gac(
     config = GACConfig(
         ENV_NAME=env_name,
         total_timesteps=total_timesteps,
-        BUFFER_SIZE=50_000,
-        BATCH_SIZE=64,
-        LEARNING_STARTS=500,
+        buffer_size=50_000,
+        batch_size=64,
+        learning_starts=500,
         learning_rate=3e-4,
         ACTOR_LEARNING_RATE=3e-4,
         ACTOR_PERCENTILE=0.1,

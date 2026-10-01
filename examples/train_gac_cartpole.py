@@ -56,9 +56,9 @@ def main() -> None:
     config = GACConfig(
         ENV_NAME="CartPole-v1",
         total_timesteps=100_000,
-        BUFFER_SIZE=50_000,
-        BATCH_SIZE=32,
-        LEARNING_STARTS=1,
+        buffer_size=50_000,
+        batch_size=32,
+        learning_starts=1,
         learning_rate=3e-4,
         ACTOR_LEARNING_RATE=3e-4,
         NUM_SAMPLES=32,

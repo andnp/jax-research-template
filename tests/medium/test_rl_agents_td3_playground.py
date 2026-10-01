@@ -24,9 +24,9 @@ def _short_agent(env_name: str) -> TD3Agent:
         TD3Config(
             ENV_NAME=env_name,
             total_timesteps=STEPS,
-            LEARNING_STARTS=50,
-            BUFFER_SIZE=64,
-            BATCH_SIZE=16,
+            learning_starts=50,
+            buffer_size=64,
+            batch_size=16,
             TRAIN_FREQUENCY=1,
             POLICY_DELAY=2,
         )

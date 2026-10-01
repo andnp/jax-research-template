@@ -69,10 +69,10 @@ from rl_agents.sac import Actor, sac_alpha_loss
 @chex_struct(frozen=True, kw_only=True)
 class SACRCConfig:
     learning_rate: float = traced(3e-4)
-    BUFFER_SIZE: int = 100_000
-    BATCH_SIZE: int = 256
+    buffer_size: int = 100_000
+    batch_size: int = 256
     total_timesteps: int = 1_000_000
-    LEARNING_STARTS: int = traced(5_000)
+    learning_starts: int = traced(5_000)
     TRAIN_FREQUENCY: int = traced(1)
     ALPHA: float = traced(0.2)
     TARGET_ENTROPY: float | None = None
@@ -105,7 +105,7 @@ class SACRCHypers:
 def sac_rc_hypers(config: SACRCConfig) -> SACRCHypers:
     return SACRCHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         BETA=jnp.asarray(config.BETA, jnp.float32),
     )
@@ -320,7 +320,7 @@ class SACRCAgent:
         zero_obs = jnp.zeros(observation_shape, dtype=observation_dtype)
         zero_action = jnp.zeros((action_dim,), dtype=action_dtype)
         buffer = ReplayBuffer(
-            capacity=self.config.BUFFER_SIZE,
+            capacity=self.config.buffer_size,
             obs_shape=observation_shape,
             action_shape=(action_dim,),
             action_dtype=action_dtype,
@@ -457,7 +457,7 @@ class SACRCAgent:
         actor, critic = _networks(action_dim)
         sample_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
         _, alpha_sample_key = jax.random.split(alpha_key)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(buffer_state, sample_key, self.config.batch_size)
         alpha = jnp.exp(cast(jax.Array, learner_state.alpha_state.params["log_alpha"])[0])
 
         critic_state = with_hyperparams(learner_state.critic_state, learning_rate=hypers.LEARNING_RATE)

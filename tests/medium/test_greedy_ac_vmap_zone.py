@@ -15,10 +15,10 @@ SPEC = EnvSpec(id="toy-continuous", observation_shape=(2,), action_shape=(1,), a
 
 def _config() -> GACConfig:
     return GACConfig(
-        BATCH_SIZE=2,
-        BUFFER_SIZE=64,
+        batch_size=2,
+        buffer_size=64,
         HIDDEN_SIZE=8,
-        LEARNING_STARTS=0,
+        learning_starts=0,
         TRAIN_FREQUENCY=1,
         NUM_SAMPLES=4,
         NUM_RAND_ACTIONS=2,

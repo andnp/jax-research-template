@@ -112,16 +112,16 @@ class ReplayQConfig(Protocol):
     def learning_rate(self) -> float: ...
 
     @property
-    def BUFFER_SIZE(self) -> int: ...
+    def buffer_size(self) -> int: ...
 
     @property
-    def BATCH_SIZE(self) -> int: ...
+    def batch_size(self) -> int: ...
 
     @property
     def total_timesteps(self) -> int: ...
 
     @property
-    def LEARNING_STARTS(self) -> int: ...
+    def learning_starts(self) -> int: ...
 
     @property
     def TRAIN_FREQUENCY(self) -> int: ...
@@ -166,7 +166,7 @@ class ReplayQHypers:
 def replay_q_hypers(config: ReplayQConfig):
     return ReplayQHypers(
         LEARNING_RATE=jnp.asarray(config.learning_rate, jnp.float32),
-        LEARNING_STARTS=jnp.asarray(config.LEARNING_STARTS, jnp.int32),
+        LEARNING_STARTS=jnp.asarray(config.learning_starts, jnp.int32),
         TRAIN_FREQUENCY=jnp.asarray(config.TRAIN_FREQUENCY, jnp.int32),
         TARGET_NETWORK_FREQUENCY=jnp.asarray(config.TARGET_NETWORK_FREQUENCY, jnp.int32),
         TAU=jnp.asarray(config.TAU, jnp.float32),
@@ -238,7 +238,7 @@ class ReplayQAgent:
         params_key, carry_key = jax.random.split(key)
         params = network.init(params_key, jnp.zeros(observation_shape, dtype=observation_dtype))
         buffer = ReplayBuffer(
-            capacity=self.config.BUFFER_SIZE,
+            capacity=self.config.buffer_size,
             obs_shape=observation_shape,
             action_shape=tuple(spec.action_shape),
             action_dtype=action_dtype,
@@ -368,7 +368,7 @@ class ReplayQAgent:
         transformation itself is a static field and cannot hold a traced value.
         """
         train_state = with_hyperparams(learner_state.train_state, learning_rate=learner_state.hypers.LEARNING_RATE)
-        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.BATCH_SIZE)
+        obs, actions, rewards, next_obs, discounts = buffer.sample(replay_state, keys[0], self.config.batch_size)
 
         def loss_fn(params: VariableDict) -> jax.Array:
             return self.loss_fn(
