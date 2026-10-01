@@ -342,7 +342,6 @@ def run(
     memory_reserve: float | None = typer.Option(
         None, "--memory-reserve", help="With --workers, GiB of memory kept free (default 15% of MemTotal)."
     ),
-    group: str | None = typer.Option(None, "--group", hidden=True, help="Run only the batches with this group key."),
     # Unused here: the real JAX_PLATFORMS decision must happen in main.py before jax is
     # ever imported, so this is declared only so typer accepts/documents the flag.
     gpu: bool = typer.Option(False, "--gpu", help="Use the GPU backend for JAX instead of CPU."),
@@ -385,14 +384,12 @@ def run(
         experiment_spec = _with_results_root(factory(), results_root)
         _sync(experiment_spec, experiment_spec.db_path)
         _record_declared_plan(module, name, experiment_spec)
-        if group is None:
-            typer.echo(_reclaim_dead(experiment_spec))
+        typer.echo(_reclaim_dead(experiment_spec))
         typer.echo(f"Running spec '{name}'...")
         roots = run_experiment(
             experiment_spec,
             max_runs_per_batch=max_runs,
             only=only_clauses,
-            group=group,
         )
         typer.echo(f"Spec '{name}': {len(roots)} execution(s) completed")
         for root in roots:
