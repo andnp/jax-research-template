@@ -32,25 +32,17 @@ def test_group_keys_are_stable_and_distinct_per_group(tmp_path: Path) -> None:
         assert len(set(first)) == 4
 
 
-def test_group_filter_plans_only_that_group(tmp_path: Path) -> None:
-    """Planning with a group key claims only that group's runs."""
+def test_group_filter_lists_only_that_group(tmp_path: Path) -> None:
+    """Listing with a group key returns only that group's batch."""
     with DatabaseManager(tmp_path / "experiments.sqlite") as database:
         database.initialize()
         experiment_id = _seed_groups(database)
         target = database.list_unsatisfied_run_batches(experiment_id)[2]
 
         filtered = database.list_unsatisfied_run_batches(experiment_id, group=target.group_key)
-        planned = database.plan_next_execution_batch(
-            experiment_id, tmp_path / "executions", group=target.group_key
-        )
 
         assert [b.run_ids for b in filtered] == [target.run_ids]
-        assert planned is not None
-        assert planned.run_ids == target.run_ids
-        assert database.plan_next_execution_batch(
-            experiment_id, tmp_path / "executions", group=target.group_key
-        ) is None
-        assert database.plan_next_execution_batch(experiment_id, tmp_path / "executions") is not None
+
 
 def test_batch_planning_with_a_group_plans_every_batch_of_that_group_only(tmp_path: Path) -> None:
     """Planning all batches with a group key plans that group's batches, in order, and no other group's."""

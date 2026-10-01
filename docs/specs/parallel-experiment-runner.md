@@ -135,9 +135,9 @@ limit or toggle in v1; add them if the cache grows or causes trouble.
 ### 4.5 Changes to planning and the database
 
 - **Group key.** `RunBatch` carries `group_key`: a short stable hash of its grouping tuple (algorithm version,
-  environment version, ablation, static config JSON, vmap zone JSON). `list_unsatisfied_run_batches`,
-  `plan_next_execution_batch` and `plan_experiment_execution_batches` take `group: str | None`, restricting planning
-  to that group; the latter also takes `only`. The supervisor plans one group's batches with it.
+  environment version, ablation, static config JSON, vmap zone JSON). `list_unsatisfied_run_batches`
+  and `plan_experiment_execution_batches` take `group: str | None`, restricting planning to that group; the latter
+  also takes `only`. The supervisor plans one group's batches with it.
 - **Atomic reclaim.** `reclaim_dead_executions` transitions inside one `BEGIN IMMEDIATE` transaction, only the rows
   whose status and owner are unchanged since the probe, so a concurrent reclaim is a no-op rather than a crash.
 - **Busy timeout.** `DatabaseManager.connect` sets `PRAGMA busy_timeout` to 30 s, matching `metrics.sqlite`, so many

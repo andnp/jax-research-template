@@ -39,13 +39,11 @@ def run_experiment(
     max_runs_per_batch: int | None = None,
     on_batch_complete: Callable[[Path], None] | None = None,
     only: Mapping[str, str] | None = None,
-    group: str | None = None,
 ):
     """Sync the spec, then plan and execute its pending batches until none remain.
 
     ``max_runs_per_batch`` overrides the spec's. ``only`` restricts which pending runs
-    execute, per the planning service matcher. ``group`` restricts execution to the
-    batches whose ``RunBatch.group_key`` matches.
+    execute, per the planning service matcher.
     """
     db_path = spec.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +72,6 @@ def run_experiment(
                 git_commit=git_commit,
                 git_diff_blob=git_diff,
                 only=only,
-                group=group,
                 owner=owner,
             )
         if planned is None:

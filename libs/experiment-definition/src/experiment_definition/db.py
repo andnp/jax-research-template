@@ -546,17 +546,15 @@ class DatabaseManager:
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
         only: Mapping[str, str] | None = None,
-        group: str | None = None,
         owner: str | None = None,
     ) -> PlannedExecution | None:
         """Plan and return the next unsatisfied execution batch, or None when none remain.
 
-        ``only`` restricts which runs are eligible, per the planning service matcher; ``group``
-        restricts planning to the batches whose ``RunBatch.group_key`` matches.
+        ``only`` restricts which runs are eligible, per the planning service matcher.
         """
         planned = self._plan_batches(
             experiment_id, artifacts_root, 1, max_runs_per_batch,
-            git_commit, git_diff_blob, only, group, owner,
+            git_commit, git_diff_blob, only, None, owner,
         )
         return planned[0] if planned else None
 
