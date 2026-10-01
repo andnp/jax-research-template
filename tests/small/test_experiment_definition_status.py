@@ -134,6 +134,19 @@ class TestTransitionMany:
         assert _status_of(database, first) == PENDING
 
 
+class TestFailExecutions:
+    def test_fails_only_the_live_executions_and_returns_them(self, database: DatabaseManager) -> None:
+        """Pending and running executions fail together; finished and missing ids are left out."""
+        pending = _execution_at(database, ())
+        running = _execution_at(database, (RUNNING,))
+        completed = _execution_at(database, (RUNNING, COMPLETED))
+
+        failed = database.fail_executions([pending, running, completed, 999999])
+
+        assert failed == [pending, running]
+        assert [_status_of(database, i) for i in (pending, running, completed)] == [FAILED, FAILED, COMPLETED]
+
+
 class TestRunState:
     @pytest.mark.parametrize(
         ("statuses", "expected"),

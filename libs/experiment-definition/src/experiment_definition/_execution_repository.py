@@ -118,10 +118,6 @@ def update_execution_status(
         raise
 
 
-def fail_live_execution(conn: sqlite3.Connection, execution_id: int, end_time: str) -> None:
-    _transition_many(conn, [execution_id], ExecutionStatus.FAILED, end_time)
-
-
 def _transition_many(
     conn: sqlite3.Connection,
     execution_ids: Iterable[int],

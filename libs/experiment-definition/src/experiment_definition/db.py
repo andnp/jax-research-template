@@ -34,6 +34,7 @@ from .records import (
     RunRow,
 )
 from .schema import ALL_DDL, DEFAULT_DB_NAME
+from .status import ExecutionStatus
 
 
 def sync_to_db(
@@ -466,7 +467,13 @@ class DatabaseManager:
 
     def fail_execution(self, execution_id: int) -> None:
         """Mark a PENDING or RUNNING execution FAILED now, leaving a finished one untouched."""
-        _execution.fail_live_execution(self.conn, execution_id, datetime.now(timezone.utc).isoformat())
+        self.fail_executions([execution_id])
+
+    def fail_executions(self, execution_ids: Iterable[int]) -> list[int]:
+        """Mark each PENDING or RUNNING execution FAILED now in one transaction; return the ids failed."""
+        return _execution._transition_many(
+            self.conn, execution_ids, ExecutionStatus.FAILED, datetime.now(timezone.utc).isoformat()
+        )
 
     def reclaim_stale_executions(
         self,
