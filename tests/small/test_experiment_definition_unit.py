@@ -155,6 +155,29 @@ class TestExperimentBuilder:
         with pytest.raises(ValueError):
             exp.add_metric("x", kind="invalid")
 
+    def test_metric_records_every_step_unsmoothed_by_default(self) -> None:
+        exp = Experiment("Test").add_metric("reward")
+        assert (exp.metrics[0].every, exp.metrics[0].ema) == (1, None)
+
+    def test_metric_keeps_its_sampling(self) -> None:
+        exp = Experiment("Test").add_metric("loop/reward", ema=0.999, every=500)
+        assert (exp.metrics[0].every, exp.metrics[0].ema) == (500, 0.999)
+
+    @pytest.mark.parametrize("every", [0, -1, True, 2.0])
+    def test_rejects_an_invalid_every(self, every: int) -> None:
+        with pytest.raises(ValueError, match="every"):
+            Experiment("Test").add_metric("reward", every=every)
+
+    @pytest.mark.parametrize("ema", [-0.1, 1.0, 1.5])
+    def test_rejects_an_ema_outside_the_unit_interval(self, ema: float) -> None:
+        with pytest.raises(ValueError, match="ema"):
+            Experiment("Test").add_metric("reward", ema=ema)
+
+    def test_rejects_a_metric_declared_twice(self) -> None:
+        exp = Experiment("Test").add_metric("reward")
+        with pytest.raises(ValueError, match="'reward' is already declared"):
+            exp.add_metric("reward", every=10)
+
 
 class TestConditionalSweepAPI:
     def test_resolves_only_valid_conditional_configurations(self) -> None:
