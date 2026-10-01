@@ -25,7 +25,8 @@ This is everything an experiment author touches. Anything not listed is
 private.
 
 ```python
-from research_runner import ExperimentSpec, traced
+from research_runner.config import traced
+from research_runner.types import ExperimentSpec
 from rl_agents.experiment import RLConfig, rl_train
 
 experiment.add_parameter("env", ENV_NAMES)                     # a named choice
@@ -606,8 +607,10 @@ open.
 
 Still open, and settled in phase 1 rather than here:
 
-- [ ] Confirm that `traced()` field metadata survives `chex_struct`. If it
-      does not, agent configs become plain frozen dataclasses.
+- [x] Confirm that `traced()` field metadata survives `chex_struct`. It does,
+      including through `dataclasses.replace`
+      (`tests/medium/test_research_runner_config_chex.py`), so agent configs
+      stay `chex_struct` classes.
 - [ ] Keep `SAC.TARGET_ENTROPY` static, because whether it is `None` must
       agree across a batch. Trace `ALPHA` only.
 - [ ] Decide what `every=n` does when a run's length is not a multiple of `n`:
