@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
+from typing import TYPE_CHECKING
 
 from experiment_definition.experiment import Experiment
 from experiment_definition.parameter import ParameterValue
@@ -21,129 +21,6 @@ class RunPoint:
 
     run_id: int
     hyperparameters: Mapping[str, ParameterValue]
-
-    def get(self, name: str, expected_type: type[_T]) -> _T:
-        return get_parameter(self.hyperparameters, name, expected_type)
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionContext:
-    execution_id: int
-    experiment_id: int
-    experiment_name: str
-    static_config: Mapping[str, ParameterValue]
-    points: tuple[RunPoint, ...]
-    execution_root: Path
-    metrics_db_path: Path
-
-    def bind(self, schema: "ParameterSchema") -> "BoundBatch":
-        return BoundBatch.from_context(self, schema)
-
-    def get_static(self, name: str, expected_type: type[_T]) -> _T:
-        return get_parameter(self.static_config, name, expected_type)
-
-    def axes(self) -> dict[str, list[ParameterValue]]:
-        """Parameters that vary across the batch, stacked in `points` order.
-
-        Only parameters carried by every point are returned, so each list is a
-        usable vmap axis.
-        """
-        if not self.points:
-            return {}
-        shared = set.intersection(*(set(point.hyperparameters) for point in self.points))
-        return {
-            key: [point.hyperparameters[key] for point in self.points]
-            for key in sorted(shared - set(self.static_config))
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionResult:
-    metric_curves: Mapping[str, Sequence[Sequence[float]]] = field(default_factory=dict)
-    artifacts: Mapping[str, object] = field(default_factory=dict)
-    run_scalars: Mapping[str, Sequence[float]] = field(default_factory=dict)
-    execution_scalars: Mapping[str, float] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class ParameterSchema:
-    """Name the hyperparameters that a trainer can batch dynamically."""
-
-    dynamic_keys: frozenset[str] = frozenset()
-
-
-_T = TypeVar("_T")
-
-
-@dataclass(frozen=True, slots=True)
-class BoundBatch:
-    """Validated static and dynamic values for one trainer execution."""
-
-    static_config: Mapping[str, ParameterValue]
-    dynamic_axes: Mapping[str, tuple[ParameterValue, ...]]
-    seeds: tuple[int, ...]
-    points: tuple[RunPoint, ...]
-
-    @classmethod
-    def from_context(cls, context: ExecutionContext, schema: ParameterSchema) -> "BoundBatch":
-        axes = context.axes()
-        seed_axis = axes.pop("seed", None)
-        if seed_axis is None:
-            raise ValueError("every execution point must provide a seed")
-        seeds = tuple(_coerce(value, int, "seed") for value in seed_axis)
-        if len(seeds) != len(context.points):
-            raise ValueError("the seed axis must match the number of execution points")
-        unknown = set(axes) - schema.dynamic_keys
-        if unknown:
-            raise ValueError(f"dynamic parameters are not supported by this trainer: {sorted(unknown)}")
-        return cls(
-            static_config=context.static_config,
-            dynamic_axes={key: tuple(values) for key, values in axes.items()},
-            seeds=seeds,
-            points=context.points,
-        )
-
-    def static(self, name: str, expected_type: type[_T]) -> _T:
-        return get_parameter(self.static_config, name, expected_type)
-
-    def static_or(self, name: str, expected_type: type[_T], default: _T) -> _T:
-        if name not in self.static_config:
-            return default
-        return self.static(name, expected_type)
-
-    def dynamic(self, name: str, expected_type: type[_T]) -> tuple[_T, ...]:
-        try:
-            values = self.dynamic_axes[name]
-        except KeyError as error:
-            raise ValueError(f"missing dynamic parameter {name!r}") from error
-        return tuple(_coerce(value, expected_type, name) for value in values)
-
-
-def get_parameter(parameters: Mapping[str, ParameterValue], name: str, expected_type: type[_T]) -> _T:
-    """Extract and type-check one named parameter from a hyperparameter/static-config mapping."""
-    try:
-        value = parameters[name]
-    except KeyError as error:
-        raise ValueError(f"missing parameter {name!r}") from error
-    return _coerce(value, expected_type, name)
-
-
-def _coerce(value: ParameterValue, expected_type: type[_T], name: str) -> _T:
-    if expected_type is float and isinstance(value, int | float) and not isinstance(value, bool):
-        return cast(_T, float(value))
-    if expected_type is int and isinstance(value, int) and not isinstance(value, bool):
-        return cast(_T, value)
-    if isinstance(value, expected_type):
-        return cast(_T, value)
-    raise TypeError(f"parameter {name!r} must be {expected_type.__name__}, got {value!r}")
-
-
-@runtime_checkable
-class BatchTrainer(Protocol):
-    @property
-    def parameter_schema(self) -> ParameterSchema: ...
-
-    def __call__(self, context: ExecutionContext) -> ExecutionResult: ...
 
 
 @dataclass(frozen=True, slots=True)

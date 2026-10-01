@@ -26,10 +26,9 @@ class TestResearchRunnerPackageBoundary:
         import research_runner
         from research_runner.registry import registered_specs, spec
         from research_runner.runner import run_experiment
-        from research_runner.types import ExecutionContext, ExperimentSpec
+        from research_runner.types import ExperimentSpec
 
         assert run_experiment.__module__ == "research_runner.runner"
-        assert ExecutionContext.__module__ == "research_runner.types"
         assert ExperimentSpec.__module__ == "research_runner.types"
         assert callable(registered_specs)
         assert callable(spec)
