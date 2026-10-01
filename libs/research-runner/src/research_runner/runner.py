@@ -100,13 +100,21 @@ def execute_batch(
     *,
     capture_git: bool = True,
 ):
+    with DatabaseManager(db_path) as database:
+        database.initialize()
+        runs = database.list_execution_runs(planned.execution_id)
+        experiment_row = _resolve_experiment(database, runs)
+    if experiment_row.name != spec.experiment.name:
+        raise ValueError(
+            f"Execution {planned.execution_id} belongs to experiment {experiment_row.name!r}, "
+            f"not to the spec's experiment {spec.experiment.name!r}.",
+        )
+
     try:
         with DatabaseManager(db_path) as database:
             database.initialize()
             execution_root = Path(planned.root_path)
             manifest_path = Path(planned.manifest_path)
-            runs = database.list_execution_runs(planned.execution_id)
-            experiment_row = _resolve_experiment(database, runs)
             static_config = planned.static_config
             points = _resolve_points(database, runs, static_config)
             resolved_metrics_db = spec.metrics_db_path
