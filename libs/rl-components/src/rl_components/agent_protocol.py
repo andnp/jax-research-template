@@ -21,7 +21,7 @@ than the loop's.
 There is no separate ``learn`` entry point to keep in sync with the acting path.
 
 **``step_index`` counts transitions CLOSED so far**, not loop iterations, so
-``LEARNING_STARTS``, ``t % TRAIN_FREQUENCY`` and epsilon schedules key off collected
+``learning_starts``, ``t % train_frequency`` and epsilon schedules key off collected
 experience. Note the asymmetry at both ends: iteration ``0`` closes nothing but opens the
 first transition, which closes at iteration ``1``, so nothing is discarded at the start;
 the action taken on the final iteration opens a transition that never closes, and that is
