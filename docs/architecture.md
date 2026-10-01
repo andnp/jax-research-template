@@ -54,10 +54,10 @@ We enforce static typing to catch logic errors before running slow execution tri
 Logging metrics and saving model weights must not interfere with performance.
 
 ### Post-Training Metric Persistence (`research-instrument`)
-Trainers may run their loop under JIT and return metric curves as arrays; the runner persists the returned metrics afterwards, and nothing is logged from inside a trace.
+An experiment's `train` function runs under `jit(vmap(...))` and returns named metric arrays; the runner smooths and thins the declared ones on device and persists them afterwards, and nothing is logged from inside a trace.
 - **Runner writes once:** After a batch finishes, `research-runner` persists curves with `seed_batch.write_seed_batch_curve` and scalars with `scalar.write_seed_batch_scalars` / `write_execution_scalars`, each in a single transaction into `metrics.sqlite`.
 - **One schema owner:** `sqlite_backend` owns the `metrics` and `scalar_metrics` DDL, the shared insert column lists, schema migration, and a rollback-journal connection with a busy timeout so concurrent Slurm tasks wait on contention. This relies on the shared filesystem providing working file locking; it does not make an unreliable network filesystem safe.
-- **Declared metrics:** Which metrics exist is declared on the experiment definition (`add_metric`); the trainer's returned metrics are what get written.
+- **Declared metrics:** The experiment definition declares each recorded metric (`add_metric`, with its `every` and `ema`); emitted metrics it does not declare are dropped on device.
 
 ### Atomic Weight Checkpointing (`research-store`)
 Checkpoints are serialized using Orbax and managed by `research-store`.
