@@ -5,8 +5,8 @@ A vmapped training run produces a seed-major curve array of shape
 share a hyperparameter cell but differ by seed, so row ``i`` of the array
 belongs to run ``i`` and must be written under that run's own ``run_id`` — a
 silent seed/run mispairing would attribute one seed's results to a different
-run with no error. Curves are subsampled on write because a full sweep is
-easily hundreds of runs times tens of thousands of steps.
+run with no error. Curves arrive already thinned, one value kept in every
+``every`` steps, and are stored at the steps they were taken from.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def write_seed_batch_curve(
     execution_id: int,
     run_ids: Sequence[int],
     seed_ids: Sequence[int],
-    subsample_factor: int = 1,
+    every: int = 1,
     batch_size: int = 512,
 ) -> None:
     """Write each row of a seed-major curve array under its own run id.
@@ -49,23 +49,22 @@ def write_seed_batch_curve(
         execution_id: Control-plane execution id shared by every row.
         run_ids: Run id for each row of ``curves``, same length and order.
         seed_ids: Seed id for each row of ``curves``, same length and order.
-        subsample_factor: Keep one frame every N steps. True step indices are
-            preserved.
+        every: Row value ``j`` was taken at step ``j * every``, and is stored
+            at that step.
         batch_size: Rows are inserted in chunks of this size within the
             single transaction.
     """
     resolved_path = Path(database_path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if subsample_factor < 1:
-        raise ValueError(f"subsample factor must be >= 1; received {subsample_factor}.")
+    if every < 1:
+        raise ValueError(f"every must be >= 1; received {every}.")
 
     rows_to_insert: list[tuple[str, float, int, int, int, int, int]] = []
     for row, run_id, seed_id in zip(curves, run_ids, seed_ids, strict=True):
         rows_to_insert.extend(
-            (metric_name, float(value), step, seed_id, experiment_id, run_id, execution_id)
-            for step, value in enumerate(row)
-            if step % subsample_factor == 0
+            (metric_name, float(value), index * every, seed_id, experiment_id, run_id, execution_id)
+            for index, value in enumerate(row)
         )
 
     conn = open_metrics_connection(resolved_path)

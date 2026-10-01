@@ -231,13 +231,13 @@ def _write_metrics(
     for metric_name, curves in result.metric_curves.items():
         write_seed_batch_curve(
             context.metrics_db_path,
-            curves,
+            [row[::subsample_factor] for row in curves],
             metric_name=metric_name,
             experiment_id=context.experiment_id,
             execution_id=context.execution_id,
             run_ids=run_ids,
             seed_ids=tuple(seed_ids),
-            subsample_factor=subsample_factor,
+            every=subsample_factor,
         )
 
     write_seed_batch_scalars(

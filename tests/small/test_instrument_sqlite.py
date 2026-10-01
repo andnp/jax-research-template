@@ -306,10 +306,10 @@ class TestWriteSeedBatchCurve:
                     seed_ids=[1, 2],
                 )
 
-    def test_subsample_preserves_true_step_indices(self) -> None:
+    def test_thinned_curve_is_stored_at_its_true_steps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "seed_batch.db"
-            curve = [float(i) for i in range(20)]
+            curve = [float(i) for i in range(0, 20, 5)]
 
             write_seed_batch_curve(
                 db_path,
@@ -319,7 +319,7 @@ class TestWriteSeedBatchCurve:
                 execution_id=1001,
                 run_ids=[301],
                 seed_ids=[7],
-                subsample_factor=5,
+                every=5,
             )
 
             with sqlite3.connect(db_path) as conn:
@@ -464,10 +464,10 @@ class TestScalarMetricWriters:
             )
 
 
-class TestSubsampleFactorValidation:
-    def test_invalid_factor_raises(self, tmp_path: Path) -> None:
-        """A subsample factor below one is rejected before anything is written."""
-        with pytest.raises(ValueError, match="subsample factor must be >= 1"):
+class TestEveryValidation:
+    def test_invalid_every_raises(self, tmp_path: Path) -> None:
+        """An ``every`` below one is rejected before anything is written."""
+        with pytest.raises(ValueError, match="every must be >= 1"):
             write_seed_batch_curve(
                 tmp_path / "m.db",
                 [[1.0]],
@@ -476,5 +476,5 @@ class TestSubsampleFactorValidation:
                 execution_id=1,
                 run_ids=[1],
                 seed_ids=[0],
-                subsample_factor=0,
+                every=0,
             )

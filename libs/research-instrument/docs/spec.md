@@ -18,8 +18,8 @@ It does no in-training collection and emits no callbacks.
 
 ### 2.1 `seed_batch.write_seed_batch_curve`
 Writes a seed-major curve array of shape `(n_seeds, n_steps)`, one row per run, each under
-its own `run_id` and `seed_id`. Curves are subsampled on write; true step indices are
-preserved. Non-finite values are stored (NaN as NULL) so diverged runs are recorded.
+its own `run_id` and `seed_id`. Curves arrive already thinned to one value in every
+`every` steps, and each value is stored at the step it was taken from. Non-finite values are stored (NaN as NULL) so diverged runs are recorded.
 
 ### 2.2 `scalar.write_seed_batch_scalars` and `scalar.write_execution_scalars`
 Write one scalar per run (scope `run`) or one scalar shared by an execution (scope
