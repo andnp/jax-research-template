@@ -147,6 +147,19 @@ class TestFailExecutions:
         assert [_status_of(database, i) for i in (pending, running, completed)] == [FAILED, FAILED, COMPLETED]
 
 
+class TestInvalidateExecutions:
+    def test_invalidates_every_existing_execution_once_and_returns_them(self, database: DatabaseManager) -> None:
+        """Executions in any state become INVALID; missing, already invalid and repeated ids are skipped."""
+        pending = _execution_at(database, ())
+        completed = _execution_at(database, (RUNNING, COMPLETED))
+        invalid = _execution_at(database, (INVALID,))
+
+        invalidated = database.invalidate_executions([completed, 999999, invalid, pending, completed])
+
+        assert invalidated == [completed, pending]
+        assert [_status_of(database, i) for i in (pending, completed, invalid)] == [INVALID] * 3
+
+
 class TestRunState:
     @pytest.mark.parametrize(
         ("statuses", "expected"),

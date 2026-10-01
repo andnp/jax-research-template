@@ -600,6 +600,10 @@ class DatabaseManager:
     def invalidate_execution(self, execution_id: int):
         return _query.invalidate_execution(self.conn, execution_id)
 
+    def invalidate_executions(self, execution_ids: Iterable[int]) -> list[int]:
+        """Mark each existing, not yet INVALID execution INVALID in one transaction; return the ids invalidated."""
+        return _execution._transition_many(self.conn, execution_ids, ExecutionStatus.INVALID)
+
     def invalidate_executions_by_commit(self, git_commit: str):
         return _query.invalidate_executions_by_commit(self.conn, git_commit)
 
