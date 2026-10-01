@@ -1,7 +1,7 @@
 """Persist a seed-batched metric curve, one row per run.
 
 A vmapped training run produces a seed-major curve array of shape
-``(n_seeds, n_steps)``: the runner hands ``train_fn`` a batch of runs that
+``(n_seeds, n_steps)``: the runner trains a batch of runs that
 share a hyperparameter cell but differ by seed, so row ``i`` of the array
 belongs to run ``i`` and must be written under that run's own ``run_id`` — a
 silent seed/run mispairing would attribute one seed's results to a different

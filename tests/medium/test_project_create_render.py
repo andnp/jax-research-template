@@ -108,8 +108,7 @@ def test_project_create_renders_importable_linted_declarative_experiment(
     generated_spec = spec_factories["demo_project_spec"]()
     assert generated_spec.experiment.name == "demo-project"
     assert generated_spec.results_root == project_root / "results"
-    assert generated_spec.parameter_schema is not None
-    assert "learning_rate" in generated_spec.parameter_schema.dynamic_keys
+    assert generated_spec.experiment.parameter_names == ("agent.LEARNING_RATE", "env", "seed")
 
     plan_result = runner.invoke(app, ["experiment", "plan", str(experiment_path), "--spec", "demo_project_spec"])
     assert plan_result.exit_code == 0, plan_result.output

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import Protocol, TypeVar, cast, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
 from experiment_definition.experiment import Experiment
 from experiment_definition.parameter import ParameterValue
+
+from .config import _build_config, _static_names
+
+if TYPE_CHECKING:
+    import jax
+    from _typeshed import DataclassInstance
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,19 +147,23 @@ class BatchTrainer(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class ExperimentSpec:
-    """A runnable experiment and the results tree its artifacts live under."""
+class ExperimentSpec[C: DataclassInstance]:
+    """An experiment, its base config with named choices, its JAX ``train`` and the results tree it writes.
+
+    ``train(config, key)`` returns ``(state, metrics)``; the runner records the declared
+    metrics and discards the state.
+    """
 
     experiment: Experiment
-    train_fn: Callable[[ExecutionContext], ExecutionResult]
+    _: KW_ONLY
+    config: C
+    train: Callable[[C, jax.Array], tuple[object, Mapping[str, jax.Array]]]
     results_root: Path
+    choices: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     max_runs_per_batch: int | None = None
-    metric_subsample_factor: int = 1
     capture_git: bool = True
 
     def __post_init__(self) -> None:
-        if self.metric_subsample_factor < 1:
-            raise ValueError("metric_subsample_factor must be at least 1")
         if not self.results_root.is_absolute():
             raise ValueError(
                 f"results_root must be absolute, got {self.results_root}. "
@@ -161,26 +171,11 @@ class ExperimentSpec:
                 "which silently moves the results tree.",
             )
 
-    @property
-    def parameter_schema(self) -> ParameterSchema | None:
-        if isinstance(self.train_fn, BatchTrainer):
-            return self.train_fn.parameter_schema
-        return None
-
-    @property
-    def static_parameter_names(self) -> frozenset[str] | None:
-        schema = self.parameter_schema
-        if schema is None:
-            return None
-        return frozenset(
-            name
-            for name in self.experiment.parameter_names
-            if name != "seed" and name not in schema.dynamic_keys
-        )
-
     def sync(self, db_path: Path | str):
-        names = self.static_parameter_names
-        return self.experiment.sync(db_path, static_names=None if names is None else lambda _: names)
+        return self.experiment.sync(db_path, static_names=self._static_names)
+
+    def _static_names(self, params: Mapping[str, ParameterValue]) -> frozenset[str]:
+        return _static_names(_build_config(self.config, self.choices, params), params)
 
     @property
     def db_path(self) -> Path:

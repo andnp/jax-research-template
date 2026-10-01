@@ -4,21 +4,23 @@ import json
 import os
 import resource
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import NAMESPACE_URL, uuid5
 
+import numpy as np
 from experiment_definition.db import DatabaseManager, PlannedExecution
+from experiment_definition.metric import MetricSpec
 from experiment_definition.parameter import ParameterValue
 from experiment_definition.records import RunRow
 from experiment_definition.status import ExecutionStatus
 from research_instrument.scalar import write_execution_scalars, write_seed_batch_scalars
 from research_instrument.seed_batch import write_seed_batch_curve
-from research_store.store import Store
 
+from .batch import _run_batch
+from .config import _build_config
 from .git import capture_git_metadata
-from .types import ExecutionContext, ExecutionResult, ExperimentSpec, RunPoint
+from .types import ExperimentSpec, RunPoint
 
 
 def run_experiment(
@@ -115,25 +117,22 @@ def execute_batch(
             database.fail_execution(planned.execution_id)
         raise
 
-    context = ExecutionContext(
-        execution_id=planned.execution_id,
-        experiment_id=experiment_row.id,
-        experiment_name=experiment_row.name,
-        static_config=static_config,
-        points=points,
-        execution_root=execution_root,
-        metrics_db_path=resolved_metrics_db,
-    )
-
     try:
         execution_root.mkdir(parents=True, exist_ok=True)
         started = time.perf_counter()
-        result = spec.train_fn(context)
-        _write_metrics(context, result, spec.metric_subsample_factor)
-        artifact_uris = _write_artifacts(context, result)
+        configs = [_build_config(spec.config, spec.choices, point.hyperparameters) for point in points]
+        seeds = [run.seed for run in runs]
+        outputs = _run_batch(spec.train, spec.experiment.metrics, configs, seeds)
+        _write_metrics(
+            resolved_metrics_db,
+            outputs,
+            spec.experiment.metrics,
+            experiment_id=experiment_row.id,
+            execution_id=planned.execution_id,
+            run_ids=[point.run_id for point in points],
+            seeds=seeds,
+        )
         metadata: dict[str, object] = {"runtime": _runtime_telemetry(len(points), time.perf_counter() - started)}
-        if artifact_uris:
-            metadata["artifacts"] = artifact_uris
 
         manifest = {
             "experiment_slug": experiment_row.name,
@@ -168,59 +167,45 @@ def execute_batch(
     return execution_root
 
 
-def _write_artifacts(context: ExecutionContext, result: ExecutionResult) -> dict[str, str]:
-    if not result.artifacts:
-        return {}
-    execution_id = uuid5(NAMESPACE_URL, f"{context.experiment_name}/{context.execution_id}")
-    store = Store(root=context.execution_root / "artifacts", experiment_id=context.experiment_name)
-    uris = {
-        name: str(store.put(blob, name=name, execution_id=execution_id))
-        for name, blob in result.artifacts.items()
-    }
-    store.sync()
-    return uris
-
-
 def _write_metrics(
-    context: ExecutionContext,
-    result: ExecutionResult,
-    subsample_factor: int,
+    metrics_db_path: Path,
+    outputs: Mapping[str, np.ndarray],
+    metrics: Sequence[MetricSpec],
+    *,
+    experiment_id: int,
+    execution_id: int,
+    run_ids: Sequence[int],
+    seeds: Sequence[int],
 ) -> None:
-    run_ids = tuple(point.run_id for point in context.points)
-    seed_ids: list[int] = []
-    for point in context.points:
-        seed = point.hyperparameters.get("seed")
-        if isinstance(seed, bool) or not isinstance(seed, int):
-            raise TypeError(f"Run {point.run_id} seed must be an int, got {seed!r}.")
-        seed_ids.append(seed)
-
-    for metric_name, curves in result.metric_curves.items():
-        write_seed_batch_curve(
-            context.metrics_db_path,
-            [row[::subsample_factor] for row in curves],
-            metric_name=metric_name,
-            experiment_id=context.experiment_id,
-            execution_id=context.execution_id,
-            run_ids=run_ids,
-            seed_ids=tuple(seed_ids),
-            every=subsample_factor,
-        )
-
+    """Record each output by its shape: ``[runs, T]`` is a curve, ``[runs]`` a per-run scalar, ``()`` a batch scalar."""
+    every = {metric.name: metric.every for metric in metrics}
+    run_scalars: dict[str, list[float]] = {}
+    execution_scalars: dict[str, float] = {}
+    for name, values in outputs.items():
+        if values.ndim == 2:
+            write_seed_batch_curve(
+                metrics_db_path,
+                values.tolist(),
+                metric_name=name,
+                experiment_id=experiment_id,
+                execution_id=execution_id,
+                run_ids=run_ids,
+                seed_ids=seeds,
+                every=every[name],
+            )
+        elif values.ndim == 1:
+            run_scalars[name] = values.tolist()
+        else:
+            execution_scalars[name] = float(values)
     write_seed_batch_scalars(
-        context.metrics_db_path,
-        result.run_scalars,
-        experiment_id=context.experiment_id,
-        execution_id=context.execution_id,
+        metrics_db_path,
+        run_scalars,
+        experiment_id=experiment_id,
+        execution_id=execution_id,
         run_ids=run_ids,
-        seed_ids=tuple(seed_ids),
+        seed_ids=seeds,
     )
-
-    write_execution_scalars(
-        context.metrics_db_path,
-        result.execution_scalars,
-        experiment_id=context.experiment_id,
-        execution_id=context.execution_id,
-    )
+    write_execution_scalars(metrics_db_path, execution_scalars, experiment_id=experiment_id, execution_id=execution_id)
 
 
 def _runtime_telemetry(batch_runs: int, wall_seconds: float) -> dict[str, int | float | None]:

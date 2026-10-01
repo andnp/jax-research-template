@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.experiment import Experiment
@@ -17,7 +21,7 @@ from research_analysis.non_finite import NonFiniteValuesError, substitute_non_fi
 from research_analysis.reporting import bakeoff_report
 from research_cli.main import app
 from research_runner.runner import run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+from research_runner.types import ExperimentSpec
 from typer.testing import CliRunner
 
 SEEDS = 6
@@ -26,15 +30,25 @@ CRASHED_SEED = 5
 SPEC = BakeoffSpec(missingness="complete_case", n_resamples=999)
 
 
-def train(ctx: ExecutionContext) -> ExecutionResult:
-    curves = []
-    for point in ctx.points:
-        seed, condition = point.get("seed", int), point.get("condition_name", str)
-        if condition == "variant" and seed == CRASHED_SEED:
-            raise RuntimeError("simulated crash")
-        final = float("nan") if condition == "variant" and seed == DIVERGED_SEED else seed + (condition == "variant")
-        curves.append([0.0, final])
-    return ExecutionResult(metric_curves={"return": curves})
+@dataclass(frozen=True)
+class _Arm:
+    condition_name: str = "base"
+
+
+def _crash_on(seed: np.ndarray) -> np.float32:
+    if int(seed) == CRASHED_SEED:
+        raise RuntimeError("simulated crash")
+    return np.float32(0)
+
+
+def train(config: _Arm, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+    """A variant arm diverges on one seed and crashes on another; `key[1]` is the run's seed."""
+    seed = key[1]
+    final = seed.astype(jnp.float32)
+    if config.condition_name == "variant":
+        final = jnp.where(seed == DIVERGED_SEED, jnp.nan, final + 1)
+        final += jax.pure_callback(_crash_on, jax.ShapeDtypeStruct((), jnp.float32), seed, vmap_method="sequential")
+    return None, {"return": jnp.stack([jnp.float32(0), final])}
 
 
 @pytest.fixture
@@ -43,11 +57,14 @@ def dataset(tmp_path: Path) -> ExperimentDataset:
     experiment.add_parameter("seed", list(range(SEEDS)))
     with experiment.for_component(Component(name="agent", path=Path("/nonexistent/agent.py"), type=ComponentType.ALGO)):
         experiment.add_parameter("condition_name", ["base", "variant"])
+    experiment.add_metric("return")
 
     db_path = tmp_path / "experiments.sqlite"
     # The crashing run is planned last, so the sweep has run every other seed when the crash propagates.
     with pytest.raises(RuntimeError, match="simulated crash"):
-        run_experiment(ExperimentSpec(experiment=experiment, train_fn=train, results_root=tmp_path, capture_git=False, max_runs_per_batch=1))
+        run_experiment(
+            ExperimentSpec(experiment, config=_Arm(), train=train, results_root=tmp_path, max_runs_per_batch=1, capture_git=False)
+        )
     return load_experiment_dataset(db_path, "divergence")
 
 
@@ -98,24 +115,35 @@ def swept_spec_file(tmp_path: Path, worst_case: float | None) -> Path:
     spec_file.write_text(
         textwrap.dedent(f"""\
             from __future__ import annotations
+            from dataclasses import dataclass
             from pathlib import Path
+            import jax
+            import jax.numpy as jnp
+            import numpy as np
             from experiment_definition.component import Component, ComponentType
             from experiment_definition.experiment import Experiment
             from research_analysis.comparison import BakeoffSpec
             from research_analysis.dataset.types import ExperimentDimensions
             from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, analysis_plan
             from research_runner.registry import spec
-            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from research_runner.types import ExperimentSpec
 
-            def train(ctx: ExecutionContext) -> ExecutionResult:
-                curves = []
-                for point in ctx.points:
-                    seed, condition = point.get("seed", int), point.get("condition_name", str)
-                    if condition == "variant" and seed == {CRASHED_SEED}:
-                        raise RuntimeError("simulated crash")
-                    diverged = condition == "variant" and seed == {DIVERGED_SEED}
-                    curves.append([0.0, float("nan") if diverged else seed + (condition == "variant")])
-                return ExecutionResult(metric_curves={{"return": curves}})
+            @dataclass(frozen=True)
+            class Arm:
+                condition_name: str = "base"
+
+            def crash_on(seed):
+                if int(seed) == {CRASHED_SEED}:
+                    raise RuntimeError("simulated crash")
+                return np.float32(0)
+
+            def train(config, key):
+                seed = key[1]
+                final = seed.astype(jnp.float32)
+                if config.condition_name == "variant":
+                    final = jnp.where(seed == {DIVERGED_SEED}, jnp.nan, final + 1)
+                    final += jax.pure_callback(crash_on, jax.ShapeDtypeStruct((), jnp.float32), seed, vmap_method="sequential")
+                return None, {{"return": jnp.stack([jnp.float32(0), final])}}
 
             @spec
             def divergence() -> ExperimentSpec:
@@ -123,8 +151,9 @@ def swept_spec_file(tmp_path: Path, worst_case: float | None) -> Path:
                 experiment.add_parameter("seed", list(range({SEEDS})))
                 with experiment.for_component(Component(name="agent", path=Path("/nonexistent/agent.py"), type=ComponentType.ALGO)):
                     experiment.add_parameter("condition_name", ["base", "variant"])
+                experiment.add_metric("return")
                 return ExperimentSpec(
-                    experiment=experiment, train_fn=train, results_root=Path("{tmp_path / "results"}"),
+                    experiment, config=Arm(), train=train, results_root=Path("{tmp_path / "results"}"),
                     max_runs_per_batch=1, capture_git=False,
                 )
 

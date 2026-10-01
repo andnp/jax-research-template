@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import jax
 import rl_agents.ppo as ppo_module
 import rl_envs.gymnax_bridge as gymnax_bridge_module
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.experiment import Experiment
 from research_runner.registry import spec
 from research_runner.types import ExperimentSpec
-from rl_agents.batch_registry import make_algorithm_batch_trainer
-from rl_envs.env_registry import gymnax_builder, make_env_factory
+from rl_agents.experiment import RLConfig, rl_train
+from rl_agents.ppo import PPOConfig
+from rl_components.metrics import episode_return_curve
+from rl_envs.env_config import GymnaxConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_ROOT = PROJECT_ROOT / "results"
@@ -21,26 +24,32 @@ SEEDS = tuple(range({{ num_seeds }}))
 
 PPO_COMPONENT = Component.from_module("ppo", ppo_module, type=ComponentType.ALGO)
 ENV_COMPONENT = Component.from_module("gymnax", gymnax_bridge_module, type=ComponentType.ENV)
-ENV_FACTORY = make_env_factory({ENV_NAME: gymnax_builder(ENV_NAME, normalized=True)})
+ENVS = {ENV_NAME: GymnaxConfig(ENV_NAME, NORMALIZED=True)}
+CONFIG = RLConfig(agent=PPOConfig(TOTAL_TIMESTEPS=500_000), env=ENVS[ENV_NAME])
+
+
+def train(config: RLConfig[object], key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+    final, metrics = rl_train(config, key)
+    return final, {**metrics, "returned_episode_returns": episode_return_curve(metrics)}
 
 
 def build_experiment() -> Experiment:
     experiment = Experiment(EXPERIMENT_NAME, description={{ description | tojson }})
     with experiment.for_component(PPO_COMPONENT):
-        experiment.add_parameter("algorithm", ["ppo"])
-        experiment.add_parameter("learning_rate", [2.5e-4])
+        experiment.add_parameter("agent.LEARNING_RATE", [2.5e-4])
     with experiment.for_component(ENV_COMPONENT):
-        experiment.add_parameter("env_name", [ENV_NAME])
+        experiment.add_parameter("env", list(ENVS))
     experiment.add_parameter("seed", list(SEEDS))
-    experiment.add_parameter("total_timesteps", [500_000], is_static=True)
-    experiment.add_metric("returned_episode_returns")
+    experiment.add_metric("returned_episode_returns", every=1_000)
     return experiment
 
 
 @spec
-def {{ experiment_slug }}_spec() -> ExperimentSpec:
+def {{ experiment_slug }}_spec() -> ExperimentSpec[RLConfig[object]]:
     return ExperimentSpec(
-        experiment=build_experiment(),
-        train_fn=make_algorithm_batch_trainer(ENV_FACTORY, ("ppo",)),
+        build_experiment(),
+        config=CONFIG,
+        choices={"env": ENVS},
+        train=train,
         results_root=RESULTS_ROOT,
     )

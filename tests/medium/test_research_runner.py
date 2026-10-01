@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+import sqlite3
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
 import pytest
 from experiment_definition.component import Component, ComponentType
 from experiment_definition.db import DatabaseManager, PlannedExecution
 from experiment_definition.experiment import Experiment
 from experiment_definition.status import RunState, run_state
+from research_runner.config import traced
 from research_runner.git import capture_git_metadata
 from research_runner.runner import execute_batch, run_experiment
-from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+from research_runner.types import ExperimentSpec
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -23,12 +28,22 @@ def _unsatisfied_run_ids(database: DatabaseManager, experiment_id: int):
     return {run_id for run_id, run_statuses in statuses.items() if run_state(run_statuses) is not RunState.COMPLETED}
 
 
-def _trivial_train_fn(ctx: ExecutionContext) -> ExecutionResult:
-    return ExecutionResult()
+@dataclass(frozen=True)
+class _Toy:
+    lr: float = traced(1e-3)
+    gamma: float = 0.99
+    arch: str = "mlp"
 
 
-def _spec(experiment: Experiment, train: Callable[[ExecutionContext], ExecutionResult], db_path: Path) -> ExperimentSpec:
-    return ExperimentSpec(experiment=experiment, train_fn=train, results_root=db_path.parent, capture_git=False)
+type _Train = Callable[[_Toy, jax.Array], tuple[object, Mapping[str, jax.Array]]]
+
+
+def _trivial_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+    return None, {}
+
+
+def _spec(experiment: Experiment, train: _Train, db_path: Path) -> ExperimentSpec[_Toy]:
+    return ExperimentSpec(experiment, config=_Toy(), train=train, results_root=db_path.parent, capture_git=False)
 
 
 def _make_experiment(name: str = "TestSweep") -> Experiment:
@@ -210,7 +225,7 @@ class TestExecuteBatch:
         """
         planned = self._plan_one_batch(db_path, executions_root)
 
-        def _failing_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+        def _failing_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             raise RuntimeError("Training exploded")
 
         with pytest.raises(RuntimeError, match="Training exploded"):
@@ -244,11 +259,11 @@ class TestExecuteBatch:
         """A failed status transition does not replace the completion error."""
         planned = self._plan_one_batch(db_path, executions_root)
 
-        def _failing_train_fn(ctx: ExecutionContext) -> ExecutionResult:
+        def _failing_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
             with DatabaseManager(db_path) as database:
                 database.initialize()
-                database.update_execution_status(ctx.execution_id, "FAILED")
-            return ExecutionResult()
+                database.update_execution_status(planned.execution_id, "FAILED")
+            return None, {}
 
         with pytest.raises(ValueError, match="FAILED -> COMPLETED"):
             execute_batch(db_path, planned, _spec(_make_experiment(), _failing_train_fn, db_path), capture_git=False)
@@ -300,11 +315,11 @@ class TestMidSweepCrashRecovery:
         exp = self._make_two_batch_experiment()
         calls: list[str] = []
 
-        def flaky_train_fn(ctx: ExecutionContext) -> ExecutionResult:
-            calls.append(str(ctx.static_config["arch"]))
+        def flaky_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+            calls.append(config.arch)
             if len(calls) == 1:
                 raise RuntimeError("boom")
-            return ExecutionResult()
+            return None, {}
 
         with pytest.raises(RuntimeError, match="boom"):
             run_experiment(_spec(exp, flaky_train_fn, db_path))
@@ -343,35 +358,26 @@ class TestDynamicArmCoverage:
     def test_every_swept_arm_reaches_train_fn(self, db_path: Path, executions_root: Path) -> None:
         """
         A batch keyed on the static config may still hold several dynamic arms.
-        Every declared (lr, seed) pair must be handed to train_fn, and no run
+        Every declared (lr, seed) pair must be trained, in one batch, and no run
         may be recorded as satisfied without having been trained.
         """
         exp = self._make_static_plus_dynamic_experiment()
-        seen: set[tuple[float, int]] = set()
-        stacked_lrs: set[float] = set()
-        axis_keys: list[list[str]] = []
+        exp.add_metric("lr").add_metric("seed")
 
-        def recording_train_fn(ctx: ExecutionContext) -> ExecutionResult:
-            assert ctx.static_config["arch"] == "mlp"
-            axes = ctx.axes()
-            axis_keys.append(sorted(axes))
-            for stacked in axes.get("lr", []):
-                assert isinstance(stacked, float)
-                stacked_lrs.add(stacked)
-            for point in ctx.points:
-                lr = point.hyperparameters["lr"]
-                seed = point.hyperparameters["seed"]
-                assert isinstance(lr, float)
-                assert isinstance(seed, int)
-                seen.add((lr, seed))
-            return ExecutionResult()
+        def recording_train_fn(config: _Toy, key: jax.Array) -> tuple[object, dict[str, jax.Array]]:
+            assert config.arch == "mlp"
+            return None, {"lr": jnp.asarray(config.lr), "seed": key[1]}
 
-        run_experiment(_spec(exp, recording_train_fn, db_path))
+        roots = run_experiment(_spec(exp, recording_train_fn, db_path))
 
+        with sqlite3.connect(db_path.parent / "metrics.sqlite") as connection:
+            rows = connection.execute("SELECT run_id, metric_name, value FROM scalar_metrics").fetchall()
+        by_run: dict[int, dict[str, float]] = {}
+        for run_id, name, value in rows:
+            by_run.setdefault(run_id, {})[name] = value
+        seen = {(round(values["lr"], 7), int(values["seed"])) for values in by_run.values()}
         assert seen == {(1e-3, 0), (1e-3, 1), (3e-4, 0), (3e-4, 1)}
-
-        assert stacked_lrs == {1e-3, 3e-4}
-        assert all("arch" not in keys for keys in axis_keys)
+        assert len(roots) == 1
 
         with DatabaseManager(db_path) as database:
             database.initialize()

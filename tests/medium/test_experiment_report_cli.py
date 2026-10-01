@@ -29,23 +29,31 @@ def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = T
     spec_file.write_text(
         textwrap.dedent(f"""\
             from __future__ import annotations
-            import math
+            from dataclasses import dataclass
             from pathlib import Path
+            import jax.numpy as jnp
             from experiment_definition.component import Component, ComponentType
             from experiment_definition.experiment import Experiment
             from research_analysis.comparison import BakeoffSpec
             from research_analysis.dataset.types import ExperimentDimensions
             from research_analysis.plan import AnalysisPlan, BakeoffAnalysis, analysis_plan
             from research_runner.registry import spec
-            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from research_runner.types import ExperimentSpec
 
             DIVERGE = {diverge}
 
 
-            def _curve(condition: str, seed: int) -> list[float]:
-                if DIVERGE and condition == "b" and seed == 0:
-                    return [0.0, math.nan]
-                return [0.0, seed + (2.0 if condition == "b" else 0.0)]
+            @dataclass(frozen=True)
+            class Arm:
+                condition_name: str = "a"
+
+
+            def train(config, key):
+                seed = key[1].astype(jnp.float32)
+                final = seed + (2.0 if config.condition_name == "b" else 0.0)
+                if DIVERGE and config.condition_name == "b":
+                    final = jnp.where(seed == 0, jnp.nan, final)
+                return None, {{"reward": jnp.stack([jnp.float32(0), final])}}
 
 
             @spec
@@ -57,15 +65,8 @@ def _write_spec(tmp_path: Path, *, diverge: bool = False, declare_plan: bool = T
                     pass
                 experiment.add_parameter("seed", list(range({seeds})))
                 experiment.add_metric("reward")
-
-                def train(ctx: ExecutionContext) -> ExecutionResult:
-                    curves = [
-                        _curve(point.get("condition_name", str), point.get("seed", int)) for point in ctx.points
-                    ]
-                    return ExecutionResult(metric_curves={{"reward": curves}})
-
                 return ExperimentSpec(
-                    experiment=experiment, train_fn=train, results_root=Path("{results_root}"), capture_git=False
+                    experiment, config=Arm(), train=train, results_root=Path("{results_root}"), capture_git=False
                 )
         """)
         + ("\n\n" + plan if declare_plan else "")

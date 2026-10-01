@@ -1,4 +1,4 @@
-"""End-to-end tests of `research experiment run --workers` on a JAX-free toy spec with three groups.
+"""End-to-end tests of `research experiment run --workers` on a toy spec with three groups.
 
 The supervisor runs as a real subprocess, because process groups, signals and the parent-death
 signal are the behavior under test.
@@ -34,22 +34,28 @@ def _write_spec(tmp_path: Path) -> Path:
             import os
             import signal
             import time
+            from dataclasses import dataclass
             from pathlib import Path
 
             from experiment_definition.component import Component, ComponentType
             from experiment_definition.experiment import Experiment
             from research_runner.registry import spec
-            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from research_runner.types import ExperimentSpec
 
 
-            def train(ctx: ExecutionContext) -> ExecutionResult:
+            @dataclass(frozen=True)
+            class Toy:
+                learning_rate: float = 0.1
+
+
+            def train(config: Toy, key):
+                # Runs while the batch is traced, so a Python side effect happens once per batch.
                 marker = Path(os.environ.get("TOY_KILL_MARKER", "{tmp_path}/unused"))
-                learning_rate = ctx.points[0].hyperparameters["learning_rate"]
-                if str(learning_rate) == os.environ.get("TOY_KILL_LR") and not marker.exists():
+                if str(config.learning_rate) == os.environ.get("TOY_KILL_LR") and not marker.exists():
                     marker.touch()
                     os.kill(os.getpid(), signal.SIGKILL)
                 time.sleep(float(os.environ["TOY_SLEEP"]))
-                return ExecutionResult()
+                return None, {{}}
 
 
             @spec
@@ -61,7 +67,7 @@ def _write_spec(tmp_path: Path) -> Path:
                     pass
                 experiment.add_parameter("seed", [0, 1])
                 return ExperimentSpec(
-                    experiment=experiment, train_fn=train, results_root=Path("{tmp_path}/results"), capture_git=False
+                    experiment, config=Toy(), train=train, results_root=Path("{tmp_path}/results"), capture_git=False
                 )
         """),
     )

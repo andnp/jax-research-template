@@ -206,12 +206,16 @@ def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
     spec_file = tmp_path / "test_spec.py"
     spec_file.write_text(
         textwrap.dedent(f"""\
-            from __future__ import annotations
+            from dataclasses import dataclass
             from pathlib import Path
             from research_runner.registry import spec
-            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from research_runner.types import ExperimentSpec
             from experiment_definition.component import Component, ComponentType
             from experiment_definition.experiment import Experiment
+
+            @dataclass(frozen=True)
+            class Toy:
+                learning_rate: float = 0.01
 
             @spec
             def my_spec() -> ExperimentSpec:
@@ -222,12 +226,13 @@ def _write_spec_file(tmp_path: Path, results_root: Path) -> Path:
                     pass
                 experiment.add_parameter("seed", [0])
 
-                def train(ctx: ExecutionContext) -> ExecutionResult:
-                    return ExecutionResult()
+                def train(config, key):
+                    return None, {{}}
 
                 return ExperimentSpec(
-                    experiment=experiment,
-                    train_fn=train,
+                    experiment,
+                    config=Toy(),
+                    train=train,
                     results_root=Path("{results_root}"),
                     capture_git=False,
                 )
@@ -540,12 +545,17 @@ def _write_metric_logging_spec_file(tmp_path: Path, results_root: Path) -> Path:
     spec_file = tmp_path / "metric_spec.py"
     spec_file.write_text(
         textwrap.dedent(f"""\
-            from __future__ import annotations
+            from dataclasses import dataclass
             from pathlib import Path
+            import jax.numpy as jnp
             from research_runner.registry import spec
-            from research_runner.types import ExecutionContext, ExecutionResult, ExperimentSpec
+            from research_runner.types import ExperimentSpec
             from experiment_definition.component import Component, ComponentType
             from experiment_definition.experiment import Experiment
+
+            @dataclass(frozen=True)
+            class Toy:
+                learning_rate: float = 0.01
 
             @spec
             def my_spec() -> ExperimentSpec:
@@ -556,12 +566,15 @@ def _write_metric_logging_spec_file(tmp_path: Path, results_root: Path) -> Path:
                     pass
                 experiment.add_parameter("seed", [0])
 
-                def train(ctx: ExecutionContext) -> ExecutionResult:
-                    return ExecutionResult(metric_curves={{"reward": [[1.0, 2.0]]}})
+                experiment.add_metric("reward")
+
+                def train(config, key):
+                    return None, {{"reward": jnp.asarray([1.0, 2.0])}}
 
                 return ExperimentSpec(
-                    experiment=experiment,
-                    train_fn=train,
+                    experiment,
+                    config=Toy(),
+                    train=train,
                     results_root=Path("{results_root}"),
                     capture_git=False,
                 )

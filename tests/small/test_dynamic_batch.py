@@ -6,9 +6,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import pytest
-from experiment_definition.db import DatabaseManager
-from experiment_definition.experiment import Experiment
-from research_runner.types import BoundBatch, ExecutionContext, ExecutionResult, ExperimentSpec, ParameterSchema, RunPoint
+from research_runner.types import BoundBatch, ExecutionContext, ExecutionResult, ParameterSchema, RunPoint
 from rl_components.batch import run_batch
 
 
@@ -123,31 +121,3 @@ def test_context_rejects_unregistered_dynamic_values() -> None:
 
     with pytest.raises(ValueError, match="momentum"):
         context.bind(_Trainer.parameter_schema)
-
-
-def test_experiment_spec_applies_trainer_schema(tmp_path: Path) -> None:
-    """
-    Verify planning derives static and dynamic zones from the trainer contract.
-    """
-    experiment = Experiment("schema-test")
-    experiment.add_parameter("env_name", ["cartpole"])
-    experiment.add_parameter("learning_rate", [1e-4, 1e-3])
-    experiment.add_parameter("seed", [0, 1])
-    spec = ExperimentSpec(
-        experiment=experiment,
-        train_fn=_Trainer(),
-        results_root=tmp_path,
-    )
-
-    spec.sync(spec.db_path)
-
-    with DatabaseManager(spec.db_path) as database:
-        experiment_row = database.get_experiment(experiment.name)
-        assert experiment_row is not None
-        runs = database.list_runs(experiment_row.id)
-        zones = set()
-        for run in runs:
-            assert run.vmap_zone is not None
-            zones.add((tuple(run.vmap_zone["static_keys"]), tuple(run.vmap_zone["dynamic_keys"])))
-
-    assert zones == {(("env_name",), ("learning_rate",))}
