@@ -47,7 +47,6 @@ def submit_experiment(
     except (subprocess.CalledProcessError, FileNotFoundError):
         with DatabaseManager(db_path) as database:
             database.initialize()
-            for execution_id in execution_ids:
-                database.fail_execution(execution_id)
+            database.fail_executions(execution_ids)
         raise
     return result.stdout.strip()
