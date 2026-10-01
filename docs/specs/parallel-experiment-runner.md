@@ -165,8 +165,8 @@ research experiment run SPEC --spec NAME
     `group` filter plans only that group;
   - reclaim with two connections to one database;
   - telemetry keys present in a completed execution's metadata.
-- **medium:** the supervisor end to end, on a toy `BatchTrainer` spec with three groups:
-  - every run completes, each worker saw its `NPROC` (the trainer records `os.environ`), and the sum of running
+- **medium:** the supervisor end to end, on a toy spec (a dataclass config and a `train` function) with three groups:
+  - every run completes, each worker saw its `NPROC` (the toy `train` records `os.environ`), and the sum of running
     workers' `NPROC` never exceeds `W`;
   - SIGTERM to the supervisor leaves no child process;
   - SIGKILL to the supervisor leaves no child process (parent-death signal);
