@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Protocol, cast
 
-import gymnax
 import jax
 from experiment_definition.parameter import ParameterValue
 from research_runner.types import get_parameter
@@ -14,8 +13,7 @@ from rl_components.env_protocol import EnvProtocol
 from rl_envs.gymnax_bridge import (
     GymnaxParams,
     GymnaxState,
-    make_gymnax_env,
-    make_normalized_gymnax_env,
+    make_gymnax_env_by_id,
 )
 from rl_envs.process_control_bridge import make_process_control_env
 
@@ -96,8 +94,7 @@ def gymnax_builder[EnvStateT: GymnaxState, EnvParamsT: GymnaxParams](
         parameters: ParameterAccessor,
     ) -> tuple[EnvProtocol[jax.Array, EnvStateT, jax.Array, EnvParamsT], EnvParamsT | None]:
         del parameters
-        raw_env, env_params = gymnax.make(env_id)
-        env = make_normalized_gymnax_env(raw_env) if normalized else make_gymnax_env(raw_env)
+        env, env_params = make_gymnax_env_by_id(env_id, normalized=normalized)
         if wrapper is not None:
             env = wrapper(env)
         return env, env_params

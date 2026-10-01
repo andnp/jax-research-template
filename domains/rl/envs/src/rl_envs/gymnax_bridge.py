@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Protocol, cast
 
 import chex
+import gymnax
 import jax
 import jax.numpy as jnp
 from rl_components.action_normalization import make_action_normalization_wrapper
@@ -243,3 +244,12 @@ def make_normalized_gymnax_env[StateT: GymnaxState, ParamsT: GymnaxParams](
     if bridged.spec().num_actions is None:
         return make_action_normalization_wrapper(bridged)
     return bridged
+
+
+def make_gymnax_env_by_id[StateT: GymnaxState, ParamsT: GymnaxParams](
+    env_id: str, *, normalized: bool = False
+) -> tuple[EnvProtocol[jax.Array, StateT, jax.Array, ParamsT], ParamsT]:
+    """Make a registered Gymnax environment and its default params, optionally normalizing actions."""
+    raw_env, env_params = gymnax.make(env_id)
+    env = make_normalized_gymnax_env(raw_env) if normalized else make_gymnax_env(raw_env)
+    return env, env_params
