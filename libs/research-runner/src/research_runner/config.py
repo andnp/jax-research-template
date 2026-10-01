@@ -1,7 +1,7 @@
 """Config fields that may vary between the runs of one batch."""
 
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -52,3 +52,11 @@ def _split_traced[C: DataclassInstance](config: C) -> tuple[C, dict[str, object]
         values[path] = _get_path(config, path)
         static = _set_path(static, path, field.default)
     return static, values
+
+
+def _merge_traced[C: DataclassInstance](static: C, values: Mapping[str, object]) -> C:
+    """Set traced values, which may be tracers, back onto a static config."""
+    config = static
+    for path, value in values.items():
+        config = _set_path(config, path, value)
+    return config
