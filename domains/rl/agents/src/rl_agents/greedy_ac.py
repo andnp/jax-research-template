@@ -49,6 +49,7 @@ from flax.training.train_state import TrainState
 from flax.typing import VariableDict
 from jax_utils.pytree import tree_norm
 from ml_components.regularization import l2_regularizer
+from research_runner.config import traced
 from rl_components.agent_protocol import AgentStep
 from rl_components.buffers import ReplayBuffer, ReplayBufferState
 from rl_components.continuous_actions import continuous_action_dim
@@ -92,25 +93,28 @@ class GACConfig:
         SEED: Random seed for reproducibility.
     """
 
-    LEARNING_RATE: float = 3e-4
-    ACTOR_LEARNING_RATE: float = 3e-4
+    LEARNING_RATE: float = traced(3e-4)
+    ACTOR_LEARNING_RATE: float = traced(3e-4)
     BUFFER_SIZE: int = 100_000
     BATCH_SIZE: int = 64
     TOTAL_TIMESTEPS: int = 200_000
-    LEARNING_STARTS: int = 1_000
-    TRAIN_FREQUENCY: int = 1
+    LEARNING_STARTS: int = traced(1_000)
+    TRAIN_FREQUENCY: int = traced(1)
     TAU: float = 0.005
     NUM_SAMPLES: int = 32
     ACTOR_PERCENTILE: float = 0.1
     UNIFORM_WEIGHT: float = 0.2
-    ENTROPY_WEIGHT: float = 0.01
+    ENTROPY_WEIGHT: float = traced(0.01)
     NUM_RAND_ACTIONS: int = 10
-    TRAINING_SIGMA_MIN: float = 5e-3
-    INFERENCE_SIGMA_MIN: float = 1e-4
-    H_REGULARIZATION: float = 1.0
+    TRAINING_SIGMA_MIN: float = traced(5e-3)
+    INFERENCE_SIGMA_MIN: float = traced(1e-4)
+    H_REGULARIZATION: float = traced(1.0)
     HIDDEN_SIZE: int = 256
     ENV_NAME: str = "MountainCarContinuous-v0"
     SEED: int = 42
+
+    def build(self) -> GACAgent:
+        return GACAgent(self)
 
 
 # ═══════════════════════════════════════════════════════════════
