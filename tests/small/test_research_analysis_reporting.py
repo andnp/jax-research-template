@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
-import tempfile
-from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
-from typing import TypedDict
 
 import numpy as np
 import polars as pl
 import pytest
-from experiment_definition.db import DatabaseManager
 from experiment_definition.parameter import ParameterValue
 from research_analysis._reporting_warnings import (
     boundary_warning,
@@ -37,22 +32,9 @@ from research_analysis.reporting import (
     slice_hypers,
 )
 from research_analysis.statistics import pointwise_tolerance_interval
+from research_analysis.testing import SyntheticExperiment, SyntheticRunSpec
 
-
-class ExperimentSetup(TypedDict):
-    db_path: Path
-    metrics_path: Path
-    experiment_id: int
-    algo_version_id: int
-    env_version_id: int
-    root: Path
-
-
-def _ensure_metrics_table(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            "CREATE TABLE IF NOT EXISTS metrics (run_id INTEGER, execution_id INTEGER, metric_name TEXT, global_step INTEGER, value REAL)"
-        )
+ExperimentSetup = SyntheticExperiment
 
 
 def _add_observation(
@@ -63,30 +45,16 @@ def _add_observation(
     *,
     ablation: str | None = None,
 ) -> None:
-    with DatabaseManager(setup["db_path"]) as database:
-        hyper_id = database.add_hyperparam_config({**metadata, "seed": seed})
-        run_id = database.add_run(
-            setup["experiment_id"],
-            setup["algo_version_id"],
-            setup["env_version_id"],
-            hyper_id,
-            seed,
-            ablation,
-        )
-        execution_id = database.add_execution()
-        database.link_execution_run(execution_id, run_id)
-        database.record_execution_artifacts(
-            execution_id,
-            str(setup["root"] / str(execution_id)),
-            metadata={"metrics_db_path": str(setup["metrics_path"])},
-        )
-        database.update_execution_status(execution_id, "COMPLETED")
-    with sqlite3.connect(setup["metrics_path"]) as connection:
-        connection.execute(
-            "INSERT INTO metrics VALUES (?, ?, ?, ?, ?)",
-            (run_id, execution_id, "metric", 0, value),
-        )
-        connection.commit()
+    setup.add_execution(
+        [
+            SyntheticRunSpec(
+                seed,
+                metadata,
+                curve_metrics={"metric": (value,)},
+                ablation=ablation,
+            )
+        ]
+    )
 
 
 def _add_curve_observation(
@@ -96,75 +64,29 @@ def _add_curve_observation(
     values: list[float],
 ) -> None:
     """Like _add_observation, but records one value per step instead of a single step-0 value."""
-    with DatabaseManager(setup["db_path"]) as database:
-        hyper_id = database.add_hyperparam_config({**metadata, "seed": seed})
-        run_id = database.add_run(
-            setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, seed, None
-        )
-        execution_id = database.add_execution()
-        database.link_execution_run(execution_id, run_id)
-        database.record_execution_artifacts(
-            execution_id,
-            str(setup["root"] / str(execution_id)),
-            metadata={"metrics_db_path": str(setup["metrics_path"])},
-        )
-        database.update_execution_status(execution_id, "COMPLETED")
-    with sqlite3.connect(setup["metrics_path"]) as connection:
-        connection.executemany(
-            "INSERT INTO metrics VALUES (?, ?, ?, ?, ?)",
-            [(run_id, execution_id, "metric", step, value) for step, value in enumerate(values)],
-        )
-        connection.commit()
+    setup.add_execution([SyntheticRunSpec(seed, metadata, curve_metrics={"metric": values})])
 
 
 def _load(
     setup: ExperimentSetup,
     dimensions: ExperimentDimensions | None = None,
 ) -> ExperimentDataset:
-    return load_experiment_dataset(setup["db_path"], "test-exp", dimensions=dimensions)
+    return load_experiment_dataset(setup.db_path, "test-exp", dimensions=dimensions)
 
 
-def _with_scalar_values(dataset: ExperimentDataset, values_by_run: dict[int, float]) -> ExperimentDataset:
-    dimension_columns = ["condition_name"]
-    if dataset.dimensions.environment is not None:
-        dimension_columns.append("env_name")
-    dimension_columns.extend(("seed", "run_id", "execution_id", "ablation"))
-    dimension_columns.extend(axis.name for axis in dataset.dimensions.sweep_axes)
-    values = pl.DataFrame(
-        {"run_id": list(values_by_run), "value": list(values_by_run.values())},
-        schema={"run_id": pl.Int64, "value": pl.Float64},
-    )
-    scalars = (
-        dataset.runs.select(dimension_columns)
-        .join(values, on="run_id", how="inner")
-        .with_columns(pl.lit("metric").alias("metric"))
-    )
-    return replace(dataset, scalar_metrics=scalars)
+def _write_scalar_values(setup: ExperimentSetup, values_by_run: dict[int, float]) -> None:
+    for run_id, value in values_by_run.items():
+        setup.write_run_scalars(run_id, {"metric": value})
+
+
+def _add_failed_run(setup: ExperimentSetup, metadata: dict[str, ParameterValue], seed: int) -> None:
+    setup.add_execution([SyntheticRunSpec(seed, metadata)], status="FAILED", record_artifacts=False)
 
 
 @pytest.fixture
-def temp_experiment_setup() -> Generator[ExperimentSetup, None, None]:
-    """Create a hermetic experiment database and a shared recorded metrics database."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        root = Path(tmpdir)
-        db_path = root / "experiments.sqlite"
-        metrics_path = root / "metrics.sqlite"
-        with DatabaseManager(db_path) as database:
-            database.initialize()
-            experiment_id = database.add_experiment("test-exp")
-            algo_component = database.add_component("ppo", "ALGO")
-            algo_version_id = database.add_component_version(algo_component, "algo-hash")
-            env_component = database.add_component("cartpole", "ENV")
-            env_version_id = database.add_component_version(env_component, "env-hash")
-        _ensure_metrics_table(metrics_path)
-        yield {
-            "db_path": db_path,
-            "metrics_path": metrics_path,
-            "experiment_id": experiment_id,
-            "algo_version_id": algo_version_id,
-            "env_version_id": env_version_id,
-            "root": root,
-        }
+def temp_experiment_setup(tmp_path: Path) -> ExperimentSetup:
+    """Create a synthetic experiment with the production database schemas."""
+    return SyntheticExperiment(tmp_path, "test-exp")
 
 
 def test_bakeoff_report_consumes_selected_dataset(temp_experiment_setup: ExperimentSetup) -> None:
@@ -189,13 +111,8 @@ def test_a_crashed_seed_fails_the_bakeoff_naming_the_cell_and_its_outcome(temp_e
         _add_observation(setup, {"condition_name": "b"}, seed, float(seed))
     for seed in range(4):
         _add_observation(setup, {"condition_name": "a"}, seed, float(seed))
-    with DatabaseManager(setup["db_path"]) as database:
-        hyper_id = database.add_hyperparam_config({"condition_name": "a", "seed": 4})
-        run_id = database.add_run(setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, 4)
-        execution_id = database.add_execution()
-        database.link_execution_run(execution_id, run_id)
-        database.update_execution_status(execution_id, "FAILED")
-    dataset = load_experiment_dataset(setup["db_path"], "test-exp", partial=True)
+    _add_failed_run(setup, {"condition_name": "a"}, 4)
+    dataset = load_experiment_dataset(setup.db_path, "test-exp", partial=True)
 
     with pytest.raises(IncompleteBlocksError, match="complete_case") as raised:
         bakeoff_report(dataset, "metric", ["a", "b"])
@@ -1023,14 +940,16 @@ class TestDeclaredMeasure:
                     seed,
                     value + seed,
                 )
-        dataset = _load(setup, ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),)))
+        dimensions = ExperimentDimensions(sweep_axes=(SweepAxis("learning_rate", SweepValueType.STRING),))
+        dataset = _load(setup, dimensions)
         values_by_run = {
             run_id: (seed if learning_rate == "low" else 20.0 + seed)
             for learning_rate, seed, run_id in dataset.runs.select("learning_rate", "seed", "run_id").iter_rows()
         }
+        _write_scalar_values(setup, values_by_run)
 
         report = best_hypers(
-            _with_scalar_values(dataset, values_by_run), "metric", n_resamples=64, measure=StoredValue()
+            _load(setup, dimensions), "metric", n_resamples=64, measure=StoredValue()
         )
 
         assert report.winning_config == {"learning_rate": "high"}
@@ -1051,9 +970,10 @@ class TestDeclaredMeasure:
             run_id: (20.0 + seed if condition == "a" else float(seed))
             for condition, seed, run_id in dataset.runs.select("condition_name", "seed", "run_id").iter_rows()
         }
+        _write_scalar_values(setup, values_by_run)
 
         report = bakeoff_report(
-            _with_scalar_values(dataset, values_by_run), "metric", ["a", "b"], measure=StoredValue()
+            _load(setup), "metric", ["a", "b"], measure=StoredValue()
         )
 
         assert report.cells["a"][""].estimate == pytest.approx(21.0)
@@ -1232,7 +1152,7 @@ class TestSharedReferent:
             for eta in (2.0, 5.0):
                 for seed in range(4):
                     _add_observation(setup, {"condition_name": condition, "eta": eta}, seed, seed + offset * eta)
-        return load_experiment_dataset(setup["db_path"], "test-exp", dimensions=ExperimentDimensions(sweep_axes=(self.ETA,)), partial=True)
+        return load_experiment_dataset(setup.db_path, "test-exp", dimensions=ExperimentDimensions(sweep_axes=(self.ETA,)), partial=True)
 
     def _per_eta_report(self, dataset: ExperimentDataset):
         return bakeoff_report(
@@ -1284,12 +1204,7 @@ class TestSharedReferent:
     ) -> None:
         """The referent's accounting cell has no eta, so its failed run is still found for every eta block."""
         setup = temp_experiment_setup
-        with DatabaseManager(setup["db_path"]) as database:
-            hyper_id = database.add_hyperparam_config({"condition_name": "shared", "seed": 3})
-            run_id = database.add_run(setup["experiment_id"], setup["algo_version_id"], setup["env_version_id"], hyper_id, 3)
-            execution_id = database.add_execution()
-            database.link_execution_run(execution_id, run_id)
-            database.update_execution_status(execution_id, "FAILED")
+        _add_failed_run(setup, {"condition_name": "shared"}, 3)
         dataset = self._per_eta_arms(setup, shared_seeds=3)
 
         with pytest.raises(IncompleteBlocksError) as raised:
