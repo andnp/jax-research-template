@@ -19,3 +19,32 @@ def test_every_keeps_steps_zero_then_every_nth(length: int, every: int) -> None:
     out = thin_metric(jnp.asarray(x), every=every)
 
     np.testing.assert_array_equal(np.asarray(out), reference_subsample(x, every))
+
+
+def reference_moving_average(x: np.ndarray, decay: float) -> np.ndarray:
+    """ml_instrumentation.MovingAverage: z_0 = 0, no bias correction."""
+    z = 0.0
+    out = []
+    for v in x:
+        z = decay * z + (1.0 - decay) * v
+        out.append(z)
+    return np.array(out)
+
+
+@pytest.mark.parametrize("ema", [0.0, 0.5, 0.9])
+@pytest.mark.parametrize("every", [1, 3])
+def test_ema_smooths_before_thinning(ema: float, every: int) -> None:
+    x = np.random.default_rng(0).normal(size=10).astype(np.float32)
+
+    out = thin_metric(jnp.asarray(x), ema=ema, every=every)
+
+    expected = reference_subsample(reference_moving_average(x, ema), every)
+    np.testing.assert_allclose(np.asarray(out), expected, rtol=1e-5, atol=1e-6)
+
+
+def test_ema_accepts_integer_input_without_truncating() -> None:
+    x = np.array([1, 2, 3, 4])
+
+    out = thin_metric(jnp.asarray(x), ema=0.5)
+
+    np.testing.assert_allclose(np.asarray(out), reference_moving_average(x, 0.5), rtol=1e-5)
