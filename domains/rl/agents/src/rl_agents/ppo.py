@@ -35,6 +35,7 @@ import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
 from flax.typing import VariableDict
+from research_runner.config import traced
 from rl_components.agent_protocol import AgentStep
 from rl_components.continuous_actions import continuous_action_dim
 from rl_components.env_protocol import EnvSpec
@@ -47,26 +48,29 @@ from rl_networks.networks import ActorCritic, ContinuousActorCritic
 @chex_struct(frozen=True)
 class PPOConfig:
     # Training Hyperparameters
-    LEARNING_RATE: float = 2.5e-4
+    LEARNING_RATE: float = traced(2.5e-4)
     NUM_STEPS: int = 128
     TOTAL_TIMESTEPS: int = 500_000
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
 
     # PPO Specifics
-    GAE_LAMBDA: float = 0.95
-    CLIP_EPS: float = 0.2
-    ENT_COEF: float = 0.01
-    VF_COEF: float = 0.5
-    MAX_GRAD_NORM: float = 0.5
+    GAE_LAMBDA: float = traced(0.95)
+    CLIP_EPS: float = traced(0.2)
+    ENT_COEF: float = traced(0.01)
+    VF_COEF: float = traced(0.5)
+    MAX_GRAD_NORM: float = traced(0.5)
     REWARD_SCALE: float = 1.0
     NORMALIZE_OBSERVATIONS: bool = False
-    OBS_NORM_EPS: float = 1e-8
-    OBS_NORM_CLIP: float = 10.0
+    OBS_NORM_EPS: float = traced(1e-8)
+    OBS_NORM_CLIP: float = traced(10.0)
 
     # Environment
     ENV_NAME: str = "MountainCar-v0"
     SEED: int = 42
+
+    def build(self) -> PPOAgent:
+        return PPOAgent(self)
 
 
 class _ObservationNormState(NamedTuple):
