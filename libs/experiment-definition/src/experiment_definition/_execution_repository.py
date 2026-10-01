@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timedelta, timezone
 
 from .parameter import ParameterValue
 from .records import ExecutionArtifactRow, ExecutionRow, _record_from_row, execution_columns
@@ -197,33 +196,6 @@ def _transition(
     )
     if updated.rowcount != 1:
         raise RuntimeError(f"Execution {execution_id} changed before it could be updated.")
-
-
-def reclaim_stale_executions(
-    conn: sqlite3.Connection,
-    experiment_id: int,
-    stale_after_seconds: float,
-) -> list[int]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)).isoformat()
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        rows = conn.execute(
-            "SELECT DISTINCT e.id FROM Executions e "
-            "INNER JOIN ExecutionRuns er ON er.execution_id = e.id "
-            "INNER JOIN Runs r ON r.id = er.run_id "
-            f"WHERE r.experiment_id = ? AND e.status = '{ExecutionStatus.RUNNING}' "
-            "AND e.start_time IS NOT NULL AND e.start_time < ?",
-            (experiment_id, cutoff),
-        ).fetchall()
-        reclaimed = [int(row[0]) for row in rows]
-        for execution_id in reclaimed:
-            _transition(conn, execution_id, ExecutionStatus.FAILED, None, now)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    return reclaimed
 
 
 def link_execution_run(conn: sqlite3.Connection, execution_id: int, run_id: int) -> None:

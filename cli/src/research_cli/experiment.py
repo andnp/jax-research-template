@@ -325,11 +325,6 @@ def run(
     spec: str | None = typer.Option(None, "--spec", help="Run only the named spec factory."),
     results_root: str | None = typer.Option(None, "--results-root", help="Override the results root."),
     max_runs: int | None = typer.Option(None, "--max-runs", help="Override max runs per batch."),
-    reclaim_stale_after: float | None = typer.Option(
-        None,
-        "--reclaim-stale-after",
-        help="Fail RUNNING executions older than this many seconds so their runs replan. Use after a crash; keep it longer than a real batch takes.",
-    ),
     only: list[str] | None = typer.Option(None, "--only", help=_ONLY_HELP),
     workers: int | None = typer.Option(
         None,
@@ -383,7 +378,6 @@ def run(
             memory_reserve_bytes=None if memory_reserve is None else int(memory_reserve * GIB),
             only=only or [],
             only_clauses=only_clauses,
-            reclaim_stale_after=reclaim_stale_after,
         )
         raise typer.Exit(code=supervise(experiment_spec, settings))
 
@@ -397,7 +391,6 @@ def run(
         roots = run_experiment(
             experiment_spec,
             max_runs_per_batch=max_runs,
-            reclaim_stale_after_seconds=reclaim_stale_after,
             only=only_clauses,
             group=group,
         )

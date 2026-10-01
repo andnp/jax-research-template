@@ -38,7 +38,6 @@ def run_experiment(
     *,
     max_runs_per_batch: int | None = None,
     on_batch_complete: Callable[[Path], None] | None = None,
-    reclaim_stale_after_seconds: float | None = None,
     only: Mapping[str, str] | None = None,
     group: str | None = None,
 ):
@@ -68,8 +67,6 @@ def run_experiment(
     while True:
         with DatabaseManager(db_path) as database:
             database.initialize()
-            if reclaim_stale_after_seconds is not None:
-                database.reclaim_stale_executions(experiment_id, reclaim_stale_after_seconds)
             planned = database.plan_next_execution_batch(
                 experiment_id,
                 spec.executions_root,

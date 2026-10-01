@@ -77,7 +77,6 @@ class SupervisorSettings:
     memory_reserve_bytes: int | None
     only: Sequence[str]
     only_clauses: Mapping[str, str] | None
-    reclaim_stale_after: float | None
 
 
 @dataclass(frozen=True)

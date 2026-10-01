@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from experiment_definition.db import DatabaseManager
+from experiment_definition.ownership import OwnerState
 
 
 def test_database_reads_return_named_records(tmp_path: Path) -> None:
@@ -38,17 +39,16 @@ def test_database_reads_component_provenance(tmp_path: Path) -> None:
         assert provenance.version_id == version_id
 
 
-def test_concurrent_stale_reclaim_fails_each_execution_once(tmp_path: Path) -> None:
+def test_concurrent_reclaim_fails_each_execution_once(tmp_path: Path) -> None:
     """A second reclaimer on the same database finds nothing left to fail instead of crashing."""
     db_path = tmp_path / "experiments.sqlite"
     with DatabaseManager(db_path) as first, DatabaseManager(db_path) as second:
         first.initialize()
         experiment_id = first.add_experiment("reclaim-test")
         hyper_id = first.add_hyperparam_config({"condition_name": "baseline"})
-        run_id = first.add_run(experiment_id, None, None, hyper_id, 0)
-        execution_id = first.add_execution()
-        first.link_execution_run(execution_id, run_id)
-        first.update_execution_status(execution_id, "RUNNING", "2000-01-01T00:00:00+00:00", None)
+        first.add_run(experiment_id, None, None, hyper_id, 0)
+        (planned,) = first.plan_experiment_execution_batches(experiment_id, tmp_path, owner="dead")
+        first.update_execution_status(planned.execution_id, "RUNNING")
 
-        assert first.reclaim_stale_executions(experiment_id, 60) == [execution_id]
-        assert second.reclaim_stale_executions(experiment_id, 60) == []
+        assert first.reclaim_dead_executions(experiment_id, lambda owner: OwnerState.DEAD).failed == [planned.execution_id]
+        assert second.reclaim_dead_executions(experiment_id, lambda owner: OwnerState.DEAD).failed == []

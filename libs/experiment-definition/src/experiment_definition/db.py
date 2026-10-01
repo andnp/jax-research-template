@@ -516,37 +516,6 @@ class DatabaseManager:
             ownerless=[i for i, owner in owners.items() if owner is None],
         )
 
-    def reclaim_stale_executions(
-        self,
-        experiment_id: int,
-        stale_after_seconds: float,
-    ) -> list[int]:
-        """Fail RUNNING executions of ``experiment_id`` orphaned by a dead process.
-
-        A run is claimed by any linked PENDING/RUNNING/COMPLETED execution
-        (see ``list_unsatisfied_run_batches``), and is only satisfied by a
-        COMPLETED one. A process that dies without unwinding — SIGKILL, OOM,
-        or its working directory disappearing out from under it — never
-        reaches the ``except`` handler in ``execute_batch`` that would mark
-        the execution FAILED, so it stays RUNNING forever and permanently
-        blocks its runs from being replanned or satisfied.
-
-        Liveness signal: ``start_time`` staleness, not a recorded PID. A PID
-        can only be probed on the same host as the recorder (useless for a
-        resume from a different machine, and reused PIDs can lie), and
-        recording one would require a new column on the ``Executions`` table.
-        ``start_time`` already exists, is already written by
-        ``execute_batch``, and needs no schema change. The tradeoff is that
-        a threshold cannot distinguish "dead" from "slow but alive", so this
-        method is opt-in: callers must pass a ``stale_after_seconds`` known
-        to safely exceed the longest real batch's runtime, and a currently
-        RUNNING execution younger than the threshold is never touched.
-
-        Returns:
-            The ids of executions transitioned to FAILED.
-        """
-        return _execution.reclaim_stale_executions(self.conn, experiment_id, stale_after_seconds)
-
     def fail_group_executions_started_since(self, experiment_id: int, group: str, since: datetime) -> list[int]:
         """Fail the RUNNING executions of one group that started at or after ``since``.
 

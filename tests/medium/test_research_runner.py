@@ -416,10 +416,10 @@ class TestDynamicArmCoverage:
             assert _unsatisfied_run_ids(database, experiment_row.id) == set()
 
 
-# ── stale (orphaned) execution reclaim ───────────────────────────────────────
+# ── orphaned execution recovery ───────────────────────────────────────
 
 
-class TestStaleExecutionReclaim:
+class TestOrphanedExecution:
     @pytest.fixture()
     def db_path(self, tmp_path: Path) -> Path:
         (tmp_path / "results").mkdir()
@@ -442,7 +442,7 @@ class TestStaleExecutionReclaim:
 
     def _orphan_running_execution(self, db_path: Path, executions_root: Path) -> None:
         """
-        Plan one batch and leave it RUNNING with an ancient start_time,
+        Plan one batch and leave it RUNNING,
         simulating a process that was SIGKILLed / OOM-killed / lost its
         working directory before it could reach execute_batch's except
         handler and mark the execution FAILED.
@@ -455,17 +455,15 @@ class TestStaleExecutionReclaim:
             assert experiment_row is not None
             planned = database.plan_next_execution_batch(experiment_row.id, executions_root)
             assert planned is not None
-            database.update_execution_status(
-                planned.execution_id, "RUNNING", start_time="2000-01-01T00:00:00+00:00",
-            )
+            database.update_execution_status(planned.execution_id, "RUNNING")
 
-    def test_hard_killed_execution_stalls_sweep_without_reclaim(
+    def test_hard_killed_execution_stalls_the_runner_until_reclaimed(
         self, db_path: Path, executions_root: Path,
     ) -> None:
         """
-        Without reclaim_stale_after_seconds, a run held by a stuck RUNNING
-        execution is neither satisfied nor replannable: the sweep silently
-        stalls short of completion instead of resuming.
+        The runner does not reclaim: a run held by a stuck RUNNING execution is
+        neither satisfied nor replannable until the CLI's ownership reclaim
+        fails it before launch.
         """
         self._orphan_running_execution(db_path, executions_root)
         exp = self._make_single_run_experiment()
@@ -478,26 +476,3 @@ class TestStaleExecutionReclaim:
             experiment_row = database.get_experiment("StaleSweep")
             assert experiment_row is not None
             assert _unsatisfied_run_ids(database, experiment_row.id) != set()
-
-    def test_reclaim_stale_after_seconds_resumes_orphaned_run(
-        self, db_path: Path, executions_root: Path,
-    ) -> None:
-        """
-        Passing reclaim_stale_after_seconds reclaims the orphaned RUNNING
-        execution (its start_time is far older than the threshold) so the
-        run it was holding actually gets replanned and completed.
-        """
-        self._orphan_running_execution(db_path, executions_root)
-        exp = self._make_single_run_experiment()
-
-        roots = run_experiment(
-            _spec(exp, _trivial_train, db_path),
-            reclaim_stale_after_seconds=60,
-        )
-
-        assert len(roots) == 1
-        with DatabaseManager(db_path) as database:
-            database.initialize()
-            experiment_row = database.get_experiment("StaleSweep")
-            assert experiment_row is not None
-            assert _unsatisfied_run_ids(database, experiment_row.id) == set()
