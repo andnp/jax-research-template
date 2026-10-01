@@ -535,12 +535,17 @@ class DatabaseManager:
         max_runs_per_batch: int | None = None,
         git_commit: str | None = None,
         git_diff_blob: str | None = None,
+        only: Mapping[str, str] | None = None,
+        group: str | None = None,
         owner: str | None = None,
     ) -> list[PlannedExecution]:
-        """Plan execution batches and register deterministic artifact paths, owned by ``owner``."""
+        """Plan execution batches and register deterministic artifact paths, owned by ``owner``.
+
+        ``only`` restricts which runs are eligible and ``group`` plans only the batches with that group key.
+        """
         return self._plan_batches(
             experiment_id, artifacts_root, None, max_runs_per_batch,
-            git_commit, git_diff_blob, None, None, owner,
+            git_commit, git_diff_blob, only, group, owner,
         )
 
     def plan_next_execution_batch(

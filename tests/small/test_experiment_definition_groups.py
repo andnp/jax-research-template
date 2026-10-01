@@ -55,6 +55,25 @@ def test_group_filter_plans_only_that_group(tmp_path: Path) -> None:
         ) is None
         assert database.plan_next_execution_batch(experiment_id, tmp_path / "executions") is not None
 
+def test_batch_planning_with_a_group_plans_every_batch_of_that_group_only(tmp_path: Path) -> None:
+    """Planning all batches with a group key plans that group's batches, in order, and no other group's."""
+    with DatabaseManager(tmp_path / "experiments.sqlite") as database:
+        database.initialize()
+        experiment_id = _seed_groups(database, seeds=(0, 1, 2))
+        target = database.list_unsatisfied_run_batches(experiment_id)[0]
+        expected = [b.run_ids for b in database.list_unsatisfied_run_batches(experiment_id, max_runs_per_batch=2, group=target.group_key)]
+
+        planned = database.plan_experiment_execution_batches(
+            experiment_id, tmp_path / "executions", max_runs_per_batch=2, group=target.group_key
+        )
+
+        assert len(expected) == 2
+        assert [p.run_ids for p in planned] == expected
+        assert {run_id for p in planned for run_id in p.run_ids} == set(target.run_ids)
+        remaining = database.list_unsatisfied_run_batches(experiment_id)
+        assert target.group_key not in {b.group_key for b in remaining}
+        assert len(remaining) == 3
+
 
 def test_groups_with_and_without_an_ablation_list_together(tmp_path: Path) -> None:
     """A run with no ablation and one with a named ablation form two listable groups."""
