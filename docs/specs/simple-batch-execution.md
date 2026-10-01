@@ -586,8 +586,8 @@ for any re-identified study.
 
 ## Decisions
 
-Settled with Andy on 2026-09-29 and 2026-09-30. Three small items are still
-open.
+Settled with Andy on 2026-09-29 and 2026-09-30. Three small items were left
+for phase 1, and all three are now settled.
 
 | Question | Decision |
 | --- | --- |
@@ -602,7 +602,7 @@ open.
 | Rainbow and DQN-Atari | They lose their `Hypers` structs in phase 4. Their `(config, runtime_config)` split stays. |
 | Environment configs | Dataclasses with `.build()`. Wrappers such as normalisation and history frames become fields. `make_env_factory` is deleted. |
 
-Still open, and settled in phase 1 rather than here:
+Settled in phase 1:
 
 - [x] Confirm that `traced()` field metadata survives `chex_struct`. It does,
       including through `dataclasses.replace`
