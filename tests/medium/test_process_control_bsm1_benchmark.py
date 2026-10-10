@@ -135,6 +135,13 @@ class TestDefaultProblem:
         assert jnp.mean(rewards[moderate]) > jnp.mean(rewards[high])
         assert jnp.mean(rewards[moderate]) > jnp.mean(rewards[low])
 
+    def test_maximum_aeration_keeps_oxygen_below_saturation(self, default_runs: Rollout) -> None:
+        """At the kLa limit the stiff oxygen balance stays within [0, S_O,sat], the 8 g/m³ of 15 °C water."""
+        _, (observations, _, _) = default_runs
+        oxygen = jnp.stack([_observed(observations[4], "s_o_3"), _observed(observations[4], "s_o_5")])
+
+        assert jnp.all((oxygen >= 0.0) & (oxygen <= 8.0))
+
     def test_actions_beyond_the_limits_are_clipped(self, default_runs: Rollout) -> None:
         """Commands above the Table 15 limits act exactly like the limits."""
         _, (observations, rewards, _) = default_runs
