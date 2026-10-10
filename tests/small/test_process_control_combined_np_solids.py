@@ -4,6 +4,9 @@ import jax
 import jax.numpy as jnp
 from process_control.benchmarks.combined_np import CombinedNPConfig, make_combined_np_benchmark
 
+# ASM2d S_ALK component index in the aerobic zone state (combined_np.py precipitation step)
+_S_ALK_INDEX = 12
+
 
 def _rollout(reset: Callable, step: Callable, action: jax.Array, n_steps: int, seed: int = 0):
     state, _ = reset(jax.random.PRNGKey(seed))
@@ -47,13 +50,14 @@ class TestCombinedNPSolidsRetention:
         assert float(x_pao[-1]) > 50.0
 
     def test_fecl3_dosing_consumes_alkalinity(self) -> None:
-        """Dosing FeCl3 should draw down alkalinity relative to no dosing,
-        since FeCl3 hydrolysis consumes ~3 eq alkalinity per mol Fe."""
+        """Maximum FeCl3 dosing leaves less aerobic alkalinity than no dosing."""
         config = CombinedNPConfig()
         reset, step = make_combined_np_benchmark(config)
         n_steps = config.steps_per_day
 
-        _, info_no_fe = _rollout(reset, step, jnp.array([0.5, 0.5, 0.0, 0.3]), n_steps, seed=20)
-        _, info_fe = _rollout(reset, step, jnp.array([0.5, 0.5, 1.0, 0.3]), n_steps, seed=20)
+        state_no_fe, _ = _rollout(reset, step, jnp.array([0.5, 0.5, 0.0, 0.3]), n_steps, seed=20)
+        state_fe, _ = _rollout(reset, step, jnp.array([0.5, 0.5, 1.0, 0.3]), n_steps, seed=20)
 
-        assert float(info_fe["fe_consumed"][-1]) > float(info_no_fe["fe_consumed"][-1])
+        alk_no_fe = float(state_no_fe.aerobic_state[_S_ALK_INDEX])
+        alk_fe = float(state_fe.aerobic_state[_S_ALK_INDEX])
+        assert alk_fe < alk_no_fe
