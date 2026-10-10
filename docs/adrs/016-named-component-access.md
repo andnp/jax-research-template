@@ -1,7 +1,7 @@
 # ADR 016: Named Component Access, Channel Bases, and a Species Registry
 
 ## Status
-Proposed. Amends the schema and stream metadata in ADR 015, while keeping its static
+Accepted. Amends the schema and stream metadata in ADR 015, while keeping its static
 schemas, pure JIT/vmap functions, and joint plant dynamics.
 
 ## Context
