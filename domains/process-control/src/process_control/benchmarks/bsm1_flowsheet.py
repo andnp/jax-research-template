@@ -38,9 +38,11 @@ from process_control.plants.activated_sludge import (
 from process_control.scenarios import tabular_influent
 from process_control.scenarios.tabular_influent import (
     DEFAULT_RANDOMIZATION,
+    NO_RANDOMIZATION,
     InfluentRandomization,
     TabularInfluentState,
     bsm1_influent,
+    bsm1_influent_profiles,
 )
 from process_control.sensors import response_time
 from process_control.sensors.response_time import (
@@ -571,3 +573,27 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
 
     return reset, step
 
+
+def _without_noise(control: PIControl) -> PIControl:
+    return dataclasses.replace(control, sensor=dataclasses.replace(control.sensor, noise_std=0.0))
+
+
+def bsm1_reference_closed_loop(weather: str = "dry", sensor_noise: bool = True) -> BSM1Config:
+    """The BSM1 default control strategy of Sec. 5 on one unrandomized weather profile, with no agent actions.
+
+    kLa3 and kLa4 stay at 240 d⁻¹, the oxygen controller holds reactor 5 at 2 g/m³, the nitrate
+    controller holds reactor 2 at 1 g N/m³, and Qr and Qw stay at 18446 and 385 m³/d. `weather` is one
+    of the profiles `constant`, `dry`, `rain` or `storm`; the constant profile with `sensor_noise` off is
+    the stabilisation run.
+    """
+    profiles = tuple(bsm1_influent_profiles())
+    if weather not in profiles:
+        raise ValueError(f"weather must be one of {profiles}, got {weather!r}")
+    oxygen, nitrate = BSM1_OXYGEN_CONTROL, BSM1_NITRATE_CONTROL
+    if not sensor_noise:
+        oxygen, nitrate = _without_noise(oxygen), _without_noise(nitrate)
+    handles = BSM1Handles(
+        kla_3=Fixed(240.0 / _DAY), kla_4=Fixed(240.0 / _DAY), kla_5=oxygen, q_a=nitrate, q_r=Fixed(Q0_STAB), q_w=Fixed(385.0 / _DAY)
+    )
+    weights = tuple(float(name == weather) for name in profiles)
+    return BSM1Config(handles=handles, influent=dataclasses.replace(NO_RANDOMIZATION, profile_weights=weights))
