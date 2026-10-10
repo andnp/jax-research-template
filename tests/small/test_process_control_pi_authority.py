@@ -21,10 +21,6 @@ from process_control.benchmarks.equalization_tank import (
     make_equalization_tank_benchmark,
 )
 from process_control.benchmarks.h2s_scrubber import H2SScrubberConfig, make_h2s_scrubber_benchmark
-from process_control.benchmarks.ph_neutralization import (
-    PhNeutralizationBenchmarkConfig,
-    make_ph_neutralization_benchmark,
-)
 
 
 def _authority(ff: float, output_min: float, output_max: float) -> float:
@@ -97,26 +93,6 @@ class TestClosedLoopTracking:
         infos = _run(reset_fn, step_fn, action, n_steps=4000)
         settled = infos["outlet_residual"][-500:]
         assert float(jnp.abs(settled.mean() - config.target_residual)) < 0.3
-
-    def test_ph_neutralization_reaches_target_ph_at_nominal_conditions(self) -> None:
-        """Nominal = mean flow and mean acid load, without the diurnal swing.
-
-        The full diurnal disturbance (flow AND acid concentration both
-        varying) pushes base_excess across the carbonate buffer's minimum-
-        capacity region, where pH is extremely sensitive to small charge
-        imbalances; that disturbance-rejection problem is a plant/scenario
-        design question, not an integral-authority sizing one, and is out of
-        scope here.
-        """
-        config = PhNeutralizationBenchmarkConfig(
-            diurnal_amplitude=0.0, min_flow=50.0, max_flow=50.0, drift_scale=0.0,
-            acid_amplitude=0.0, acid_min=0.005, acid_max=0.005, acid_drift_scale=0.0,
-        )
-        reset_fn, step_fn = make_ph_neutralization_benchmark(config)
-        action = jnp.array(config.pi_ff)
-        infos = _run_self_driven(reset_fn, step_fn, action, "pi_dose", n_steps=3000)
-        settled = infos["measured_ph"][-500:]
-        assert float(jnp.abs(settled.mean() - config.target_ph)) < 0.2
 
     def test_equalization_tank_reaches_target_level(self) -> None:
         config = EqualizationTankBenchmarkConfig()

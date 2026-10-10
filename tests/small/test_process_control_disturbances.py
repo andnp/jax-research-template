@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -19,6 +21,7 @@ from process_control.disturbances.types import (
     demand_slug,
     rain_storm,
 )
+from process_control.scenarios.pulse_train import PulseTrainParams
 from process_control.transport import Transport
 
 
@@ -159,40 +162,31 @@ class TestDisturbanceSchedule:
         assert int(state.disturbance_schedule.start_steps[0]) == 0
 
     def test_ph_config_applies_rain_event_to_inlet_flow(self) -> None:
-        """Configured rain-storm disturbances reach the pH process's inlet flow.
+        """A configured rain storm adds 10 * magnitude L/min to the pH process's inlet flow; without it flow is unchanged.
 
-        The acid concentration comes from its own channel (see
-        ph_neutralization.py), decoupled from the shared demand/Transport
-        disturbance path, so only flow-affecting disturbances (rain storms)
-        reach this benchmark.
+        Demand-slug events change composition fields the pH benchmark does not use, so only flow-affecting
+        disturbances reach it.
         """
-        common = dict(
-            diurnal_amplitude=0.0,
-            mean_flow=50.0,
+        nominal_config = PhNeutralizationBenchmarkConfig(
+            flow_amplitude=0.0,
             min_flow=50.0,
             max_flow=50.0,
-            drift_scale=0.0,
-            acid_amplitude=0.0,
-            acid_drift_scale=0.0,
-            ph_noise_std=0.0,
-            ph_lag_coefficient=0.0,
-            pump_max_ramp_rate=1_000.0,
+            flow_drift_scale=0.0,
+            flow_slug=PulseTrainParams(0.0, 1.0, 0.0, 0.0),
         )
-        nominal_config = PhNeutralizationBenchmarkConfig(**common)
-        disturbed_config = PhNeutralizationBenchmarkConfig(
-            **common,
-            disturbance_events=((0, 1, 1.0, DISTURBANCE_RAIN_STORM),),
-        )
+        disturbed_config = replace(nominal_config, disturbance_events=((0, 1, 1.0, DISTURBANCE_RAIN_STORM),))
         nominal_reset, nominal_step = make_ph_neutralization_benchmark(nominal_config)
         disturbed_reset, disturbed_step = make_ph_neutralization_benchmark(disturbed_config)
         reset_key, step_key = jax.random.split(jax.random.PRNGKey(8))
         nominal_state, _ = nominal_reset(reset_key)
         disturbed_state, _ = disturbed_reset(reset_key)
 
-        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array(0.5), step_key)
-        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array(0.5), step_key)
+        _, _, _, _, nominal_info = nominal_step(nominal_state, jnp.array([0.5, 0.2]), step_key)
+        _, _, _, _, disturbed_info = disturbed_step(disturbed_state, jnp.array([0.5, 0.2]), step_key)
 
-        assert disturbed_info["flow"] > nominal_info["flow"]
+        assert nominal_info["flow"] == pytest.approx(50.0)
+        assert disturbed_info["flow"] == pytest.approx(60.0)
+        assert disturbed_info["event_flow"] == pytest.approx(10.0)
 
     def test_equalization_config_applies_rain_event_to_inlet(self) -> None:
         """Configured rain disturbances reach the equalization inlet flow."""

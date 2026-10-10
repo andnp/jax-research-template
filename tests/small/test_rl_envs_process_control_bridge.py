@@ -123,24 +123,23 @@ def test_chlorine_env_tracks_configured_action_bounds() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([10.0], dtype=jnp.float32))
 
 
-@pytest.mark.parametrize(
-    ("benchmark_name", "expected_low", "expected_high"),
-    [
-        ("ph_neutralization", 0.0, 3.0),
-        ("equalization_tank", 0.0, 150.0),
-    ],
-)
-def test_initial_tranche_benchmarks_expose_native_action_bounds(
-    benchmark_name: str,
-    expected_low: float,
-    expected_high: float,
-) -> None:
-    spec = make_process_control_env(benchmark_name).spec()
+def test_equalization_tank_exposes_native_action_bounds() -> None:
+    spec = make_process_control_env("equalization_tank").spec()
 
     assert spec.action_low is not None
     assert spec.action_high is not None
-    assert jnp.array_equal(spec.action_low, jnp.array([expected_low], dtype=jnp.float32))
-    assert jnp.array_equal(spec.action_high, jnp.array([expected_high], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_low, jnp.array([0.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([150.0], dtype=jnp.float32))
+
+
+def test_ph_neutralization_exposes_one_native_bound_per_pump_stage() -> None:
+    spec = make_process_control_env("ph_neutralization").spec()
+
+    assert spec.action_shape == (2,)
+    assert spec.action_low is not None
+    assert spec.action_high is not None
+    assert jnp.array_equal(spec.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
+    assert jnp.array_equal(spec.action_high, jnp.array([2.1, 0.9], dtype=jnp.float32))
 
 
 def test_chlorine_non_direct_mode_omits_native_action_bounds() -> None:

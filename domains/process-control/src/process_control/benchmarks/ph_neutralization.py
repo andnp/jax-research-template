@@ -1,3 +1,28 @@
+"""Two-stage pH neutralisation of an acidic, bicarbonate-buffered wastewater with caustic (NaOH).
+
+Two CSTRs in series, coarse then trim, with a metering pump dosing NaOH into each; the action is the two
+pump commands (mol/min). pH comes from the carbonate speciation solver (`chemistry/speciation.py`).
+
+Units: volume m3, time min, flow L/min (the unit `disturbance_events` rain storms act in; tank flow is
+flow / 1000), S in eq/m3 (= meq/L; positive for net strong-cation excess), Ct (total carbon) in mol/m3 (= mmol/L).
+
+Reaction invariants per tank are [S, Ct]; mixing and dosing are linear in them (Gustafsson & Waller 1983,
+https://doi.org/10.1016/0009-2509(83)80157-2; Henson & Seborg 1994, https://doi.org/10.1109/87.317975), so
+`units/cstr.step` is reused unchanged on the stacked vector. One mole of NaOH adds one equivalent to S.
+
+Influent source mapping: the buffer stream is NaHCO3 at the hidden alkalinity Alk (eq/m3 = mol/m3 NaHCO3)
+plus strong mineral acid, so S_in = Alk - acid and Ct_in = Alk. Alkalinity is not added a second time as a
+strong-ion term. (The retired model's `buffer_capacity = 0.005 mol/L` was 5 mmol/L total carbon, not 5 meq/L;
+`Ct = 1000 * buffer_capacity` was a total-carbon mapping.) 1 mg/L as CaCO3 = 0.02 eq/m3.
+
+pH model change from the retired `chemistry/ph_model.py`, which this replaces: constants are the T-dependent
+`aqueous` carbonate values (pKa1 6.352, pKa2 10.329, pKw 13.995 at 298.15 K) instead of pKa1 6.35, pKa2 10.25,
+pKw 14. The two are not numerically equivalent.
+
+Tank 2 takes tank 1's state from the start of the step (one-step explicit coupling): adequate at dt = 1 min
+against a 12 min tank-1 time constant.
+"""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -5,13 +30,9 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.actuators.ramp_limited import RampLimitedActuatorParams, RampLimitedActuatorState
-from process_control.actuators.ramp_limited import reset as actuator_reset
-from process_control.actuators.ramp_limited import step as actuator_step
-from process_control.chemistry.ph_model import PhModelParams, compute_ph
-from process_control.controllers.pi_controller import PIControllerParams, PIControllerState
-from process_control.controllers.pi_controller import reset as pi_reset
-from process_control.controllers.pi_controller import step as pi_step
+from process_control.actuators import metering_pump as pump
+from process_control.chemistry.aqueous import DEFAULT_REGISTRY
+from process_control.chemistry.speciation import SolveControls, evaluate_constants, fractions, make_speciation_system, solve_ideal_charge_balance
 from process_control.disturbances.schedule import (
     DisturbanceSchedule,
     add_event,
@@ -19,68 +40,87 @@ from process_control.disturbances.schedule import (
     create_empty,
     validate_disturbance_events,
 )
-from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
-from process_control.scenarios.diurnal_source import reset as source_reset
-from process_control.scenarios.diurnal_source import step as source_step
+from process_control.scenarios import pulse_train as pulses
 from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_step
-from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
-from process_control.sensors.lagged import reset as ph_sensor_reset
-from process_control.sensors.lagged import step as ph_sensor_step
+from process_control.sensors import flow_sensor
+from process_control.sensors import response_time as ph_sensor
+from process_control.transport import BulkProperties, Composition, Hydraulics, Transport
 from process_control.units.cstr import CSTRParams, CSTRState
-from process_control.units.cstr import reset as cstr_reset
 from process_control.units.cstr import step as cstr_step
+
+NAOH_MOLAR_MASS_KG_PER_MOL = 0.040
+HOURS_PER_MIN = 1.0 / 60.0
 
 
 @dataclass(frozen=True)
 class PhNeutralizationBenchmarkConfig:
-    target_ph: float = 7.0
-    dt: float = 1.0  # minutes
+    """Every value marked ASSUMED is synthetic and has no field calibration."""
 
-    # CSTR
-    cstr_volume: float = 500.0  # L
+    dt: float = 1.0  # min
+    steps_per_day: int = 1440
+    temperature_k: float = 298.15  # ASSUMED
+    # Covered, non-aerated tanks (ASSUMED): carbon is conserved, with no CO2 stripping.
 
-    # Dose pump (base dosing, mol/min). Sized with headroom over the
-    # steady-state dose implied by the acid load and pH-model parameters
-    # below (~0.15-1.1 mol/min across the acid concentration/flow range).
-    pump_max_dose: float = 3.0
-    pump_min_dose: float = 0.0
-    pump_max_ramp_rate: float = 1.0
+    # Two tanks in a 20 min total residence time at the mean flow (ASSUMED split; EPA design range 10-30 min).
+    volume_1: float = 0.6  # m3
+    volume_2: float = 0.4  # m3
 
-    # PI controller (operates in pH space → outputs dose in mol/min). Gains
-    # are small because the titration curve is steep near neutrality (see
-    # ph_model.py): the process gain from dose to pH is far higher than for
-    # a linear process, so a much larger kp/ki would overshoot and oscillate.
-    pi_kp: float = 0.02
-    pi_ki: float = 0.005
-    pi_ff: float = 0.4544  # steady-state dose at mean acid load and flow
-    pi_output_min: float = 0.0
-    pi_output_max: float = 3.0
-
-    # pH sensor
-    ph_noise_std: float = 0.05
-    ph_lag_coefficient: float = 0.3
-
-    # pH model: total carbonate buffer capacity (mol/L); see ph_model.py.
-    ph_buffer_capacity: float = 0.005
-
-    # Inlet flow (L/min), via DiurnalSourceState/Params (demand output unused).
+    # Flow (L/min). Flow and acid drifts are independent random walks. ALL ASSUMED.
     mean_flow: float = 50.0
-    diurnal_amplitude: float = 15.0
-    min_flow: float = 30.0
-    max_flow: float = 80.0
-    drift_scale: float = 0.1
-    steps_per_day: int = 96
+    flow_amplitude: float = 8.0
+    min_flow: float = 25.0
+    max_flow: float = 90.0
+    flow_drift_scale: float = 0.2
+    flow_drift_clip: float = 10.0
+    flow_slug: pulses.PulseTrainParams = pulses.PulseTrainParams(1.0 / 1440, 20.0, 15.0, 30.0)  # L/min added after clipping; ~1 per day
+    flow_obs_scale: float = 120.0  # max_flow + largest slug; the observation is not clipped, so events can exceed 1
 
-    # Acid inlet concentration (mol/L strong acid), via its own diurnal
-    # channel (see chemistry/ph_model.py). 1e-3-1e-2 mol/L spans the
-    # free-mineral-acidity scale used to titrate industrial acidic wastewater
-    # (https://law.resource.org/pub/us/cfr/ibr/002/apha.method.2320.1992.html).
-    acid_mean: float = 0.005
-    acid_amplitude: float = 0.002
-    acid_min: float = 0.001
-    acid_max: float = 0.01
-    acid_drift_scale: float = 0.0002
+    # Strong mineral acid in the influent (eq/m3), ASSUMED.
+    acid_mean: float = 5.0
+    acid_amplitude: float = 2.0
+    acid_min: float = 1.0
+    acid_max: float = 12.0
+    acid_drift_scale: float = 0.01
+    acid_drift_clip: float = 1.5
+    acid_slug: pulses.PulseTrainParams = pulses.PulseTrainParams(1.0 / 1440, 20.0, 3.0, 8.0)
 
+    # Hidden NaHCO3 alkalinity (eq/m3 = mol/m3), a slow random walk. ASSUMED: 3 eq/m3 is about 150 mg/L as CaCO3.
+    alk_mean: float = 3.0
+    alk_min: float = 0.5
+    alk_max: float = 8.0
+    alk_drift_scale: float = 0.05
+    alk_drift_clip: float = 2.5
+
+    # NaOH metering pumps (mol/min), ASSUMED: 1.5x the calculated peak duty (influent to pH 6 in stage 1,
+    # pH 6 to 7.5 in stage 2, over alkalinity 0.5-8, acid 1-12 and 120 L/min): 1.40 and 0.60 mol/min.
+    pump_1_max: float = 2.1
+    pump_2_max: float = 0.9
+    # Digital diaphragm dosing pumps list 1:1000 turndown (Grundfos DDA 17-7,
+    # https://www.lenntech.com/grundfos/DDAFAM/97974134/DDA-17-7-WITH-ACCESS.html), a vendor nominal range,
+    # not a verified accuracy limit. Peak duty is about 10x nominal duty, so 10:1 (Neptune mechanical
+    # metering pumps, https://www.psgdover.com/docs/default-source/neptune/spec-sheets/chemical-feed-system-metering-pump-specifications-for-general-use.pdf)
+    # cannot span it and is the labelled stress setting.
+    turndown: float = 1000.0
+    dose_line_delay: float = 0.75  # min, ASSUMED
+
+    # Electrode plus sample loop (ASSUMED; a clean electrode alone responds in seconds), flow meter about 2 %.
+    ph_t90_min: float = 1.0
+    ph_noise_std: float = 0.05
+    flow_noise_std: float = 1.0  # L/min
+
+    # Reward, from the TRUE tank-2 pH. The band is illustrative: permits are site-specific, and the federal
+    # general pretreatment prohibition is pH below 5 (40 CFR 403.5). The margin band is reported, not rewarded.
+    band_low: float = 6.0
+    band_high: float = 9.0
+    margin_low: float = 6.5
+    margin_high: float = 8.5
+    band_penalty: float = 0.5  # $ per (pH unit)^2 per minute outside the band, ASSUMED
+    naoh_price_per_kg: float = 0.8  # active NaOH; Concord NC bid 2678 (June 2025), $665-730 per dry ton
+
+    solver_iterations: int = 20  # 12 suffice over the operating range
+    # Float32 cannot resolve the default 1e-4 pH / relative residual at pH ~12 with S ~ 13 eq/m3 (it flags a
+    # converged step as not converged intermittently); 1e-3 is still 50x below the electrode noise.
+    solver_tolerance: float = 1e-3
     max_disturbance_events: int = 16
     disturbance_events: tuple[tuple[int, int, float, int], ...] = ()
 
@@ -88,12 +128,17 @@ class PhNeutralizationBenchmarkConfig:
 @jax_dataclass
 class PhPlantState:
     step_count: jax.Array
-    source_state: DiurnalSourceState
+    flow_drift: jax.Array
     acid_drift: jax.Array
-    cstr_state: CSTRState
-    actuator_state: RampLimitedActuatorState
-    ph_sensor_state: LaggedSensorState
-    pi_state: PIControllerState
+    alk_drift: jax.Array
+    flow_slug: pulses.PulseTrainState
+    acid_slug: pulses.PulseTrainState
+    tanks: CSTRState  # concentration (2, 2): [tank, (S, Ct)]
+    pump_1: pump.MeteringPumpState
+    pump_2: pump.MeteringPumpState
+    ph_sensor_1: ph_sensor.SensorState
+    ph_sensor_2: ph_sensor.SensorState
+    flow_sensor: flow_sensor.FlowSensorState
     last_dose: jax.Array
     disturbance_schedule: DisturbanceSchedule
 
@@ -104,199 +149,157 @@ def make_ph_neutralization_benchmark(
     Callable[[jax.Array], tuple[PhPlantState, jax.Array]],
     Callable[[PhPlantState, jax.Array, jax.Array], tuple[PhPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
-    max_disturbance_events = validate_disturbance_events(
-        config.max_disturbance_events,
-        config.disturbance_events,
+    c = config
+    max_events = validate_disturbance_events(c.max_disturbance_events, c.disturbance_events)
+    system = make_speciation_system(DEFAULT_REGISTRY, ("carbonate",))
+    constants = evaluate_constants(system, jnp.asarray(c.temperature_k))
+    controls = SolveControls(max_iterations=c.solver_iterations, rel_tol=c.solver_tolerance, ph_tol=c.solver_tolerance)
+
+    flow_channel = ChannelParams(c.mean_flow, c.flow_amplitude, c.min_flow, c.max_flow, 0.0, c.flow_drift_scale, c.flow_drift_clip)
+    acid_channel = ChannelParams(c.acid_mean, c.acid_amplitude, c.acid_min, c.acid_max, 0.0, c.acid_drift_scale, c.acid_drift_clip)
+    alk_channel = ChannelParams(c.alk_mean, 0.0, c.alk_min, c.alk_max, 0.0, c.alk_drift_scale, c.alk_drift_clip)
+    pump_1_params = pump.MeteringPumpParams(c.pump_1_max, c.turndown, c.dose_line_delay, c.dt)
+    pump_2_params = pump.MeteringPumpParams(c.pump_2_max, c.turndown, c.dose_line_delay, c.dt)
+    ph_sensor_params = ph_sensor.SensorParams(
+        ph_sensor.SensorClass(t90=c.ph_t90_min * HOURS_PER_MIN, order=2), 0.0, 14.0, c.ph_noise_std, noise_period=HOURS_PER_MIN
     )
-    cstr_params = CSTRParams(volume=config.cstr_volume)
-    pump_params = RampLimitedActuatorParams(
-        max_output=config.pump_max_dose,
-        min_output=config.pump_min_dose,
-        max_ramp_rate=config.pump_max_ramp_rate,
-    )
-    pi_params = PIControllerParams(
-        kp=config.pi_kp,
-        ki=config.pi_ki,
-        ff=config.pi_ff,
-        output_min=config.pi_output_min,
-        output_max=config.pi_output_max,
-    )
-    ph_sensor_params = LaggedSensorParams(
-        noise_std=config.ph_noise_std,
-        lag_coefficient=config.ph_lag_coefficient,
-    )
-    ph_model_params = PhModelParams(buffer_capacity=config.ph_buffer_capacity)
-    source_params = DiurnalSourceParams(
-        mean_flow=config.mean_flow,
-        diurnal_amplitude=config.diurnal_amplitude,
-        min_flow=config.min_flow,
-        max_flow=config.max_flow,
-        demand_offset=0.0,
-        flow_demand_coefficient=0.0,
-        demand_noise_std=0.0,
-        drift_scale=config.drift_scale,
-        steps_per_day=config.steps_per_day,
-    )
-    acid_channel_params = ChannelParams(
-        mean=config.acid_mean,
-        amplitude=config.acid_amplitude,
-        min_value=config.acid_min,
-        max_value=config.acid_max,
-        drift_scale=config.acid_drift_scale,
-        drift_clip=config.acid_amplitude,
-    )
-    dt = jnp.array(config.dt)
-    target_ph = jnp.array(config.target_ph)
-    pump_max_dose = jnp.array(config.pump_max_dose)
+    flow_params = flow_sensor.FlowSensorParams(c.flow_noise_std, 0.0, 0.0)
+    cstr_1, cstr_2 = CSTRParams(c.volume_1), CSTRParams(c.volume_2)
+    dt = jnp.asarray(c.dt)
+    dt_hours = jnp.asarray(c.dt * HOURS_PER_MIN)
+    max_dose = jnp.array([c.pump_1_max, c.pump_2_max])
+    total_volume_l = (c.volume_1 + c.volume_2) * 1000.0
+
+    def solve(concentration: jax.Array):
+        return solve_ideal_charge_balance(system, concentration[..., 1:2], concentration[..., 0], constants, controls)
+
+    def observe(ph_1: jax.Array, ph_2: jax.Array, flow: jax.Array, dose: jax.Array) -> jax.Array:
+        return jnp.concatenate([jnp.stack([ph_1 / 14.0, ph_2 / 14.0, flow / c.flow_obs_scale]), dose / max_dose])
 
     def reset(rng_key: jax.Array) -> tuple[PhPlantState, jax.Array]:
-        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
+        k_alk, k_s1, k_s2 = jax.random.split(rng_key, 3)
+        alk_drift = jax.random.uniform(k_alk, minval=-0.5, maxval=0.5) * c.alk_drift_clip
+        alk = jnp.clip(c.alk_mean + alk_drift, c.alk_min, c.alk_max)
+        # Both tanks start at pH 7 for the initial alkalinity: S balances the carbonate charge, OH- and H+.
+        mean_charge = jnp.sum(fractions(constants.log_ka[:2], jnp.asarray(7.0)) * jnp.array([0.0, -1.0, -2.0]))
+        s_0 = -alk * mean_charge + 10.0 ** (7.0 + constants.log_kw + 3.0) - 10.0 ** (-7.0 + 3.0)
+        concentration = jnp.stack([jnp.stack([s_0, alk])] * 2)
+        ph_0 = solve(concentration).ph
 
-        src_state = source_reset(k1)
-        acid_drift = jnp.array(0.0)
-        cstr_state = cstr_reset(k2)
-        dp_state = actuator_reset(k3)
-        initial_ph = compute_ph(cstr_state.concentration, ph_model_params)
-        ph_state = ph_sensor_reset(initial_ph, k4)
-        pi_state = pi_reset(k4)
-        last_dose = jnp.array(0.0)
+        schedule = create_empty(max_events)
+        for start_step, end_step, magnitude, type_id in c.disturbance_events:
+            schedule = add_event(schedule, start_step=start_step, end_step=end_step, magnitude=magnitude, type_id=type_id)
 
-        disturbance_schedule = create_empty(max_disturbance_events)
-        for start_step, end_step, magnitude, type_id in config.disturbance_events:
-            disturbance_schedule = add_event(
-                disturbance_schedule,
-                start_step=start_step,
-                end_step=end_step,
-                magnitude=magnitude,
-                type_id=type_id,
-            )
-
-        plant_state = PhPlantState(
+        state = PhPlantState(
             step_count=jnp.array(0, dtype=jnp.int32),
-            source_state=src_state,
-            acid_drift=acid_drift,
-            cstr_state=cstr_state,
-            actuator_state=dp_state,
-            ph_sensor_state=ph_state,
-            pi_state=pi_state,
-            last_dose=last_dose,
-            disturbance_schedule=disturbance_schedule,
+            flow_drift=jnp.array(0.0),
+            acid_drift=jnp.array(0.0),
+            alk_drift=alk_drift,
+            flow_slug=pulses.reset(),
+            acid_slug=pulses.reset(),
+            tanks=CSTRState(concentration=concentration),
+            pump_1=pump.reset(pump_1_params),
+            pump_2=pump.reset(pump_2_params),
+            ph_sensor_1=ph_sensor.reset(ph_0[0], ph_sensor_params, k_s1),
+            ph_sensor_2=ph_sensor.reset(ph_0[1], ph_sensor_params, k_s2),
+            flow_sensor=flow_sensor.FlowSensorState(held_value=jnp.array(c.mean_flow)),
+            last_dose=jnp.zeros(2),
+            disturbance_schedule=schedule,
         )
-
-        measured_ph = ph_state.held_value
-        obs = jnp.array(
-            [
-                measured_ph / 14.0,
-                last_dose / pump_max_dose,
-                target_ph / 14.0,
-                (target_ph - measured_ph) / 7.0,
-            ]
-        )
-        return plant_state, obs
+        return state, observe(ph_0[0], ph_0[1], jnp.array(c.mean_flow), jnp.zeros(2))
 
     def step(
         state: PhPlantState,
         action: jax.Array,
         rng_key: jax.Array,
     ) -> tuple[PhPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]:
-        k1, k1b, k2, k3, k4 = jax.random.split(rng_key, 5)
+        k_flow, k_flow_slug, k_acid, k_acid_slug, k_alk, k_flow_sensor = jax.random.split(rng_key, 6)
+        t = (state.step_count % c.steps_per_day) / c.steps_per_day
 
-        # 1. Source: inlet flow (L/min), subject to disturbance events (e.g. rain).
-        new_source_state, transport, _flow, _demand = source_step(
-            state.source_state,
+        # 1. Disturbances: flow (L/min) with slugs and configured events, acid with slugs, hidden alkalinity.
+        flow_drift, flow_base = channel_step(state.flow_drift, jnp.sin(2.0 * jnp.pi * t) + jnp.cos(4.0 * jnp.pi * t), flow_channel, k_flow)
+        flow_slug, flow_pulse = pulses.step(state.flow_slug, c.flow_slug, k_flow_slug)
+        transport = apply_active(
+            state.disturbance_schedule,
+            Transport(Hydraulics(flow_base + flow_pulse), Composition.create(0.0, 0.0), BulkProperties.create(c.temperature_k - 273.15)),
             state.step_count,
-            source_params,
-            k1,
         )
-        transport = apply_active(state.disturbance_schedule, transport, state.step_count)
-        flow = transport.hydraulics.flow
+        flow_l_per_min = transport.hydraulics.flow
+        flow = flow_l_per_min / 1000.0  # m3/min
+        acid_drift, acid = channel_step(state.acid_drift, jnp.sin(2.0 * jnp.pi * t), acid_channel, k_acid)
+        acid_slug, acid_pulse = pulses.step(state.acid_slug, c.acid_slug, k_acid_slug)
+        acid = jnp.clip(acid + acid_pulse, c.acid_min, c.acid_max)
+        alk_drift, alk = channel_step(state.alk_drift, jnp.zeros(()), alk_channel, k_alk)
 
-        # 1b. Acid inlet concentration (mol/L strong acid): its own diurnal
-        #    channel, decoupled from the influent flow/demand chemistry above.
-        t = (state.step_count % config.steps_per_day) / config.steps_per_day
-        acid_signal = jnp.sin(2.0 * jnp.pi * t)
-        new_acid_drift, acid_concentration = channel_step(
-            state.acid_drift,
-            acid_signal,
-            acid_channel_params,
-            k1b,
+        # 2. Pumps: command -> turndown -> line delay.
+        pump_state_1, output_1, delivered_1 = pump.step(state.pump_1, action[0], pump_1_params)
+        pump_state_2, output_2, delivered_2 = pump.step(state.pump_2, action[1], pump_2_params)
+
+        # 3. Tanks in series on the invariants [S, Ct]; NaHCO3 influent, NaOH adds only to S.
+        influent = jnp.stack([alk - acid, alk])
+        tank_1 = cstr_step(CSTRState(state.tanks.concentration[0]), flow, influent, jnp.stack([delivered_1, 0.0]), cstr_1, dt)
+        tank_2 = cstr_step(CSTRState(state.tanks.concentration[1]), flow, state.tanks.concentration[0], jnp.stack([delivered_2, 0.0]), cstr_2, dt)
+        concentration = jnp.stack([tank_1.concentration, tank_2.concentration])
+
+        # 4. True pH of both tanks in one batched solve.
+        result = solve(concentration)
+        ph = result.ph
+
+        # 5. Sensors feed the observation only.
+        ph_state_1, measured_ph_1 = ph_sensor.step(state.ph_sensor_1, ph[0], ph_sensor_params, dt_hours)
+        ph_state_2, measured_ph_2 = ph_sensor.step(state.ph_sensor_2, ph[1], ph_sensor_params, dt_hours)
+        flow_state, measured_flow = flow_sensor.step(state.flow_sensor, flow_l_per_min, flow_params, k_flow_sensor)
+
+        # 6. Reward from the TRUE tank-2 pH: band violation plus reagent cost.
+        dose = jnp.stack([output_1, output_2])
+        violation = jnp.maximum(c.band_low - ph[1], 0.0) + jnp.maximum(ph[1] - c.band_high, 0.0)
+        margin_violation = jnp.maximum(c.margin_low - ph[1], 0.0) + jnp.maximum(ph[1] - c.margin_high, 0.0)
+        band_cost = c.band_penalty * violation**2 * c.dt
+        naoh_cost = c.naoh_price_per_kg * NAOH_MOLAR_MASS_KG_PER_MOL * jnp.sum(dose) * c.dt
+        reward = -(band_cost + naoh_cost)
+        solver_valid = jnp.all(
+            result.converged & result.bracket_ok & result.inputs_valid & result.model_ph_in_range & result.constants_in_domain & jnp.isfinite(ph)
         )
-
-        # 2. Dose pump realizes the agent's requested base dose (mol/min)
-        new_pump_state, realized_dose = actuator_step(
-            state.actuator_state,
-            action,
-            pump_params,
-            dt,
-        )
-
-        # 3. CSTR: acid inlet drives base_excess negative; dose drives it positive
-        #    inlet_concentration = -acid_concentration (acid reduces base_excess)
-        new_cstr_state = cstr_step(
-            state.cstr_state,
-            flow,
-            -acid_concentration,
-            realized_dose,
-            cstr_params,
-            dt,
-        )
-
-        # 4. Compute true pH from base excess in CSTR
-        true_ph = compute_ph(new_cstr_state.concentration, ph_model_params)
-
-        # 5. pH sensor
-        new_ph_state, measured_ph = ph_sensor_step(
-            state.ph_sensor_state,
-            true_ph,
-            ph_sensor_params,
-            k2,
-        )
-
-        # 6. PI controller (for info/comparison)
-        ph_error = target_ph - measured_ph
-        new_pi_state, pi_dose = pi_step(
-            state.pi_state,
-            measured_ph,
-            target_ph,
-            pi_params,
-            dt,
-        )
-
-        # 7. Observation: [normalized_ph, normalized_dose, normalized_target, normalized_error]
-        obs = jnp.array(
-            [
-                measured_ph / 14.0,
-                realized_dose / pump_max_dose,
-                target_ph / 14.0,
-                ph_error / 7.0,
-            ]
-        )
-
-        # 8. Reward: from sensor reading (matches what an online agent would see)
-        reward = -((measured_ph - target_ph) ** 2)
 
         new_state = PhPlantState(
             step_count=state.step_count + 1,
-            source_state=new_source_state,
-            acid_drift=new_acid_drift,
-            cstr_state=new_cstr_state,
-            actuator_state=new_pump_state,
-            ph_sensor_state=new_ph_state,
-            pi_state=new_pi_state,
-            last_dose=realized_dose,
+            flow_drift=flow_drift,
+            acid_drift=acid_drift,
+            alk_drift=alk_drift,
+            flow_slug=flow_slug,
+            acid_slug=acid_slug,
+            tanks=CSTRState(concentration=concentration),
+            pump_1=pump_state_1,
+            pump_2=pump_state_2,
+            ph_sensor_1=ph_state_1,
+            ph_sensor_2=ph_state_2,
+            flow_sensor=flow_state,
+            last_dose=dose,
             disturbance_schedule=state.disturbance_schedule,
         )
-
         info: dict[str, jax.Array] = {
-            "true_ph": true_ph,
-            "measured_ph": measured_ph,
-            "realized_dose": realized_dose,
-            "pi_dose": pi_dose,
-            "acid_concentration": acid_concentration,
-            "flow": flow,
+            "true_ph_1": ph[0],
+            "true_ph_2": ph[1],
+            "measured_ph_1": measured_ph_1,
+            "measured_ph_2": measured_ph_2,
+            "flow": flow_l_per_min,
+            "hrt_min": total_volume_l / flow_l_per_min,
+            "acid": acid,
+            "alkalinity": alk,
+            "flow_pulse": flow_pulse,
+            "acid_pulse": acid_pulse,
+            "event_flow": flow_l_per_min - (flow_base + flow_pulse),
+            "realized_dose": dose,
+            "delivered_dose": jnp.stack([delivered_1, delivered_2]),
+            "band_violation": violation,
+            "margin_violation": margin_violation,
+            "band_cost": band_cost,
+            "naoh_cost": naoh_cost,
+            "solver_valid": solver_valid,
+            "solver_converged": jnp.all(result.converged),
+            "solver_bracket_ok": jnp.all(result.bracket_ok),
+            "solver_in_domain": jnp.all(result.constants_in_domain),
         }
-
-        done = jnp.array(False)
-        return new_state, obs, reward, done, info
+        return new_state, observe(measured_ph_1, measured_ph_2, measured_flow, dose), reward, jnp.array(False), info
 
     return reset, step
