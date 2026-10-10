@@ -97,7 +97,10 @@ class CombinedNPConfig:
     waste_sludge_ratio: float = 0.0123
 
     # Chemical P (FeCl₃)
-    # Top of range is the stoichiometric need to capture all influent P (6 mg P/L x 1.8 mol/mol)
+    # Sized to meet the 1 mg P/L effluent limit, not to capture all influent P:
+    # 6 mg P/L x 1.8 mol Fe/mol P needs ~20 mg Fe/L stoichiometrically, but the
+    # precipitation rate also carries the Monod factor P/(P + k_half), so 20 mg
+    # Fe/L still leaves ~0.3 mg P/L at the default k_half.
     fe_dose_max: float = 20.0
     precip: PrecipitationParams = PrecipitationParams()
 
