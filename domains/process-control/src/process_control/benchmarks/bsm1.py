@@ -34,6 +34,7 @@ from process_control.benchmarks.bsm1_measurements import (
     take_snapshot,
 )
 from process_control.benchmarks.bsm1_metrics import (
+    EffluentLimits,
     aeration_energy,
     effluent_quality_index,
     mixing_energy,
@@ -242,10 +243,6 @@ DEFAULT_OBSERVATIONS = (
     Observation("q_a", HANDLE_LIMITS["q_a"][1]),
     Observation("q_w", HANDLE_LIMITS["q_w"][1]),
 )
-
-# Table 9 effluent limits, g/m³.
-EFFLUENT_LIMITS = {"n_tot": 18.0, "cod": 100.0, "s_nh": 4.0, "tss": 30.0, "bod5": 10.0}
-
 
 @dataclass(frozen=True)
 class RewardWeights:
@@ -546,7 +543,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "sludge_wastage": jnp.mean(waste_solids),
             "solids_inventory": solids_inventory(end.plant),
             "limit_violation": jnp.mean(
-                sum((jnp.maximum(per_interval[quality] / limit - 1.0, 0.0) for quality, limit in EFFLUENT_LIMITS.items()), jnp.zeros(()))
+                sum((jnp.maximum(per_interval[quality] / limit - 1.0, 0.0) for quality, limit in EffluentLimits().items()), jnp.zeros(()))
             ),
             "kla": jnp.mean(record["kla"], axis=0),
             "q_in": jnp.mean(record["q_in"]),
