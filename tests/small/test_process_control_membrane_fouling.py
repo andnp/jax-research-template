@@ -87,6 +87,26 @@ class TestOperatingCosts:
         assert float(first["backwash_water_m3"]) == pytest.approx(0.3)
         assert float(held["backwash_water_m3"]) == pytest.approx(0.0)
 
+    def test_backwash_water_price_is_charged_once_per_wash_start(self) -> None:
+        """The reward drops by bw_water_price * wash volume (normalized) on a wash start, not while held."""
+        config = MembraneFoulingConfig(membrane=MembraneParams(bw_duration=0.03), bw_water_price=0.5)
+        free = replace(config, bw_water_price=0.0)
+        wash = jnp.array([0.5, 0.0, 1.0])
+
+        def rewards(cfg: MembraneFoulingConfig) -> tuple[float, float]:
+            reset, step = make_membrane_fouling_benchmark(cfg)
+            state, _ = reset(jax.random.PRNGKey(0))
+            state, _, first, _, _ = step(state, wash, jax.random.PRNGKey(1))
+            _, _, held, _, _ = step(state, wash, jax.random.PRNGKey(2))
+            return float(first), float(held)
+
+        first_priced, held_priced = rewards(config)
+        first_free, held_free = rewards(free)
+
+        ref_value = config.water_value * config.flux_max * config.membrane.area * config.dt
+        assert first_free - first_priced == pytest.approx(0.5 * 0.3 / ref_value, rel=1e-4)
+        assert held_free == pytest.approx(held_priced)
+
 
 class TestDemandReward:
     def test_surplus_production_earns_nothing_and_shortfall_is_penalised(self) -> None:
