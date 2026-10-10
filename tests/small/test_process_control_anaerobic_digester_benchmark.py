@@ -61,3 +61,20 @@ class TestRewardUsesTrueState:
         reward_noisy, _ = _rollout(noisy, action, days=60)
         assert float(vfa.max()) > quiet.vfa_limit
         assert jnp.allclose(reward_quiet, reward_noisy)
+
+
+class TestHeatingCost:
+    def test_heating_a_larger_feed_costs_more_at_equal_temperature(self) -> None:
+        """Heating cost scales with feed flow, so temperature is not a free capacity knob."""
+        config = AnaerobicDigesterConfig(reward_w_biogas=0.0, reward_w_ch4=0.0)
+        reset_fn, step_fn = make_anaerobic_digester_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        _, _, r_low, _, _ = step_fn(state, jnp.array([0.2, 0.5]), jax.random.PRNGKey(1))
+        _, _, r_high, _, _ = step_fn(state, jnp.array([0.8, 0.5]), jax.random.PRNGKey(1))
+        assert float(r_high) < float(r_low) < 0.0
+
+    def test_moderate_feed_out_earns_minimum_feed(self) -> None:
+        """Mean reward guards the benchmark scale: moderate feed beats minimum feed."""
+        mod, _ = _rollout(AnaerobicDigesterConfig(), jnp.array([0.5, 0.75]), days=60)
+        low, _ = _rollout(AnaerobicDigesterConfig(), jnp.array([0.0, 0.75]), days=60)
+        assert float(mod.mean()) > float(low.mean())

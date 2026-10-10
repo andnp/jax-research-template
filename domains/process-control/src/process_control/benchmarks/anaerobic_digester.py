@@ -82,7 +82,9 @@ class AnaerobicDigesterConfig:
     reward_w_ch4: float = 0.5  # reward for high CH₄ content
     reward_w_vfa: float = 2.0  # penalty for VFA > threshold
     reward_w_ph: float = 3.0  # penalty for pH outside safe range
-    reward_w_heat: float = 0.05  # penalty for heating energy
+    # ASSUMED weight for a normalised sensible-heating proxy; presumes no heat recovery or CHP credit.
+    reward_w_heat: float = 1.0
+    feed_temperature: float = 15.0  # °C, ASSUMED sludge inlet temperature
     vfa_limit: float = 500.0  # mg-COD/L — alarm threshold
     vfa_violation_cap: float = 4.0  # ASSUMED: VFA excess is scored up to this multiple of vfa_limit
     ph_safe_low: float = 6.5
@@ -202,7 +204,7 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         vfa_violation = jnp.clip(new_dig.s_vfa - vfa_limit, 0.0, config.vfa_violation_cap * vfa_limit)
         ph_low_viol = jnp.maximum(config.ph_safe_low - ph, 0.0)
         ph_high_viol = jnp.maximum(ph - config.ph_safe_high, 0.0)
-        heating_cost = jnp.abs(new_temp - 20.0) / 25.0  # normalised heating above ambient
+        heating_cost = (q_feed / q_max) * (new_temp - config.feed_temperature) / 20.0  # ~ q*cp*dT, normalised
 
         reward = (
             config.reward_w_biogas * (sensed_biogas / 2000.0)
