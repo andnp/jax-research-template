@@ -10,7 +10,11 @@ FeCl₃ is dosed into the aerobic zone (simultaneous precipitation). Captured P
 is removed from the reactor state immediately, as if wasted with the sludge
 (reduced-order: no metal-phosphate solids state), and the reduced PO₄
 recirculates to the anaerobic zone with the RAS. Rates are per hour (ASM time
-unit): dt = 0.02 h and steps_per_day = 1200, so a 10-day horizon is 12000 steps.
+unit): dt = 0.02 h and steps_per_day = 1200, so a 10-day horizon is 12000 steps;
+nitrifier washout is hysteretic over days, so evaluate over 8-10 simulated days.
+
+Reward is euros per step (energy, chemicals, exceedance fines). Influent NH4
+and PO4 load follows the diurnal flow, which the flow observation exposes.
 
 Action (4D): [kla / kla_max, Q_recycle / Q_max, FeCl₃ dose / dose_max, carbon_dose / carbon_max]
 Observation (9D):
@@ -76,6 +80,11 @@ class CombinedNPConfig:
     min_flow: float = 300.0
     max_flow: float = 700.0
     drift_scale: float = 0.1
+
+    # Influent NH4 and PO4 concentrations rise and fall with the diurnal flow (load
+    # peaks with flow): relative swing per unit relative flow excursion. Assumed
+    # for the benchmark so the flow observation carries load information.
+    load_swing: float = 0.5
 
     # Recycle: internal nitrate recycle (aerobic → anoxic, action-controlled)
     # plus a fixed external RAS + wastage loop through an ideal clarifier
@@ -240,7 +249,9 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         _, return_sludge = perfect_clarifier(state.aerobic_state, q_in + q_ras, q_ras, q_waste)
 
         # 4. Anaerobic zone: influent + carbon + RAS (A2O: no nitrate/DO here)
-        inf_with_carbon = influent.at[1].set(influent[1] + carbon_dose)
+        load = 1.0 + config.load_swing * (q_in - config.mean_flow) / config.diurnal_amplitude
+        loaded_influent = influent.at[9].set(influent[9] * load).at[13].set(influent[13] * load)
+        inf_with_carbon = loaded_influent.at[1].set(loaded_influent[1] + carbon_dose)
         anaerobic_inlet = mix(inf_with_carbon, q_in, return_sludge, q_ras)
         new_anaerobic = reactor_step(
             state.anaerobic_state,
