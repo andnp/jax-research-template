@@ -65,8 +65,14 @@ class MembraneFoulingConfig:
     # Reward
     reward_w_tmp: float = 1.0  # penalty for high TMP
     reward_w_throughput: float = 0.5  # reward for permeate production
-    reward_w_scour: float = 0.1  # penalty for air scour cost
-    reward_w_bw: float = 0.3  # penalty for backwash (lost production)
+
+    # Operating economics. Nominal assumptions for the benchmark, not sourced
+    # from a specific plant; scour energy is the main trade-off knob.
+    water_value: float = 0.5  # $/m3 permeate; also the reward normaliser
+    elec_price: float = 0.10  # $/kWh
+    pump_eff: float = 0.7  # permeate pump wire-to-water efficiency
+    scour_kw_per_m2: float = 0.02  # air scour power at full intensity (kW/m2)
+    bw_water_price: float = 0.5  # $/m3 of permeate used as backwash water
     tmp_target: float = 0.8e5  # Pa — target TMP (0.8 bar)
 
 
@@ -91,6 +97,10 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
     max_tmp = jnp.array(config.membrane.max_tmp)
     tmp_target = jnp.array(config.tmp_target)
     area = jnp.array(config.membrane.area)
+    # Reward is expressed per step of full-capacity production value.
+    ref_value = config.water_value * config.flux_max * config.membrane.area * config.dt
+    # Nominal wash flux is a multiple of the maximum operating flux.
+    backwash_water_m3 = config.membrane.bw_flux_ratio * config.flux_max * config.membrane.area * config.membrane.bw_duration
 
     def _observe(
         sensed_tmp: jax.Array,
@@ -170,11 +180,14 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             & ~state.membrane_state.is_backwashing
             & ~state.membrane_state.backwash_trigger_latched
         )
+        pump_energy_kwh = tmp * q_permeate * config.dt / config.pump_eff / 3.6e6  # Pa * m3 = J
+        scour_energy_kwh = config.scour_kw_per_m2 * config.membrane.area * air_scour * config.dt
+        backwash_water = backwash_water_m3 * starts_bw
+        cost = config.elec_price * (pump_energy_kwh + scour_energy_kwh) + config.bw_water_price * backwash_water
         reward = (
             config.reward_w_throughput * (q_permeate / (flux_max * area))
             - config.reward_w_tmp * (tmp_violation / max_tmp) ** 2
-            - config.reward_w_scour * air_scour
-            - config.reward_w_bw * starts_bw
+            - cost / ref_value
         )
 
         new_state = MembraneFoulingBenchState(
@@ -190,6 +203,9 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             "q_permeate": q_permeate,
             "feed_tss": feed_tss,
             "permeate_tss": permeate_tss,
+            "pump_energy_kwh": pump_energy_kwh,
+            "scour_energy_kwh": scour_energy_kwh,
+            "backwash_water_m3": backwash_water,
             "r_reversible": new_mem.r_reversible,
             "r_irreversible": new_mem.r_irreversible,
         }
