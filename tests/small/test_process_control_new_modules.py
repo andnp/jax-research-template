@@ -360,16 +360,17 @@ class TestADM1CODConservation:
         temperature = jnp.array(35.0)
         dilution = q_feed / params.volume
 
-        net_dilution_total = jnp.array(0.0)
-        ch4_cod_out_total = jnp.array(0.0)
         pool_before = _adm1_cod_pool(state)
 
-        for _ in range(200):
+        def body(state: ADM1State, _step: None):
             pool_start = _adm1_cod_pool(state)
             state, q_biogas, ch4_frac, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
-            net_dilution_total += dilution * (feed_cod - pool_start) * dt
             ch4_vol = q_biogas * ch4_frac * dt
-            ch4_cod_out_total += ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume
+            return state, (dilution * (feed_cod - pool_start) * dt, ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume)
+
+        state, (net_dilution, ch4_cod_out) = jax.lax.scan(body, state, None, length=200)
+        net_dilution_total = net_dilution.sum()
+        ch4_cod_out_total = ch4_cod_out.sum()
 
         delta_storage = _adm1_cod_pool(state) - pool_before
         residual = net_dilution_total - ch4_cod_out_total - delta_storage
@@ -383,13 +384,19 @@ class TestADM1CODConservation:
         feed_cod = jnp.array(30000.0)
         temperature = jnp.array(35.0)
 
-        ph_baseline = jnp.array(7.0)
-        for _ in range(24 * 10):
-            state, _, _, ph_baseline = adm1_step(state, feed_cod, jnp.array(125.0), temperature, params, dt)
+        def run(state: ADM1State, q_feed: float, n_steps: int):
+            def body(state: ADM1State, _step: None):
+                state, _, _, ph = adm1_step(state, feed_cod, jnp.array(q_feed), temperature, params, dt)
+                return state, ph
 
-        overload_q_feed = jnp.array(1500.0)  # dilution rate far exceeds mu_max -> washout + VFA accumulation
-        for _ in range(120):
-            state, _, _, ph_overload = adm1_step(state, feed_cod, overload_q_feed, temperature, params, dt)
+            return jax.lax.scan(body, state, None, length=n_steps)
+
+        state, baseline_ph = run(state, 125.0, 24 * 10)
+        ph_baseline = baseline_ph[-1]
+
+        # dilution rate far exceeds mu_max -> washout + VFA accumulation
+        _, overload_ph = run(state, 1500.0, 120)
+        ph_overload = overload_ph[-1]
 
         assert float(ph_overload) < float(ph_baseline) - 0.5
 
@@ -549,6 +556,7 @@ class TestRejectWaterBenchmark:
         — a constant-rate sink either stays permanently over alarm or never
         responds to load at all."""
         reset_fn, step_fn = make_reject_water_benchmark(RejectWaterConfig(reject_nh4=800.0))
+        step_fn = jax.jit(step_fn)
         state, _ = reset_fn(jax.random.PRNGKey(0))
         for index in range(2000):
             state, _, _, _, info = step_fn(state, jnp.array([0.0, 0.0]), jax.random.PRNGKey(index))
