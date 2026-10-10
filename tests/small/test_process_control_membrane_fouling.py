@@ -43,6 +43,6 @@ class TestObservationScaling:
 
         _, observations = jax.lax.scan(body, state, jax.random.split(jax.random.PRNGKey(1), steps))
 
-        assert float(observations[:, 4].max()) == pytest.approx(1.0)
-        assert float(observations[:, 4:].min()) >= 0.0
-        assert float(observations[:, 4:].max()) <= 1.0
+        assert float(observations[:, 3].max()) == pytest.approx(1.0)
+        assert float(observations[:, 3:].min()) >= 0.0
+        assert float(observations[:, 3:].max()) <= 1.0

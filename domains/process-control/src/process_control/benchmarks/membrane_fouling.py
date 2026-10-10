@@ -4,9 +4,8 @@ The agent controls membrane flux, air scour, and backwash timing to
 maintain throughput while managing fouling.
 
 Action (3D): [flux position in flux_min..flux_max, air_scour (0-1), backwash_trigger (>0.5 = wash)]
-Observation (6D):
-  TMP / max_TMP
-  permeability_ratio (current / clean)
+Observation (5D):
+  sensed TMP / max_TMP
   permeate_flow / max_flow
   air_scour
   hours_since_backwash / bw_age_ref (capped at 1)
@@ -95,7 +94,6 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
 
     def _observe(
         sensed_tmp: jax.Array,
-        perm_ratio: jax.Array,
         q_permeate: jax.Array,
         air_scour: jax.Array,
         hours_since_bw: jax.Array,
@@ -104,7 +102,6 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         return jnp.array(
             [
                 sensed_tmp / max_tmp,
-                perm_ratio,
                 q_permeate / (flux_max * area),
                 air_scour,
                 jnp.minimum(hours_since_bw / config.bw_age_ref, 1.0),
@@ -125,7 +122,6 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         )
         obs = _observe(
             tmp_sensor.held_value,
-            jnp.array(1.0),
             jnp.array(0.0),
             jnp.array(0.0),
             mem.hours_since_bw,
@@ -165,7 +161,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         perm_ratio = config.membrane.r_membrane / (r_total + 1e-10)
 
         # 6. Observation
-        obs = _observe(sensed_tmp, perm_ratio, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss)
+        obs = _observe(sensed_tmp, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss)
 
         # 7. Reward: throughput benefit minus costs
         tmp_violation = jnp.maximum(sensed_tmp - tmp_target, 0.0)

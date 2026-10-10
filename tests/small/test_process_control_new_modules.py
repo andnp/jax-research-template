@@ -515,11 +515,11 @@ class TestDewateringBenchmark:
 
 
 # ---------------------------------------------------------------------------
-# Benchmark: Membrane Fouling (3D action, 6D obs)
+# Benchmark: Membrane Fouling (3D action, 5D obs)
 # ---------------------------------------------------------------------------
 class TestMembraneFoulingBenchmark:
     def test_shapes_jit_stability(self) -> None:
-        _run_benchmark_suite(make_membrane_fouling_benchmark, MembraneFoulingConfig(), action_dim=3, obs_dim=6)
+        _run_benchmark_suite(make_membrane_fouling_benchmark, MembraneFoulingConfig(), action_dim=3, obs_dim=5)
 
 
 # ---------------------------------------------------------------------------
