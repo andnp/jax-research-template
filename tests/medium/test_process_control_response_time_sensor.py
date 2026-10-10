@@ -23,13 +23,11 @@ def _noiseless(sensor_class: SensorClass) -> SensorParams:
     return SensorParams(sensor_class, low=0.0, high=100.0, noise_std=0.0)
 
 
-def _run(params: SensorParams, values: jax.Array, dt: float, initial: float = 0.0) -> jax.Array:
-    def advance(state: SensorState, inputs: tuple[jax.Array, jax.Array]) -> tuple[SensorState, jax.Array]:
-        value, key = inputs
-        return step(state, value, params, jnp.array(dt), key)
+def _run(params: SensorParams, values: jax.Array, dt: float, initial: float = 0.0, seed: int = 0) -> jax.Array:
+    def advance(state: SensorState, value: jax.Array) -> tuple[SensorState, jax.Array]:
+        return step(state, value, params, jnp.array(dt))
 
-    keys = jax.random.split(jax.random.key(0), values.shape[0])
-    _, readings = jax.lax.scan(advance, reset(jnp.array(initial), params), (values, keys))
+    _, readings = jax.lax.scan(advance, reset(jnp.array(initial), params, jax.random.key(seed)), values)
     return readings
 
 
@@ -58,12 +56,28 @@ class TestContinuousSensors:
         assert jnp.all((readings >= 0.0) & (readings <= 10.0))
         assert jnp.any(readings == 10.0)
 
-    def test_noise_has_the_configured_spread(self) -> None:
-        """Readings of a steady value scatter with the configured standard deviation."""
+    def test_noise_has_the_configured_spread_at_its_knots(self) -> None:
+        """Read once per noise period, a steady value scatters with the configured standard deviation."""
         readings = _run(BSM1_OXYGEN_SENSOR, jnp.full(4000, 5.0), MINUTE, initial=5.0)
 
         assert jnp.mean(readings) == pytest.approx(5.0, abs=0.02)
         assert jnp.std(readings) == pytest.approx(0.25, rel=0.05)
+
+    def test_noise_is_linear_between_knots(self) -> None:
+        """Read faster than the noise period, the noise moves on straight lines between its one-minute knots."""
+        readings = _run(BSM1_OXYGEN_SENSOR, jnp.full(60, 5.0), MINUTE / 4, initial=5.0)
+
+        within_minute = readings.reshape(15, 4)
+        slopes = jnp.diff(within_minute, axis=1)
+        assert jnp.allclose(slopes, slopes[:, :1], atol=1e-5)
+        assert jnp.std(slopes[:, 0]) > 0.0
+
+    def test_noise_path_does_not_depend_on_the_read_rate(self) -> None:
+        """The same key gives the same noise at a shared time whether read every minute or every quarter minute."""
+        coarse = _run(BSM1_OXYGEN_SENSOR, jnp.full(10, 5.0), MINUTE, initial=5.0)
+        fine = _run(BSM1_OXYGEN_SENSOR, jnp.full(40, 5.0), MINUTE / 4, initial=5.0)
+
+        assert jnp.allclose(coarse, fine[3::4], atol=1e-5)
 
 
 class TestSampledSensors:
