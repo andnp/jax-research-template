@@ -1,6 +1,9 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import jax
+import jax.numpy as jnp
+
 from process_control.components import ComponentBasis, ComponentSchema
 
 
@@ -52,6 +55,14 @@ class Binding:
         if len(set(write_index)) != len(write_index):
             raise ValueError(f"distinct local writes map to the same channel: {[schema.names[i] for i in write_index]}")
         return cls(indices(access.reads), write_index)
+
+    def gather(self, components: jax.Array) -> jax.Array:
+        """The declared reads along the last axis."""
+        return components[..., jnp.array(self.read_index, dtype=int)]
+
+    def scatter_add(self, target: jax.Array, values: jax.Array) -> jax.Array:
+        """A copy of `target` with `values`, one per declared write along the last axis, added to the bound channels."""
+        return target.at[..., jnp.array(self.write_index, dtype=int)].add(values)
 
 
 def _channel_index(requirement: Requirement, schema: ComponentSchema, channel_map: Mapping[str, str] | None) -> int:
