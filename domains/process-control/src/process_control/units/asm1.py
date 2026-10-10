@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
+from process_control.components import ComponentSchema
 from process_control.integration import rk4_substeps
 
 # Keeps the stiffest measured BSM1-family mode (Takacs, |dt*lambda| ~27) inside
@@ -185,6 +186,13 @@ class ASM1State:
             x_nd=jnp.array(x_nd),
             s_alk=jnp.array(s_alk),
         )
+
+
+ASM1_SCHEMA = ComponentSchema(
+    names=("s_i", "s_s", "x_i", "x_s", "x_bh", "x_ba", "x_p", "s_o", "s_no", "s_nh", "s_nd", "x_nd", "s_alk"),
+    particulate=(False, False, True, True, True, True, True, False, False, False, False, True, False),
+    tss_factor=(0.0, 0.0, 0.75, 0.75, 0.75, 0.75, 0.75, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+)
 
 
 class ASM1StateLike(Protocol):
