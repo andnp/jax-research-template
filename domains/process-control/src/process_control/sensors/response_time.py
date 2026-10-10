@@ -103,7 +103,6 @@ def reset(value: jax.Array, params: SensorParams, rng_key: jax.Array) -> SensorS
 def step(state: SensorState, true_value: jax.Array, params: SensorParams, dt: jax.Array) -> tuple[SensorState, jax.Array]:
     """Advance the sensor over dt with the true value held, returning the reported measurement."""
     sensor = params.sensor_class
-    measured = _measure(state, true_value, params, dt)
     knots_passed = jnp.floor((state.noise_phase + dt) / params.noise_period)
     advanced = dataclasses.replace(
         state,
@@ -112,20 +111,22 @@ def step(state: SensorState, true_value: jax.Array, params: SensorParams, dt: ja
         noise_phase=state.noise_phase + dt - knots_passed * params.noise_period,
     )
     if not sensor.sample_interval:
+        measured = _measure(state, true_value, params, dt)
         return dataclasses.replace(advanced, reading=measured, pending=measured), measured
 
+    # Every sample time crossed during the step counts; only the last two can still be reported.
+    interval = sensor.sample_interval
     elapsed = state.since_sample + dt
-    # Tolerance absorbs rounding when dt divides the interval exactly.
-    sampling = elapsed >= sensor.sample_interval * (1.0 - 1e-6)
-    released = state.pending if sensor.report_previous_sample else measured
-    reading = jnp.where(sampling, released, state.reading)
-    sampled = dataclasses.replace(
-        advanced,
-        reading=reading,
-        pending=jnp.where(sampling, measured, state.pending),
-        since_sample=jnp.where(sampling, jnp.clip(elapsed - sensor.sample_interval, 0.0, sensor.sample_interval), elapsed),
-    )
-    return sampled, reading
+    crossed = jnp.floor(elapsed / interval + 1e-6)
+    last_offset = jnp.clip(crossed * interval - state.since_sample, 0.0, dt)
+    pending = jnp.where(crossed >= 1, _measure(state, true_value, params, last_offset), state.pending)
+    if sensor.report_previous_sample:
+        previous = _measure(state, true_value, params, jnp.maximum(last_offset - interval, 0.0))
+        reading = jnp.where(crossed >= 2, previous, jnp.where(crossed >= 1, state.pending, state.reading))
+    else:
+        reading = pending
+    since_sample = jnp.clip(elapsed - crossed * interval, 0.0, interval)
+    return dataclasses.replace(advanced, reading=reading, pending=pending, since_sample=since_sample), reading
 
 
 def _measure(state: SensorState, true_value: jax.Array, params: SensorParams, offset: jax.Array) -> jax.Array:
