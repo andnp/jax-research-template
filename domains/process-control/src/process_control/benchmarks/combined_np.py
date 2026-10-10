@@ -65,8 +65,9 @@ class CombinedNPConfig:
     v_anoxic: float = 1000.0
     v_aerobic: float = 2000.0
 
-    # Aeration range
-    kla_max: float = 10.0
+    # Aeration range; calibrated for the benchmark so full aeration over-supplies
+    # oxygen (DO ~3 mg/L) rather than only just nitrifying
+    kla_max: float = 15.0
     s_o_sat: float = 8.0
 
     # Flow

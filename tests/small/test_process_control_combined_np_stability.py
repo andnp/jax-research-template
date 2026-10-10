@@ -49,7 +49,7 @@ def _assert_finite_and_bounded(zones: jax.Array, s_o_sat: float) -> None:
 class TestCombinedNPStabilityAcrossActionSpace:
     def test_states_stay_finite_and_bounded_at_action_corners(self) -> None:
         """Combined N/P additionally action-controls kLa itself (up to
-        kla_max=10), so this sweeps all 16 corners of the 4D action space."""
+        config.kla_max), so this sweeps all 16 corners of the 4D action space."""
         config = CombinedNPConfig()
         reset, step = make_combined_np_benchmark(config)
         n_steps = 2 * config.steps_per_day
