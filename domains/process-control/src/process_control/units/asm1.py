@@ -358,6 +358,27 @@ def asm1_reaction_rates(state: jax.Array, params: ASM1Params) -> jax.Array:
     return dc
 
 
+@dataclass(frozen=True)
+class ASM1Kinetics:
+    """ASM1 kinetics with Arrhenius-corrected rate constants."""
+
+    arrhenius: ArrheniusCoeffs = ArrheniusCoeffs()
+
+    @property
+    def schema(self) -> ComponentSchema:
+        return ASM1_SCHEMA
+
+    @property
+    def oxygen(self) -> str:
+        return "s_o"
+
+    def at_temperature(self, params: ASM1Params, temperature: jax.Array) -> ASM1Params:
+        return apply_arrhenius(params, temperature, self.arrhenius)
+
+    def rates(self, components: jax.Array, params: ASM1Params) -> jax.Array:
+        return asm1_reaction_rates(components, params)
+
+
 def _asm1_derivatives(
     state: ASM1State,
     flow_in: jax.Array,
