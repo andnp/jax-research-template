@@ -11,11 +11,13 @@ period. `operational_cost_index` requires every term, so a plant without a
 carbon source states EC = 0 rather than inheriting it.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
 
+from process_control.benchmarks.bsm1_measurements import stream_qualities
 from process_control.units.asm1 import ASM1Params, ASM1State, compute_bod5, compute_cod, compute_tkn, compute_tss
 
 
@@ -128,3 +130,53 @@ def operational_cost_index(
 ) -> jax.Array:
     """Operational Cost Index OCI = AE + PE + 5·SP + 3·EC + ME (Alex et al., 2008, §6)."""
     return ae + pe + 5.0 * sp + 3.0 * ec + me
+
+
+PERCENTILE_QUALITIES = ("s_nh", "n_tot", "tss")
+INDICES = ("effluent_quality", "aeration_energy", "pumping_energy", "mixing_energy", "sludge_production", "operational_cost")
+
+
+@dataclass(frozen=True)
+class BSM1EvaluationReport:
+    """The BSM1 performance report of Alex et al. (2008) Sec. 6 over an evaluation window.
+
+    `effluent` holds the flow-weighted average effluent components and aggregate qualities (g/m³);
+    `indices` EQ, AE, PE, ME, SP and OCI in their per-day units; `percent_time_above_limit` and
+    `violations` each Table 9 limit's exceedance; `percentile_95` the effluent S_NH, N_tot and TSS
+    exceeded 5 % of the time.
+    """
+
+    effluent: Mapping[str, jax.Array]
+    indices: Mapping[str, jax.Array]
+    percent_time_above_limit: Mapping[str, jax.Array]
+    violations: Mapping[str, jax.Array]
+    percentile_95: Mapping[str, jax.Array]
+
+
+def evaluate(
+    info: Mapping[str, jax.Array],
+    start: int,
+    end: int,
+    params: ASM1Params | None = None,
+    limits: EffluentLimits | None = None,
+) -> BSM1EvaluationReport:
+    """Report a BSM1 rollout over agent steps [start, end) from its per-step `info`, stacked along time.
+
+    Every step spans the same time, so each index over the window is the mean of its per-step values,
+    and the per-step flow-weighted effluent qualities are the samples the limits and percentiles read.
+    """
+    if params is None:
+        params = ASM1Params()
+    if limits is None:
+        limits = EffluentLimits()
+    window = {name: values[start:end] for name, values in info.items()}
+
+    average = jnp.sum(window["effluent_load"], axis=0) / jnp.sum(window["effluent_flow"])
+    samples = {quality: window[f"effluent_{quality}"] for quality, _ in limits.items()}
+    return BSM1EvaluationReport(
+        effluent=stream_qualities(average, params),
+        indices={name: jnp.mean(window[name]) for name in INDICES},
+        percent_time_above_limit={quality: 100.0 * time_above_limit(samples[quality], limit) for quality, limit in limits.items()},
+        violations={quality: limit_violations(samples[quality], limit) for quality, limit in limits.items()},
+        percentile_95={quality: percentile_95(samples[quality]) for quality in PERCENTILE_QUALITIES},
+    )
