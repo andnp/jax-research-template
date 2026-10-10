@@ -75,8 +75,8 @@ def step_with_diagnostics(
     """Advance the PI controller and report raw and saturated outputs.
 
     With a `tracking_time` Tt, back-calculation feeds the saturation excess (u_sat − u_raw) / Tt into
-    the integral term instead of conditional integration; it is applied exactly over dt, so it stays
-    stable when dt exceeds Tt.
+    the integral term instead of conditional integration. With the error held over dt the integral
+    follows a piecewise-linear ODE, which is solved exactly, so it stays stable when dt exceeds Tt.
     """
     error = setpoint - measurement
     if params.tracking_time is not None:
@@ -106,16 +106,55 @@ def step_with_diagnostics(
 def _back_calculation_step(
     state: PIControllerState, error: jax.Array, params: PIControllerParams, tracking_time: float | jax.Array, dt: jax.Array
 ) -> tuple[PIControllerState, PIControllerOutput]:
-    current = params.kp * error + params.ki * state.integral + params.ff
-    excess = jnp.clip(current, params.output_min, params.output_max) - current
     has_integral_action = params.ki != 0.0
-    tracking = excess / jnp.where(has_integral_action, params.ki, 1.0) * -jnp.expm1(-dt / tracking_time)
-    new_integral = jnp.where(has_integral_action, state.integral + error * dt + tracking, state.integral)
+    proportional = params.kp * error + params.ff
+    current = proportional + params.ki * state.integral
+    raw = _track(current, params.ki * error, params.output_min, params.output_max, tracking_time, dt)
+    new_integral = jnp.where(has_integral_action, (raw - proportional) / jnp.where(has_integral_action, params.ki, 1.0), state.integral)
 
-    raw_output = params.kp * error + params.ki * new_integral + params.ff
+    raw_output = proportional + params.ki * new_integral
     saturated_output = jnp.clip(raw_output, params.output_min, params.output_max)
     result = PIControllerOutput(raw=raw_output, saturated=saturated_output, is_saturated=raw_output != saturated_output)
     return PIControllerState(integral=new_integral), result
+
+
+def _track(
+    raw: jax.Array,
+    rate: jax.Array,
+    low: float | jax.Array,
+    high: float | jax.Array,
+    tracking_time: float | jax.Array,
+    dt: jax.Array,
+) -> jax.Array:
+    """Solve du/dt = rate + (clip(u) − u) / Tt exactly over dt.
+
+    The raw output u moves at the integral rate inside the limits and relaxes toward limit + rate·Tt beyond
+    them, so it crosses each limit at most once: from one saturated side through the range into the
+    other takes three segments.
+    """
+    remaining = jnp.asarray(dt)
+    for _ in range(3):
+        above = (raw > high) | ((raw == high) & (rate > 0.0))
+        below = (raw < low) | ((raw == low) & (rate < 0.0))
+        saturated = above | below
+
+        limit = jnp.where(above, high, low)
+        target = limit + rate * tracking_time
+        leaves = jnp.where(above, target < high, target > low)
+        ratio = jnp.where(leaves, (raw - target) / jnp.where(leaves, limit - target, 1.0), 1.0)
+        boundary = jnp.where(rate > 0.0, high, low)
+        moving = rate != 0.0
+        exit_time = jnp.where(
+            saturated,
+            jnp.where(leaves, tracking_time * jnp.log(jnp.maximum(ratio, 1.0)), jnp.inf),
+            jnp.where(moving, (boundary - raw) / jnp.where(moving, rate, 1.0), jnp.inf),
+        )
+
+        elapsed = jnp.minimum(remaining, exit_time)
+        flowed = jnp.where(saturated, target + (raw - target) * jnp.exp(-elapsed / tracking_time), raw + rate * elapsed)
+        raw = jnp.where(exit_time <= remaining, jnp.where(saturated, limit, boundary), flowed)
+        remaining = remaining - elapsed
+    return raw
 
 
 def track_output(
