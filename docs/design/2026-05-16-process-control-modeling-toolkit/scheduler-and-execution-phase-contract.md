@@ -41,7 +41,7 @@ Actuators map requested commands to realized physical outputs subject to saturat
 
 The material-process graph advances latent plant state over $dt$. Unit operations consume incoming streams and actuator outputs, apply chemistry and transport, and produce outgoing streams and updated internal state.
 
-The process graph executes in a **deterministic topological order** within this phase.
+Plants without recycles execute in a **deterministic topological order** within this phase. Coupled plants with recycles, such as BSM1, are advanced as one flowsheet ODE instead (see [Coupled flowsheet advance](#coupled-flowsheet-advance)).
 
 ### Phase 6: Sensor sampling
 
@@ -111,12 +111,22 @@ The process graph within Phase 5 must execute in deterministic topological order
 
 ### Recycle loop handling
 
-Recycle loops create cycles in the module graph. The scheduler should handle these by:
+Plants that still step unit by unit break recycle cycles with a one-step-delayed recycle value and an explicit recycle-link module. This operator splitting makes every recycle lag by one step, so it is not used for coupled plants.
 
-- using a one-step-delayed recycle value (the recycle stream carries the previous step's output)
-- this is physically realistic for most process systems where recycle flows have transport delay
+## Coupled flowsheet advance
 
-The scheduler should detect cycles during assembly and require explicit recycle-link module placement to break them.
+Plants built with `build_flowsheet` ([`flowsheet.py`](../../../domains/process-control/src/process_control/flowsheet.py), [ADR 015](../../adrs/015-continuous-time-flowsheets.md)) replace per-unit topological stepping in phase 5 with one coupled ODE over the state of every unit:
+
+1. **Flow pass.** Outlet flows are resolved for the whole graph in a static topological order built from each outlet's `flow_from` dependency set.
+2. **Composition pass.** Outlet compositions are then resolved the same way from `composition_from`.
+3. **Derivatives.** Every unit's `derivatives` is evaluated from the resolved inlet streams.
+4. **Joint RK4.** `Flowsheet.step` integrates all unit states together with `rk4_substeps`, projecting onto physical bounds after each substep, with external inlets and input signals held constant over `dt`.
+
+Recycles therefore carry no one-step lag. Algebraic loops in either pass are rejected when the flowsheet is built, in plain Python, so the compiled `step` is a fixed, jit- and vmap-able graph. Phase 5 for such a plant is a single `Flowsheet.step` call.
+
+### Control interval versus agent step
+
+Phases 1-4 and 6 run at an inner control interval, with one plant step between them. In the BSM1 benchmark ([`benchmarks/bsm1.py`](../../../domains/process-control/src/process_control/benchmarks/bsm1.py)) each control interval (default 1 minute, `substeps=4` RK4 substeps) advances the influent ([`scenarios/tabular_influent.py`](../../../domains/process-control/src/process_control/scenarios/tabular_influent.py)), runs sensors and PI controllers, realizes commands through lagged actuators, then steps the flowsheet. The agent acts every `intervals_per_step` intervals (default 15, so a 15-minute agent step) and its action is held across them; the intervals are scanned with `jax.lax.scan`.
 
 ## Scheduler interface sketch
 
