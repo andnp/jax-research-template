@@ -296,9 +296,11 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         obs = _observe(raw_turbidity, post_coag_tss, sensed_tmp, q_permeate, sensed_cl2, new_mem.hours_since_bw, coag_dose, q_in)
 
         # 8. Reward
-        cl2_low = jnp.maximum(config.cl2_target - sensed_cl2, 0.0)
-        cl2_high = jnp.maximum(sensed_cl2 - config.cl2_ceiling, 0.0)
-        tmp_violation = jnp.maximum(sensed_tmp - config.tmp_alarm, 0.0)
+        # Scored on true plant state: analyzers only feed the observation, so a
+        # lagged/held sensor cannot hide a bad action from the objective.
+        cl2_low = jnp.maximum(config.cl2_target - new_cl2_residual, 0.0)
+        cl2_high = jnp.maximum(new_cl2_residual - config.cl2_ceiling, 0.0)
+        tmp_violation = jnp.maximum(tmp - config.tmp_alarm, 0.0)
 
         reward = (
             config.reward_w_throughput * (q_permeate / (flux_max * area))

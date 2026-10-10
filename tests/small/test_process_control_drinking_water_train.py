@@ -1,3 +1,5 @@
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 from process_control.benchmarks.drinking_water_train import (
@@ -88,3 +90,35 @@ class TestPlantMassBalance:
 
         assert float(washing["q_permeate"]) < float(normal["q_permeate"])
         assert float(washing["contact_time"]) > float(normal["contact_time"])
+
+
+class TestRewardUsesTrueState:
+    def test_chlorine_reward_ignores_the_held_analyzer(self) -> None:
+        """On the first step the analyzer still holds its initial in-band reading, but no dose leaves no residual."""
+        reset_fn, step_fn = make_drinking_water_train_benchmark(DrinkingWaterTrainConfig())
+        key = jax.random.PRNGKey(0)
+        state, _ = reset_fn(key)
+
+        _, _, reward_dosed, _, info_dosed = step_fn(state, jnp.array([0.3, 0.0, 1.0]), key)
+        _, _, reward_undosed, _, info_undosed = step_fn(state, jnp.array([0.3, 0.0, 0.0]), key)
+
+        assert float(info_undosed["cl2_residual"]) == 0.0
+        assert float(info_dosed["cl2_residual"]) >= 0.5
+        assert float(reward_dosed) > float(reward_undosed)
+
+    def test_pressure_reward_ignores_the_held_analyzer(self) -> None:
+        """A membrane fouled past the TMP alarm is penalised before the analyzer reports it."""
+        config = DrinkingWaterTrainConfig()
+        reset_fn, step_fn = make_drinking_water_train_benchmark(config)
+        key = jax.random.PRNGKey(0)
+        clean, _ = reset_fn(key)
+        membrane = dataclasses.replace(clean.membrane_state, r_irreversible=jnp.array(1e14))
+        fouled = dataclasses.replace(clean, membrane_state=membrane)
+        action = jnp.array([0.3, 0.0, 1.0])
+
+        _, obs_clean, reward_clean, _, _ = step_fn(clean, action, key)
+        _, obs_fouled, reward_fouled, _, info_fouled = step_fn(fouled, action, key)
+
+        assert float(info_fouled["tmp"]) > config.tmp_alarm
+        assert float(obs_fouled[2]) < config.tmp_alarm / config.membrane.max_tmp
+        assert float(reward_fouled) < float(reward_clean)
