@@ -91,16 +91,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         action_high_config=("ph_sp_max", "orp_sp_max", "makeup_flow_sp_max"),
     ),
     BenchmarkEntry(
-        "primary_clarifier",
-        "process_control.benchmarks.primary_clarifier",
-        "PrimaryClarifierConfig",
-        "make_primary_clarifier_benchmark",
-        1,
-        "Primary clarifier",
-        action_low=0.0,
-        action_high=1.0,
-    ),
-    BenchmarkEntry(
         "dewatering",
         "process_control.benchmarks.dewatering",
         "DewateringConfig",

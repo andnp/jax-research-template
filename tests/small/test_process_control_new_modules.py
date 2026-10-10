@@ -17,10 +17,6 @@ from process_control.benchmarks.membrane_fouling import (
     MembraneFoulingConfig,
     make_membrane_fouling_benchmark,
 )
-from process_control.benchmarks.primary_clarifier import (
-    PrimaryClarifierConfig,
-    make_primary_clarifier_benchmark,
-)
 from process_control.benchmarks.reject_water import RejectWaterBenchState, RejectWaterConfig, make_reject_water_benchmark
 from process_control.chemistry.coagulation import CoagulationParams, coagulate
 from process_control.units.anaerobic_digester import DigesterParams, DigesterState
@@ -33,90 +29,6 @@ from process_control.units.dewatering import step as dw_step
 from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as mem_reset
 from process_control.units.membrane import step as mem_step
-from process_control.units.primary_clarifier import (
-    PrimaryClarifierParams,
-    PrimaryClarifierState,
-)
-from process_control.units.primary_clarifier import (
-    reset as pc_reset,
-)
-from process_control.units.primary_clarifier import (
-    step as pc_step,
-)
-
-
-# ---------------------------------------------------------------------------
-# Unit model: Primary Clarifier
-# ---------------------------------------------------------------------------
-class TestPrimaryClarifierUnit:
-    def test_step_reduces_tss(self) -> None:
-        params = PrimaryClarifierParams()
-        state = pc_reset(params, jax.random.PRNGKey(0))
-        state2, eff_tss, und_tss, _ = pc_step(
-            state, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02),
-        )
-        assert float(eff_tss) < 250.0
-        assert float(eff_tss) > 0.0
-
-    def test_underflow_tss_exceeds_effluent(self) -> None:
-        params = PrimaryClarifierParams()
-        state = pc_reset(params, jax.random.PRNGKey(1))
-        _, eff_tss, und_tss, _ = pc_step(
-            state, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02),
-        )
-        assert float(und_tss) > float(eff_tss)
-
-    def test_sludge_mass_increases_with_no_wasting(self) -> None:
-        params = PrimaryClarifierParams()
-        state = pc_reset(params, jax.random.PRNGKey(2))
-        state2, _, _, _ = pc_step(
-            state, jnp.array(250.0), jnp.array(600.0), jnp.array(0.0), params, jnp.array(0.02),
-        )
-        assert float(state2.sludge_mass) >= float(state.sludge_mass)
-
-    def test_sludge_overflow_is_reported(self) -> None:
-        """Clarifier capacity clipping reports positive and zero overflow."""
-        params = PrimaryClarifierParams(max_sludge_mass=1.0)
-        state = PrimaryClarifierState(sludge_mass=jnp.array(0.9))
-        _, _, _, overflow = pc_step(
-            state, jnp.array(1e6), jnp.array(500.0), jnp.array(0.0), params, jnp.array(1.0),
-        )
-        assert overflow > 0.0
-
-    def test_jit_compatible(self) -> None:
-        params = PrimaryClarifierParams()
-        state = pc_reset(params, jax.random.PRNGKey(3))
-        def step_fn(s: PrimaryClarifierState):
-            return pc_step(s, jnp.array(250.0), jnp.array(600.0), jnp.array(20.0), params, jnp.array(0.02))
-
-        jit_step = jax.jit(step_fn)
-        state2, eff, und, _ = jit_step(state)
-        assert jnp.isfinite(eff)
-        assert jnp.isfinite(und)
-
-    def test_wastage_never_exceeds_available_mass(self) -> None:
-        """A huge waste rate can't drive sludge_mass negative (no manufactured mass)."""
-        params = PrimaryClarifierParams()
-        state = PrimaryClarifierState(sludge_mass=jnp.array(100.0))
-        state2, _, _, _ = pc_step(
-            state, jnp.array(0.0), jnp.array(600.0), jnp.array(1e6), params, jnp.array(1.0),
-        )
-        assert float(state2.sludge_mass) >= 0.0
-
-    def test_overflow_routes_to_effluent_not_deleted(self) -> None:
-        """Overflow beyond capacity raises effluent TSS instead of vanishing."""
-        capped_params = PrimaryClarifierParams(max_sludge_mass=1.0)
-        uncapped_params = PrimaryClarifierParams(max_sludge_mass=1e12)
-        state = PrimaryClarifierState(sludge_mass=jnp.array(0.9))
-        _, eff_tss_capped, _, overflow = pc_step(
-            state, jnp.array(250.0), jnp.array(500.0), jnp.array(0.0), capped_params, jnp.array(1.0),
-        )
-        _, eff_tss_uncapped, _, no_overflow = pc_step(
-            state, jnp.array(250.0), jnp.array(500.0), jnp.array(0.0), uncapped_params, jnp.array(1.0),
-        )
-        assert float(overflow) > 0.0
-        assert float(no_overflow) == 0.0
-        assert float(eff_tss_capped) > float(eff_tss_uncapped)
 
 
 # ---------------------------------------------------------------------------
@@ -494,14 +406,6 @@ def _run_benchmark_suite(
         state_s, obs_s, reward_s, _, _ = step_fn(state_s, action, k)
     assert jnp.all(jnp.isfinite(obs_s)), f"NaN in obs after {n_stability_steps} steps"
     assert jnp.isfinite(reward_s)
-
-
-# ---------------------------------------------------------------------------
-# Benchmark: Primary Clarifier (1D action, 5D obs)
-# ---------------------------------------------------------------------------
-class TestPrimaryClarifierBenchmark:
-    def test_shapes_jit_stability(self) -> None:
-        _run_benchmark_suite(make_primary_clarifier_benchmark, PrimaryClarifierConfig(), action_dim=1, obs_dim=5)
 
 
 # ---------------------------------------------------------------------------
