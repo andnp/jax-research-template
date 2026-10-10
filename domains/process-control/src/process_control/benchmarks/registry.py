@@ -137,16 +137,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         action_high=1.0,
     ),
     BenchmarkEntry(
-        "chem_p_dosing",
-        "process_control.benchmarks.chem_p_dosing",
-        "ChemPDosingConfig",
-        "make_chem_p_dosing_benchmark",
-        1,
-        "Chemical P dosing",
-        action_low_config="dose_min",
-        action_high_config="dose_max",
-    ),
-    BenchmarkEntry(
         "primary_clarifier",
         "process_control.benchmarks.primary_clarifier",
         "PrimaryClarifierConfig",

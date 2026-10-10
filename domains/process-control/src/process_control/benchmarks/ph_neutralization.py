@@ -72,9 +72,8 @@ class PhNeutralizationBenchmarkConfig:
     steps_per_day: int = 96
 
     # Acid inlet concentration (mol/L strong acid), via its own diurnal
-    # channel (see chemistry/ph_model.py and benchmarks/chem_p_dosing.py for
-    # the same pattern). 1e-3-1e-2 mol/L spans the free-mineral-acidity scale
-    # used to titrate industrial acidic wastewater
+    # channel (see chemistry/ph_model.py). 1e-3-1e-2 mol/L spans the
+    # free-mineral-acidity scale used to titrate industrial acidic wastewater
     # (https://law.resource.org/pub/us/cfr/ibr/002/apha.method.2320.1992.html).
     acid_mean: float = 0.005
     acid_amplitude: float = 0.002
@@ -213,8 +212,7 @@ def make_ph_neutralization_benchmark(
         flow = transport.hydraulics.flow
 
         # 1b. Acid inlet concentration (mol/L strong acid): its own diurnal
-        #    channel, decoupled from the influent flow/demand chemistry above
-        #    (mirrors chem_p_dosing.py's influent PO4 channel).
+        #    channel, decoupled from the influent flow/demand chemistry above.
         t = (state.step_count % config.steps_per_day) / config.steps_per_day
         acid_signal = jnp.sin(2.0 * jnp.pi * t)
         new_acid_drift, acid_concentration = channel_step(

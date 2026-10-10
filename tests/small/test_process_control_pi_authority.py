@@ -15,7 +15,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
-from process_control.benchmarks.chem_p_dosing import ChemPDosingConfig, make_chem_p_dosing_benchmark
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
 from process_control.benchmarks.equalization_tank import (
     EqualizationTankBenchmarkConfig,
@@ -127,25 +126,6 @@ class TestClosedLoopTracking:
         target_level = config.target_level_fraction * config.tank_max_level
         settled = infos["measured_level"][-500:]
         assert float(jnp.abs(settled.mean() - target_level)) < 0.3
-
-    def test_chem_p_dosing_reaches_target_po4_at_nominal_conditions(self) -> None:
-        """Nominal = mean flow and mean influent PO4, without the diurnal swing.
-
-        `control_mode` defaults to DIRECT (agent drives the pump directly);
-        this exercises the SUPERVISORY path explicitly, since that is the PI
-        loop being sized here. As with pH, the full diurnal PO4/flow
-        disturbance is a separate, harder disturbance-rejection problem.
-        """
-        config = ChemPDosingConfig(
-            control_mode=SUPERVISORY,
-            po4_amplitude=0.0, po4_min=5.0, po4_max=5.0, po4_drift_scale=0.0,
-            diurnal_amplitude=0.0, min_flow=75.0, max_flow=75.0, drift_scale=0.0,
-        )
-        reset_fn, step_fn = make_chem_p_dosing_benchmark(config)
-        action = jnp.array([config.target_po4])
-        infos = _run(reset_fn, step_fn, action, n_steps=3000)
-        settled = infos["po4_eff"][-500:]
-        assert float(jnp.abs(settled.mean() - config.target_po4)) < 0.5
 
     def test_h2s_scrubber_caustic_reaches_ph_setpoint(self) -> None:
         config = H2SScrubberConfig()
