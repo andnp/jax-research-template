@@ -78,3 +78,24 @@ class TestHeatingCost:
         mod, _ = _rollout(AnaerobicDigesterConfig(), jnp.array([0.5, 0.75]), days=60)
         low, _ = _rollout(AnaerobicDigesterConfig(), jnp.array([0.0, 0.75]), days=60)
         assert float(mod.mean()) > float(low.mean())
+
+
+class TestObservation:
+    def test_observation_carries_measured_alkalinity_not_biomass(self) -> None:
+        """With a noiseless analyzer, obs[6] tracks alkalinity, which biomass would not."""
+        reset_fn, step_fn = make_anaerobic_digester_benchmark(AnaerobicDigesterConfig(alk_noise_std=0.0))
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        for _ in range(48):
+            state, obs, _, _, info = step_fn(state, jnp.array([0.9, 0.75]), jax.random.PRNGKey(2))
+        alk = float(info["alkalinity"])
+        assert abs(float(obs[6]) * 5000.0 - alk) < 0.05 * alk
+
+    def test_feed_cod_observation_is_a_lagged_noisy_measurement(self) -> None:
+        """obs[5] is an analyzer reading, so it differs from the exact influent COD."""
+        reset_fn, step_fn = make_anaerobic_digester_benchmark(AnaerobicDigesterConfig())
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        gaps = []
+        for i in range(48):
+            state, obs, _, _, info = step_fn(state, jnp.array([0.5, 0.75]), jax.random.PRNGKey(i))
+            gaps.append(abs(float(obs[5]) * 50000.0 - float(info["feed_cod"])))
+        assert max(gaps) > 100.0

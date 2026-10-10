@@ -11,8 +11,8 @@ Observation (7D):
   VFA / 1000
   pH / 9
   temperature / 45
-  feed_cod / 50000
-  biomass / 5000
+  measured feed_cod / 50000 (lagged, noisy influent analyzer)
+  measured alkalinity / 5000 (titration analyzer; leads VFA by weeks)
 """
 
 from dataclasses import dataclass
@@ -38,6 +38,8 @@ class AnaerobicDigesterBenchState:
     vfa_sensor: LaggedSensorState
     ph_sensor: LaggedSensorState
     biogas_sensor: LaggedSensorState
+    alk_sensor: LaggedSensorState
+    cod_sensor: LaggedSensorState
     temperature: jax.Array
 
 
@@ -75,6 +77,11 @@ class AnaerobicDigesterConfig:
     ph_lag: float = 0.9
     biogas_noise_std: float = 50.0
     biogas_lag: float = 0.5
+    # ASSUMED analyzer settings (no source): alkalinity titration noise, and an influent COD
+    # analyzer with composite-sample lag so feedforward on feed strength is not exact.
+    alk_noise_std: float = 50.0  # mg/L
+    cod_noise_std: float = 1000.0  # mg/L
+    cod_lag: float = 0.9
     sensor_sample_period: int = 1
 
     # Reward
@@ -110,6 +117,16 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         lag_coefficient=config.ph_lag,
         sample_period=config.sensor_sample_period,
     )
+    alk_analyzer = LaggedSensorParams(
+        noise_std=config.alk_noise_std,
+        lag_coefficient=config.vfa_lag,
+        sample_period=config.sensor_sample_period,
+    )
+    cod_analyzer = LaggedSensorParams(
+        noise_std=config.cod_noise_std,
+        lag_coefficient=config.cod_lag,
+        sample_period=config.sensor_sample_period,
+    )
     biogas_analyzer = LaggedSensorParams(
         noise_std=config.biogas_noise_std,
         lag_coefficient=config.biogas_lag,
@@ -124,7 +141,7 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
     vfa_limit = jnp.array(config.vfa_limit)
 
     def reset(rng_key: jax.Array):
-        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
+        k1, k2, k3, k4, k5, k6 = jax.random.split(rng_key, 6)
         dig = digester_reset(config.feed_cod_mean, config.digester, k1)
         _, ph0 = _speciate_inorganic_carbon(dig.s_ic, dig.alkalinity, jnp.array(35.0))
         state = AnaerobicDigesterBenchState(
@@ -134,6 +151,8 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             vfa_sensor=analyzer_reset(dig.s_vfa, k2),
             ph_sensor=analyzer_reset(ph0, k3),
             biogas_sensor=analyzer_reset(dig.q_gas, k4),
+            alk_sensor=analyzer_reset(dig.alkalinity, k5),
+            cod_sensor=analyzer_reset(config.feed_cod_mean, k6),
             temperature=jnp.array(35.0),
         )
         # Built from the same reset state fed to the sensors above, rather
@@ -146,13 +165,13 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
                 ph0 / 9.0,
                 35.0 / 45.0,
                 config.feed_cod_mean / 50000.0,
-                dig.x_biomass / 5000.0,
+                dig.alkalinity / 5000.0,
             ]
         )
         return state, obs
 
     def step(state: AnaerobicDigesterBenchState, action: jax.Array, rng_key: jax.Array):
-        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
+        k1, k2, k3, k4, k5, k6 = jax.random.split(rng_key, 6)
 
         # 1. Feed COD (slow variation, ~daily timescale)
         t_frac = (state.step_count % config.steps_per_day) / config.steps_per_day
@@ -185,6 +204,8 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         new_vfa_s, sensed_vfa = analyzer_step(state.vfa_sensor, new_dig.s_vfa, vfa_analyzer, k2)
         new_ph_s, sensed_ph = analyzer_step(state.ph_sensor, ph, ph_analyzer, k3)
         new_bg_s, sensed_biogas = analyzer_step(state.biogas_sensor, q_biogas, biogas_analyzer, k4)
+        new_alk_s, sensed_alk = analyzer_step(state.alk_sensor, new_dig.alkalinity, alk_analyzer, k5)
+        new_cod_s, sensed_cod = analyzer_step(state.cod_sensor, feed_cod, cod_analyzer, k6)
 
         # 5. Observation
         obs = jnp.array(
@@ -194,8 +215,8 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
                 sensed_vfa / 1000.0,
                 sensed_ph / 9.0,
                 new_temp / 45.0,
-                feed_cod / 50000.0,
-                new_dig.x_biomass / 5000.0,
+                sensed_cod / 50000.0,
+                sensed_alk / 5000.0,
             ]
         )
 
@@ -221,6 +242,8 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             vfa_sensor=new_vfa_s,
             ph_sensor=new_ph_s,
             biogas_sensor=new_bg_s,
+            alk_sensor=new_alk_s,
+            cod_sensor=new_cod_s,
             temperature=new_temp,
         )
         info: dict[str, jax.Array] = {
@@ -229,6 +252,7 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             "ph": ph,
             "vfa": new_dig.s_vfa,
             "biomass": new_dig.x_biomass,
+            "alkalinity": new_dig.alkalinity,
             "feed_cod": feed_cod,
             "q_feed": q_feed,
             "temperature": new_temp,
