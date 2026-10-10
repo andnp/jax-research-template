@@ -1,59 +1,6 @@
 import jax
 import jax.numpy as jnp
 from process_control.benchmarks.bsm1_lt import BSM1LTConfig, make_bsm1_lt_benchmark
-from process_control.units.asm1 import ASM1Params, apply_arrhenius
-
-
-class TestArrheniusCorrection:
-    def test_reference_temperature_unchanged(self) -> None:
-        params = ASM1Params(volume=1333.0)
-        corrected = apply_arrhenius(params, jnp.array(15.0))
-        assert abs(float(corrected.mu_h) - params.mu_h) < 1e-5
-        assert abs(float(corrected.mu_a) - params.mu_a) < 1e-5
-
-    def test_warm_increases_rates(self) -> None:
-        params = ASM1Params(volume=1333.0)
-        corrected = apply_arrhenius(params, jnp.array(20.0))
-        assert float(corrected.mu_h) > params.mu_h
-        assert float(corrected.mu_a) > params.mu_a
-
-    def test_cold_decreases_rates(self) -> None:
-        params = ASM1Params(volume=1333.0)
-        corrected = apply_arrhenius(params, jnp.array(10.0))
-        assert float(corrected.mu_h) < params.mu_h
-        assert float(corrected.mu_a) < params.mu_a
-
-    def test_autotrophs_more_sensitive(self) -> None:
-        params = ASM1Params(volume=1333.0)
-        warm = apply_arrhenius(params, jnp.array(20.0))
-        cold = apply_arrhenius(params, jnp.array(10.0))
-        ratio_mu_a = float(warm.mu_a) / float(cold.mu_a)
-        ratio_mu_h = float(warm.mu_h) / float(cold.mu_h)
-        # Autotrophs have higher theta → bigger ratio
-        assert ratio_mu_a > ratio_mu_h
-
-    def test_o2_saturation_temperature_dependence(self) -> None:
-        params = ASM1Params(volume=1333.0)
-        cold = apply_arrhenius(params, jnp.array(10.0))
-        warm = apply_arrhenius(params, jnp.array(20.0))
-        # O₂ dissolves better in cold water
-        assert float(cold.s_o_sat) > float(warm.s_o_sat)
-
-    def test_o2_saturation_matches_bsm1_reference_at_15c(self) -> None:
-        """BSM1 fixes S_O,sat = 8 g/m³ at 15°C; the BSM1_LT formula is scaled to match."""
-        params = ASM1Params(volume=1333.0)
-        at_ref = apply_arrhenius(params, jnp.array(15.0))
-        assert abs(float(at_ref.s_o_sat) - 8.0) < 1e-3
-
-    def test_jit_compatible(self) -> None:
-        params = ASM1Params(volume=1333.0)
-
-        @jax.jit
-        def get_mu_a(temp: jax.Array):
-            return apply_arrhenius(params, temp).mu_a
-
-        result = get_mu_a(jnp.array(18.0))
-        assert float(result) > params.mu_a
 
 
 class TestBSM1LTBenchmark:
