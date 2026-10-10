@@ -12,16 +12,19 @@ from process_control.units.anaerobic_digester import reset as adm1_reset
 from process_control.units.anaerobic_digester import step as adm1_step
 
 
-def _run(params: ADM1Params, n_steps: int, q_feed: float = 125.0, feed_cod: float = 30000.0):
-    state = adm1_reset(feed_cod, params, jax.random.PRNGKey(0))
+def _run(params: ADM1Params, n_steps: int, q_feed: float = 125.0, feed_cod: float = 30000.0, seed: int = 0):
+    state = adm1_reset(feed_cod, params, jax.random.PRNGKey(seed))
     dt = jnp.array(0.04167)
     feed_cod_a = jnp.array(feed_cod)
     q_feed_a = jnp.array(q_feed)
     temperature = jnp.array(35.0)
-    q_biogas = ch4_frac = ph = jnp.array(0.0)
-    for _ in range(n_steps):
+
+    def body(state: ADM1State, _step: None):
         state, q_biogas, ch4_frac, ph = adm1_step(state, feed_cod_a, q_feed_a, temperature, params, dt)
-    return state, q_biogas, ch4_frac, ph
+        return state, (q_biogas, ch4_frac, ph)
+
+    state, (q_biogas, ch4_frac, ph) = jax.lax.scan(body, state, None, length=n_steps)
+    return state, q_biogas[-1], ch4_frac[-1], ph[-1]
 
 
 class TestADM1MethaneFraction:
@@ -75,22 +78,24 @@ class TestADM1CarbonBalance:
         temperature = jnp.array(35.0)
         dilution = q_feed / params.volume
 
-        ch4_dilution_loss_total = jnp.array(0.0)
-        ch4_vented_total = jnp.array(0.0)
-        ic_dilution_loss_total = jnp.array(0.0)
-        co2_vented_total = jnp.array(0.0)
         ch4_before = state.s_ch4
         ic_before = state.s_ic
 
-        for _ in range(200):
+        def body(state: ADM1State, _step: None):
             ch4_start, ic_start = state.s_ch4, state.s_ic
             state, q_biogas, ch4_frac, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
-            ch4_dilution_loss_total += dilution * (0.0 - ch4_start) * dt
-            ic_dilution_loss_total += dilution * (0.0 - ic_start) * dt
             ch4_vol = q_biogas * ch4_frac * dt
             co2_vol = q_biogas * (1.0 - ch4_frac) * dt
-            ch4_vented_total += ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume
-            co2_vented_total += co2_vol * 1000.0 / 22.4 * 44.0 / params.volume
+            terms = (
+                dilution * (0.0 - ch4_start) * dt,
+                dilution * (0.0 - ic_start) * dt,
+                ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume,
+                co2_vol * 1000.0 / 22.4 * 44.0 / params.volume,
+            )
+            return state, terms
+
+        state, terms = jax.lax.scan(body, state, None, length=200)
+        ch4_dilution_loss_total, ic_dilution_loss_total, ch4_vented_total, co2_vented_total = (t.sum() for t in terms)
 
         ch4_production_total = ch4_vented_total + (state.s_ch4 - ch4_before) - ch4_dilution_loss_total
         co2_production_total = ch4_production_total * params.co2_ch4_molar_ratio * (44.0 / 64.0)
@@ -108,14 +113,7 @@ class TestADM1CarbonBalance:
         alkalinity's OWN source/sink pair must close against S_IN's.
         """
         params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(4))
-        dt = jnp.array(0.04167)
-        feed_cod = jnp.array(30000.0)
-        q_feed = jnp.array(125.0)
-        temperature = jnp.array(35.0)
-
-        for _ in range(150 * 24):
-            state, _, _, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
+        state, _, _, _ = _run(params, n_steps=150 * 24, seed=4)
 
         alk_per_n = 50.0 / 14.0
         predicted_alk = float(state.s_in) * alk_per_n
@@ -127,18 +125,19 @@ class TestADM1CarbonBalance:
         carbon pathway in place, not just under the old fixed acetate ratio.
         """
         params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(2))
+        state, _, _, ph_baseline = _run(params, n_steps=24 * 10, seed=2)
+
         dt = jnp.array(0.04167)
         feed_cod = jnp.array(30000.0)
         temperature = jnp.array(35.0)
-
-        ph_baseline = jnp.array(7.0)
-        for _ in range(24 * 10):
-            state, _, _, ph_baseline = adm1_step(state, feed_cod, jnp.array(125.0), temperature, params, dt)
-
         overload_q_feed = jnp.array(1500.0)
-        for _ in range(120):
-            state, _, _, ph_overload = adm1_step(state, feed_cod, overload_q_feed, temperature, params, dt)
+
+        def body(state: ADM1State, _step: None):
+            state, _, _, ph = adm1_step(state, feed_cod, overload_q_feed, temperature, params, dt)
+            return state, ph
+
+        _, ph_trace = jax.lax.scan(body, state, None, length=120)
+        ph_overload = ph_trace[-1]
 
         assert float(ph_overload) < float(ph_baseline) - 0.5
 
