@@ -45,17 +45,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         action_control_mode=DIRECT,
     ),
     BenchmarkEntry(
-        "chlorine_two_stage",
-        "process_control.benchmarks.chlorine_two_stage",
-        "ChlorineTwoStageBenchmarkConfig",
-        "make_chlorine_two_stage_benchmark",
-        1,
-        "Two-stage chlorine",
-        scalar_action=True,
-        action_low_config="pump_min_dose",
-        action_high_config="pump_max_dose",
-    ),
-    BenchmarkEntry(
         "ph_neutralization",
         "process_control.benchmarks.ph_neutralization",
         "PhNeutralizationBenchmarkConfig",

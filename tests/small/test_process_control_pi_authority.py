@@ -17,10 +17,6 @@ import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
 from process_control.benchmarks.chem_p_dosing import ChemPDosingConfig, make_chem_p_dosing_benchmark
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig, make_chlorine_benchmark
-from process_control.benchmarks.chlorine_two_stage import (
-    ChlorineTwoStageBenchmarkConfig,
-    make_chlorine_two_stage_benchmark,
-)
 from process_control.benchmarks.equalization_tank import (
     EqualizationTankBenchmarkConfig,
     make_equalization_tank_benchmark,
@@ -98,14 +94,6 @@ class TestClosedLoopTracking:
     def test_chlorine_reaches_target_residual(self) -> None:
         config = ChlorineBenchmarkConfig(control_mode=SUPERVISORY)
         reset_fn, step_fn = make_chlorine_benchmark(config)
-        action = jnp.array(config.target_residual)
-        infos = _run(reset_fn, step_fn, action, n_steps=4000)
-        settled = infos["outlet_residual"][-500:]
-        assert float(jnp.abs(settled.mean() - config.target_residual)) < 0.3
-
-    def test_chlorine_two_stage_reaches_target_residual(self) -> None:
-        config = ChlorineTwoStageBenchmarkConfig(control_mode=SUPERVISORY)
-        reset_fn, step_fn = make_chlorine_two_stage_benchmark(config)
         action = jnp.array(config.target_residual)
         infos = _run(reset_fn, step_fn, action, n_steps=4000)
         settled = infos["outlet_residual"][-500:]
