@@ -3,6 +3,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import pytest
 from process_control.benchmarks.anaerobic_digester import (
     AnaerobicDigesterConfig,
     make_anaerobic_digester_benchmark,
@@ -22,7 +23,7 @@ from process_control.benchmarks.primary_clarifier import (
     PrimaryClarifierConfig,
     make_primary_clarifier_benchmark,
 )
-from process_control.benchmarks.reject_water import RejectWaterConfig, make_reject_water_benchmark
+from process_control.benchmarks.reject_water import RejectWaterBenchState, RejectWaterConfig, make_reject_water_benchmark
 from process_control.chemistry.coagulation import CoagulationParams, coagulate
 from process_control.units.anaerobic_digester import ADM1Params, ADM1State
 from process_control.units.anaerobic_digester import reset as adm1_reset
@@ -592,6 +593,83 @@ class TestRejectWaterBenchmark:
             state, _, _, _, info = step_fn(state, jnp.array([1.0, 0.0]), jax.random.PRNGKey(3000 + index))
             peak = max(peak, float(info["main_nh4"]))
         assert peak > RejectWaterConfig.nh4_limit
+
+
+def _constant_return_policy(rate: float) -> Callable[[jax.Array, jax.Array], jax.Array]:
+    def policy(obs: jax.Array, key: jax.Array) -> jax.Array:
+        return jnp.array([rate])
+
+    return policy
+
+
+def _headroom_return_policy(config: RejectWaterConfig, cap: float) -> Callable[[jax.Array, jax.Array], jax.Array]:
+    """Test-only feedforward rule: return what the nitrifying zone can absorb after main-flow load, reading only the observation."""
+    pass_through = config.reject_production / config.q_reject_max
+
+    def policy(obs: jax.Array, key: jax.Array) -> jax.Array:
+        level, flow_ratio = obs[1], obs[3]
+        main_load = flow_ratio * config.mean_flow * config.influent_nh4 / config.plant_volume
+        rate = (cap - main_load) * config.plant_volume / (config.reject_nh4 * config.q_reject_max)
+        rate = jnp.where(level > 0.85, jnp.maximum(rate, pass_through), rate)
+        return jnp.array([jnp.clip(rate, 0.0, 1.0)])
+
+    return policy
+
+
+def _reject_water_return_per_day(
+    policy: Callable[[jax.Array, jax.Array], jax.Array], warm_steps: int, days: int = 3, seeds: int = 4
+) -> tuple[float, float]:
+    """Mean reward and overflow per day, with warm-up steps excluded from scoring."""
+    config = RejectWaterConfig()
+    reset_fn, step_fn = make_reject_water_benchmark(config)
+    horizon = warm_steps + config.steps_per_day * days
+
+    def episode(key: jax.Array):
+        reset_key, run_key = jax.random.split(key)
+        state, obs = reset_fn(reset_key)
+
+        def body(
+            carry: tuple[RejectWaterBenchState, jax.Array, jax.Array], _: None
+        ) -> tuple[tuple[RejectWaterBenchState, jax.Array, jax.Array], tuple[jax.Array, jax.Array]]:
+            state, obs, key = carry
+            key, action_key, step_key = jax.random.split(key, 3)
+            state, obs, reward, _done, info = step_fn(state, policy(obs, action_key), step_key)
+            return (state, obs, key), (reward, info["overflow"])
+
+        _, (rewards, overflow) = jax.lax.scan(body, (state, obs, run_key), None, length=horizon)
+        return rewards[warm_steps:].sum() / days, overflow[warm_steps:].sum() / days
+
+    returns, overflows = jax.jit(jax.vmap(episode))(jax.random.split(jax.random.PRNGKey(0), seeds))
+    return float(returns.mean()), float(overflows.mean())
+
+
+class TestRejectWaterTimingTradeoff:
+    def test_action_sets_return_rate_between_endpoints(self) -> None:
+        """Action 0 holds reject water and action 1 returns at the full rate while the reset tank holds enough water."""
+        config = RejectWaterConfig()
+        reset_fn, step_fn = make_reject_water_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        _, _, _, _, shut = step_fn(state, jnp.array([0.0]), jax.random.PRNGKey(1))
+        _, _, _, _, full = step_fn(state, jnp.array([1.0]), jax.random.PRNGKey(1))
+        assert float(shut["q_reject"]) == 0.0
+        assert float(full["q_reject"]) == config.q_reject_max
+
+    @pytest.mark.parametrize("warm_steps", [0, 300], ids=["reset", "quarter_day_warm_start"])
+    def test_policy_ranking_holds_across_start_phases(self, warm_steps: int) -> None:
+        """Shut loses most, pass-through beats full-open, and the headroom rule beats pass-through with no overflow."""
+        config = RejectWaterConfig()
+        shut, _ = _reject_water_return_per_day(_constant_return_policy(0.0), warm_steps)
+        pass_through, _ = _reject_water_return_per_day(
+            _constant_return_policy(config.reject_production / config.q_reject_max), warm_steps
+        )
+        full_open, _ = _reject_water_return_per_day(_constant_return_policy(1.0), warm_steps)
+        headroom, headroom_overflow = _reject_water_return_per_day(
+            _headroom_return_policy(config, cap=8.0), warm_steps
+        )
+        assert shut < pass_through
+        assert full_open < pass_through
+        assert pass_through < headroom
+        assert headroom_overflow == 0.0
 
 # ---------------------------------------------------------------------------
 # Benchmark: Drinking Water Train (3D action, 8D obs)
