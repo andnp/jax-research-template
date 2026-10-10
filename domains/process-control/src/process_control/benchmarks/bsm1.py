@@ -44,6 +44,7 @@ from process_control.benchmarks.bsm1_metrics import (
 )
 from process_control.controllers import pi_controller
 from process_control.controllers.pi_controller import BSM1_NITRATE_CONTROLLER, BSM1_OXYGEN_CONTROLLER, PIControllerParams, PIControllerState
+from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import (
     BSM1_LAYOUT,
     BSM1_OPEN_LOOP_LAYER_TSS,
@@ -395,12 +396,14 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "q_r": handles["q_r"],
             "q_underflow": handles["q_r"] + handles["q_w"],
             "temperature": temperature,
+            "temperature_k": temperature + ZERO_CELSIUS,
         }
 
     def snapshot(state: BSM1State, setpoints: Mapping[str, jax.Array]) -> PlantSnapshot:
-        stream, profile_temperature = tabular_influent.influent(state.influent, influent_params)
+        profile_stream, profile_temperature = tabular_influent.influent(state.influent, influent_params)
         temperature = temperature_at(state.time, state.temperature_phase, profile_temperature)
         signals = signals_of(state.handles, temperature)
+        stream = dataclasses.replace(profile_stream, temperature_k=signals["temperature_k"])
         return take_snapshot(flowsheet, layout, state.plant, stream, signals, state.handles, setpoints)
 
     def initial_phase(rng_key: jax.Array) -> jax.Array:

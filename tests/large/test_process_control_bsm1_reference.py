@@ -20,10 +20,12 @@ from process_control.benchmarks.bsm1 import (
     make_bsm1_benchmark,
 )
 from process_control.benchmarks.bsm1_metrics import evaluate
+from process_control.fields import Phase
+from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import BSM1_LAYOUT, BSM1_OPEN_LOOP_REACTORS, activated_sludge_flowsheet, settled_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
 from process_control.streams import Stream
-from process_control.units.asm1 import ASM1_SCHEMA
+from process_control.units.asm1 import ASM1_SCHEMA, BSM1_PRESSURE_PA
 
 STEPS_PER_DAY = 96
 # The reference evaluates days 7-14 of a dry-weather run that itself starts from 14 dry days.
@@ -170,9 +172,17 @@ class TestOpenLoop:
         """From a uniform plant, 150 days of the stabilisation influent reach the published open-loop steady state."""
         flowsheet = activated_sludge_flowsheet(BSM1_LAYOUT)
         constant = bsm1_influent_profiles()["constant"]
-        inlets = {"influent": Stream(flow=jnp.array(constant.flow[0]), components=jnp.array(constant.components[0]), schema=ASM1_SCHEMA)}
+        influent = Stream(
+            flow=jnp.array(constant.flow[0]),
+            components=jnp.array(constant.components[0]),
+            temperature_k=jnp.array(constant.temperature[0] + ZERO_CELSIUS),
+            pressure_pa=jnp.array(BSM1_PRESSURE_PA),
+            schema=ASM1_SCHEMA,
+            phase=Phase.LIQUID,
+        )
+        inlets = {"influent": influent}
         signals = {name: jnp.asarray(value) for name, value in OperatingPoint().values().items() if name != "q_w"}
-        signals |= {"q_underflow": signals["q_r"] + 385.0 / 24.0, "temperature": jnp.array(15.0)}
+        signals |= {"q_underflow": signals["q_r"] + 385.0 / 24.0, "temperature": jnp.array(15.0), "temperature_k": jnp.array(288.15)}
         uniform = jnp.tile(jnp.array([30.0, 5.0, 1000.0, 100.0, 2000.0, 100.0, 400.0, 1.0, 5.0, 5.0, 1.0, 5.0, 5.0]), (5, 1))
         start = settled_state(BSM1_LAYOUT, uniform, jnp.full(10, 1000.0))
 

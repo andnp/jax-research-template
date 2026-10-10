@@ -1,50 +1,75 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Protocol
 
 import jax
 
-from process_control.components import ComponentSchema
+from process_control.fields import EvaluationGroup, GroupResult, LocalField, PortSpec, StreamField
 from process_control.integration import rk4_substeps
 from process_control.streams import Stream
 
 
-@dataclass(frozen=True)
-class Outlet:
-    """Static declaration of a unit outlet: its schema and the inlet ports its flow and composition read.
+class ContinuousUnit[S, P](Protocol):
+    """A continuous-time unit: state derivatives plus outlet fields resolved by atomic evaluation groups.
 
-    Outlets may be evaluated with placeholder values on every inlet outside these sets, so an outlet
-    must not read any inlet it does not declare. Empty sets mean state and inputs only.
+    Each group owns some outlet fields and reads exactly its declared inlet fields and input signals. A unit
+    that is not `stateful` holds no plant state and receives None for it.
     """
 
-    schema: ComponentSchema
-    flow_from: frozenset[str] = frozenset()
-    composition_from: frozenset[str] = frozenset()
-
-
-class ContinuousUnit[S, P](Protocol):
-    """A continuous-time unit: state derivatives plus outlets resolved in a flow pass then a composition pass."""
+    @property
+    def inlet_ports(self) -> Mapping[str, PortSpec]: ...
 
     @property
-    def inlet_ports(self) -> Mapping[str, ComponentSchema]: ...
+    def outlet_ports(self) -> Mapping[str, PortSpec]: ...
 
     @property
-    def outlet_ports(self) -> Mapping[str, Outlet]: ...
+    def evaluation_groups(self) -> tuple[EvaluationGroup, ...]: ...
 
     @property
     def input_ports(self) -> tuple[str, ...]: ...
 
+    @property
+    def stateful(self) -> bool: ...
+
+    def evaluate_group(
+        self, group_name: str, state: S, reads: Mapping[LocalField, jax.Array], inputs: Mapping[str, jax.Array], params: P
+    ) -> GroupResult: ...
+
     def derivatives(self, state: S, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: P) -> S: ...
 
-    def outlet_flows(
-        self, state: S, inlet_flows: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array], params: P
-    ) -> Mapping[str, jax.Array]: ...
-
-    def outlet_compositions(
-        self, state: S, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: P
-    ) -> Mapping[str, jax.Array]: ...
-
     def project(self, state: S, params: P) -> S: ...
+
+
+def evaluate[S, P](
+    unit: ContinuousUnit[S, P],
+    group: EvaluationGroup,
+    state: S,
+    reads: Mapping[LocalField, jax.Array],
+    inputs: Mapping[str, jax.Array],
+    params: P,
+) -> GroupResult:
+    """Evaluate one group, checking it returns a value per output and a diagnostic per declared name."""
+    result = unit.evaluate_group(group.name, state, reads, inputs, params)
+    if len(result.values) != len(group.outputs) or len(result.diagnostics) != len(group.diagnostic_names):
+        raise ValueError(
+            f"group {group.name!r} returned {len(result.values)} values and {len(result.diagnostics)} diagnostics "
+            f"for {len(group.outputs)} outputs and {len(group.diagnostic_names)} diagnostic names"
+        )
+    return result
+
+
+def outlet_streams(ports: Mapping[str, PortSpec], values: Mapping[LocalField, jax.Array]) -> dict[str, Stream]:
+    """Assemble complete outlet streams from resolved outlet fields."""
+    return {
+        port: Stream(
+            flow=values[LocalField(port, StreamField.FLOW)],
+            components=values[LocalField(port, StreamField.COMPONENTS)],
+            temperature_k=values[LocalField(port, StreamField.TEMPERATURE)],
+            pressure_pa=values[LocalField(port, StreamField.PRESSURE)],
+            schema=spec.schema,
+            phase=spec.phase,
+        )
+        for port, spec in ports.items()
+    }
 
 
 def unit_outlets[S, P](
@@ -55,13 +80,12 @@ def unit_outlets[S, P](
     params: P,
 ) -> dict[str, Stream]:
     """Evaluate every outlet of one unit as a stream, given all of its inlets."""
-    inlet_flows = {name: stream.flow for name, stream in inlets.items()}
-    flows = unit.outlet_flows(state, inlet_flows, inputs, params)
-    compositions = unit.outlet_compositions(state, inlets, inputs, params)
-    return {
-        name: Stream(flow=flows[name], components=compositions[name], schema=outlet.schema)
-        for name, outlet in unit.outlet_ports.items()
-    }
+    values: dict[LocalField, jax.Array] = {}
+    for group in unit.evaluation_groups:
+        reads = {read: inlets[read.port].value(read.field) for read in group.reads}
+        result = evaluate(unit, group, state, reads, {name: inputs[name] for name in group.input_names}, params)
+        values.update(zip(group.outputs, result.values, strict=True))
+    return outlet_streams(unit.outlet_ports, values)
 
 
 def step_unit[S, P](

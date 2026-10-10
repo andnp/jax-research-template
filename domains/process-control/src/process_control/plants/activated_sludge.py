@@ -3,7 +3,9 @@
 The influent, internal recycle and return sludge mix into the first reactor. After the last reactor a
 splitter draws the internal recycle (`q_a`) and sends the rest to the settler, whose underflow
 (`q_underflow`) splits into the return sludge (`q_r`) and the waste sludge. Every reactor reads its own
-`kla_<i>` signal, counted from 1, and the shared `temperature` signal. Flows are in m³/h and kLa in h⁻¹.
+`kla_<i>` signal, counted from 1, and the shared `temperature` signal (°C). Every reactor, the inlet mixer
+and the settler leave at the layout's prescribed context, whose temperature is the `temperature_k` signal
+(K). Flows are in m³/h and kLa in h⁻¹.
 
 The BSM1 layout follows Alex et al. (2008), Sec. 2:
 https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
@@ -16,9 +18,10 @@ import jax
 import jax.numpy as jnp
 
 from process_control.components import ComponentSchema
+from process_control.fields import Phase, PortSpec, PrescribedContext
 from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
 from process_control.kinetics import KineticsModel, KineticSource
-from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
+from process_control.units.asm1 import ASM1_SCHEMA, BSM1_PRESSURE_PA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
 from process_control.units.exchange import ExchangeSource, OxygenExchange, OxygenExchangeParams
 from process_control.units.layered_settler import BSM1_SETTLER, LayeredSettler, ParticulateOutlets, SettlerParams
 from process_control.units.reactive_cstr import ReactiveCSTR, ReactiveCSTRParams, nonnegative, unchanged
@@ -29,7 +32,8 @@ class ActivatedSludgeLayout[P]:
     """Reactor volumes in flow order (m³), the carrier schema, what every reactor shares, and the secondary settler.
 
     Each reactor runs the kinetics and the aeration, whose oxygen binds to `oxygen_channel`, and
-    `projection` keeps each integration substep's reactor state admissible.
+    `projection` keeps each integration substep's reactor state admissible. `context` sets the outlet
+    temperature and pressure of every unit that does not forward its inlet's.
     """
 
     volumes: tuple[float, ...]
@@ -39,6 +43,7 @@ class ActivatedSludgeLayout[P]:
     aeration: OxygenExchange
     oxygen_channel: str
     aeration_params: OxygenExchangeParams
+    context: PrescribedContext
     projection: Callable[[jax.Array], jax.Array] = unchanged
     settler: SettlerParams = BSM1_SETTLER
     particulates: ParticulateOutlets = ParticulateOutlets.FEED_FRACTIONS
@@ -64,6 +69,7 @@ BSM1_LAYOUT = ActivatedSludgeLayout(
     aeration=OxygenExchange(bsm1_oxygen_saturation),
     oxygen_channel="s_o",
     aeration_params=OxygenExchangeParams(kla_theta=1.024, kla_reference_temperature=15.0),
+    context=PrescribedContext(pressure_pa=BSM1_PRESSURE_PA),
     projection=nonnegative,
 )
 
@@ -75,13 +81,14 @@ def activated_sludge_flowsheet[P](layout: ActivatedSludgeLayout[P]) -> Flowsheet
         KineticSource.bind(layout.kinetics, layout.kinetics_params, schema),
         ExchangeSource.bind(layout.aeration, layout.aeration_params, schema, {"O2": layout.oxygen_channel}),
     )
-    reactor = ReactiveCSTR(schema, sources, projection=layout.projection)
-    nodes: dict[str, Node] = {"inlet": Node(Mixer(schema, ("influent", "internal_recycle", "return_sludge")), None)}
+    port = PortSpec(schema, Phase.LIQUID)
+    reactor = ReactiveCSTR(schema, sources, projection=layout.projection, context=layout.context)
+    nodes: dict[str, Node] = {"inlet": Node(Mixer(port, ("influent", "internal_recycle", "return_sludge"), layout.context), None)}
     for name, signal, volume in zip(layout.reactors, layout.kla_signals, layout.volumes, strict=True):
         nodes[name] = Node(reactor, ReactiveCSTRParams(volume=volume), {"kla": signal})
-    nodes["recycle_split"] = Node(Splitter(schema, ("internal_recycle",), "settler_feed"), None, {"internal_recycle": "q_a"})
-    nodes["settler"] = Node(LayeredSettler(schema, layout.particulates), layout.settler)
-    nodes["sludge_split"] = Node(Splitter(schema, ("return_sludge",), "waste"), None, {"return_sludge": "q_r"})
+    nodes["recycle_split"] = Node(Splitter(port, ("internal_recycle",), "settler_feed"), None, {"internal_recycle": "q_a"})
+    nodes["settler"] = Node(LayeredSettler(schema, layout.particulates, context=layout.context), layout.settler)
+    nodes["sludge_split"] = Node(Splitter(port, ("return_sludge",), "waste"), None, {"return_sludge": "q_r"})
 
     train = [Port("inlet", "out"), *(Port(name, "out") for name in layout.reactors)]
     connections = [

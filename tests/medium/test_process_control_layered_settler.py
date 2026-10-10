@@ -3,6 +3,7 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import pytest
+from process_control.fields import LocalField, Phase, PrescribedContext, StreamField
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA
 from process_control.units.contract import step_unit, unit_outlets
@@ -20,17 +21,26 @@ EFFLUENT_PARTICULATES = jnp.array([4.39, 0.188, 9.78, 0.573, 1.73, 0.0135])
 PARTICULATES = jnp.array([2, 3, 4, 5, 6, 11])
 SOLUBLES = jnp.array([0, 1, 7, 8, 9, 10, 12])
 
-SETTLER = LayeredSettler(ASM1_SCHEMA)
-TRANSPORTING = LayeredSettler(ASM1_SCHEMA, ParticulateOutlets.LAYER_COMPOSITION)
+CONTEXT = PrescribedContext(pressure_pa=101325.0)
+SETTLER = LayeredSettler(ASM1_SCHEMA, context=CONTEXT)
+TRANSPORTING = LayeredSettler(ASM1_SCHEMA, ParticulateOutlets.LAYER_COMPOSITION, context=CONTEXT)
 SETTLERS = pytest.mark.parametrize("settler", [SETTLER, TRANSPORTING], ids=["feed_fractions", "layer_composition"])
 
 
 def _feed(flow: float = FEED_FLOW, components: jax.Array = REACTOR_5) -> dict[str, Stream]:
-    return {"feed": Stream(flow=jnp.array(flow), components=components, schema=ASM1_SCHEMA)}
+    feed = Stream(
+        flow=jnp.array(flow),
+        components=components,
+        temperature_k=jnp.array(288.15),
+        pressure_pa=jnp.array(101325.0),
+        schema=ASM1_SCHEMA,
+        phase=Phase.LIQUID,
+    )
+    return {"feed": feed}
 
 
 def _inputs(underflow: float = UNDERFLOW) -> dict[str, jax.Array]:
-    return {"q_underflow": jnp.array(underflow)}
+    return {"q_underflow": jnp.array(underflow), "temperature_k": jnp.array(288.15)}
 
 
 @jax.jit
@@ -106,18 +116,18 @@ class TestMassBalance:
 
     def test_outlet_flows_split_the_feed(self) -> None:
         """The underflow is set by its input and the effluent takes the rest of the feed."""
-        flows = SETTLER.outlet_flows(jnp.zeros((10, 13)), {"feed": jnp.array(FEED_FLOW)}, _inputs(), BSM1_SETTLER)
+        outlets = unit_outlets(SETTLER, jnp.zeros((10, 13)), _feed(), _inputs(), BSM1_SETTLER)
 
-        assert jnp.allclose(flows["underflow"], UNDERFLOW)
-        assert jnp.allclose(flows["effluent"], FEED_FLOW - UNDERFLOW)
+        assert jnp.allclose(outlets["underflow"].flow, UNDERFLOW)
+        assert jnp.allclose(outlets["effluent"].flow, FEED_FLOW - UNDERFLOW)
 
     def test_overdrawn_underflow_is_capped_by_the_feed(self) -> None:
         """An underflow request above the feed takes the whole feed, so flow and mass still balance."""
-        flows = SETTLER.outlet_flows(jnp.zeros((10, 13)), {"feed": jnp.array(FEED_FLOW)}, _inputs(2.0 * FEED_FLOW), BSM1_SETTLER)
+        outlets = unit_outlets(SETTLER, jnp.zeros((10, 13)), _feed(), _inputs(2.0 * FEED_FLOW), BSM1_SETTLER)
         inventory_change, net_inflow = _balance(TRANSPORTING, BSM1_SETTLER, underflow=2.0 * FEED_FLOW)
 
-        assert jnp.allclose(flows["underflow"], FEED_FLOW)
-        assert jnp.allclose(flows["effluent"], 0.0)
+        assert jnp.allclose(outlets["underflow"].flow, FEED_FLOW)
+        assert jnp.allclose(outlets["effluent"].flow, 0.0)
         assert jnp.allclose(inventory_change, net_inflow, rtol=1e-4, atol=TOLERANCE)
 
 
@@ -142,8 +152,11 @@ class TestParticulateOutlets:
 
     def test_outlet_dependencies_follow_the_mode(self) -> None:
         """Only the BSM1 rule reads the feed for outlet compositions, which a flowsheet must order before the settler."""
-        assert SETTLER.outlet_ports["underflow"].composition_from == frozenset({"feed"})
-        assert TRANSPORTING.outlet_ports["underflow"].composition_from == frozenset()
+        def composition_reads(settler: LayeredSettler) -> tuple[LocalField, ...]:
+            return next(group.reads for group in settler.evaluation_groups if group.name == "composition")
+
+        assert composition_reads(SETTLER) == (LocalField("feed", StreamField.COMPONENTS),)
+        assert composition_reads(TRANSPORTING) == ()
 
 
 class TestConfiguration:

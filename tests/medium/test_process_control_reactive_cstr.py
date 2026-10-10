@@ -7,12 +7,13 @@ import pytest
 from process_control.benchmarks.bsm1 import BSM1Config
 from process_control.binding import NamedAccess, Requirement
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
+from process_control.fields import Phase, PrescribedContext
 from process_control.flowsheet import Node, Port, build_flowsheet
 from process_control.kinetics import KineticSource
 from process_control.plants.activated_sludge import BSM1_LAYOUT
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
-from process_control.units.contract import step_unit
+from process_control.units.contract import step_unit, unit_outlets
 from process_control.units.exchange import OXYGEN_BASIS, ExchangeSource, OxygenExchange, OxygenExchangeParams
 from process_control.units.reactive_cstr import ReactiveCSTR, ReactiveCSTRParams, nonnegative
 
@@ -22,6 +23,7 @@ CHARGE = ComponentBasis("mol/m3", Quantity.EQUIVALENT, "charge")
 SCHEMA = ComponentSchema(names=("tracer", "oxygen"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER, OXYGEN_BASIS))
 SIGNED_SCHEMA = ComponentSchema(names=("tracer", "charge"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER, CHARGE))
 SATURATION = 10.0
+CONTEXT = PrescribedContext(pressure_pa=101325.0)
 
 
 @dataclass(frozen=True)
@@ -53,7 +55,7 @@ def _constant_saturation(temperature: jax.Array) -> jax.Array:
 
 
 AERATION = ExchangeSource.bind(OxygenExchange(_constant_saturation), OxygenExchangeParams(), SCHEMA, {"O2": "oxygen"})
-INERT = ReactiveCSTR(SCHEMA, (AERATION,))
+INERT = ReactiveCSTR(SCHEMA, (AERATION,), context=CONTEXT)
 INERT_PARAMS = ReactiveCSTRParams(volume=100.0)
 
 
@@ -64,15 +66,24 @@ def _asm1_reactor(schema: ComponentSchema) -> ReactiveCSTR:
             KineticSource.bind(ASM1Kinetics(), ASM1Params(), schema),
             ExchangeSource.bind(OxygenExchange(bsm1_oxygen_saturation), OxygenExchangeParams(), schema, {"O2": "s_o"}),
         ),
+        context=CONTEXT,
     )
 
 
 def _feed(flow: float, components: jax.Array, schema: ComponentSchema = SCHEMA) -> dict[str, Stream]:
-    return {"in": Stream(flow=jnp.array(flow), components=components, schema=schema)}
+    feed = Stream(
+        flow=jnp.array(flow),
+        components=components,
+        temperature_k=jnp.array(288.15),
+        pressure_pa=jnp.array(101325.0),
+        schema=schema,
+        phase=Phase.LIQUID,
+    )
+    return {"in": feed}
 
 
 def _signals(kla: float | jax.Array, temperature: float = 15.0) -> dict[str, jax.Array]:
-    return {"kla": jnp.asarray(kla), "temperature": jnp.array(temperature)}
+    return {"kla": jnp.asarray(kla), "temperature": jnp.array(temperature), "temperature_k": jnp.array(temperature + 273.15)}
 
 
 def _array(value: object) -> jax.Array:
@@ -93,15 +104,14 @@ class TestTransport:
         """A constant-volume reactor returns its inflow and discharges what it holds."""
         state = jnp.array([3.0, 4.0])
 
-        flows = INERT.outlet_flows(state, {"in": jnp.array(7.0)}, _signals(1.0), INERT_PARAMS)
-        compositions = INERT.outlet_compositions(state, _feed(7.0, jnp.zeros(2)), _signals(1.0), INERT_PARAMS)
+        outlet = unit_outlets(INERT, state, _feed(7.0, jnp.zeros(2)), _signals(1.0), INERT_PARAMS)["out"]
 
-        assert jnp.allclose(flows["out"], 7.0)
-        assert jnp.allclose(compositions["out"], state)
+        assert jnp.allclose(outlet.flow, 7.0)
+        assert jnp.allclose(outlet.components, state)
 
     def test_signed_equivalents_pass_through_unclipped(self) -> None:
         """By default the reactor projects nothing, so a negative equivalent is held and diluted, not zeroed."""
-        reactor = ReactiveCSTR(SIGNED_SCHEMA, temperature_input=False)
+        reactor = ReactiveCSTR(SIGNED_SCHEMA, temperature_input=False, context=CONTEXT)
         feed = _feed(25.0, jnp.array([0.0, -3.0]), SIGNED_SCHEMA)
 
         state = step_unit(reactor, jnp.array([1.0, -1.0]), feed, {}, INERT_PARAMS, jnp.array(2.0), 40)
@@ -112,7 +122,7 @@ class TestTransport:
 
     def test_injected_nonnegative_projection_clips(self) -> None:
         """A plant that admits only non-negative concentrations injects the clipping projection."""
-        reactor = ReactiveCSTR(SCHEMA, (AERATION,), projection=nonnegative)
+        reactor = ReactiveCSTR(SCHEMA, (AERATION,), projection=nonnegative, context=CONTEXT)
 
         assert jnp.allclose(reactor.project(jnp.array([-1.0, 2.0]), INERT_PARAMS), jnp.array([0.0, 2.0]))
 
@@ -120,20 +130,20 @@ class TestTransport:
 class TestSources:
     def test_reactor_without_sources_needs_no_kla(self) -> None:
         """A reactor with no oxygen exchange exposes no kLa input and only dilutes."""
-        reactor = ReactiveCSTR(SIGNED_SCHEMA)
+        reactor = ReactiveCSTR(SIGNED_SCHEMA, context=CONTEXT)
         state = jnp.array([1.0, -2.0])
 
         derivatives = reactor.derivatives(state, _feed(10.0, jnp.zeros(2), SIGNED_SCHEMA), {"temperature": jnp.array(15.0)}, INERT_PARAMS)
 
-        assert reactor.input_ports == ("temperature",)
-        assert ReactiveCSTR(SIGNED_SCHEMA, temperature_input=False).input_ports == ()
+        assert reactor.input_ports == ("temperature", "temperature_k")
+        assert ReactiveCSTR(SIGNED_SCHEMA, temperature_input=False, context=CONTEXT).input_ports == ("temperature_k",)
         assert jnp.allclose(derivatives, 0.1 * -state)
 
     def test_routing_kla_to_a_reactor_without_aeration_is_rejected(self) -> None:
         """A flowsheet cannot route a kLa signal to a reactor that declares no such input."""
         with pytest.raises(ValueError):
             build_flowsheet(
-                nodes={"r": Node(ReactiveCSTR(SIGNED_SCHEMA), INERT_PARAMS, inputs={"kla": "kla_1"})},
+                nodes={"r": Node(ReactiveCSTR(SIGNED_SCHEMA, context=CONTEXT), INERT_PARAMS, inputs={"kla": "kla_1"})},
                 connections=[],
                 inlets={"influent": Port("r", "in")},
                 outlets={"effluent": Port("r", "out")},
@@ -142,7 +152,7 @@ class TestSources:
     def test_sources_writing_one_channel_add_on_the_same_state(self) -> None:
         """Uptake and aeration on the oxygen channel both see the current state, and their rates add."""
         uptake = KineticSource.bind(FirstOrderUptake(), 0.5, SCHEMA, {"O2": "oxygen"})
-        reactor = ReactiveCSTR(SCHEMA, (uptake, AERATION))
+        reactor = ReactiveCSTR(SCHEMA, (uptake, AERATION), context=CONTEXT)
         state = jnp.array([0.0, 4.0])
 
         derivatives = reactor.derivatives(state, _feed(0.0, jnp.zeros(2)), _signals(3.0), INERT_PARAMS)
@@ -152,15 +162,15 @@ class TestSources:
     def test_source_bound_to_another_schema_is_rejected(self) -> None:
         """A source's indices address the schema it was bound to, so another carrier refuses it."""
         with pytest.raises(ValueError, match="source bound"):
-            ReactiveCSTR(SIGNED_SCHEMA, (AERATION,))
+            ReactiveCSTR(SIGNED_SCHEMA, (AERATION,), context=CONTEXT)
 
     def test_sources_receive_the_temperature_in_kelvin(self) -> None:
         """The °C temperature input, or the fallback parameter, reaches every source in K."""
         probe = KineticSource.bind(TemperatureProbe(), None, SCHEMA)
-        fixed = ReactiveCSTR(SCHEMA, (probe,), temperature_input=False)
+        fixed = ReactiveCSTR(SCHEMA, (probe,), temperature_input=False, context=CONTEXT)
         batch = _feed(0.0, jnp.zeros(2))
 
-        read = ReactiveCSTR(SCHEMA, (probe,)).derivatives(jnp.zeros(2), batch, {"temperature": jnp.array(20.0)}, INERT_PARAMS)
+        read = ReactiveCSTR(SCHEMA, (probe,), context=CONTEXT).derivatives(jnp.zeros(2), batch, {"temperature": jnp.array(20.0)}, INERT_PARAMS)
         fallback = fixed.derivatives(jnp.zeros(2), batch, {}, ReactiveCSTRParams(volume=100.0, temperature=25.0))
 
         assert jnp.allclose(read[0], 293.15)
@@ -170,7 +180,7 @@ class TestSources:
         """A bound source crosses jit and vmap with its parameters traced and its binding static."""
 
         def warm_transfer(params: OxygenExchangeParams) -> jax.Array:
-            reactor = ReactiveCSTR(SCHEMA, (dataclasses.replace(AERATION, params=params),))
+            reactor = ReactiveCSTR(SCHEMA, (dataclasses.replace(AERATION, params=params),), context=CONTEXT)
             return reactor.derivatives(jnp.zeros(2), _feed(0.0, jnp.zeros(2)), _signals(1.0, temperature=20.0), INERT_PARAMS)[1]
 
         thetas = jnp.array([1.0, 1.024])
@@ -195,14 +205,14 @@ class TestAeration:
         assert jnp.allclose(warm[1], 3.0 * 1.024**5 * SATURATION)
 
     def test_fixed_temperature_replaces_the_temperature_input(self) -> None:
-        """Without a temperature input the reactor reads only kLa and uses the parameter temperature."""
-        reactor = ReactiveCSTR(SCHEMA, (AERATION,), temperature_input=False)
+        """Without a temperature input the sources use the parameter temperature; only the outlet context reads `temperature_k`."""
+        reactor = ReactiveCSTR(SCHEMA, (AERATION,), temperature_input=False, context=CONTEXT)
         params = ReactiveCSTRParams(volume=100.0, temperature=25.0)
 
         derivatives = reactor.derivatives(jnp.zeros(2), _feed(0.0, jnp.zeros(2)), {"kla": jnp.array(1.0)}, params)
 
-        assert reactor.input_ports == ("kla",)
-        assert INERT.input_ports == ("kla", "temperature")
+        assert reactor.input_ports == ("kla", "temperature_k")
+        assert INERT.input_ports == ("kla", "temperature", "temperature_k")
         assert jnp.allclose(derivatives[1], 1.024**10 * SATURATION)
 
     def test_bsm1_saturation_is_eight_at_fifteen_degrees(self) -> None:
@@ -323,7 +333,7 @@ class TestFlowsheet:
             outlets={"effluent": Port("r2", "out")},
         )
         state = {"r1": jnp.array([1.0, 2.0]), "r2": jnp.array([3.0, 4.0])}
-        signals = {"kla_1": jnp.array(0.0), "kla_2": jnp.array(2.0), "temperature": jnp.array(15.0)}
+        signals = {"kla_1": jnp.array(0.0), "kla_2": jnp.array(2.0), "temperature": jnp.array(15.0), "temperature_k": jnp.array(288.15)}
 
         influent = {"influent": _feed(10.0, jnp.array([5.0, 0.0]))["in"]}
 

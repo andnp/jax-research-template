@@ -2,16 +2,22 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
+from process_control.fields import Phase
 from process_control.streams import Stream, mix, split
 from process_control.units.asm1 import ASM1_SCHEMA
 
 TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
 
 SCHEMA = ComponentSchema(names=("solute", "solids"), particulate=(False, True), tss_factor=(0.0, 0.75), bases=(TRACER,) * 2)
+CONTEXT = {"temperature_k": jnp.array(288.15), "pressure_pa": jnp.array(101325.0)}
 
 
 def _stream(flow: float, solute: float, solids: float, schema: ComponentSchema = SCHEMA) -> Stream:
-    return Stream(flow=jnp.array(flow), components=jnp.array([solute, solids]), schema=schema)
+    return Stream(flow=jnp.array(flow), components=jnp.array([solute, solids]), schema=schema, phase=Phase.LIQUID, **CONTEXT)
+
+
+def _mix(*streams: Stream) -> Stream:
+    return mix(*streams, **CONTEXT)
 
 
 class TestMix:
@@ -19,7 +25,7 @@ class TestMix:
         """The mixture carries the summed flow and the summed mass flux of every component."""
         streams = (_stream(2.0, 10.0, 0.0), _stream(6.0, 2.0, 40.0), _stream(0.5, 0.0, 8.0))
 
-        mixed = mix(*streams)
+        mixed = _mix(*streams)
 
         assert jnp.allclose(mixed.flow, 8.5)
         expected_mass = sum(stream.flow * stream.components for stream in streams)
@@ -27,14 +33,14 @@ class TestMix:
 
     def test_zero_total_flow_is_finite(self) -> None:
         """With nothing flowing the composition stays finite instead of dividing by zero."""
-        mixed = mix(_stream(0.0, 4.0, 2.0), _stream(0.0, 4.0, 2.0))
+        mixed = _mix(_stream(0.0, 4.0, 2.0), _stream(0.0, 4.0, 2.0))
 
         assert jnp.allclose(mixed.flow, 0.0)
         assert jnp.allclose(mixed.components, jnp.array([4.0, 2.0]))
 
     def test_zero_flow_inlet_does_not_dilute(self) -> None:
         """An idle inlet contributes no mass, whatever concentration it reports."""
-        mixed = mix(_stream(3.0, 5.0, 1.0), _stream(0.0, 1000.0, 1000.0))
+        mixed = _mix(_stream(3.0, 5.0, 1.0), _stream(0.0, 1000.0, 1000.0))
 
         assert jnp.allclose(mixed.components, jnp.array([5.0, 1.0]))
 
@@ -43,15 +49,16 @@ class TestMix:
         other = ComponentSchema(names=("a", "b"), particulate=(False, True), tss_factor=(0.0, 0.75), bases=(TRACER,) * 2)
 
         with pytest.raises(ValueError, match="schemas"):
-            mix(_stream(1.0, 1.0, 1.0), _stream(1.0, 1.0, 1.0, schema=other))
+            _mix(_stream(1.0, 1.0, 1.0), _stream(1.0, 1.0, 1.0, schema=other))
 
     def test_works_under_jit_and_vmap(self) -> None:
         """Mixing a batch of stream pairs under jit matches mixing each pair alone."""
         flows = jnp.array([1.0, 0.0, 3.0])
-        first = Stream(flow=flows, components=jnp.ones((3, 13)), schema=ASM1_SCHEMA)
-        second = Stream(flow=2.0 * flows, components=jnp.full((3, 13), 4.0), schema=ASM1_SCHEMA)
+        context = {name: jnp.full(3, value) for name, value in CONTEXT.items()}
+        first = Stream(flow=flows, components=jnp.ones((3, 13)), schema=ASM1_SCHEMA, phase=Phase.LIQUID, **context)
+        second = Stream(flow=2.0 * flows, components=jnp.full((3, 13), 4.0), schema=ASM1_SCHEMA, phase=Phase.LIQUID, **context)
 
-        mixed = jax.jit(jax.vmap(mix))(first, second)
+        mixed = jax.jit(jax.vmap(_mix))(first, second)
 
         assert mixed.components.shape == (3, 13)
         assert jnp.allclose(mixed.flow, 3.0 * flows)

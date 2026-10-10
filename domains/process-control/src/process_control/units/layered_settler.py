@@ -6,15 +6,19 @@ https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 import jax
 import jax.numpy as jnp
 
 from process_control.components import ComponentSchema
+from process_control.fields import CONTEXT_TEMPERATURE, EvaluationGroup, GroupResult, LocalField, Phase, PortSpec, PrescribedContext, StreamField
 from process_control.streams import Stream
-from process_control.units.contract import Outlet
+
+OUTLETS = ("effluent", "underflow")
+FEED_FLOW = LocalField("feed", StreamField.FLOW)
+FEED_COMPONENTS = LocalField("feed", StreamField.COMPONENTS)
 
 
 @dataclass(frozen=True)
@@ -80,58 +84,82 @@ class LayeredSettler:
 
     The underflow takes the `q_underflow` input (m³/h), capped by the feed, and the effluent the rest,
     so the outlets always balance the feed. A draw on the underflow that exceeds it shows up as that
-    splitter's deficit.
+    splitter's deficit. Both outlets leave at the prescribed `context` temperature and pressure.
     """
 
     schema: ComponentSchema
     particulates: ParticulateOutlets = ParticulateOutlets.FEED_FRACTIONS
+    context: PrescribedContext = field(kw_only=True)
 
     @property
-    def inlet_ports(self) -> Mapping[str, ComponentSchema]:
-        return {"feed": self.schema}
+    def inlet_ports(self) -> Mapping[str, PortSpec]:
+        return {"feed": PortSpec(self.schema, Phase.LIQUID)}
 
     @property
-    def outlet_ports(self) -> Mapping[str, Outlet]:
-        feed = frozenset({"feed"})
-        composition = feed if self.particulates is ParticulateOutlets.FEED_FRACTIONS else frozenset()
-        return {name: Outlet(self.schema, flow_from=feed, composition_from=composition) for name in ("effluent", "underflow")}
+    def outlet_ports(self) -> Mapping[str, PortSpec]:
+        return dict.fromkeys(OUTLETS, PortSpec(self.schema, Phase.LIQUID))
+
+    @property
+    def evaluation_groups(self) -> tuple[EvaluationGroup, ...]:
+        composition_reads = (FEED_COMPONENTS,) if self.particulates is ParticulateOutlets.FEED_FRACTIONS else ()
+        return (
+            EvaluationGroup(
+                "flow", outputs=tuple(LocalField(name, StreamField.FLOW) for name in OUTLETS), reads=(FEED_FLOW,), input_names=("q_underflow",)
+            ),
+            EvaluationGroup(
+                "composition",
+                outputs=tuple(LocalField(name, StreamField.COMPONENTS) for name in OUTLETS),
+                reads=composition_reads,
+                reads_state=True,
+            ),
+            self.context.group(OUTLETS),
+        )
 
     @property
     def input_ports(self) -> tuple[str, ...]:
-        return ("q_underflow",)
+        return ("q_underflow", CONTEXT_TEMPERATURE)
+
+    @property
+    def stateful(self) -> bool:
+        return True
+
+    def evaluate_group(
+        self, group_name: str, state: jax.Array, reads: Mapping[LocalField, jax.Array], inputs: Mapping[str, jax.Array], params: SettlerParams
+    ) -> GroupResult:
+        match group_name:
+            case "flow":
+                return GroupResult(_hydraulics(reads[FEED_FLOW], inputs["q_underflow"]))
+            case "composition":
+                return GroupResult(self._outlet_compositions(state, reads))
+            case "context":
+                return self.context.evaluate(OUTLETS, inputs)
+        raise ValueError(f"layered settler has no group {group_name!r}")
 
     def derivatives(self, state: jax.Array, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: SettlerParams) -> jax.Array:
         feed = inlets["feed"]
-        flows = self.outlet_flows(state, {"feed": feed.flow}, inputs, params)
+        effluent, underflow = _hydraulics(feed.flow, inputs["q_underflow"])
         layer_height = params.height / params.n_layers
-        return (self._advection(state, feed, flows, params) + self._settling(state, feed, params)) / layer_height
-
-    def outlet_flows(
-        self, state: jax.Array, inlet_flows: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array], params: SettlerParams
-    ) -> Mapping[str, jax.Array]:
-        underflow = jnp.clip(inputs["q_underflow"], 0.0, inlet_flows["feed"])
-        return {"effluent": inlet_flows["feed"] - underflow, "underflow": underflow}
-
-    def outlet_compositions(
-        self, state: jax.Array, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: SettlerParams
-    ) -> Mapping[str, jax.Array]:
-        layers = {"effluent": state[-1], "underflow": state[0]}
-        if self.particulates is ParticulateOutlets.LAYER_COMPOSITION:
-            return layers
-        feed = inlets["feed"].components
-        feed_tss = self.schema.tss(feed)
-        has_solids = feed_tss > 0.0
-        fractions = feed / jnp.where(has_solids, feed_tss, 1.0)
-        replaced = self.schema.particulate_mask & has_solids
-        return {name: jnp.where(replaced, self.schema.tss(layer) * fractions, layer) for name, layer in layers.items()}
+        return (self._advection(state, feed, effluent, underflow, params) + self._settling(state, feed, params)) / layer_height
 
     def project(self, state: jax.Array, params: SettlerParams) -> jax.Array:
         return jnp.maximum(state, 0.0)
 
-    def _advection(self, state: jax.Array, feed: Stream, flows: Mapping[str, jax.Array], params: SettlerParams) -> jax.Array:
+    def _outlet_compositions(self, state: jax.Array, reads: Mapping[LocalField, jax.Array]) -> tuple[jax.Array, jax.Array]:
+        layers = (state[-1], state[0])
+        if self.particulates is ParticulateOutlets.LAYER_COMPOSITION:
+            return layers
+        feed = reads[FEED_COMPONENTS]
+        feed_tss = self.schema.tss(feed)
+        has_solids = feed_tss > 0.0
+        fractions = feed / jnp.where(has_solids, feed_tss, 1.0)
+        replaced = self.schema.particulate_mask & has_solids
+        effluent, underflow = (jnp.where(replaced, self.schema.tss(layer) * fractions, layer) for layer in layers)
+        return effluent, underflow
+
+    def _advection(self, state: jax.Array, feed: Stream, effluent: jax.Array, underflow: jax.Array, params: SettlerParams) -> jax.Array:
         """Bulk transport flux per layer: up above the feed layer, down below it."""
-        up = flows["effluent"] / params.area
-        down = flows["underflow"] / params.area
+        up = effluent / params.area
+        down = underflow / params.area
         empty = jnp.zeros((1, state.shape[1]))
         from_below = jnp.concatenate([empty, state[:-1]])
         from_above = jnp.concatenate([state[1:], empty])
@@ -160,3 +188,9 @@ class LayeredSettler:
         carried = solids_flux[:, None] * share
         empty = jnp.zeros((1, state.shape[1]))
         return jnp.concatenate([carried, empty]) - jnp.concatenate([empty, carried])
+
+
+def _hydraulics(feed_flow: jax.Array, q_underflow: jax.Array) -> tuple[jax.Array, jax.Array]:
+    """Effluent and underflow flows: the underflow request clipped to the feed, the effluent the rest."""
+    underflow = jnp.clip(q_underflow, 0.0, feed_flow)
+    return feed_flow - underflow, underflow

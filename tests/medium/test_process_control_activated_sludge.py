@@ -3,11 +3,13 @@ from collections.abc import Iterator, Mapping
 import jax
 import jax.numpy as jnp
 import pytest
+from process_control.fields import Phase
 from process_control.flowsheet import FlowsheetReport
+from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import BSM1_LAYOUT, activated_sludge_flowsheet, bsm1_open_loop_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
 from process_control.streams import Stream
-from process_control.units.asm1 import ASM1_SCHEMA
+from process_control.units.asm1 import ASM1_SCHEMA, BSM1_PRESSURE_PA
 
 # Alex et al. (2008) open-loop operating point, converted to hours.
 OPEN_LOOP_SIGNALS = {
@@ -20,6 +22,7 @@ OPEN_LOOP_SIGNALS = {
     "q_r": 18446.0 / 24.0,
     "q_underflow": (18446.0 + 385.0) / 24.0,
     "temperature": 15.0,
+    "temperature_k": 288.15,
 }
 # Table 6, reactors 1-5 in ASM1 schema order.
 TABLE_6 = (
@@ -52,7 +55,15 @@ def float64() -> Iterator[None]:
 
 def _inlets() -> dict[str, Stream]:
     constant = bsm1_influent_profiles()["constant"]
-    return {"influent": Stream(flow=jnp.array(constant.flow[0]), components=jnp.array(constant.components[0]), schema=ASM1_SCHEMA)}
+    influent = Stream(
+        flow=jnp.array(constant.flow[0]),
+        components=jnp.array(constant.components[0]),
+        temperature_k=jnp.array(constant.temperature[0] + ZERO_CELSIUS),
+        pressure_pa=jnp.array(BSM1_PRESSURE_PA),
+        schema=ASM1_SCHEMA,
+        phase=Phase.LIQUID,
+    )
+    return {"influent": influent}
 
 
 def _signals() -> dict[str, jax.Array]:

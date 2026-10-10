@@ -4,8 +4,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 import jax
+import jax.numpy as jnp
 
-from process_control.components import ComponentSchema
+from process_control.components import ComponentSchema, Quantity
+
+CONTEXT_TEMPERATURE = "temperature_k"
 
 
 class Phase(StrEnum):
@@ -50,6 +53,14 @@ class PortSpec:
     schema: ComponentSchema
     phase: Phase
 
+    def __post_init__(self) -> None:
+        if self.phase is not Phase.GAS:
+            return
+        coordinates = zip(self.schema.names, self.schema.bases, strict=True)
+        invalid = [name for name, basis in coordinates if basis.quantity is not Quantity.SPECIES or basis.unit != "mol/mol"]
+        if invalid:
+            raise ValueError(f"gas components must be molecular species in mol/mol, got {invalid}")
+
 
 @dataclass(frozen=True)
 class EvaluationGroup:
@@ -76,6 +87,28 @@ class GroupResult:
 
 
 jax.tree_util.register_dataclass(GroupResult, data_fields=["values", "diagnostics"], meta_fields=[])
+
+
+@dataclass(frozen=True)
+class PrescribedContext:
+    """Isothermal, constant-pressure outlets: temperature (K) read from an input signal and a fixed absolute pressure (Pa).
+
+    The context is a boundary condition, not a solved energy or pressure balance, so it reads no inlet field.
+    """
+
+    pressure_pa: float
+
+    def group(self, outlets: Sequence[str]) -> EvaluationGroup:
+        context = (StreamField.TEMPERATURE, StreamField.PRESSURE)
+        return EvaluationGroup(
+            "context",
+            outputs=tuple(LocalField(port, field) for port in outlets for field in context),
+            reads=(),
+            input_names=(CONTEXT_TEMPERATURE,),
+        )
+
+    def evaluate(self, outlets: Sequence[str], inputs: Mapping[str, jax.Array]) -> GroupResult:
+        return GroupResult((inputs[CONTEXT_TEMPERATURE], jnp.asarray(self.pressure_pa)) * len(outlets))
 
 
 def validate_groups(

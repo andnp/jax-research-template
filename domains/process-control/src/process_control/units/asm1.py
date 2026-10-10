@@ -72,6 +72,10 @@ class ArrheniusCoeffs:
     theta_k_a: float = 0.044629  # ammonification: ln(0.05/0.04)/5
 
 
+# A chosen benchmark context, not a calibrated plant pressure: BSM1 models no hydraulics.
+BSM1_PRESSURE_PA = 101325.0
+
+
 def bsm1_oxygen_saturation(temperature: jax.Array):
     """O₂ saturation (g/m³) at a temperature (°C) by the BSM1_LT/BSM2 convention.
 

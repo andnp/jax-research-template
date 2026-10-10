@@ -1,6 +1,7 @@
 """Influent replayed from tabulated, periodic profiles with per-episode randomization.
 
-Times are in hours, flows in m³/h and temperatures in °C.
+Times are in hours, flows in m³/h and temperatures in °C. The influent stream is liquid at the profile
+temperature and the params' pressure; a plant that runs at another effective temperature restamps it.
 """
 
 import dataclasses
@@ -16,8 +17,10 @@ import numpy as np
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.components import ComponentSchema
+from process_control.fields import Phase
+from process_control.kinetics import ZERO_CELSIUS
 from process_control.streams import Stream
-from process_control.units.asm1 import ASM1_SCHEMA
+from process_control.units.asm1 import ASM1_SCHEMA, BSM1_PRESSURE_PA
 
 
 class Sampler(Protocol):
@@ -90,10 +93,11 @@ NO_RANDOMIZATION = InfluentRandomization(
 
 @dataclass(frozen=True, eq=False)
 class TabularInfluentParams:
-    """Named influent profiles over one component schema, and their per-episode randomization."""
+    """Named influent profiles over one component schema at an absolute pressure (Pa), and their per-episode randomization."""
 
     schema: ComponentSchema
     profiles: Mapping[str, InfluentProfile]
+    pressure_pa: float
     randomization: InfluentRandomization = DEFAULT_RANDOMIZATION
 
     def __post_init__(self) -> None:
@@ -137,7 +141,7 @@ def reset(params: TabularInfluentParams, rng_key: jax.Array) -> TabularInfluentS
 
 
 def influent(state: TabularInfluentState, params: TabularInfluentParams) -> tuple[Stream, jax.Array]:
-    """The influent stream and its temperature at the episode's current time."""
+    """The influent stream and its temperature (°C) at the episode's current time."""
     branches = [profile.at for profile in params.profiles.values()]
     components, flow, temperature = jax.lax.switch(state.profile, branches, state.time)
 
@@ -146,7 +150,15 @@ def influent(state: TabularInfluentState, params: TabularInfluentParams) -> tupl
     mask = np.array([scaled is None or name in scaled for name in params.schema.names])
     components = components * jnp.where(mask, state.load_scale, 1.0)
     flow = flow * state.flow_scale * jnp.exp(state.flow_noise - 0.5 * randomization.flow_noise_std**2)
-    return Stream(flow=flow, components=components, schema=params.schema), temperature
+    stream = Stream(
+        flow=flow,
+        components=components,
+        temperature_k=temperature + ZERO_CELSIUS,
+        pressure_pa=jnp.asarray(params.pressure_pa),
+        schema=params.schema,
+        phase=Phase.LIQUID,
+    )
+    return stream, temperature
 
 
 def advance(state: TabularInfluentState, params: TabularInfluentParams, dt: jax.Array, rng_key: jax.Array) -> TabularInfluentState:
@@ -189,4 +201,4 @@ def bsm1_influent_profiles() -> Mapping[str, InfluentProfile]:
 
 def bsm1_influent(randomization: InfluentRandomization = DEFAULT_RANDOMIZATION) -> TabularInfluentParams:
     """The BSM1 profiles over the ASM1 schema, in the order constant, dry, rain, storm."""
-    return TabularInfluentParams(schema=ASM1_SCHEMA, profiles=bsm1_influent_profiles(), randomization=randomization)
+    return TabularInfluentParams(schema=ASM1_SCHEMA, profiles=bsm1_influent_profiles(), pressure_pa=BSM1_PRESSURE_PA, randomization=randomization)

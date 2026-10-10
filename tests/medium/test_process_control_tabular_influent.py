@@ -34,7 +34,7 @@ FLAT = InfluentProfile(
 
 
 def _params(randomization: InfluentRandomization = NO_RANDOMIZATION) -> TabularInfluentParams:
-    return TabularInfluentParams(schema=SCHEMA, profiles={"ramp": RAMP, "flat": FLAT}, randomization=randomization)
+    return TabularInfluentParams(schema=SCHEMA, profiles={"ramp": RAMP, "flat": FLAT}, pressure_pa=101325.0, randomization=randomization)
 
 
 def _state(profile: int = 0, time: float = 0.0, flow_scale: float = 1.0, load_scale: float = 1.0) -> TabularInfluentState:
@@ -119,7 +119,7 @@ class TestEpisodeRandomization:
 
     def test_no_randomization_replays_the_first_profile_from_its_start(self) -> None:
         """With every factor fixed at one, a single-profile episode is the raw record."""
-        params = TabularInfluentParams(schema=SCHEMA, profiles={"ramp": RAMP}, randomization=NO_RANDOMIZATION)
+        params = TabularInfluentParams(schema=SCHEMA, profiles={"ramp": RAMP}, pressure_pa=101325.0, randomization=NO_RANDOMIZATION)
 
         stream, _ = influent(reset(params, jax.random.key(3)), params)
 
@@ -131,7 +131,7 @@ class TestFlowNoise:
     def test_noise_has_unit_mean_and_the_configured_persistence(self) -> None:
         """AR(1) flow noise keeps the mean flow and decorrelates over its correlation time."""
         randomization = dataclasses.replace(NO_RANDOMIZATION, flow_noise_std=0.1, flow_noise_correlation_time=2.0)
-        params = TabularInfluentParams(schema=SCHEMA, profiles={"flat": FLAT}, randomization=randomization)
+        params = TabularInfluentParams(schema=SCHEMA, profiles={"flat": FLAT}, pressure_pa=101325.0, randomization=randomization)
         dt = jnp.array(0.5)
 
         def evolve(state: TabularInfluentState, key: jax.Array) -> tuple[TabularInfluentState, jax.Array]:
@@ -172,7 +172,7 @@ class TestValidation:
         other = ComponentSchema(names=("a",), particulate=(False,), tss_factor=(0.0,), bases=(TRACER,))
 
         with pytest.raises(ValueError, match="do not carry the 1 schema components"):
-            TabularInfluentParams(schema=other, profiles={"ramp": RAMP})
+            TabularInfluentParams(schema=other, profiles={"ramp": RAMP}, pressure_pa=101325.0)
 
     def test_weights_must_cover_every_profile(self) -> None:
         """One weight is needed per profile."""

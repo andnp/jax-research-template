@@ -1,10 +1,12 @@
 import jax.numpy as jnp
 import pytest
 from process_control.benchmarks.bsm1_measurements import PlantSnapshot, blanket_height, measurement, stream_qualities, take_snapshot
+from process_control.fields import Phase
+from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import BSM1_LAYOUT, BSM1_OPEN_LOOP_LAYER_TSS, activated_sludge_flowsheet, bsm1_open_loop_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
 from process_control.streams import Stream
-from process_control.units.asm1 import ASM1_SCHEMA, ASM1Params
+from process_control.units.asm1 import ASM1_SCHEMA, BSM1_PRESSURE_PA, ASM1Params
 from process_control.units.layered_settler import BSM1_SETTLER
 
 THRESHOLD = 1500.0
@@ -60,13 +62,21 @@ class TestStreamQualities:
 @pytest.fixture(scope="module")
 def open_loop() -> PlantSnapshot:
     constant = bsm1_influent_profiles()["constant"]
-    influent = Stream(flow=jnp.array(constant.flow[0]), components=jnp.array(constant.components[0]), schema=ASM1_SCHEMA)
+    influent = Stream(
+        flow=jnp.array(constant.flow[0]),
+        components=jnp.array(constant.components[0]),
+        temperature_k=jnp.array(constant.temperature[0] + ZERO_CELSIUS),
+        pressure_pa=jnp.array(BSM1_PRESSURE_PA),
+        schema=ASM1_SCHEMA,
+        phase=Phase.LIQUID,
+    )
     signals = {
         **{f"kla_{index}": jnp.array(value) for index, value in enumerate((0.0, 0.0, 10.0, 10.0, 3.5), start=1)},
         "q_a": jnp.array(55338.0 / 24.0),
         "q_r": jnp.array(18446.0 / 24.0),
         "q_underflow": jnp.array(18831.0 / 24.0),
         "temperature": jnp.array(15.0),
+        "temperature_k": jnp.array(288.15),
     }
     handles = {"kla_5": jnp.array(3.5), "q_a": jnp.array(55338.0 / 24.0)}
     return take_snapshot(

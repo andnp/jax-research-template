@@ -6,10 +6,21 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.components import ComponentSchema
+from process_control.field_graph import CompiledGroups, External, GroupId, Source, compile_groups
+from process_control.fields import (
+    CONTEXT_TEMPERATURE,
+    EvaluationGroup,
+    FieldRef,
+    GroupResult,
+    LocalField,
+    PortSpec,
+    PrescribedContext,
+    StreamField,
+    validate_groups,
+)
 from process_control.integration import rk4_substeps
-from process_control.streams import Stream, mix
-from process_control.units.contract import ContinuousUnit, Outlet
+from process_control.streams import Stream, mix_components
+from process_control.units.contract import ContinuousUnit, evaluate, outlet_streams
 
 type Signals = Mapping[str, jax.Array]
 
@@ -22,33 +33,59 @@ class Port(NamedTuple):
         return f"{self.node}.{self.port}"
 
 
+FLOW = StreamField.FLOW
+COMPONENTS = StreamField.COMPONENTS
+SPLIT_DEFICIT = "split_deficit"
+
+
 @dataclass(frozen=True)
 class Mixer:
-    """Stateless junction combining its inlets into one flow-weighted outlet."""
+    """Stateless junction combining same-phase inlets into one outlet at a prescribed temperature and pressure."""
 
-    schema: ComponentSchema
+    port: PortSpec
     inlets: tuple[str, ...]
+    context: PrescribedContext
 
     @property
-    def inlet_ports(self) -> Mapping[str, ComponentSchema]:
-        return dict.fromkeys(self.inlets, self.schema)
+    def inlet_ports(self) -> Mapping[str, PortSpec]:
+        return dict.fromkeys(self.inlets, self.port)
 
     @property
-    def outlet_ports(self) -> Mapping[str, Outlet]:
-        return {"out": Outlet(self.schema, flow_from=frozenset(self.inlets), composition_from=frozenset(self.inlets))}
+    def outlet_ports(self) -> Mapping[str, PortSpec]:
+        return {"out": self.port}
+
+    @property
+    def evaluation_groups(self) -> tuple[EvaluationGroup, ...]:
+        flows = tuple(LocalField(name, FLOW) for name in self.inlets)
+        compositions = tuple(LocalField(name, COMPONENTS) for name in self.inlets)
+        return (
+            EvaluationGroup("flow", outputs=(LocalField("out", FLOW),), reads=flows),
+            EvaluationGroup("composition", outputs=(LocalField("out", COMPONENTS),), reads=flows + compositions),
+            self.context.group(("out",)),
+        )
 
     @property
     def input_ports(self) -> tuple[str, ...]:
-        return ()
+        return (CONTEXT_TEMPERATURE,)
+
+    @property
+    def stateful(self) -> bool:
+        return False
+
+    def evaluate_group(self, group_name: str, state: None, reads: Mapping[LocalField, jax.Array], inputs: Signals, params: None) -> GroupResult:
+        match group_name:
+            case "flow":
+                return GroupResult((jnp.sum(jnp.stack([reads[LocalField(name, FLOW)] for name in self.inlets])),))
+            case "composition":
+                flows = [reads[LocalField(name, FLOW)] for name in self.inlets]
+                compositions = [reads[LocalField(name, COMPONENTS)] for name in self.inlets]
+                return GroupResult((mix_components(self.port.phase, flows, compositions),))
+            case "context":
+                return self.context.evaluate(("out",), inputs)
+        raise ValueError(f"mixer has no group {group_name!r}")
 
     def derivatives(self, state: None, inlets: Mapping[str, Stream], inputs: Signals, params: None) -> None:
         return None
-
-    def outlet_flows(self, state: None, inlet_flows: Mapping[str, jax.Array], inputs: Signals, params: None) -> Mapping[str, jax.Array]:
-        return {"out": jnp.sum(jnp.stack([inlet_flows[name] for name in self.inlets]))}
-
-    def outlet_compositions(self, state: None, inlets: Mapping[str, Stream], inputs: Signals, params: None) -> Mapping[str, jax.Array]:
-        return {"out": mix(*(inlets[name] for name in self.inlets)).components}
 
     def project(self, state: None, params: None) -> None:
         return None
@@ -60,10 +97,10 @@ class Splitter:
 
     Draws are clamped at zero but not capped by the inlet flow, because a cap inside a recycle is a
     genuine algebraic loop. The remainder is clamped at zero instead, and whatever the split could not
-    honour is reported as its deficit.
+    honour is reported as its deficit. Every outlet carries the inlet's composition, temperature and pressure.
     """
 
-    schema: ComponentSchema
+    port: PortSpec
     draws: tuple[str, ...]
     remainder: str
 
@@ -73,37 +110,67 @@ class Splitter:
             raise ValueError(f"splitter outlet names must be unique: {names}")
 
     @property
-    def inlet_ports(self) -> Mapping[str, ComponentSchema]:
-        return {"in": self.schema}
+    def inlet_ports(self) -> Mapping[str, PortSpec]:
+        return {"in": self.port}
 
     @property
-    def outlet_ports(self) -> Mapping[str, Outlet]:
-        feed = frozenset({"in"})
-        draws = {name: Outlet(self.schema, composition_from=feed) for name in self.draws}
-        return {**draws, self.remainder: Outlet(self.schema, flow_from=feed, composition_from=feed)}
+    def outlet_ports(self) -> Mapping[str, PortSpec]:
+        return dict.fromkeys(self._outlets, self.port)
+
+    @property
+    def evaluation_groups(self) -> tuple[EvaluationGroup, ...]:
+        def forwarded(name: str, kind: StreamField) -> EvaluationGroup:
+            return EvaluationGroup(name, outputs=tuple(LocalField(port, kind) for port in self._outlets), reads=(LocalField("in", kind),))
+
+        return (
+            EvaluationGroup("draw_flows", outputs=tuple(LocalField(name, FLOW) for name in self.draws), reads=(), input_names=self.draws),
+            EvaluationGroup(
+                "remainder_flow",
+                outputs=(LocalField(self.remainder, FLOW),),
+                reads=(LocalField("in", FLOW),),
+                input_names=self.draws,
+                diagnostic_names=(SPLIT_DEFICIT,),
+            ),
+            forwarded("composition", COMPONENTS),
+            forwarded("temperature", StreamField.TEMPERATURE),
+            forwarded("pressure", StreamField.PRESSURE),
+        )
 
     @property
     def input_ports(self) -> tuple[str, ...]:
         return self.draws
 
+    @property
+    def stateful(self) -> bool:
+        return False
+
+    def evaluate_group(self, group_name: str, state: None, reads: Mapping[LocalField, jax.Array], inputs: Signals, params: None) -> GroupResult:
+        match group_name:
+            case "draw_flows":
+                return GroupResult(tuple(self._draws(inputs).values()))
+            case "remainder_flow":
+                draws = self._draws(inputs)
+                inflow = reads[LocalField("in", FLOW)]
+                refused = _total(draws[name] - inputs[name] for name in self.draws)
+                deficit = refused + jnp.maximum(_total(draws.values()) - inflow, 0.0)
+                return GroupResult((jnp.maximum(inflow - _total(draws.values()), 0.0),), (deficit,))
+            case "composition":
+                return GroupResult((reads[LocalField("in", COMPONENTS)],) * len(self._outlets))
+            case "temperature":
+                return GroupResult((reads[LocalField("in", StreamField.TEMPERATURE)],) * len(self._outlets))
+            case "pressure":
+                return GroupResult((reads[LocalField("in", StreamField.PRESSURE)],) * len(self._outlets))
+        raise ValueError(f"splitter has no group {group_name!r}")
+
     def derivatives(self, state: None, inlets: Mapping[str, Stream], inputs: Signals, params: None) -> None:
         return None
-
-    def outlet_flows(self, state: None, inlet_flows: Mapping[str, jax.Array], inputs: Signals, params: None) -> Mapping[str, jax.Array]:
-        draws = self._draws(inputs)
-        return {**draws, self.remainder: jnp.maximum(inlet_flows["in"] - _total(draws.values()), 0.0)}
-
-    def outlet_compositions(self, state: None, inlets: Mapping[str, Stream], inputs: Signals, params: None) -> Mapping[str, jax.Array]:
-        return {name: inlets["in"].components for name in (*self.draws, self.remainder)}
 
     def project(self, state: None, params: None) -> None:
         return None
 
-    def deficit(self, inlet_flow: jax.Array, inputs: Signals) -> jax.Array:
-        """Requested flow the split cannot honour: negative draws plus draws beyond the inflow."""
-        draws = self._draws(inputs)
-        refused = _total(draws[name] - inputs[name] for name in self.draws)
-        return refused + jnp.maximum(_total(draws.values()) - inlet_flow, 0.0)
+    @property
+    def _outlets(self) -> tuple[str, ...]:
+        return (*self.draws, self.remainder)
 
     def _draws(self, inputs: Signals) -> dict[str, jax.Array]:
         return {name: jnp.maximum(inputs[name], 0.0) for name in self.draws}
@@ -127,16 +194,20 @@ class Node[S, P]:
 
 @jax_dataclass
 class FlowsheetReport:
+    """Every resolved stream, the external outlets among them, and each group diagnostic keyed by (node, name)."""
+
     outlets: dict[str, Stream]
     streams: dict[Port, Stream]
     split_deficits: dict[str, jax.Array]
+    diagnostics: dict[tuple[str, str], jax.Array]
 
 
 @dataclass(frozen=True, eq=False)
 class Flowsheet:
     """A validated plant graph integrated as one coupled ODE over a mapping of node states.
 
-    Build it with `build_flowsheet`. The plant state holds one entry per node that is not a junction.
+    Build it with `build_flowsheet`. The plant state holds one entry per stateful node. Every resolution
+    evaluates each compiled evaluation group once, in dependency order, and keeps nothing between calls.
     Hashed by identity so it can be a static argument to `jax.jit`.
     """
 
@@ -145,15 +216,15 @@ class Flowsheet:
     external_inlets: Mapping[str, Port]
     external_outlets: Mapping[str, Port]
     routes: Mapping[str, Mapping[str, str]]
-    flow_order: tuple[Port, ...]
-    composition_order: tuple[Port, ...]
+    groups: Mapping[GroupId, EvaluationGroup]
+    plan: CompiledGroups
 
     @property
     def stateful_nodes(self) -> tuple[str, ...]:
-        return tuple(name for name, node in self.nodes.items() if not isinstance(node.unit, Mixer | Splitter))
+        return tuple(name for name, node in self.nodes.items() if node.unit.stateful)
 
     def derivatives(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> Mapping[str, object]:
-        streams = self._resolve(state, inlets, inputs)
+        streams, _ = self._resolve(state, inlets, inputs)
         return {
             name: self.nodes[name].unit.derivatives(
                 state[name], self._inlets_of(name, streams, inlets), self._inputs_of(name, inputs), self.nodes[name].params
@@ -176,72 +247,61 @@ class Flowsheet:
         return rk4_substeps(self.derivatives, self.project, state, dt, substeps, inlets, inputs)
 
     def report(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> FlowsheetReport:
-        streams = self._resolve(state, inlets, inputs)
-        deficits = {
-            name: node.unit.deficit(self._inlets_of(name, streams, inlets)["in"].flow, self._inputs_of(name, inputs))
-            for name, node in self.nodes.items()
-            if isinstance(node.unit, Splitter)
-        }
+        streams, diagnostics = self._resolve(state, inlets, inputs)
         return FlowsheetReport(
             outlets={name: streams[port] for name, port in self.external_outlets.items()},
             streams=streams,
-            split_deficits=deficits,
+            split_deficits={node: value for (node, name), value in diagnostics.items() if name == SPLIT_DEFICIT},
+            diagnostics=diagnostics,
         )
 
-    def _resolve(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> dict[Port, Stream]:
+    def _resolve(
+        self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals
+    ) -> tuple[dict[Port, Stream], dict[tuple[str, str], jax.Array]]:
         if set(state) != set(self.stateful_nodes):
             raise ValueError(f"plant state must hold exactly the nodes {sorted(self.stateful_nodes)}, got {sorted(state)}")
         for name, port in self.external_inlets.items():
             expected = self.nodes[port.node].unit.inlet_ports[port.port]
             if name not in inlets:
                 raise ValueError(f"missing external inlet {name!r}")
-            if inlets[name].schema != expected:
-                raise ValueError(f"external inlet {name!r} carries {inlets[name].schema.names} but {port} expects {expected.names}")
+            if inlets[name].schema != expected.schema:
+                raise ValueError(f"external inlet {name!r} carries {inlets[name].schema.names} but {port} expects {expected.schema.names}")
+            if inlets[name].phase is not expected.phase:
+                raise ValueError(f"external inlet {name!r} is {inlets[name].phase} but {port} expects {expected.phase}")
 
-        flows: dict[Port, jax.Array] = {}
-        flow_calls: dict[tuple[str, frozenset[str]], Mapping[str, jax.Array]] = {}
-        for port in self.flow_order:
-            node = self.nodes[port.node]
-            call = (port.node, node.unit.outlet_ports[port.port].flow_from)
-            if call not in flow_calls:
-                inlet_flows = {name: self._inlet_flow(Port(port.node, name), flows, inlets) for name in node.unit.inlet_ports}
-                flow_calls[call] = node.unit.outlet_flows(state.get(port.node), inlet_flows, self._inputs_of(port.node, inputs), node.params)
-            flows[port] = flow_calls[call][port.port]
+        values: dict[str, dict[LocalField, jax.Array]] = {name: {} for name in self.nodes}
+        diagnostics: dict[tuple[str, str], jax.Array] = {}
+        for gid in self.plan.order:
+            node, group = self.nodes[gid.node], self.groups[gid]
+            reads = {
+                read: self._source_value(source, values, inlets)
+                for read, source in zip(group.reads, self.plan.sources[gid], strict=True)
+            }
+            group_inputs = {name: inputs[self.routes[gid.node][name]] for name in group.input_names}
+            result = evaluate(node.unit, group, state.get(gid.node), reads, group_inputs, node.params)
+            values[gid.node].update(zip(group.outputs, result.values, strict=True))
+            diagnostics.update(((gid.node, name), value) for name, value in zip(group.diagnostic_names, result.diagnostics, strict=True))
 
-        streams: dict[Port, Stream] = {}
-        composition_calls: dict[tuple[str, frozenset[str]], Mapping[str, jax.Array]] = {}
-        for port in self.composition_order:
-            node = self.nodes[port.node]
-            outlet = node.unit.outlet_ports[port.port]
-            call = (port.node, outlet.composition_from)
-            if call not in composition_calls:
-                node_inlets = {name: self._inlet_stream(Port(port.node, name), flows, streams, inlets) for name in node.unit.inlet_ports}
-                composition_calls[call] = node.unit.outlet_compositions(
-                    state.get(port.node), node_inlets, self._inputs_of(port.node, inputs), node.params
-                )
-            streams[port] = Stream(flow=flows[port], components=composition_calls[call][port.port], schema=outlet.schema)
-        return streams
+        streams = {
+            Port(name, port): stream
+            for name, node in self.nodes.items()
+            for port, stream in outlet_streams(node.unit.outlet_ports, values[name]).items()
+        }
+        return streams, diagnostics
 
-    def _inlet_flow(self, inlet: Port, flows: Mapping[Port, jax.Array], inlets: Mapping[str, Stream]) -> jax.Array:
-        source = self.sources[inlet]
-        if isinstance(source, str):
-            return inlets[source].flow
-        # Placeholder for an inlet the outlet being evaluated does not declare, so must not read.
-        return flows.get(source, jnp.zeros(()))
-
-    def _inlet_stream(
-        self, inlet: Port, flows: Mapping[Port, jax.Array], streams: Mapping[Port, Stream], inlets: Mapping[str, Stream]
-    ) -> Stream:
-        source = self.sources[inlet]
-        if isinstance(source, str):
-            return inlets[source]
-        if source in streams:
-            return streams[source]
-        schema = self.nodes[source.node].unit.outlet_ports[source.port].schema
-        return Stream(flow=flows[source], components=jnp.zeros(len(schema.names)), schema=schema)
+    def _source_value(self, source: Source, values: Mapping[str, Mapping[LocalField, jax.Array]], inlets: Mapping[str, Stream]) -> jax.Array:
+        if isinstance(source, External):
+            external = self.sources[Port(source.inlet.node, source.inlet.port)]
+            assert isinstance(external, str)
+            return inlets[external].value(source.inlet.field)
+        return values[source.node][LocalField(source.port, source.field)]
 
     def _inlets_of(self, name: str, streams: Mapping[Port, Stream], inlets: Mapping[str, Stream]) -> dict[str, Stream]:
-        return {port: self._inlet_stream(Port(name, port), {}, streams, inlets) for port in self.nodes[name].unit.inlet_ports}
+        resolved: dict[str, Stream] = {}
+        for port in self.nodes[name].unit.inlet_ports:
+            source = self.sources[Port(name, port)]
+            resolved[port] = inlets[source] if isinstance(source, str) else streams[source]
+        return resolved
 
     def _inputs_of(self, name: str, inputs: Signals) -> dict[str, jax.Array]:
         return {port: inputs[signal] for port, signal in self.routes[name].items()}
@@ -253,25 +313,22 @@ def build_flowsheet(
     inlets: Mapping[str, Port],
     outlets: Mapping[str, Port],
 ) -> Flowsheet:
-    """Validate a plant graph and fix its evaluation order.
+    """Validate a plant graph and compile the dependency order of its evaluation groups.
 
     `connections` are (outlet, inlet) pairs; `inlets` and `outlets` name the external streams and the
     node ports they feed or leave from. Every node inlet must be fed once and every node outlet consumed
-    once, so the graph conserves flow.
+    once, so the graph conserves flow. Connected ports must agree on schema and phase.
     """
     routes = {name: _route(name, node) for name, node in nodes.items()}
     for name, node in nodes.items():
-        _check_dependencies(name, node)
+        _check_groups(name, node)
 
     sources: dict[Port, Port | str] = {}
     consumers: dict[Port, str] = {}
     for source, target in connections:
         _claim(consumers, _outlet(nodes, source), str(target))
         _claim(sources, _inlet(nodes, target), source)
-        carried = nodes[source.node].unit.outlet_ports[source.port].schema
-        expected = nodes[target.node].unit.inlet_ports[target.port]
-        if carried != expected:
-            raise ValueError(f"schema mismatch: {source} carries {carried.names} but {target} expects {expected.names}")
+        _check_compatible(source, nodes[source.node].unit.outlet_ports[source.port], target, nodes[target.node].unit.inlet_ports[target.port])
     for name, target in inlets.items():
         _claim(sources, _inlet(nodes, target), name)
     for name, source in outlets.items():
@@ -284,14 +341,19 @@ def build_flowsheet(
     if unused:
         raise ValueError(f"unconnected outlets: {', '.join(unused)}")
 
+    internal = {(inlet.node, inlet.port): (source.node, source.port) for inlet, source in sources.items() if isinstance(source, Port)}
+    external = {FieldRef(port.node, port.port, kind) for port in inlets.values() for kind in StreamField}
+    plan = compile_groups({name: node.unit.evaluation_groups for name, node in nodes.items()}, internal, external)
+    groups = {GroupId(name, group.name): group for name, node in nodes.items() for group in node.unit.evaluation_groups}
+
     return Flowsheet(
         nodes=nodes,
         sources=sources,
         external_inlets=inlets,
         external_outlets=outlets,
         routes=routes,
-        flow_order=_schedule(nodes, sources, flow=True),
-        composition_order=_schedule(nodes, sources, flow=False),
+        groups=groups,
+        plan=plan,
     )
 
 
@@ -302,11 +364,23 @@ def _route(name: str, node: Node) -> dict[str, str]:
     return {port: node.inputs.get(port, port) for port in node.unit.input_ports}
 
 
-def _check_dependencies(name: str, node: Node) -> None:
-    for port, outlet in node.unit.outlet_ports.items():
-        unknown = (outlet.flow_from | outlet.composition_from) - set(node.unit.inlet_ports)
+def _check_groups(name: str, node: Node) -> None:
+    unit = node.unit
+    try:
+        validate_groups(unit.evaluation_groups, unit.inlet_ports, unit.outlet_ports)
+    except ValueError as error:
+        raise ValueError(f"node {name!r}: {error}") from error
+    for group in unit.evaluation_groups:
+        unknown = sorted(set(group.input_names) - set(unit.input_ports))
         if unknown:
-            raise ValueError(f"outlet {name}.{port} depends on unknown inlets {sorted(unknown)}")
+            raise ValueError(f"node {name!r}: group {group.name!r} reads undeclared input ports {unknown}")
+
+
+def _check_compatible(source: Port, carried: PortSpec, target: Port, expected: PortSpec) -> None:
+    if carried.phase is not expected.phase:
+        raise ValueError(f"phase mismatch: {source} carries {carried.phase} but {target} expects {expected.phase}")
+    if carried.schema != expected.schema:
+        raise ValueError(f"schema mismatch: {source} carries {carried.schema.names} but {target} expects {expected.schema.names}")
 
 
 def _outlet(nodes: Mapping[str, Node], port: Port) -> Port:
@@ -329,36 +403,3 @@ def _claim[V](claims: dict[Port, V], port: Port, claimant: V) -> None:
     if port in claims:
         raise ValueError(f"{port} is connected twice: to {claims[port]} and {claimant}")
     claims[port] = claimant
-
-
-def _schedule(nodes: Mapping[str, Node], sources: Mapping[Port, Port | str], *, flow: bool) -> tuple[Port, ...]:
-    """Order outlet ports so each follows the outlets it depends on algebraically, rejecting cycles."""
-
-    def dependencies(port: Port) -> list[Port]:
-        outlet = nodes[port.node].unit.outlet_ports[port.port]
-        reads = outlet.flow_from if flow else outlet.composition_from
-        upstream = (sources[Port(port.node, inlet)] for inlet in sorted(reads))
-        return [source for source in upstream if isinstance(source, Port)]
-
-    order: list[Port] = []
-    done: set[Port] = set()
-    path: list[Port] = []
-
-    def visit(port: Port) -> None:
-        if port in done:
-            return
-        if port in path:
-            cycle = [*path[path.index(port) :], port][::-1]
-            kind = "flow" if flow else "composition"
-            raise ValueError(f"algebraic loop in {kind}: {' -> '.join(map(str, cycle))}")
-        path.append(port)
-        for dependency in dependencies(port):
-            visit(dependency)
-        path.pop()
-        done.add(port)
-        order.append(port)
-
-    for name, node in nodes.items():
-        for port in node.unit.outlet_ports:
-            visit(Port(name, port))
-    return tuple(order)
