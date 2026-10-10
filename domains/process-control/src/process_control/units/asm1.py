@@ -80,31 +80,32 @@ class ArrheniusCoeffs:
     theta_k_a: float = 0.044629  # ammonification: ln(0.05/0.04)/5
 
 
+def bsm1_oxygen_saturation(temperature: jax.Array):
+    """O₂ saturation (g/m³) at a temperature (°C) by the BSM1_LT/BSM2 convention.
+
+    A Lide (2004) solubility correlation, scaled so it reproduces S_O,sat = 8 g/m³ at 15°C —
+    the BSM1 reference value — rather than the true ~10.3 g/m³ physical solubility at that
+    temperature. Vanrolleghem, Batstone & Pons (2009), "Temperature effects in BSM1_LT and
+    BSM2", eqs. 12-13: https://wwtmodels.pubpub.org/pub/01quq2jb
+    """
+    t_k_star = (temperature + 273.15) / 100.0
+    lide_a, lide_b, lide_c = -66.7354, 87.4755, 24.4526
+    solubility = 56.12 * jnp.exp(lide_a + lide_b / t_k_star + lide_c * jnp.log(t_k_star))
+    return 0.09521660204 * 8.0 * 6791.5 * solubility
+
+
 def apply_arrhenius(
     params: ASM1Params,
     temperature: jax.Array,
     coeffs: ArrheniusCoeffs | None = None,
 ):
-    """Return ASM1Params with rate constants corrected to the given temperature.
-
-    Also adjusts O₂ saturation using the BSM1_LT/BSM2 convention: a Lide (2004)
-    solubility correlation, scaled so it reproduces S_O,sat = 8 g/m³ at 15°C —
-    the BSM1 reference value — rather than the true ~10.3 g/m³ physical
-    solubility at that temperature. Vanrolleghem, Batstone & Pons (2009),
-    "Temperature effects in BSM1_LT and BSM2", eqs. 12-13:
-    https://wwtmodels.pubpub.org/pub/01quq2jb
-    """
+    """Return ASM1Params with rate constants and O₂ saturation corrected to the given temperature."""
     if coeffs is None:
         coeffs = ArrheniusCoeffs()
     dt = temperature - params.t_ref
 
     def _corr(base: float | jax.Array, theta: float):
         return base * jnp.exp(theta * dt)
-
-    t_k_star = (temperature + 273.15) / 100.0
-    lide_a, lide_b, lide_c = -66.7354, 87.4755, 24.4526
-    solubility = 56.12 * jnp.exp(lide_a + lide_b / t_k_star + lide_c * jnp.log(t_k_star))
-    s_o_sat_t = 0.09521660204 * 8.0 * 6791.5 * solubility
 
     return ASM1Params(
         volume=params.volume,
@@ -127,7 +128,7 @@ def apply_arrhenius(
         k_a=_corr(params.k_a, coeffs.theta_k_a),
         i_xb=params.i_xb,
         i_xp=params.i_xp,
-        s_o_sat=s_o_sat_t,
+        s_o_sat=bsm1_oxygen_saturation(temperature),
         t_ref=params.t_ref,
     )
 
