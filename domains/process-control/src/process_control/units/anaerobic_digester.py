@@ -86,8 +86,8 @@ _DH_PKA1_CO2 = 7646.0  # J/mol, verified — see note above
 # Composite substrate elemental formula (C_a H_b O_c N_d), representative of
 # municipal primary/WAS sludge: C10H19O3N (Tchobanoglous, Burton & Stensel,
 # "Wastewater Engineering", 4th ed., Metcalf & Eddy, 2003, Ch.4). Both the
-# CH4:CO2 production ratio (`ADM1Params.co2_ch4_molar_ratio`) and the
-# ammonification N-release yield (`ADM1Params.f_in_hyd`) are derived from
+# CH4:CO2 production ratio (`DigesterParams.co2_ch4_molar_ratio`) and the
+# ammonification N-release yield (`DigesterParams.f_in_hyd`) are derived from
 # these SAME four numbers via the Buswell equation, so they cannot drift
 # out of stoichiometric consistency with each other:
 #   CnHaObNc -> CH4*(n/2+a/8-b/4-3c/8) + CO2*(n/2-a/8+b/4+3c/8) + c*NH3
@@ -114,7 +114,7 @@ _SUBSTRATE_THOD = 8.0 * (
 
 
 @dataclass(frozen=True)
-class ADM1Params:
+class DigesterParams:
     volume: float = 3400.0  # digester volume (m³)
     headspace: float = 300.0  # gas headspace volume (m³)
     t_ref: float = 35.0  # reference temperature (°C)
@@ -210,7 +210,7 @@ class ADM1Params:
 
 
 @jax_dataclass
-class ADM1State:
+class DigesterState:
     x_substrate: jax.Array  # particulate substrate (mg-COD/L)
     x_biomass: jax.Array  # methanogenic biomass (mg-COD/L)
     x_inert: jax.Array  # inert particulate COD from hydrolysis remainder (mg-COD/L)
@@ -303,11 +303,11 @@ def _relax_to_gas_equilibrium(
 
 def reset(
     feed_cod: float,
-    params: ADM1Params,
+    params: DigesterParams,
     rng_key: jax.Array,
 ):
     """Initialize digester at approximate steady state."""
-    return ADM1State(
+    return DigesterState(
         x_substrate=jnp.array(feed_cod * 0.3),  # some undigested substrate
         x_biomass=jnp.array(1500.0),  # healthy biomass
         x_inert=jnp.array(0.0),
@@ -322,11 +322,11 @@ def reset(
 
 
 def step(
-    state: ADM1State,
+    state: DigesterState,
     feed_cod: jax.Array,
     q_feed: jax.Array,
     temperature: jax.Array,
-    params: ADM1Params,
+    params: DigesterParams,
     dt: jax.Array,
 ):
     """Advance digester by one timestep.
@@ -366,7 +366,7 @@ def step(
         d_s_vfa_hyd = r_hyd * params.f_vfa_hyd
         d_x_inert_hyd = r_hyd * params.f_xi_hyd
         # N release is tied to the VFA-forming (degraded) share only — see
-        # ADM1Params.f_in_hyd — not gross r_hyd, since the f_xi_hyd share
+        # DigesterParams.f_in_hyd — not gross r_hyd, since the f_xi_hyd share
         # never reaches the CH4/CO2-producing pathway either.
         d_s_in_hyd = r_hyd * params.f_vfa_hyd * params.f_in_hyd
 
@@ -380,7 +380,7 @@ def step(
         # COD-conserving remainder becomes CH4 (CO2 carries no COD).
         d_s_ch4_met = r_vfa_consumed * (1.0 - params.y_bio)
         # Buswell substrate stoichiometry (independent of the COD split
-        # above — see ADM1Params.co2_ch4_molar_ratio): CO2 production
+        # above — see DigesterParams.co2_ch4_molar_ratio): CO2 production
         # scales with CH4 production at the substrate's CO2:CH4 molar ratio.
         d_s_ic_met = d_s_ch4_met * params.co2_ch4_molar_ratio * (44.0 / 64.0)
 
@@ -434,7 +434,7 @@ def step(
         # retained in solution (as HCO3-, or exported with the effluent)
         # rather than vented, raising the gas-phase CH4 fraction above the
         # raw Buswell production ratio. p_ch4/p_co2 use the fixed nominal
-        # split (see ADM1Params.p_ch4_typical), not the still-settling
+        # split (see DigesterParams.p_ch4_typical), not the still-settling
         # `ch4_frac` below — see that field's docstring.
         hco3_as_co2 = (new_alk / 50.0) * 44.0  # mg CaCO3/L -> meq/L -> mg/L as CO2
         s_ch4_eq = kh_ch4 * params.p_ch4_typical * 64000.0  # mol/L -> mg-COD/L (64 g-COD/mol CH4)
@@ -459,7 +459,7 @@ def step(
         ch4_transferred_total = ch4_transferred_total + transferred_ch4
         co2_transferred_total = co2_transferred_total + transferred_co2
 
-        s = ADM1State(
+        s = DigesterState(
             x_substrate=new_x_sub,
             x_biomass=new_x_bio,
             x_inert=new_x_inert,
@@ -478,7 +478,7 @@ def step(
     q_biogas = (ch4_vol + co2_vol) / (dt + 1e-10)
     ch4_frac_out = jnp.where(q_biogas > 0.0, ch4_vol / (ch4_vol + co2_vol + 1e-10), ch4_frac)
 
-    new_state = ADM1State(
+    new_state = DigesterState(
         x_substrate=s.x_substrate,
         x_biomass=s.x_biomass,
         x_inert=s.x_inert,

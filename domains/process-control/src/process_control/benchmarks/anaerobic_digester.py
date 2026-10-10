@@ -25,7 +25,7 @@ from process_control.scenarios.sinusoidal_channel import ChannelParams, channel_
 from process_control.sensors.lagged import LaggedSensorParams, LaggedSensorState
 from process_control.sensors.lagged import reset as analyzer_reset
 from process_control.sensors.lagged import step as analyzer_step
-from process_control.units.anaerobic_digester import ADM1Params, ADM1State, _speciate_inorganic_carbon
+from process_control.units.anaerobic_digester import DigesterParams, DigesterState, _speciate_inorganic_carbon
 from process_control.units.anaerobic_digester import reset as digester_reset
 from process_control.units.anaerobic_digester import step as digester_step
 
@@ -33,7 +33,7 @@ from process_control.units.anaerobic_digester import step as digester_step
 @jax_dataclass
 class AnaerobicDigesterBenchState:
     step_count: jax.Array
-    digester_state: ADM1State
+    digester_state: DigesterState
     cod_drift: jax.Array
     vfa_sensor: LaggedSensorState
     ph_sensor: LaggedSensorState
@@ -48,7 +48,7 @@ class AnaerobicDigesterConfig:
     steps_per_day: int = 24
 
     # Digester
-    digester: ADM1Params = ADM1Params()
+    digester: DigesterParams = DigesterParams()
 
     # Feed COD variation
     feed_cod_mean: float = 30000.0  # mg/L (3% TS sludge)

@@ -24,9 +24,9 @@ from process_control.benchmarks.primary_clarifier import (
 )
 from process_control.benchmarks.reject_water import RejectWaterBenchState, RejectWaterConfig, make_reject_water_benchmark
 from process_control.chemistry.coagulation import CoagulationParams, coagulate
-from process_control.units.anaerobic_digester import ADM1Params, ADM1State
-from process_control.units.anaerobic_digester import reset as adm1_reset
-from process_control.units.anaerobic_digester import step as adm1_step
+from process_control.units.anaerobic_digester import DigesterParams, DigesterState
+from process_control.units.anaerobic_digester import reset as digester_reset
+from process_control.units.anaerobic_digester import step as digester_step
 from process_control.units.asm2d import N_COMPONENTS_ASM2D, ASM2dParams, make_default_influent_asm2d, reactions_asm2d
 from process_control.units.dewatering import DewateringParams, DewateringState
 from process_control.units.dewatering import reset as dw_reset
@@ -296,46 +296,46 @@ class TestCoagulation:
 
 
 # ---------------------------------------------------------------------------
-# Unit model: Anaerobic Digester (ADM1)
+# Unit model: Anaerobic Digester
 # ---------------------------------------------------------------------------
-class TestADM1Unit:
+class TestDigesterUnit:
     def test_biogas_production_positive(self) -> None:
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(0))
-        state2, q_biogas, ch4_frac, ph = adm1_step(
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(0))
+        state2, q_biogas, ch4_frac, ph = digester_step(
             state, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167),
         )
         assert float(q_biogas) > 0.0
 
     def test_ch4_fraction_in_range(self) -> None:
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(1))
-        _, _, ch4_frac, _ = adm1_step(
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(1))
+        _, _, ch4_frac, _ = digester_step(
             state, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167),
         )
         assert 0.3 < float(ch4_frac) < 0.9
 
     def test_ph_in_operating_range(self) -> None:
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(2))
-        _, _, _, ph = adm1_step(
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(2))
+        _, _, _, ph = digester_step(
             state, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167),
         )
         assert 5.0 < float(ph) < 9.0
 
     def test_vfa_stays_controlled_at_steady_feed(self) -> None:
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(3))
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(3))
         dt = jnp.array(0.04167)
         for _ in range(100):
-            state, _, _, _ = adm1_step(state, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, dt)
+            state, _, _, _ = digester_step(state, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, dt)
         assert float(state.s_vfa) < 2000.0
 
     def test_jit_compatible(self) -> None:
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(4))
-        def step_fn(s: ADM1State):
-            return adm1_step(s, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167))
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(4))
+        def step_fn(s: DigesterState):
+            return digester_step(s, jnp.array(30000.0), jnp.array(150.0), jnp.array(35.0), params, jnp.array(0.04167))
 
         jit_step = jax.jit(step_fn)
         s2, qb, ch4, ph = jit_step(state)
@@ -343,27 +343,27 @@ class TestADM1Unit:
         assert jnp.isfinite(ph)
 
 
-def _adm1_cod_pool(s: ADM1State) -> jax.Array:
+def _digester_cod_pool(s: DigesterState) -> jax.Array:
     # CO2 carries no COD; every other tracked pool is mg-COD/L.
     return s.x_substrate + s.x_biomass + s.x_inert + s.s_vfa + s.s_ch4
 
 
-class TestADM1CODConservation:
+class TestDigesterCODConservation:
     def test_cod_balance_over_multiple_steps(self) -> None:
         """Input COD equals effluent + CH4-COD vented + storage change, within numerical tolerance."""
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(5))
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(5))
         dt = jnp.array(0.04167)
         feed_cod = jnp.array(30000.0)
         q_feed = jnp.array(125.0)
         temperature = jnp.array(35.0)
         dilution = q_feed / params.volume
 
-        pool_before = _adm1_cod_pool(state)
+        pool_before = _digester_cod_pool(state)
 
-        def body(state: ADM1State, _step: None):
-            pool_start = _adm1_cod_pool(state)
-            state, q_biogas, ch4_frac, _ = adm1_step(state, feed_cod, q_feed, temperature, params, dt)
+        def body(state: DigesterState, _step: None):
+            pool_start = _digester_cod_pool(state)
+            state, q_biogas, ch4_frac, _ = digester_step(state, feed_cod, q_feed, temperature, params, dt)
             ch4_vol = q_biogas * ch4_frac * dt
             return state, (dilution * (feed_cod - pool_start) * dt, ch4_vol * 1000.0 / 22.4 * 64.0 / params.volume)
 
@@ -371,21 +371,21 @@ class TestADM1CODConservation:
         net_dilution_total = net_dilution.sum()
         ch4_cod_out_total = ch4_cod_out.sum()
 
-        delta_storage = _adm1_cod_pool(state) - pool_before
+        delta_storage = _digester_cod_pool(state) - pool_before
         residual = net_dilution_total - ch4_cod_out_total - delta_storage
         assert abs(float(residual)) < 0.01 * abs(float(net_dilution_total))
 
     def test_organic_overload_drops_ph(self) -> None:
         """A hydraulic/organic overload accumulates VFA and drops pH (acid-crash failure mode)."""
-        params = ADM1Params()
-        state = adm1_reset(30000.0, params, jax.random.PRNGKey(6))
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(6))
         dt = jnp.array(0.04167)
         feed_cod = jnp.array(30000.0)
         temperature = jnp.array(35.0)
 
-        def run(state: ADM1State, q_feed: float, n_steps: int):
-            def body(state: ADM1State, _step: None):
-                state, _, _, ph = adm1_step(state, feed_cod, jnp.array(q_feed), temperature, params, dt)
+        def run(state: DigesterState, q_feed: float, n_steps: int):
+            def body(state: DigesterState, _step: None):
+                state, _, _, ph = digester_step(state, feed_cod, jnp.array(q_feed), temperature, params, dt)
                 return state, ph
 
             return jax.lax.scan(body, state, None, length=n_steps)
