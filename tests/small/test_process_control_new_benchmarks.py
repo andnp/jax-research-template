@@ -244,7 +244,10 @@ class TestEqualizationTankBenchmark:
         assert reward.shape == ()
 
     def test_outlet_change_is_penalized_and_steady_outlet_is_not(self) -> None:
-        """Only a change in realized outlet flow incurs the rate penalty."""
+        """Only a change in realized outlet flow incurs the rate penalty.
+
+        Holding the previous realized outlet is free; stepping it by 20 is charged.
+        """
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
         k1, k2, k3 = jax.random.split(jax.random.PRNGKey(19), 3)
@@ -257,6 +260,10 @@ class TestEqualizationTankBenchmark:
         assert float(stepped["flow_rate_penalty"]) > 0.0
 
     def test_level_band_penalty_applies_only_outside_the_band(self) -> None:
+        """The level-band cost is zero at the centred start and positive near the brim.
+
+        The tank is forced to 97% of capacity to leave the configured band.
+        """
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
         k1, k2 = jax.random.split(jax.random.PRNGKey(23))
@@ -280,5 +287,9 @@ class TestEqualizationTankBenchmark:
         ],
     )
     def test_invalid_reward_config_is_rejected(self, overrides: dict[str, Any]) -> None:
+        """Negative weights, an inverted or out-of-range band and a zero ramp are rejected.
+
+        Each parametrized override breaks one reward or ramp configuration constraint.
+        """
         with pytest.raises(ValueError):
             make_equalization_tank_benchmark(EqualizationTankBenchmarkConfig(**overrides))
