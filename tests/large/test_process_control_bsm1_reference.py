@@ -19,6 +19,7 @@ from process_control.benchmarks.bsm1 import (
     bsm1_reference_closed_loop,
     make_bsm1_benchmark,
 )
+from process_control.benchmarks.bsm1_metrics import evaluate
 from process_control.plants.activated_sludge import BSM1_LAYOUT, BSM1_OPEN_LOOP_REACTORS, activated_sludge_flowsheet, settled_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
 from process_control.streams import Stream
@@ -45,6 +46,16 @@ OPEN_LOOP_DRY = {
     "mixing_energy": 240.0,
     "operational_cost": 16148.0073,
 }
+# Appendix 4, open loop, dry weather: 95th percentiles (g/m³), percent of time above and crossings of the limits.
+OPEN_LOOP_DRY_COMPLIANCE = {
+    "s_nh_95": 8.8818,
+    "n_tot_95": 18.5332,
+    "tss_95": 15.7415,
+    "n_tot_percent": 8.1845,
+    "s_nh_percent": 62.5,
+    "n_tot_violations": 5,
+    "s_nh_violations": 7,
+}
 # Appendix 5, closed loop, dry weather.
 CLOSED_LOOP_DRY = {
     "effluent_s_nh": 2.5392,
@@ -61,6 +72,15 @@ CLOSED_LOOP_DRY = {
     "mixing_energy": 240.0,
     "operational_cost": 16382.4027,
 }
+CLOSED_LOOP_DRY_COMPLIANCE = {
+    "s_nh_95": 7.3902,
+    "n_tot_95": 20.2693,
+    "tss_95": 15.7663,
+    "n_tot_percent": 18.3036,
+    "s_nh_percent": 17.1131,
+    "n_tot_violations": 7,
+    "s_nh_violations": 5,
+}
 # Appendix 5, closed-loop steady state under constant influent and ideal sensors: reactors 1-5.
 CLOSED_LOOP_STEADY_STATE = (
     (30.0, 3.2439, 1149.1683, 98.6029, 2552.1095, 151.6721, 446.9249, 0.0076964, 3.5133, 11.8312, 1.3621, 6.1775, 5.3399),
@@ -74,6 +94,10 @@ OPEN_LOOP_RTOL = 0.005
 # Closed loop adds sensor noise drawn differently from the reference's noise file; the controllers average
 # it out over the week, leaving differences an order of magnitude below this.
 CLOSED_LOOP_RTOL = 0.01
+# Percent of time above a limit, in percentage points: one 15-minute sample of the week is 0.15, and the
+# closed loop's different noise realisation moves a few samples across the limits.
+OPEN_LOOP_PERCENT_ATOL = 0.2
+CLOSED_LOOP_PERCENT_ATOL = 1.0
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -94,12 +118,30 @@ def _run(step: StepFn, state: BSM1State, days: int) -> tuple[BSM1State, dict[str
 
 
 def _evaluate(info: Mapping[str, jax.Array]) -> dict[str, float]:
-    """Flow-weighted effluent concentrations and mean indices over the evaluation week."""
-    window = {name: np.asarray(values[EVALUATION]) for name, values in info.items()}
-    flow = window["effluent_flow"]
-    concentrations = [name for name in OPEN_LOOP_DRY if name.startswith("effluent_") and name != "effluent_quality"]
-    weighted = {name: float(np.sum(window[name] * flow) / np.sum(flow)) for name in concentrations}
-    return weighted | {name: float(np.mean(window[name])) for name in OPEN_LOOP_DRY if name not in weighted}
+    """The reference's effluent averages and indices over the evaluation week."""
+    report = evaluate(info, EVALUATION.start, EVALUATION.stop)
+    effluent = {f"effluent_{quality}": float(value) for quality, value in report.effluent.items()}
+    return effluent | {name: float(value) for name, value in report.indices.items()}
+
+
+def _compliance(info: Mapping[str, jax.Array]) -> dict[str, float]:
+    """The reference's effluent violation statistics over the evaluation week."""
+    report = evaluate(info, EVALUATION.start, EVALUATION.stop)
+    return {
+        **{f"{quality}_95": float(value) for quality, value in report.percentile_95.items()},
+        **{f"{quality}_percent": float(report.percent_time_above_limit[quality]) for quality in ("n_tot", "s_nh")},
+        **{f"{quality}_violations": float(report.violations[quality]) for quality in ("n_tot", "s_nh")},
+    }
+
+
+def _assert_complies_like(measured: Mapping[str, float], reference: Mapping[str, float], rtol: float, percent_atol: float) -> None:
+    for name, value in reference.items():
+        if name.endswith("_95"):
+            assert abs(measured[name] - value) < rtol * value, (name, measured[name], value)
+        elif name.endswith("_percent"):
+            assert abs(measured[name] - value) < percent_atol, (name, measured[name], value)
+        else:
+            assert measured[name] == value, (name, measured[name], value)
 
 
 def _array(value: object) -> jax.Array:
@@ -113,7 +155,7 @@ def _relative_errors(measured: Mapping[str, float], reference: Mapping[str, floa
 
 class TestOpenLoop:
     def test_dry_weather_matches_appendix_4(self) -> None:
-        """Every handle at the open-loop point, the dry-weather week reproduces the open-loop effluent and cost indices."""
+        """Every handle at the open-loop point, the dry-weather week reproduces the open-loop effluent, cost and violation report."""
         handles = BSM1Handles(**{name: Fixed(value) for name, value in OperatingPoint().values().items()})
         config = dataclasses.replace(bsm1_reference_closed_loop("dry"), handles=handles)
         reset, step = make_bsm1_benchmark(config)
@@ -122,6 +164,7 @@ class TestOpenLoop:
 
         errors = _relative_errors(_evaluate(info), OPEN_LOOP_DRY)
         assert max(errors.values()) < OPEN_LOOP_RTOL, errors
+        _assert_complies_like(_compliance(info), OPEN_LOOP_DRY_COMPLIANCE, OPEN_LOOP_RTOL, OPEN_LOOP_PERCENT_ATOL)
 
     def test_constant_influent_settles_to_tables_6_to_8_from_anywhere(self) -> None:
         """From a uniform plant, 150 days of the stabilisation influent reach the published open-loop steady state."""
@@ -161,7 +204,7 @@ class TestClosedLoop:
         assert jnp.allclose(reactors, jnp.array(CLOSED_LOOP_STEADY_STATE), rtol=0.002, atol=1e-4)
 
     def test_dry_weather_matches_appendix_5(self, stabilised: BSM1State) -> None:
-        """From the stabilised plant, the noisy dry-weather week reproduces the closed-loop effluent and cost indices."""
+        """From the stabilised plant, the noisy dry-weather week reproduces the closed-loop effluent, cost and violation report."""
         reset, step = make_bsm1_benchmark(bsm1_reference_closed_loop("dry"))
         fresh, _ = reset(jax.random.key(3))
         start = dataclasses.replace(
@@ -178,5 +221,6 @@ class TestClosedLoop:
 
         errors = _relative_errors(_evaluate(info), CLOSED_LOOP_DRY)
         assert max(errors.values()) < CLOSED_LOOP_RTOL, errors
+        _assert_complies_like(_compliance(info), CLOSED_LOOP_DRY_COMPLIANCE, CLOSED_LOOP_RTOL, CLOSED_LOOP_PERCENT_ATOL)
         assert np.allclose(np.mean(np.asarray(info["q_a"][EVALUATION])) * 24.0, 18610.0822, rtol=0.01)
         assert np.allclose(np.mean(np.asarray(info["kla"][EVALUATION, 4])) * 24.0, 144.1219, rtol=0.01)
