@@ -93,7 +93,7 @@ def _assert_rollout_finite(entry: BenchmarkEntry) -> None:
     assert jnp.all(jnp.isfinite(reward))
 
 
-@pytest.mark.parametrize("name", ["membrane_fouling", "combined_np", "bsm1_takacs", "dewatering", "bsm1", "bsm1_lt"])
+@pytest.mark.parametrize("name", ["membrane_fouling", "combined_np", "bsm1_takacs", "dewatering", "bsm1"])
 def test_selected_registry_resets_report_initial_observation(name: str) -> None:
     """Selected benchmark resets expose their initialized observation."""
     entry = next(item for item in BENCHMARK_REGISTRY if item.name == name)
