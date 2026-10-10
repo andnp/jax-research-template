@@ -1,16 +1,10 @@
 from dataclasses import dataclass
-from typing import Protocol
 
 import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.components import ComponentSchema
-from process_control.integration import rk4_substeps
-
-# Keeps the stiffest measured BSM1-family mode (Takacs, |dt*lambda| ~27) inside
-# RK4's stability region with margin.
-_SUBSTEPS = 16
 
 
 @jax_dataclass
@@ -196,84 +190,6 @@ ASM1_SCHEMA = ComponentSchema(
 )
 
 
-class ASM1StateLike(Protocol):
-    @property
-    def s_i(self) -> float: ...
-    @property
-    def s_s(self) -> float: ...
-    @property
-    def x_i(self) -> float: ...
-    @property
-    def x_s(self) -> float: ...
-    @property
-    def x_bh(self) -> float: ...
-    @property
-    def x_ba(self) -> float: ...
-    @property
-    def x_p(self) -> float: ...
-    @property
-    def s_o(self) -> float: ...
-    @property
-    def s_no(self) -> float: ...
-    @property
-    def s_nh(self) -> float: ...
-    @property
-    def s_nd(self) -> float: ...
-    @property
-    def x_nd(self) -> float: ...
-    @property
-    def s_alk(self) -> float: ...
-
-
-def reset(state: ASM1StateLike, _rng_key: jax.Array) -> ASM1State:
-    return ASM1State.create(
-        state.s_i,
-        state.s_s,
-        state.x_i,
-        state.x_s,
-        state.x_bh,
-        state.x_ba,
-        state.x_p,
-        state.s_o,
-        state.s_no,
-        state.s_nh,
-        state.s_nd,
-        state.x_nd,
-        state.s_alk,
-    )
-
-
-def mix_streams(
-    state_a: ASM1State,
-    flow_a: jax.Array,
-    state_b: ASM1State,
-    flow_b: jax.Array,
-) -> tuple[ASM1State, jax.Array]:
-    """Flow-weighted mixture of two ASM1 streams."""
-    total = flow_a + flow_b
-    w_a = flow_a / jnp.maximum(total, 1e-6)
-    w_b = flow_b / jnp.maximum(total, 1e-6)
-
-    def _mix(a: jax.Array, b: jax.Array) -> jax.Array:
-        return w_a * a + w_b * b
-
-    return ASM1State(
-        s_i=_mix(state_a.s_i, state_b.s_i),
-        s_s=_mix(state_a.s_s, state_b.s_s),
-        x_i=_mix(state_a.x_i, state_b.x_i),
-        x_s=_mix(state_a.x_s, state_b.x_s),
-        x_bh=_mix(state_a.x_bh, state_b.x_bh),
-        x_ba=_mix(state_a.x_ba, state_b.x_ba),
-        x_p=_mix(state_a.x_p, state_b.x_p),
-        s_o=_mix(state_a.s_o, state_b.s_o),
-        s_no=_mix(state_a.s_no, state_b.s_no),
-        s_nh=_mix(state_a.s_nh, state_b.s_nh),
-        s_nd=_mix(state_a.s_nd, state_b.s_nd),
-        x_nd=_mix(state_a.x_nd, state_b.x_nd),
-        s_alk=_mix(state_a.s_alk, state_b.s_alk),
-    ), total
-
-
 def compute_tss(state: ASM1State) -> jax.Array:
     """Total suspended solids (g TSS/m³). Uses BSM1 conversion factors."""
     return 0.75 * (state.x_i + state.x_s + state.x_bh + state.x_ba + state.x_p)
@@ -307,16 +223,6 @@ def compute_tkn(state: ASM1State, params: ASM1Params) -> jax.Array:
 def compute_tn(state: ASM1State, params: ASM1Params) -> jax.Array:
     """Total nitrogen (g N/m³): TKN + nitrate/nitrite (BSM1 N_tot)."""
     return compute_tkn(state, params) + state.s_no
-
-
-def compute_ammonia_as_n(state: ASM1State) -> jax.Array:
-    """Ammonia concentration as N (g N/m³)."""
-    return state.s_nh
-
-
-def compute_alkalinity(state: ASM1State) -> jax.Array:
-    """Alkalinity in mol HCO₃⁻/m³."""
-    return state.s_alk
 
 
 def asm1_reaction_rates(state: jax.Array, params: ASM1Params) -> jax.Array:
@@ -377,82 +283,3 @@ class ASM1Kinetics:
 
     def rates(self, components: jax.Array, params: ASM1Params) -> jax.Array:
         return asm1_reaction_rates(components, params)
-
-
-def _asm1_derivatives(
-    state: ASM1State,
-    flow_in: jax.Array,
-    influent: ASM1State,
-    kla: jax.Array,
-    params: ASM1Params,
-) -> ASM1State:
-    """Compute ASM1 ODE derivatives for one reactor.
-
-    Args:
-        state: Current reactor state.
-        flow_in: Inflow rate (m³/h).
-        influent: Influent state.
-        kla: Oxygen mass transfer coefficient (h⁻¹).
-        params: ASM1 kinetic/stoichiometric parameters.
-    """
-    state_vector = jnp.array(
-        (
-            state.s_i, state.s_s, state.x_i, state.x_s, state.x_bh, state.x_ba, state.x_p,
-            state.s_o, state.s_no, state.s_nh, state.s_nd, state.x_nd, state.s_alk,
-        )
-    )
-    influent_vector = jnp.array(
-        (
-            influent.s_i, influent.s_s, influent.x_i, influent.x_s, influent.x_bh, influent.x_ba, influent.x_p,
-            influent.s_o, influent.s_no, influent.s_nh, influent.s_nd, influent.x_nd, influent.s_alk,
-        )
-    )
-    derivatives = flow_in / params.volume * (influent_vector - state_vector)
-    derivatives = derivatives.at[7].add(kla * (params.s_o_sat - state.s_o))
-    derivatives = derivatives + asm1_reaction_rates(state_vector, params)
-
-    return ASM1State(
-        s_i=derivatives[0],
-        s_s=derivatives[1],
-        x_i=derivatives[2],
-        x_s=derivatives[3],
-        x_bh=derivatives[4],
-        x_ba=derivatives[5],
-        x_p=derivatives[6],
-        s_o=derivatives[7],
-        s_no=derivatives[8],
-        s_nh=derivatives[9],
-        s_nd=derivatives[10],
-        x_nd=derivatives[11],
-        s_alk=derivatives[12],
-    )
-
-
-@jax.jit
-def step(
-    state: ASM1State,
-    influent: ASM1State,
-    flow_in: jax.Array,
-    kla: jax.Array,
-    params: ASM1Params,
-    dt: jax.Array,
-) -> ASM1State:
-    """Advance ASM1 state by one time step with clamped RK4 sub-steps.
-
-    Near S_O=0 the O2-Monod terms give the reactor ODE eigenvalues down to
-    |dt*lambda| ~27 at the BSM1-family dt, far outside RK4's real-axis
-    stability limit (~2.785); a single step per dt spikes DO orders of
-    magnitude above saturation.
-    """
-    def derivatives(x: ASM1State) -> ASM1State:
-        return _asm1_derivatives(x, flow_in, influent, kla, params)
-
-    return rk4_substeps(derivatives, _non_negative, state, dt, _SUBSTEPS)
-
-
-def _non_negative(state: ASM1State):
-    return jax.tree.map(_clamp_at_zero, state)
-
-
-def _clamp_at_zero(value: jax.Array):
-    return jnp.maximum(value, 0.0)
