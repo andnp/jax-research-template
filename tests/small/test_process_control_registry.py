@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from process_control.actuators.dosing_system import DIRECT, SUPERVISORY
-from process_control.benchmarks.bsm1_flowsheet import BSM1Config, bsm1_recycle_control
+from process_control.benchmarks.bsm1 import BSM1Config, bsm1_recycle_control
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig
 from process_control.benchmarks.h2s_scrubber import H2SScrubberConfig
 from process_control.benchmarks.registry import get_action_bounds, get_action_dim, get_benchmark_entry

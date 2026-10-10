@@ -4,7 +4,7 @@ from collections.abc import Iterator
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.benchmarks.bsm1_flowsheet import (
+from process_control.benchmarks.bsm1 import (
     HANDLE_LIMITS,
     BSM1Config,
     BSM1State,

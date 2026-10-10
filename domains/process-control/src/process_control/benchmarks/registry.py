@@ -72,7 +72,7 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
     ),
     BenchmarkEntry(
         "bsm1",
-        "process_control.benchmarks.bsm1_flowsheet",
+        "process_control.benchmarks.bsm1",
         "BSM1Config",
         "make_bsm1_benchmark",
         3,

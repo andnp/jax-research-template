@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from process_control.benchmarks.bsm1_flowsheet import (
+from process_control.benchmarks.bsm1 import (
     BSM1Handles,
     BSM1State,
     Fixed,

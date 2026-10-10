@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
-from process_control.benchmarks.bsm1_flowsheet import bsm1_recycle_control
+from process_control.benchmarks.bsm1 import bsm1_recycle_control
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
 from rl_envs.process_control_bridge import make_process_control_env

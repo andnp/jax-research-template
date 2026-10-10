@@ -1,7 +1,7 @@
 import dataclasses
 
 import pytest
-from process_control.benchmarks.bsm1_flowsheet import (
+from process_control.benchmarks.bsm1 import (
     BSM1_NITRATE_CONTROL,
     BSM1_OXYGEN_CONTROL,
     HANDLE_LIMITS,
