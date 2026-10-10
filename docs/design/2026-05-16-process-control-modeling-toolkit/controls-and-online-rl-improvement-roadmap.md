@@ -52,7 +52,7 @@ The portfolio is directionally strong because it spans distinct control archetyp
 
 | Benchmark family | Control archetype | Main value for online RL | Current concern |
 | --- | --- | --- | --- |
-| Chlorine and two-stage chlorine | long, flow-dependent delay with consumption | anticipation, delay handling, upstream context | reduced chemistry and limited hydraulics need declared fidelity |
+| Chlorine (including longer contact-chain configs) | long, flow-dependent delay with consumption | anticipation, delay handling, upstream context | reduced chemistry and limited hydraulics need declared fidelity |
 | pH neutralization | strongly nonlinear process gain | local adaptation and gain scheduling | chemistry is too compressed to represent buffering and titration diversity |
 | Equalization tank | inventory and constraint control | forecasting, constraint handling, downstream smoothing | clipping hides overflow and lost mass |
 | Membrane fouling | slow degradation and hybrid maintenance | continual adaptation and long-horizon decisions | backwash timing semantics are incomplete |
@@ -64,7 +64,7 @@ The portfolio is directionally strong because it spans distinct control archetyp
 | Drinking-water train | cascade interactions and maintenance | plant-wide coordination | each simplified stage compounds model error |
 | Dewatering and primary clarification | static/dynamic separation trade-offs | economic optimization and operating-region changes | empirical response surfaces need traceable calibration |
 | Reject-water management | periodic load shifting and inventory | temporal scheduling and downstream protection | should include uncertain forecasts and storage constraints |
-| Chemical phosphorus dosing | nonlinear dose/cost trade-off | adaptive economic control | instantaneous chemistry omits mixing, flocculation, and settling delays |
+| Chemical phosphorus dosing (within combined N+P) | nonlinear dose/cost trade-off | adaptive economic control | instantaneous chemistry omits mixing, flocculation, and settling delays |
 
 ### Portfolio recommendation
 

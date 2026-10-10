@@ -172,7 +172,7 @@ Each environment should support at least two observation profiles:
 | Environment | Status | Module | Notes |
 |-------------|--------|--------|-------|
 | Chlorine residual control | ✅ Done | `benchmarks/chlorine.py` | Single contact basin, 1D action |
-| Two-stage chlorine | ✅ Done | `benchmarks/chlorine_two_stage.py` | Two basins in series |
+| Two-stage chlorine | Merged into chlorine | `benchmarks/chlorine.py` | Two basins in series is a longer contact chain (`basin_volume`, `basin_segments`) |
 | pH neutralisation | ✅ Done | `benchmarks/ph_neutralization.py` | CSTR with titration |
 | Equalization tank | ✅ Done | `benchmarks/equalization_tank.py` | Level control |
 | BSM1 DO control (13-var ASM1) | ✅ Done | `benchmarks/bsm1.py` | 5 reactors, perfect settler, 2D action |
@@ -181,7 +181,7 @@ Each environment should support at least two observation profiles:
 | H₂S scrubber | ✅ Done | `benchmarks/h2s_scrubber.py` | 3-loop supervisory control, 3D action |
 | Takács clarifier | ✅ Done | `units/takacs_settler.py` | 10-layer 1D settler model |
 | Sludge blanket control | ✅ Done | `benchmarks/sludge_blanket.py` | 1D action [Q_u], 4D obs |
-| Chemical P dosing | ✅ Done | `benchmarks/chem_p_dosing.py` | FeCl₃ precipitation, 1D action |
+| Chemical P dosing | Merged into combined N+P | `benchmarks/combined_np.py` | FeCl₃ dosing action; standalone benchmark removed |
 | BSM1-LT (seasonal) | ✅ Done | `benchmarks/bsm1_lt.py` | Arrhenius kinetics, 10D obs |
 | Primary clarifier | ✅ Done | `benchmarks/primary_clarifier.py` | Gravity settling, 1D action [Q_w] |
 | Dewatering control | ✅ Done | `benchmarks/dewatering.py` | Belt press, 2D action [polymer, speed] |
@@ -190,7 +190,7 @@ Each environment should support at least two observation profiles:
 | Membrane fouling control | ✅ Done | `benchmarks/membrane_fouling.py` | TMP, backwash, air scour, 3D action |
 | Anaerobic digester | ✅ Done | `benchmarks/anaerobic_digester.py` | Reduced-order ADM1, 2D action [Q_feed, T] |
 | Drinking water train | ✅ Done | `benchmarks/drinking_water_train.py` | Coag→membrane→Cl₂ cascade, 3D action |
-| Bio-P (ASM2d) | ✅ Done | `benchmarks/bio_p.py` | PAO kinetics, 2D action [Q_recycle, carbon] |
+| Bio-P (ASM2d) | Merged into combined N+P | `benchmarks/combined_np.py` | PAO kinetics via the carbon action; standalone benchmark removed |
 | Combined N+P | ✅ Done | `benchmarks/combined_np.py` | ASM2d + FeCl₃, 4D action — hardest variant |
 
 ### New unit models (this batch)
