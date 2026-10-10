@@ -12,6 +12,7 @@ from process_control.benchmarks.bsm1_flowsheet import (
     Fixed,
     Observation,
     OperatingPoint,
+    SeasonalTemperature,
     make_bsm1_benchmark,
 )
 from process_control.plants.activated_sludge import BSM1_OPEN_LOOP_REACTORS
@@ -58,6 +59,10 @@ def _batched(state: BSM1State, size: int) -> BSM1State:
         return jnp.stack([leaf] * size)
 
     return jax.tree.map(stack, state)
+
+
+def _pair(first: jax.Array, second: jax.Array) -> jax.Array:
+    return jnp.stack([first, second])
 
 
 def _observed(observations: jax.Array, quantity: str) -> jax.Array:
@@ -171,3 +176,34 @@ class TestTemperature:
         _, (_, _, info) = default_runs
 
         assert jnp.allclose(info["temperature"], 15.0)
+
+    def test_seasonal_episodes_start_at_random_times_of_year(self) -> None:
+        """Seasonal episodes draw their phase per reset, so rollouts cover the annual range."""
+        reset, _ = make_bsm1_benchmark(BSM1Config(temperature=SeasonalTemperature()))
+        phases = jnp.array([reset(jax.random.key(seed))[0].temperature_phase for seed in range(8)])
+
+        assert jnp.unique(phases).size == 8
+        assert jnp.all((phases >= 0.0) & (phases < 1.0))
+
+    def test_cold_season_slows_nitrification(self) -> None:
+        """At the winter minimum the reactors run near 10 °C and leave more ammonia than at the summer maximum."""
+        config = BSM1Config(observations=IDEAL, influent=CONSTANT_INFLUENT, temperature=SeasonalTemperature())
+        reset, _ = make_bsm1_benchmark(config)
+        start, _ = reset(jax.random.key(0))
+        winter, summer = (dataclasses.replace(start, temperature_phase=jnp.asarray(phase)) for phase in (0.75, 0.25))
+        states = jax.tree.map(_pair, winter, summer)
+
+        _, (observations, _, info) = _rollout(config, jnp.array([[10.0, 3.5, Q_W]] * 2), states=states)
+
+        late_ammonia = jnp.mean(_observed(observations[:, -STEPS_PER_DAY // 4 :], "effluent_s_nh"), axis=1)
+        assert jnp.allclose(info["temperature"][0], 10.0, atol=0.05)
+        assert jnp.allclose(info["temperature"][1], 20.0, atol=0.05)
+        assert late_ammonia[0] > 1.5 * late_ammonia[1]
+
+    def test_fixed_phase_sets_the_starting_temperature(self) -> None:
+        """A configured phase starts every episode at the same point of the annual cycle."""
+        reset, step = make_bsm1_benchmark(BSM1Config(temperature=SeasonalTemperature(phase=0.25)))
+        state, _ = reset(jax.random.key(5))
+        _, _, _, _, info = step(state, jnp.array([10.0, 3.5, Q_W]), jax.random.key(6))
+
+        assert jnp.allclose(info["temperature"], 20.0, atol=1e-3)
