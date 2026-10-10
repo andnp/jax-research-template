@@ -549,6 +549,17 @@ class TestRejectWaterBenchmark:
         )
         assert drained_info["overflow"] == 0.0
 
+    def test_observed_tank_level_matches_post_step_tank(self) -> None:
+        """Observed tank level is the post-step fraction, so a shut valve shows exactly one production increment."""
+        config = RejectWaterConfig()
+        reset_fn, step_fn = make_reject_water_benchmark(config)
+        state, obs = reset_fn(jax.random.PRNGKey(0))
+        assert float(obs[1]) == 0.5
+
+        _, obs2, _, _, info = step_fn(state, jnp.array([0.0]), jax.random.PRNGKey(1))
+        assert jnp.allclose(obs2[1], info["tank_volume"] / config.reject_tank_max)
+        assert jnp.allclose(obs2[1], 0.5 + config.reject_production * config.dt / config.reject_tank_max)
+
     def test_nitrification_compliant_baseline_but_reject_surge_violates(self) -> None:
         """Monod nitrification must clear baseline load below the alarm, but
         a sustained reject-water return must still be able to spike past it
