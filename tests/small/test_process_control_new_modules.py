@@ -550,6 +550,22 @@ class TestRejectWaterBenchmark:
         )
         assert drained_info["overflow"] == 0.0
 
+    def test_overflow_is_priced_as_lost_production_steps(self) -> None:
+        """Overflow is charged as the production steps it discards, with NH₄ kept under the limit.
+
+        A shut valve on a nearly full tank drops one step of production; the reward must
+        carry exactly that many steps' worth of penalty, so tank size does not change the price.
+        """
+        config = RejectWaterConfig(reject_tank_max=0.1)
+        reset_fn, step_fn = make_reject_water_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        _, _, reward, _, info = step_fn(state, jnp.array([0.0]), jax.random.PRNGKey(1))
+
+        assert float(info["overflow"]) > 0.0
+        assert float(info["main_nh4"]) < config.nh4_limit
+        lost_steps = info["overflow"] / (config.reject_production * config.dt)
+        assert jnp.allclose(reward, -config.reward_w_overflow * lost_steps)
+
     def test_reward_scores_true_nh4_not_sensor_reading(self) -> None:
         """Reward matches the true NH₄ and overflow even when the sensed NH₄ is dominated by noise."""
         config = RejectWaterConfig(nh4_baseline=10.0, nh4_noise_std=20.0)
