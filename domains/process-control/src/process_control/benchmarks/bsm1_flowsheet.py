@@ -171,7 +171,11 @@ class InfluentTemperature:
 
 @dataclass(frozen=True)
 class SeasonalTemperature:
-    """A sinusoidal annual temperature, °C, starting at `phase` of its period, or a random phase each episode."""
+    """A sinusoidal annual temperature, °C, starting at `phase` of its period, or a random phase each episode.
+
+    The period is the 364-day (52-week) year of the BSM1_LT influent, whose evaluation spans its final
+    364 days: Alex et al., Long Term Benchmark Simulation Model no. 1 (BSM1_LT), Secs. 2.6 and 6.
+    """
 
     mean: float = 15.0
     amplitude: float = 5.0
