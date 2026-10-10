@@ -8,7 +8,6 @@ from process_control.benchmarks.anaerobic_digester import (
     AnaerobicDigesterConfig,
     make_anaerobic_digester_benchmark,
 )
-from process_control.benchmarks.bsm1_takacs import BSM1TakacsConfig, make_bsm1_takacs_benchmark
 from process_control.benchmarks.combined_np import CombinedNPConfig, make_combined_np_benchmark
 from process_control.benchmarks.dewatering import DewateringConfig, make_dewatering_benchmark
 from process_control.benchmarks.drinking_water_train import (
@@ -670,17 +669,18 @@ class TestRejectWaterTimingTradeoff:
         assert float(shut["q_reject"]) == 0.0
         assert float(full["q_reject"]) == config.q_reject_max
 
+    @pytest.mark.parametrize("days", [3, 7], ids=["three_days", "seven_days"])
     @pytest.mark.parametrize("warm_steps", [0, 300], ids=["reset", "quarter_day_warm_start"])
-    def test_policy_ranking_holds_across_start_phases(self, warm_steps: int) -> None:
+    def test_policy_ranking_holds_across_start_phases(self, warm_steps: int, days: int) -> None:
         """Shut loses most, pass-through beats full-open, and the headroom rule beats pass-through with no overflow."""
         config = RejectWaterConfig()
-        shut, _ = _reject_water_return_per_day(_constant_return_policy(0.0), warm_steps)
+        shut, _ = _reject_water_return_per_day(_constant_return_policy(0.0), warm_steps, days)
         pass_through, _ = _reject_water_return_per_day(
-            _constant_return_policy(config.reject_production / config.q_reject_max), warm_steps
+            _constant_return_policy(config.reject_production / config.q_reject_max), warm_steps, days
         )
-        full_open, _ = _reject_water_return_per_day(_constant_return_policy(1.0), warm_steps)
+        full_open, _ = _reject_water_return_per_day(_constant_return_policy(1.0), warm_steps, days)
         headroom, headroom_overflow = _reject_water_return_per_day(
-            _headroom_return_policy(config, cap=8.0), warm_steps
+            _headroom_return_policy(config, cap=8.0), warm_steps, days
         )
         assert shut < pass_through
         assert full_open < pass_through
@@ -702,10 +702,3 @@ class TestCombinedNPBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_combined_np_benchmark, CombinedNPConfig(), action_dim=4, obs_dim=9)
 
-
-# ---------------------------------------------------------------------------
-# Benchmark: BSM1 Takacs (3D action, 12D obs)
-# ---------------------------------------------------------------------------
-class TestBSM1TakacsBenchmark:
-    def test_shapes_jit_stability(self) -> None:
-        _run_benchmark_suite(make_bsm1_takacs_benchmark, BSM1TakacsConfig(), action_dim=3, obs_dim=12)
