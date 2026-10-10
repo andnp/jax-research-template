@@ -124,6 +124,14 @@ class TestDewateringAnalyzer:
         assert any(abs(float(q[0][1]) - float(n[0][1])) > 1e-3 for q, n in zip(quiet, noisy, strict=True))
         assert all(float(q[1]) == float(n[1]) for q, n in zip(quiet, noisy, strict=True))
 
+    def test_reward_ignores_dryness_analyzer_noise(self) -> None:
+        """Cost is computed from the true cake dryness, so a noisier dryness analyzer changes only the observation."""
+        quiet = _rollout(DewateringConfig(dryness_noise_std=0.0), (0.7, 0.8), 60)[2]
+        noisy = _rollout(DewateringConfig(dryness_noise_std=0.05), (0.7, 0.8), 60)[2]
+
+        assert any(abs(float(q[0][0]) - float(n[0][0])) > 1e-3 for q, n in zip(quiet, noisy, strict=True))
+        assert all(float(q[1]) == float(n[1]) for q, n in zip(quiet, noisy, strict=True))
+
 
 Policy = Callable[[jax.Array], jax.Array]
 

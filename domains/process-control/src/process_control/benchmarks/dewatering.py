@@ -16,7 +16,7 @@ disposal of cake.
 
 Action (2D): [polymer_dose / dose_max, belt_speed (0-1)]
 Observation (6D):
-  cake_dryness (fraction, 0 when the belt is idle)
+  cake_dryness (online analyzer, lagged and noisy; 0 when the belt is idle)
   filtrate_tss / 500 (analyzer, held while the belt is idle)
   throughput / max_throughput
   polymer_dose / dose_max
@@ -47,6 +47,7 @@ class DewateringBenchState:
     q_drift: jax.Array
     log_polymer_demand: jax.Array
     filtrate_sensor: LaggedSensorState
+    dryness_sensor: LaggedSensorState
     tank_volume: jax.Array  # m³
     tank_solids: jax.Array  # kg
 
@@ -92,6 +93,9 @@ class DewateringConfig:
     filtrate_noise_std: float = 10.0
     filtrate_lag: float = 0.6
     filtrate_sample_period: int = 3
+    # Online cake-dryness analyzer (e.g. NIR or microwave); noise and lag are assumed for the benchmark.
+    dryness_noise_std: float = 0.005  # dry-solids fraction
+    dryness_lag: float = 0.5
 
     # Reward: operating cost in $/h plus a quadratic penalty on true filtrate above the limit.
     # Prices describe a nominal benchmark scenario (assumed, not site accounting data).
@@ -127,6 +131,12 @@ def make_dewatering_benchmark(config: DewateringConfig):
         lag_coefficient=config.filtrate_lag,
         sample_period=config.filtrate_sample_period,
     )
+    dryness_analyzer_params = LaggedSensorParams(
+        noise_std=config.dryness_noise_std,
+        lag_coefficient=config.dryness_lag,
+    )
+    # The analyzer starts at the middle of the achievable dryness range (assumed)
+    initial_dryness = 0.5 * (config.dewatering.base_dryness + config.dewatering.max_dryness)
 
     dt = jnp.array(config.dt)
     dose_max = jnp.array(config.dose_max)
@@ -140,7 +150,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
         return select
 
     def _observe(
-        dryness: jax.Array,
+        sensed_dryness: jax.Array,
         sensed_filtrate: jax.Array,
         throughput: jax.Array,
         polymer_dose: jax.Array,
@@ -149,7 +159,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
     ):
         return jnp.array(
             [
-                dryness,
+                sensed_dryness,
                 sensed_filtrate / 500.0,
                 throughput / config.dewatering.max_throughput,
                 polymer_dose / dose_max,
@@ -159,7 +169,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
         )
 
     def reset(rng_key: jax.Array):
-        k1, k2 = jax.random.split(rng_key, 2)
+        k1, k2, k3 = jax.random.split(rng_key, 3)
         initial_volume = config.tank_init_fraction * config.tank_volume_max
         state = DewateringBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
@@ -168,6 +178,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
             q_drift=jnp.array(0.0),
             log_polymer_demand=jnp.array(0.0),
             filtrate_sensor=analyzer_reset(0.0, k2),
+            dryness_sensor=analyzer_reset(initial_dryness, k3),
             tank_volume=jnp.array(initial_volume),
             tank_solids=jnp.array(initial_volume * config.feed_tss_mean / 1e3),
         )
@@ -182,7 +193,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
         return state, obs
 
     def step(state: DewateringBenchState, action: jax.Array, rng_key: jax.Array):
-        k1, k2, k3, k4 = jax.random.split(rng_key, 4)
+        k1, k2, k3, k4, k5 = jax.random.split(rng_key, 5)
 
         # 1. Inflow to the holding tank
         t = (state.step_count % config.steps_per_day) / config.steps_per_day
@@ -232,10 +243,21 @@ def make_dewatering_benchmark(config: DewateringConfig):
         new_filt_sensor = jax.tree.map(_select_if(running), new_filt_sensor, state.filtrate_sensor)
         sensed_filtrate = jnp.where(running, sensed_filtrate, state.filtrate_sensor.held_value)
 
-        # 6. Observation
-        obs = _observe(dryness, sensed_filtrate, throughput, polymer_dose, tank_tss, volume)
+        # 6. The dryness analyzer, like the filtrate analyzer, reads only while cake is made;
+        # an idle belt reports 0
+        new_dryness_sensor, sensed_dryness = analyzer_step(
+            state.dryness_sensor,
+            dryness,
+            dryness_analyzer_params,
+            k5,
+        )
+        new_dryness_sensor = jax.tree.map(_select_if(running), new_dryness_sensor, state.dryness_sensor)
+        sensed_dryness = jnp.where(running, sensed_dryness, 0.0)
 
-        # 7. Reward: the quality penalty uses the true filtrate, not the analyzer reading
+        # 7. Observation
+        obs = _observe(sensed_dryness, sensed_filtrate, throughput, polymer_dose, tank_tss, volume)
+
+        # 8. Reward: the quality penalty uses the true filtrate, not the analyzer reading
         polymer_kg_h = polymer_dose * throughput / 1e3
         cake_solids = new_dw.cake_produced - state.dewatering_state.cake_produced
         wet_cake_tonnes_h = jnp.where(running, cake_solids / dt / (dryness + 1e-10) / 1e3, 0.0)
@@ -255,6 +277,7 @@ def make_dewatering_benchmark(config: DewateringConfig):
             q_drift=new_q_drift,
             log_polymer_demand=new_log_demand,
             filtrate_sensor=new_filt_sensor,
+            dryness_sensor=new_dryness_sensor,
             tank_volume=volume,
             tank_solids=solids,
         )
