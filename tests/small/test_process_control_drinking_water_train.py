@@ -194,10 +194,18 @@ class TestBackwashTradeOff:
             score = float(_rollout(lambda obs, cl2, fixed=fixed: fixed, steps)[0].mean())
             assert score < tuned_score - 1.0
 
-    def test_wash_start_charges_backwash_water_against_net_product_once(self) -> None:
-        """A wash start loses its wash water from net product and reward; a held command does not."""
+    @pytest.mark.parametrize(
+        ("flux_max", "expected_wash_water"),
+        [(0.06, None), (0.03, 1.5)],
+        ids=["below-rated-flow", "flow-capped-at-rated-flux"],
+    )
+    def test_wash_start_charges_backwash_water_against_net_product_once(
+        self, flux_max: float, expected_wash_water: float | None
+    ) -> None:
+        """A wash start loses bw_flux_ratio x operating flux x duration from net product; a held command does not."""
         config = dataclasses.replace(
             DrinkingWaterTrainConfig(),
+            flux_max=flux_max,
             reward_w_cl2_low=0.0,
             reward_w_cl2_high=0.0,
             reward_w_tmp=0.0,
@@ -213,15 +221,21 @@ class TestBackwashTradeOff:
         washed_state, _, wash_reward, _, washing = step_fn(state, wash, key)
         _, _, _, _, held = step_fn(washed_state, wash, key)
 
-        # 2 x the 0.06 m/h rated flux over 5000 m2 for the 0.005 h wash.
-        wash_water = 2.0 * config.flux_max * config.membrane.area * config.membrane.bw_duration
-        assert wash_water == 3.0
-        assert float(washing["q_net"]) == pytest.approx(float(washing["q_permeate"]) - wash_water / config.dt)
+        rated_flow = config.flux_max * config.membrane.area
+        operating_flow = min(float(washing["q_in"]), rated_flow)
+        wash_water = 2.0 * operating_flow * config.membrane.bw_duration
+        if expected_wash_water is None:
+            # Mean-flow case: about 2 x 0.04 m/h x 5000 m2 x 0.005 h = 2 m3.
+            assert float(washing["q_in"]) < rated_flow
+            assert wash_water == pytest.approx(2.0, rel=0.15)
+        else:
+            assert float(washing["q_in"]) > rated_flow
+            assert wash_water == pytest.approx(expected_wash_water)
+        assert float(washing["q_net"]) == pytest.approx(float(washing["q_permeate"]) - wash_water / config.dt, rel=1e-4)
         assert float(held["q_net"]) == pytest.approx(float(held["q_permeate"]))
         lost_product = float(normal["q_net"]) - float(washing["q_net"])
-        rated = config.flux_max * config.membrane.area
         assert float(idle_reward) - float(wash_reward) == pytest.approx(
-            config.reward_w_throughput * lost_product / rated, rel=1e-4
+            config.reward_w_throughput * lost_product / rated_flow, rel=1e-4
         )
 
 

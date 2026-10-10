@@ -181,9 +181,9 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
     mean_flow = jnp.array(config.mean_flow)
     area = jnp.array(config.membrane.area)
     operating_flux = mean_flow / area
-    # Wash water is drawn from product at the nominal wash flux, a multiple of
-    # the rated flux (same convention as membrane_fouling), for the wash duration.
-    backwash_water_m3 = config.membrane.bw_flux_ratio * config.flux_max * config.membrane.area * config.membrane.bw_duration
+    # Wash water is drawn from product at bw_flux_ratio times the operating
+    # flux in force when the wash starts, for the wash duration.
+    wash_volume_per_flux = config.membrane.bw_flux_ratio * area * config.membrane.bw_duration
 
     def _observe(
         raw_turbidity: jax.Array,
@@ -317,7 +317,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             & ~state.membrane_state.is_backwashing
             & ~state.membrane_state.backwash_trigger_latched
         )
-        backwash_water = backwash_water_m3 * starts_bw
+        backwash_water = wash_volume_per_flux * flux * starts_bw
         q_net = q_permeate - backwash_water / dt
         # Scored on true plant state: analyzers only feed the observation, so a
         # lagged/held sensor cannot hide a bad action from the objective.
