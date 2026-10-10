@@ -701,4 +701,3 @@ class TestDrinkingWaterTrainBenchmark:
 class TestCombinedNPBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_combined_np_benchmark, CombinedNPConfig(), action_dim=4, obs_dim=9)
-

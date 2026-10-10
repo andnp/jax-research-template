@@ -81,16 +81,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         requires_x64=True,
     ),
     BenchmarkEntry(
-        "bsm1_takacs",
-        "process_control.benchmarks.bsm1_takacs",
-        "BSM1TakacsConfig",
-        "make_bsm1_takacs_benchmark",
-        3,
-        "BSM1 + Takács settler",
-        action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min", "q_w_min"),
-        action_high_config=("bsm1.kla_34_max", "bsm1.kla_5_max", "q_w_max"),
-    ),
-    BenchmarkEntry(
         "h2s_scrubber",
         "process_control.benchmarks.h2s_scrubber",
         "H2SScrubberConfig",
