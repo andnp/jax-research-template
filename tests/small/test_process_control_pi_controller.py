@@ -1,8 +1,11 @@
 import jax.numpy as jnp
 import pytest
 from process_control.controllers.pi_controller import (
+    BSM1_NITRATE_CONTROLLER,
+    BSM1_OXYGEN_CONTROLLER,
     PIControllerParams,
     PIControllerState,
+    standard_form,
     step_with_diagnostics,
     track_output,
 )
@@ -157,3 +160,80 @@ class TestDerivedIntegralLimit:
         state = track_output(PIControllerState.create(), jnp.array(7.0), jnp.array(5.0), jnp.array(10.0), params)
 
         assert float(state.integral) == pytest.approx(10.0)
+
+
+class TestBackCalculation:
+    PARAMS = PIControllerParams(kp=2.0, ki=4.0, ff=5.0, output_min=0.0, output_max=10.0, tracking_time=0.5)
+
+    def _hold(self, params: PIControllerParams, error: float, steps: int, dt: float) -> tuple[PIControllerState, list[float]]:
+        state = PIControllerState.create()
+        raw: list[float] = []
+        for _ in range(steps):
+            state, result = step_with_diagnostics(state, jnp.array(0.0), jnp.array(error), params, jnp.array(dt))
+            raw.append(float(result.raw))
+        return state, raw
+
+    def test_unsaturated_controller_integrates_the_error(self) -> None:
+        """Inside the output range back-calculation is inactive and the integral accumulates e·dt."""
+        state, raw = self._hold(self.PARAMS, error=0.1, steps=5, dt=0.1)
+
+        assert float(state.integral) == pytest.approx(0.05)
+        assert raw[-1] == pytest.approx(2.0 * 0.1 + 4.0 * 0.05 + 5.0)
+
+    def test_sustained_saturation_settles_at_the_tracking_equilibrium(self) -> None:
+        """Held in saturation, the raw output stops growing where the error input balances the tracking feedback.
+
+        In continuous time that excess over the limit is ki·e·Tt.
+        """
+        state, raw = self._hold(self.PARAMS, error=1.0, steps=2000, dt=0.005)
+
+        assert raw[-1] - 10.0 == pytest.approx(4.0 * 1.0 * 0.5, rel=0.01)
+        assert raw[-1] == pytest.approx(raw[-2], abs=1e-6)
+
+    def test_reversed_error_leaves_saturation_promptly(self) -> None:
+        """After a long saturation, reversing the error brings the output off the limit within a tracking time."""
+        state, _ = self._hold(self.PARAMS, error=5.0, steps=500, dt=0.01)
+
+        recovered = []
+        for _ in range(50):
+            state, result = step_with_diagnostics(state, jnp.array(1.0), jnp.array(0.0), self.PARAMS, jnp.array(0.01))
+            recovered.append(bool(result.is_saturated))
+
+        assert not all(recovered)
+
+    def test_steps_longer_than_the_tracking_time_stay_bounded(self) -> None:
+        """With dt far above Tt the tracking term removes the excess without overshooting into oscillation."""
+        params = PIControllerParams(kp=2.0, ki=4.0, ff=5.0, output_min=0.0, output_max=10.0, tracking_time=0.01)
+
+        _, raw = self._hold(params, error=1.0, steps=50, dt=1.0)
+
+        assert all(10.0 <= value <= 10.0 + 2.0 + 4.0 * 1.0 * 1.0 for value in raw[1:])
+
+    def test_zero_integral_gain_keeps_the_integral(self) -> None:
+        """A proportional-only controller has no integral to unwind."""
+        params = PIControllerParams(kp=20.0, ki=0.0, ff=5.0, output_min=0.0, output_max=10.0, tracking_time=0.5)
+
+        state, raw = self._hold(params, error=1.0, steps=3, dt=0.1)
+
+        assert float(state.integral) == 0.0
+        assert raw[-1] == pytest.approx(25.0)
+
+
+class TestBSM1Presets:
+    def test_standard_form_sets_the_integral_gain_from_the_integral_time(self) -> None:
+        """K (e + (1/Ti) ∫e) has integral gain K / Ti."""
+        params = standard_form(gain=3.0, integral_time=0.5, offset=1.0, output_min=0.0, output_max=10.0)
+
+        assert params.ki == pytest.approx(6.0)
+        assert params.tracking_time is None
+
+    @pytest.mark.parametrize(
+        ("params", "offset", "maximum"),
+        [(BSM1_OXYGEN_CONTROLLER, 144.0 / 24.0, 360.0 / 24.0), (BSM1_NITRATE_CONTROLLER, 18500.0 / 24.0, 92230.0 / 24.0)],
+    )
+    def test_presets_output_their_offset_at_zero_error(self, params: PIControllerParams, offset: float, maximum: float) -> None:
+        """At setpoint from rest the BSM1 controllers output their per-hour offsets within per-hour limits."""
+        _, result = step_with_diagnostics(PIControllerState.create(), jnp.array(1.0), jnp.array(1.0), params, jnp.array(0.01))
+
+        assert float(result.saturated) == pytest.approx(offset)
+        assert params.output_max == pytest.approx(maximum)
