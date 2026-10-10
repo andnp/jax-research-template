@@ -6,13 +6,16 @@ through the press. A slow belt lets the tank fill and overflow (hauled away as
 liquid sludge); a fast belt or the wrong polymer dose sends solids back in the
 filtrate.
 
-Adaptive dosing (dose per tank solids, trimmed by feedback on cake dryness) beats a
-tuned constant dose and belt speed in the nominal scenario, but the advantage is
-scenario-dependent, not a robust property of the benchmark. It comes mainly from
-tracking solids load rather than inferring the latent polymer demand, and the
-tank-ratio policy alone loses to the best constant on some seeds when the recycle
-price is raised 5x. Most of the ~$80/h nominal cost is the near-unavoidable
-disposal of cake.
+Adaptive dosing (dose per tank solids, trimmed by feedback on the cake-dryness analyzer)
+beats a constant dose and belt speed re-tuned on separate seeds. Over 8 held-out seeds and
+10 scenarios (nominal; demand drift 0, 0.025, 0.1; demand clip 0.35, 1.0; recycle price 5x;
+polymer price 0.4x, 2x; disposal price 0.5x) the margin is +0.09..+0.13 mean reward per step,
+winning every seed. Most of it comes from tracking solids load (the tank-ratio policy without
+feedback captures nearly all of it, and the margin is unchanged with demand drift off);
+feedback adds only -0.001..+0.06 over the tank-ratio policy, largest when the recycle price
+is raised 5x. There the tank-ratio policy alone beats the re-tuned constant on 6 of 8 seeds
+and loses on the other 2 (-0.016 and -0.043), so tank-ratio dosing alone is not uniformly
+better. Most of the ~$80/h nominal cost is the near-unavoidable disposal of cake.
 
 Action (2D): [polymer_dose / dose_max, belt_speed (0-1)]
 Observation (6D):
