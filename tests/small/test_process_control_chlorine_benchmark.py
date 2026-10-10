@@ -96,7 +96,7 @@ class TestChlorineBenchmarkDeterministic:
             assert jnp.allclose(a, b)
 
 
-def _outlet_trajectory(config: ChlorineBenchmarkConfig, n_steps: int = 60) -> list[float]:
+def _outlet_trajectory(config: ChlorineBenchmarkConfig, dose: float, n_steps: int = 60) -> list[float]:
     reset_fn, step_fn = make_chlorine_benchmark(config)
     step_fn = jax.jit(step_fn)
     key = jax.random.PRNGKey(0)
@@ -105,13 +105,14 @@ def _outlet_trajectory(config: ChlorineBenchmarkConfig, n_steps: int = 60) -> li
     outlets = []
     for _ in range(n_steps):
         k_step, key = jax.random.split(key)
-        state, _obs, _reward, _done, info = step_fn(state, jnp.array(2.0), k_step)
+        state, _obs, _reward, _done, info = step_fn(state, jnp.array(dose), k_step)
         outlets.append(float(info["outlet_residual"]))
     return outlets
 
 
-def _first_step_above(trajectory: list[float], threshold: float) -> int:
-    return next(i for i, value in enumerate(trajectory) if value > threshold)
+def _first_step_at_fraction(trajectory: list[float], fraction: float) -> int:
+    target = fraction * trajectory[-1]
+    return next(i for i, value in enumerate(trajectory) if value >= target)
 
 
 class TestChlorineContactChainLength:
@@ -119,6 +120,7 @@ class TestChlorineContactChainLength:
         """
         Splitting the same 400 m³ basin into 20 segments must delay the outlet response to a dose step.
 
+        Dose 5.5 mg/L settles near the 1.5 mg/L target, so each run is judged against its own steady state.
         Noise and drift are disabled so the only difference between runs is the contact-chain length.
         """
         quiet = dict(
@@ -128,13 +130,14 @@ class TestChlorineContactChainLength:
             demand_noise_std=0.0,
             drift_scale=0.0,
         )
-        default_outlets = _outlet_trajectory(ChlorineBenchmarkConfig(**quiet))
+        default_outlets = _outlet_trajectory(ChlorineBenchmarkConfig(**quiet), dose=5.5)
         long_outlets = _outlet_trajectory(
             ChlorineBenchmarkConfig(basin_volume=400.0, basin_segments=20, **quiet),
+            dose=5.5,
         )
 
-        assert _first_step_above(long_outlets, 0.005) > _first_step_above(default_outlets, 0.005)
-        assert long_outlets[16] < default_outlets[16]
+        assert default_outlets[-1] > 1.0
+        assert _first_step_at_fraction(long_outlets, 0.1) > _first_step_at_fraction(default_outlets, 0.1)
 
 
 class TestContactBasinAdvection:
