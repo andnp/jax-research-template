@@ -91,7 +91,7 @@ class CombinedNPConfig:
     # (aerobic → anaerobic). Without wastage, SRT = HRT (~7 h) and
     # PAOs/nitrifiers wash out well before they can establish; the waste
     # ratio sets SRT ≈ 12 d given the reactor volumes and mean_flow.
-    # See units/bsm1_plant.perfect_clarifier for the same convention in BSM1.
+    # The clarifier is asm2d.perfect_clarifier (solids-free overflow, RAS and waste underflows).
     q_recycle_max: float = 1500.0
     return_sludge_ratio: float = 1.0
     waste_sludge_ratio: float = 0.0123
@@ -246,7 +246,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
 
         # 3. Clarifier (ideal): settles the *previous* step's aerobic-zone
         # liquor into a solids-free overflow and a concentrated RAS underflow
-        # (one-step lag avoids an algebraic loop; see units/bsm1_plant.py)
+        # (one-step lag avoids an algebraic loop)
         q_ras = q_in * config.return_sludge_ratio
         q_waste = q_in * config.waste_sludge_ratio
         _, return_sludge = perfect_clarifier(state.aerobic_state, q_in + q_ras, q_ras, q_waste)
