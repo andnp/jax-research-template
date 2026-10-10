@@ -76,7 +76,12 @@ class DrinkingWaterTrainConfig:
 
     # Membrane
     membrane: MembraneParams = MembraneParams(
-        area=50.0,  # smaller plant
+        # Assumed benchmark sizing (not from a source): rated flux flux_max =
+        # 0.06 m/h over this area passes max_flow, and mean_flow gives 40 LMH,
+        # a plausible UF design flux; allowable flux is site/pilot specific
+        # (EPA Membrane Filtration Guidance Manual, 2005). Diurnal flow
+        # spans 24-60 LMH, crossing flux_critical (30 LMH).
+        area=5000.0,
         # Coagulated floc particles are much larger than raw colloidal TSS,
         # which lowers specific cake resistance (Carman-Kozeny: alpha ~ 1/r²);
         # reduced-order tuning, not calibrated to a specific measured cake.
@@ -87,9 +92,10 @@ class DrinkingWaterTrainConfig:
     # Chlorine disinfection (simplified contact basin)
     cl2_dose_max: float = 5.0  # mg/L
     cl2_decay_rate: float = 0.3  # 1/h (first-order in-basin decay)
-    # HRT = volume/flow (not a fixed constant): sized so mean_flow gives the
-    # same 0.5 h HRT the old fixed contact_time used.
-    contact_basin_volume: float = 100.0  # m³
+    # HRT = volume / post-membrane flow (not a fixed constant). Assumed sizing:
+    # 200 m³ gives 0.67-1.67 h over the 120-300 m³/h feed range, inside the
+    # 0.5-2 h range typical of chlorine contact design.
+    contact_basin_volume: float = 200.0  # m³
     cl2_demand_per_tss: float = 0.02  # mg Cl2 / mg/L TSS demand
 
     # DOC/NOM: raw DOC in the 2-10 mg/L range is typical for surface water
@@ -161,10 +167,10 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
     raw_tss_per_turbidity = jnp.array(2.5)
     basin_volume = jnp.array(config.contact_basin_volume)
     raw_doc = jnp.array(config.raw_doc)
-    operating_flux = flux_max * 0.7
     max_tmp = jnp.array(config.membrane.max_tmp)
     mean_flow = jnp.array(config.mean_flow)
     area = jnp.array(config.membrane.area)
+    operating_flux = mean_flow / area
 
     def _observe(
         raw_turbidity: jax.Array,
@@ -246,7 +252,9 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         post_coag_tss, coag_eta = coagulate(raw_tss, raw_turbidity, coag_dose, config.coag)
 
         # 4. Membrane filtration
-        flux = operating_flux  # fixed operating flux (could be action)
+        # Production follows raw feed up to the rated flux; air scour and flux
+        # are not actions in this benchmark.
+        flux = jnp.minimum(q_in / area, flux_max)
         do_backwash = action[1]
         # Air scour at constant 50% (could be action)
         air_scour = jnp.array(0.5)
@@ -271,7 +279,8 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         # (TSS, now tiny post-membrane) plus dissolved organics (DOC, which
         # the membrane does not reject).
         cl2_demand = permeate_tss * config.cl2_demand_per_tss + permeate_doc * config.cl2_demand_per_doc
-        # Contact time is basin HRT = volume/flow, not a fixed constant.
+        # Contact time is basin HRT = volume / post-membrane flow, which dips
+        # while a backwash interrupts production.
         contact_time = basin_volume / jnp.maximum(q_permeate, 1e-6)
         applied_cl2 = cl2_dose - cl2_demand
         new_cl2_residual = jnp.maximum(
@@ -316,6 +325,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             "coag_eta": coag_eta,
             "tmp": tmp,
             "cl2_residual": new_cl2_residual,
+            "q_in": q_in,
             "q_permeate": q_permeate,
             "coag_dose": coag_dose,
             "cl2_dose": cl2_dose,
