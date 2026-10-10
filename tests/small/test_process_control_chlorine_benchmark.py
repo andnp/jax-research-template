@@ -96,6 +96,47 @@ class TestChlorineBenchmarkDeterministic:
             assert jnp.allclose(a, b)
 
 
+def _outlet_trajectory(config: ChlorineBenchmarkConfig, n_steps: int = 60) -> list[float]:
+    reset_fn, step_fn = make_chlorine_benchmark(config)
+    step_fn = jax.jit(step_fn)
+    key = jax.random.PRNGKey(0)
+    k1, key = jax.random.split(key)
+    state, _ = reset_fn(k1)
+    outlets = []
+    for _ in range(n_steps):
+        k_step, key = jax.random.split(key)
+        state, _obs, _reward, _done, info = step_fn(state, jnp.array(2.0), k_step)
+        outlets.append(float(info["outlet_residual"]))
+    return outlets
+
+
+def _first_step_above(trajectory: list[float], threshold: float) -> int:
+    return next(i for i, value in enumerate(trajectory) if value > threshold)
+
+
+class TestChlorineContactChainLength:
+    def test_longer_chain_delays_outlet_response(self) -> None:
+        """
+        Splitting the same 400 m³ basin into 20 segments must delay the outlet response to a dose step.
+
+        Noise and drift are disabled so the only difference between runs is the contact-chain length.
+        """
+        quiet = dict(
+            flow_noise_std=0.0,
+            residual_noise_std=0.0,
+            residual_drift_rate=0.0,
+            demand_noise_std=0.0,
+            drift_scale=0.0,
+        )
+        default_outlets = _outlet_trajectory(ChlorineBenchmarkConfig(**quiet))
+        long_outlets = _outlet_trajectory(
+            ChlorineBenchmarkConfig(basin_volume=400.0, basin_segments=20, **quiet),
+        )
+
+        assert _first_step_above(long_outlets, 0.005) > _first_step_above(default_outlets, 0.005)
+        assert long_outlets[16] < default_outlets[16]
+
+
 class TestContactBasinAdvection:
     def test_dose_appears_at_outlet(self) -> None:
         params = ContactBasinParams(total_volume=100.0, n_segments=5, tau=1000.0)
