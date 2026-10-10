@@ -1,15 +1,19 @@
 """Sludge dewatering control benchmark.
 
-The agent controls polymer dose and belt speed to optimise cake dryness
-while minimising polymer cost and maintaining acceptable filtrate quality.
+Thickened sludge arrives at a stochastic rate and concentration into a well-mixed
+holding tank; the agent sets polymer dose and belt speed to draw the tank down
+through the press. A slow belt lets the tank fill and overflow (hauled away as
+liquid sludge); a fast belt or the wrong polymer dose sends solids back in the
+filtrate.
 
 Action (2D): [polymer_dose / dose_max, belt_speed (0-1)]
-Observation (5D):
-  cake_dryness (fraction)
-  filtrate_tss / 500
+Observation (6D):
+  cake_dryness (fraction, 0 when the belt is idle)
+  filtrate_tss / 500 (analyzer, held while the belt is idle)
   throughput / max_throughput
   polymer_dose / dose_max
-  feed_tss / 15000
+  tank_tss / 15000
+  tank_level (fraction of tank_volume_max)
 """
 
 from dataclasses import dataclass
@@ -32,8 +36,10 @@ class DewateringBenchState:
     step_count: jax.Array
     dewatering_state: DewateringState
     tss_drift: jax.Array
+    q_drift: jax.Array
     filtrate_sensor: LaggedSensorState
-    last_feed_tss: jax.Array
+    tank_volume: jax.Array  # m³
+    tank_solids: jax.Array  # kg
 
 
 @dataclass(frozen=True)
@@ -49,10 +55,19 @@ class DewateringConfig:
     feed_tss_amplitude: float = 3000.0
     feed_tss_min: float = 5000.0
     feed_tss_max: float = 18000.0
-    feed_tss_drift_scale: float = 0.3
+    feed_tss_drift_scale: float = 100.0  # g/m³ per step random walk (assumed)
 
-    # Feed flow (constant)
-    q_feed: float = 30.0  # m³/h
+    # Sludge inflow to the holding tank; all values assumed for the benchmark.
+    q_in_mean: float = 22.0  # m³/h
+    q_in_amplitude: float = 5.0
+    q_in_min: float = 3.0
+    q_in_max: float = 45.0
+    q_in_drift_scale: float = 0.5
+    q_in_drift_clip: float = 8.0
+
+    # Well-mixed holding tank (~2.7 h of mean inflow, assumed); overflow is hauled as liquid sludge.
+    tank_volume_max: float = 60.0  # m³
+    tank_init_fraction: float = 0.5
 
     # Polymer: mg/L dose that, at feed_tss_mean, gives ~15 kg/tonne DS — the
     # top of the centrifuge practice range (see units/dewatering.py).
@@ -68,7 +83,7 @@ class DewateringConfig:
     reward_w_dryness: float = 1.0
     reward_w_cost: float = 0.05
     reward_w_filtrate: float = 0.3
-    reward_w_throughput: float = 0.5  # penalty for feed bypassing the unit untreated
+    reward_w_overflow: float = 0.5  # penalty on tank overflow relative to mean inflow
     filtrate_limit: float = 200.0  # g/m³
 
 
@@ -81,6 +96,14 @@ def make_dewatering_benchmark(config: DewateringConfig):
         drift_scale=config.feed_tss_drift_scale,
         drift_clip=config.feed_tss_amplitude,
     )
+    inflow_channel_params = ChannelParams(
+        mean=config.q_in_mean,
+        amplitude=config.q_in_amplitude,
+        min_value=config.q_in_min,
+        max_value=config.q_in_max,
+        drift_scale=config.q_in_drift_scale,
+        drift_clip=config.q_in_drift_clip,
+    )
     filtrate_analyzer_params = LaggedSensorParams(
         noise_std=config.filtrate_noise_std,
         lag_coefficient=config.filtrate_lag,
@@ -89,16 +112,23 @@ def make_dewatering_benchmark(config: DewateringConfig):
 
     dt = jnp.array(config.dt)
     dose_max = jnp.array(config.dose_max)
-    q_feed = jnp.array(config.q_feed)
+    tank_volume_max = jnp.array(config.tank_volume_max)
     target_dryness = jnp.array(config.target_dryness)
     filtrate_limit = jnp.array(config.filtrate_limit)
+
+    def _select_if(condition: jax.Array):
+        def select(new: jax.Array, old: jax.Array):
+            return jnp.where(condition, new, old)
+
+        return select
 
     def _observe(
         dryness: jax.Array,
         sensed_filtrate: jax.Array,
         throughput: jax.Array,
         polymer_dose: jax.Array,
-        feed_tss: jax.Array,
+        tank_tss: jax.Array,
+        tank_volume: jax.Array,
     ):
         return jnp.array(
             [
@@ -106,91 +136,116 @@ def make_dewatering_benchmark(config: DewateringConfig):
                 sensed_filtrate / 500.0,
                 throughput / config.dewatering.max_throughput,
                 polymer_dose / dose_max,
-                feed_tss / 15000.0,
+                tank_tss / 15000.0,
+                tank_volume / tank_volume_max,
             ]
         )
 
     def reset(rng_key: jax.Array):
         k1, k2 = jax.random.split(rng_key, 2)
-        dw = dewatering_reset(config.dewatering, k1)
-        filt_sensor = analyzer_reset(0.0, k2)
+        initial_volume = config.tank_init_fraction * config.tank_volume_max
         state = DewateringBenchState(
             step_count=jnp.array(0, dtype=jnp.int32),
-            dewatering_state=dw,
+            dewatering_state=dewatering_reset(config.dewatering, k1),
             tss_drift=jnp.array(0.0),
-            filtrate_sensor=filt_sensor,
-            last_feed_tss=jnp.array(config.feed_tss_mean),
+            q_drift=jnp.array(0.0),
+            filtrate_sensor=analyzer_reset(0.0, k2),
+            tank_volume=jnp.array(initial_volume),
+            tank_solids=jnp.array(initial_volume * config.feed_tss_mean / 1e3),
         )
         obs = _observe(
-            jnp.array(config.dewatering.base_dryness),
-            filt_sensor.held_value,
-            jnp.minimum(q_feed, 0.5 * config.dewatering.max_throughput),
+            jnp.array(0.0),
+            state.filtrate_sensor.held_value,
+            jnp.array(0.0),
             jnp.array(0.0),
             jnp.array(config.feed_tss_mean),
+            state.tank_volume,
         )
         return state, obs
 
     def step(state: DewateringBenchState, action: jax.Array, rng_key: jax.Array):
-        k1, k2 = jax.random.split(rng_key, 2)
+        k1, k2, k3 = jax.random.split(rng_key, 3)
 
-        # 1. Feed TSS variation
+        # 1. Inflow to the holding tank
         t = (state.step_count % config.steps_per_day) / config.steps_per_day
-        tss_signal = jnp.sin(2.0 * jnp.pi * t)
-        new_tss_drift, feed_tss = channel_step(state.tss_drift, tss_signal, tss_channel_params, k1)
+        new_tss_drift, inflow_tss = channel_step(state.tss_drift, jnp.sin(2.0 * jnp.pi * t), tss_channel_params, k1)
+        new_q_drift, q_in = channel_step(state.q_drift, jnp.cos(2.0 * jnp.pi * t), inflow_channel_params, k3)
+        volume = state.tank_volume + q_in * dt
+        solids = state.tank_solids + inflow_tss * q_in * dt / 1e3  # kg
+        tank_tss = 1e3 * solids / volume  # g/m³
 
         # 2. Actions
         polymer_dose = jnp.clip(action[0], 0.0, 1.0) * dose_max
         belt_speed = jnp.clip(action[1], 0.0, 1.0)
 
-        # 3. Dewatering step
+        # 3. The press can draw the whole tank down; the belt limits what it takes
         new_dw, dryness, filtrate_tss, q_filtrate, bypass_flow = dewatering_step(
             state.dewatering_state,
-            feed_tss,
-            q_feed,
+            tank_tss,
+            volume / dt,
             polymer_dose,
             belt_speed,
             config.dewatering,
             dt,
         )
+        throughput = volume / dt - bypass_flow
+        running = throughput > 1e-6
+        volume = volume - throughput * dt
+        solids = solids - tank_tss * throughput * dt / 1e3
 
-        # 4. Filtrate sensor
+        # 4. Volume above the tank limit overflows at tank concentration
+        overflow_volume = jnp.maximum(volume - tank_volume_max, 0.0)
+        overflow_solids = tank_tss * overflow_volume / 1e3
+        volume = volume - overflow_volume
+        solids = solids - overflow_solids
+
+        # 5. Filtrate analyzer samples only while filtrate is flowing
         new_filt_sensor, sensed_filtrate = analyzer_step(
             state.filtrate_sensor,
             filtrate_tss,
             filtrate_analyzer_params,
             k2,
         )
+        new_filt_sensor = jax.tree.map(_select_if(running), new_filt_sensor, state.filtrate_sensor)
+        sensed_filtrate = jnp.where(running, sensed_filtrate, state.filtrate_sensor.held_value)
 
-        # 5. Observation
-        throughput = jnp.minimum(q_feed, belt_speed * config.dewatering.max_throughput)
-        obs = _observe(dryness, sensed_filtrate, throughput, polymer_dose, feed_tss)
+        # 6. Observation
+        obs = _observe(dryness, sensed_filtrate, throughput, polymer_dose, tank_tss, volume)
 
-        # 6. Reward
+        # 7. Reward: the quality penalty uses the true filtrate, not the analyzer reading
         dryness_gap = jnp.maximum(target_dryness - dryness, 0.0)
-        filtrate_violation = jnp.maximum(sensed_filtrate - filtrate_limit, 0.0)
-        bypass_fraction = bypass_flow / (q_feed + 1e-10)
+        filtrate_violation = jnp.maximum(filtrate_tss - filtrate_limit, 0.0)
+        overflow_fraction = overflow_volume / dt / config.q_in_mean
         reward = -(
             config.reward_w_dryness * dryness_gap**2
             + config.reward_w_cost * (polymer_dose / dose_max)
             + config.reward_w_filtrate * (filtrate_violation / filtrate_limit) ** 2
-            + config.reward_w_throughput * bypass_fraction**2
+            + config.reward_w_overflow * overflow_fraction**2
         )
 
         new_state = DewateringBenchState(
             step_count=state.step_count + 1,
             dewatering_state=new_dw,
             tss_drift=new_tss_drift,
+            q_drift=new_q_drift,
             filtrate_sensor=new_filt_sensor,
-            last_feed_tss=feed_tss,
+            tank_volume=volume,
+            tank_solids=solids,
         )
         info: dict[str, jax.Array] = {
             "dryness": dryness,
             "filtrate_tss": filtrate_tss,
             "polymer_dose": polymer_dose,
-            "feed_tss": feed_tss,
+            "tank_tss": tank_tss,
+            "tank_level": volume / tank_volume_max,
             "throughput": throughput,
             "q_filtrate": q_filtrate,
-            "bypass_flow": bypass_flow,
+            "inflow": q_in,
+            "inflow_tss": inflow_tss,
+            "overflow_volume": overflow_volume,
+            "overflow_solids": overflow_solids,
+            "cake_solids": new_dw.cake_produced - state.dewatering_state.cake_produced,
+            "filtrate_solids": filtrate_tss * q_filtrate * dt / 1e3,
         }
         done = jnp.array(False)
         return new_state, obs, reward, done, info

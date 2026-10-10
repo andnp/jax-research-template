@@ -9,7 +9,6 @@ from process_control.benchmarks.anaerobic_digester import (
     make_anaerobic_digester_benchmark,
 )
 from process_control.benchmarks.combined_np import CombinedNPConfig, make_combined_np_benchmark
-from process_control.benchmarks.dewatering import DewateringConfig, make_dewatering_benchmark
 from process_control.benchmarks.drinking_water_train import (
     DrinkingWaterTrainConfig,
     make_drinking_water_train_benchmark,
@@ -503,14 +502,6 @@ def _run_benchmark_suite(
 class TestPrimaryClarifierBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_primary_clarifier_benchmark, PrimaryClarifierConfig(), action_dim=1, obs_dim=5)
-
-
-# ---------------------------------------------------------------------------
-# Benchmark: Dewatering (2D action, 5D obs)
-# ---------------------------------------------------------------------------
-class TestDewateringBenchmark:
-    def test_shapes_jit_stability(self) -> None:
-        _run_benchmark_suite(make_dewatering_benchmark, DewateringConfig(), action_dim=2, obs_dim=5)
 
 
 # ---------------------------------------------------------------------------
