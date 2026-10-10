@@ -306,18 +306,24 @@ def reset(
     params: DigesterParams,
     rng_key: jax.Array,
 ):
-    """Initialize digester at approximate steady state."""
+    """Initialize at the stationary point of `step()` for feed_cod=30000 mg/L, q_feed=300 m3/d, 35 C.
+
+    Calibrated only at that default operating point with default params: the
+    arguments are not used, so other feed strengths, flows, temperatures or
+    parameters start away from equilibrium. Regenerate the literals if the
+    model or defaults change; a test checks one-step drift is zero.
+    """
     return DigesterState(
-        x_substrate=jnp.array(feed_cod * 0.3),  # some undigested substrate
-        x_biomass=jnp.array(1500.0),  # healthy biomass
-        x_inert=jnp.array(0.0),
-        s_vfa=jnp.array(200.0),  # moderate VFA
-        s_ch4=jnp.array(50.0),  # near saturation
-        s_ic=jnp.array(params.ic_init),
-        s_in=jnp.array(800.0),  # ammonia from protein
-        alkalinity=jnp.array(params.alkalinity_init),
-        q_gas=jnp.array(1000.0),  # typical biogas
-        gas_ch4_frac=jnp.array(0.65),  # typical CH4 fraction
+        x_substrate=jnp.array(7863.557),
+        x_biomass=jnp.array(630.763),
+        x_inert=jnp.array(6683.360),
+        s_vfa=jnp.array(122.930),
+        s_ch4=jnp.array(52.938),
+        s_ic=jnp.array(2080.868),
+        s_in=jnp.array(545.945),
+        alkalinity=jnp.array(1853.625),
+        q_gas=jnp.array(2146.146),
+        gas_ch4_frac=jnp.array(0.71658),
     )
 
 

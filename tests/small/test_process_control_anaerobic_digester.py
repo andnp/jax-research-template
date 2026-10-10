@@ -154,3 +154,20 @@ class TestDigesterCarbonBalance:
         assert jnp.isfinite(qb)
         assert jnp.isfinite(ch4)
         assert jnp.isfinite(ph)
+
+
+class TestDigesterReset:
+    def test_reset_state_is_stationary_at_calibration_point(self) -> None:
+        """One nominal step (COD 30000, q=300, 35 C) leaves every state field unchanged.
+
+        Guards against the reset literals going stale when the model or its
+        defaults change; tolerance covers the literals' rounding.
+        """
+        params = DigesterParams()
+        state = digester_reset(30000.0, params, jax.random.PRNGKey(0))
+        new_state, *_ = digester_step(
+            state, jnp.array(30000.0), jnp.array(300.0), jnp.array(35.0), params, jnp.array(0.04167)
+        )
+        for name in DigesterState.__dataclass_fields__:
+            before, after = getattr(state, name), getattr(new_state, name)
+            assert jnp.allclose(after, before, rtol=1e-4, atol=1e-3), (name, float(before), float(after))

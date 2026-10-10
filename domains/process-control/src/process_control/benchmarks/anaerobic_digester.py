@@ -39,7 +39,6 @@ class AnaerobicDigesterBenchState:
     ph_sensor: LaggedSensorState
     biogas_sensor: LaggedSensorState
     temperature: jax.Array
-    last_q_feed: jax.Array
 
 
 @dataclass(frozen=True)
@@ -130,7 +129,6 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             ph_sensor=analyzer_reset(ph0, k3),
             biogas_sensor=analyzer_reset(dig.q_gas, k4),
             temperature=jnp.array(35.0),
-            last_q_feed=jnp.array(config.q_feed_max * 0.5),
         )
         # Built from the same reset state fed to the sensors above, rather
         # than separately hardcoded literals that can drift out of sync with it.
@@ -217,7 +215,6 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
             ph_sensor=new_ph_s,
             biogas_sensor=new_bg_s,
             temperature=new_temp,
-            last_q_feed=q_feed,
         )
         info: dict[str, jax.Array] = {
             "q_biogas": q_biogas,
