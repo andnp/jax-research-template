@@ -537,7 +537,10 @@ class TestRejectWaterBenchmark:
         _run_benchmark_suite(make_reject_water_benchmark, RejectWaterConfig(), action_dim=1, obs_dim=6)
 
     def test_tank_overflow_is_reported(self) -> None:
-        """Reject tank capacity clipping reports positive and zero overflow."""
+        """Reject tank capacity clipping reports positive and zero overflow.
+
+        Overflow is what the clipped tank discards, so a drained tank must report none.
+        """
         reset_fn, step_fn = make_reject_water_benchmark(RejectWaterConfig(reject_tank_max=1.0))
         state, _ = reset_fn(jax.random.PRNGKey(1))
         for index in range(10):
@@ -566,7 +569,10 @@ class TestRejectWaterBenchmark:
         assert jnp.allclose(reward, -config.reward_w_overflow * lost_steps)
 
     def test_reward_scores_true_nh4_not_sensor_reading(self) -> None:
-        """Reward matches the true NH₄ and overflow even when the sensed NH₄ is dominated by noise."""
+        """Reward matches the true NH₄ and overflow even when the sensed NH₄ is dominated by noise.
+
+        The sensor is only an observation; letting it into the reward would make scoring noisy.
+        """
         config = RejectWaterConfig(nh4_baseline=10.0, nh4_noise_std=20.0)
         reset_fn, step_fn = make_reject_water_benchmark(config)
         state, _ = reset_fn(jax.random.PRNGKey(0))
@@ -581,7 +587,10 @@ class TestRejectWaterBenchmark:
         assert jnp.allclose(reward, expected)
 
     def test_observed_tank_level_matches_post_step_tank(self) -> None:
-        """Observed tank level is the post-step fraction, so a shut valve shows exactly one production increment."""
+        """Observed tank level is the post-step fraction, so a shut valve shows exactly one production increment.
+
+        The policy acts on this observation, so it must reflect the state the step just produced.
+        """
         config = RejectWaterConfig()
         reset_fn, step_fn = make_reject_water_benchmark(config)
         state, obs = reset_fn(jax.random.PRNGKey(0))
@@ -618,7 +627,10 @@ def _constant_return_policy(rate: float) -> Callable[[jax.Array, jax.Array], jax
 
 
 def _headroom_return_policy(config: RejectWaterConfig, cap: float) -> Callable[[jax.Array, jax.Array], jax.Array]:
-    """Test-only feedforward rule: return what the nitrifying zone can absorb after main-flow load, reading only the observation."""
+    """Test-only feedforward rule: return what the nitrifying zone can absorb after main-flow load.
+
+    It reads only the observation, so it is a policy any agent could have learned from the same inputs.
+    """
     pass_through = config.reject_production / config.q_reject_max
 
     def policy(obs: jax.Array, key: jax.Array) -> jax.Array:
@@ -638,7 +650,10 @@ def _reject_water_return_per_day(
     days: int,
     seeds: int = 4,
 ) -> tuple[float, float]:
-    """Mean reward and overflow per day, with warm-up steps excluded from scoring."""
+    """Mean reward and overflow per day, with warm-up steps excluded from scoring.
+
+    Warm-up lets the tank and nitrifying zone reach the policy's own operating state before scoring.
+    """
     reset_fn, step_fn = make_reject_water_benchmark(config)
     horizon = warm_steps + config.steps_per_day * days
 
@@ -678,7 +693,10 @@ def _assert_reject_water_ranking(config: RejectWaterConfig, warm_steps: int, day
 
 class TestRejectWaterTimingTradeoff:
     def test_action_sets_return_rate_between_endpoints(self) -> None:
-        """Action 0 holds reject water and action 1 returns at the full rate while the reset tank holds enough water."""
+        """Action 0 holds reject water and action 1 returns at the full rate while the reset tank holds enough water.
+
+        The endpoints anchor the policy comparisons below.
+        """
         config = RejectWaterConfig()
         reset_fn, step_fn = make_reject_water_benchmark(config)
         state, _ = reset_fn(jax.random.PRNGKey(0))
@@ -690,12 +708,18 @@ class TestRejectWaterTimingTradeoff:
     @pytest.mark.parametrize("days", [3, 7], ids=["three_days", "seven_days"])
     @pytest.mark.parametrize("warm_steps", [0, 300], ids=["reset", "quarter_day_warm_start"])
     def test_policy_ranking_holds_across_start_phases(self, warm_steps: int, days: int) -> None:
-        """Shut loses most, pass-through beats full-open, and the headroom rule beats pass-through with no overflow."""
+        """Shut loses most, pass-through beats full-open, and the headroom rule beats pass-through with no overflow.
+
+        Ranking is checked at several horizons so that stored inventory at the end of an episode cannot decide it.
+        """
         _assert_reject_water_ranking(RejectWaterConfig(), warm_steps, days)
 
     @pytest.mark.parametrize("nitrification_rate", [7.5, 8.5, 9.5, 10.0], ids=lambda rate: f"rate_{rate}")
     def test_policy_ranking_holds_across_nitrification_band(self, nitrification_rate: float) -> None:
-        """The ranking holds across the band of assumed nitrification rates it was calibrated against."""
+        """The ranking holds across the band of assumed nitrification rates it was calibrated against.
+
+        The band is documented on the nitrification_rate config field.
+        """
         _assert_reject_water_ranking(RejectWaterConfig(nitrification_rate=nitrification_rate), warm_steps=0, days=3)
 
 # ---------------------------------------------------------------------------
