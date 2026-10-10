@@ -131,6 +131,10 @@ The output should be a signal, not a direct pointer into latent state.
 - the estimator should only use allowed upstream measurements
 - a soft sensor can legitimately give RL an edge if the plant could plausibly compute it too
 
+## Implemented: BSM1 sensor classes
+
+[`sensors/response_time.py`](../../../domains/process-control/src/process_control/sensors/response_time.py) implements the BSM1 sensor model (Alex et al. 2008): a chain of first-order lags reaching 90 % of a step after `t90`, then an optional sample-and-hold that can report the previous sample, plus band-limited Gaussian noise (2.5 % of range, one-minute period) that depends only on the sensor key. The BSM1 classes are `BSM1_CLASS_A`, `B0`, `B1`, `C0`, `C1` and `D`, differing in response time and sample interval. `SensorParams` adds the measuring range and noise; `reset` and `step` give the pure functional interface. See [ADR 015](../../adrs/015-continuous-time-flowsheets.md).
+
 ## Sensor realism for benchmark design
 
 ### Realistic ways to help RL
