@@ -132,7 +132,7 @@ def step(
         dt: timestep (h)
 
     Returns:
-        (new_state, tmp, permeate_tss, q_permeate)
+        (new_state, operating tmp (Pa), permeate_tss, q_permeate)
     """
     requested = do_backwash > 0.5
     rising_edge = requested & ~state.backwash_trigger_latched
@@ -190,7 +190,9 @@ def step(
     q_permeate = effective_flux * params.area  # m³/h
 
     # TMP at current conditions
-    flux_ms = effective_flux / 3600.0  # m/h → m/s
+    # Operating TMP: the pressure while permeating, not diluted by wash time
+    # within the step; zero only when the whole step is a wash.
+    flux_ms = jnp.where(operating_time > 0.0, flux, 0.0) / 3600.0  # m/h → m/s
     r_total = params.r_membrane + new_r_rev + new_r_irr
     tmp = flux_ms * _water_viscosity(params.water_temp_c) * r_total
 

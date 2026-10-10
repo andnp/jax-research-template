@@ -5,7 +5,7 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.units.membrane import MembraneParams, MembraneState
+from process_control.units.membrane import MembraneParams, MembraneState, compute_tmp
 from process_control.units.membrane import reset as membrane_reset
 from process_control.units.membrane import step as membrane_step
 
@@ -118,3 +118,19 @@ def test_irreversible_fouling_scales_with_deposited_mass() -> None:
     assert float(state.r_irreversible) == pytest.approx(
         params.irr_fraction * float(state.r_reversible), rel=1e-4
     )
+
+
+def test_partial_wash_step_reports_operating_tmp() -> None:
+    """The step that ends a wash reports the pressure while permeating, not a wash-diluted average."""
+    params = _cleaning_params()
+    state = replace(
+        membrane_reset(params, jax.random.PRNGKey(3)),
+        r_reversible=jnp.array(1e13),
+    )
+
+    state, tmp_full_wash, _, _ = _step(state, params, 0.02, 1.0)
+    state, tmp_partial, _, flow = _step(state, params, 0.02, 1.0)
+
+    assert float(tmp_full_wash) == pytest.approx(0.0)
+    assert float(flow) == pytest.approx(0.03 * params.area / 2.0)
+    assert float(tmp_partial) == pytest.approx(float(compute_tmp(jnp.array(0.03 / 3600.0), state, params)), rel=1e-6)
