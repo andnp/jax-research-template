@@ -112,3 +112,28 @@ class TestDemandReward:
         before_noon = replace(state, step_count=jnp.array(config.steps_per_day // 2 - 1, dtype=jnp.int32))
         _, noon_obs, _, _, _ = step(before_noon, jnp.array([0.5, 0.0, 0.0]), jax.random.PRNGKey(1))
         assert float(noon_obs[5]) == pytest.approx(config.demand_mean + config.demand_amp)
+
+
+def _peak_tmp(wash_every: int | None, steps: int) -> float:
+    config = MembraneFoulingConfig()
+    reset, step = make_membrane_fouling_benchmark(config)
+    state, _ = reset(jax.random.PRNGKey(0))
+
+    def body(carry: MembraneFoulingBenchState, inputs: tuple[jax.Array, jax.Array]):
+        key, index = inputs
+        wash = 0.0 if wash_every is None else (index % wash_every == 0) * 1.0
+        new_state, _, _, _, info = step(carry, jnp.array([0.5, 0.0, wash]), key)
+        return new_state, info["tmp"]
+
+    keys = jax.random.split(jax.random.PRNGKey(1), steps)
+    _, tmp = jax.lax.scan(body, state, (keys, jnp.arange(steps)))
+    return float(tmp.max())
+
+
+class TestCalibratedFouling:
+    def test_unwashed_membrane_passes_tmp_target_within_a_day_but_timer_keeps_it_below(self) -> None:
+        """Without backwash TMP crosses the soft target in a day; a periodic backwash holds it under."""
+        config = MembraneFoulingConfig()
+
+        assert _peak_tmp(None, config.steps_per_day) > config.tmp_target
+        assert _peak_tmp(300, config.steps_per_day) < config.tmp_target

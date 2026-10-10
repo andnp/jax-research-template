@@ -43,7 +43,11 @@ class MembraneFoulingConfig:
     steps_per_day: int = 2400
 
     # Membrane
-    membrane: MembraneParams = MembraneParams()
+    # Calibrated for the benchmark, not measured: alpha_cake sits inside the cited
+    # 1e13-1e16 m/kg range and makes TMP rise on a 1-3 h backwash timescale;
+    # irr_fraction is raised so irreversible fouling matters within days; the
+    # wash is a 1-minute UF-style backwash.
+    membrane: MembraneParams = MembraneParams(alpha_cake=5e14, irr_fraction=0.1, bw_duration=1.0 / 60.0)
 
     # Operating range
     flux_max: float = 0.05  # m/h (50 LMH — typical UF)
