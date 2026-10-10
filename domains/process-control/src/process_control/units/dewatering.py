@@ -20,7 +20,10 @@ from process_control._jax_dataclass import jax_dataclass
 class DewateringParams:
     max_throughput: float = 50.0  # m³/h max sludge feed rate
     base_capture: float = 0.85  # capture rate at zero polymer
-    max_capture: float = 0.98  # capture rate at optimum polymer dose
+    # Peak capture at the optimum polymer dose. Belt-press polymer-aided capture is
+    # ~90-98% (Metcalf & Eddy sludge dewatering tables); 0.97 is a calibrated
+    # benchmark choice, not a site value.
+    max_capture: float = 0.97
     # Dose practice is per unit dry solids, not per unit sludge volume: belt
     # presses run ~2-10 kg polymer/tonne DS, centrifuges ~8-15 kg/tonne DS
     # (WEF MOP 8; cited link no longer resolves — unverified against the
@@ -97,9 +100,12 @@ def step(
 
     # Capture: Haldane-type saturation-then-inhibition (overdose restabilises
     # floc / blinds the media past an optimum dose ratio).
-    capture = params.base_capture + (params.max_capture - params.base_capture) * dose_ratio / (
+    # The Haldane term peaks below 1 at sqrt(k*ki); normalise so max_capture is the true peak.
+    haldane_peak = 1.0 / (1.0 + 2.0 * jnp.sqrt(params.k_polymer_capture / params.ki_polymer_capture))
+    capture_response = dose_ratio / (
         params.k_polymer_capture + dose_ratio + dose_ratio**2 / params.ki_polymer_capture
     )
+    capture = params.base_capture + (params.max_capture - params.base_capture) * capture_response / haldane_peak
     # Dryness keeps a plain Monod saturation — no reported overdose penalty on dryness.
     dryness = params.base_dryness + (params.max_dryness - params.base_dryness) * (dose_ratio / (params.k_polymer_dryness + dose_ratio))
 
