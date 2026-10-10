@@ -163,6 +163,24 @@ def action_space(handles: BSM1Handles) -> ActionSpace:
 
 
 @dataclass(frozen=True)
+class InfluentTemperature:
+    """The reactors run at the temperature recorded with the influent profile."""
+
+
+@dataclass(frozen=True)
+class SeasonalTemperature:
+    """A sinusoidal annual temperature, °C, starting at `phase` of its period, or a random phase each episode."""
+
+    mean: float = 15.0
+    amplitude: float = 5.0
+    period: float = 364.0 * _DAY
+    phase: float | None = None
+
+
+type TemperatureModel = InfluentTemperature | SeasonalTemperature
+
+
+@dataclass(frozen=True)
 class Observation:
     """A plant quantity, read through `sensor` (exactly when unset) and divided by `scale`."""
 
@@ -263,6 +281,7 @@ class BSM1Config:
     handles: BSM1Handles = field(default_factory=BSM1Handles)
     observations: tuple[Observation, ...] = DEFAULT_OBSERVATIONS
     reward: RewardWeights = field(default_factory=RewardWeights)
+    temperature: TemperatureModel = field(default_factory=InfluentTemperature)
     influent: InfluentRandomization = DEFAULT_RANDOMIZATION
     layout: ActivatedSludgeLayout[ASM1Params] = BSM1_LAYOUT
     initial_reactors: tuple[tuple[float, ...], ...] = BSM1_OPEN_LOOP_REACTORS
@@ -284,6 +303,7 @@ class BSM1Config:
 class BSM1State:
     plant: dict[str, jax.Array]
     influent: TabularInfluentState
+    temperature_phase: jax.Array
     time: jax.Array
     handles: dict[str, jax.Array]
     setpoints: dict[str, jax.Array]
@@ -342,6 +362,12 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
     dt = jnp.array(config.control_interval)
     step_days = config.control_interval * config.intervals_per_step / _DAY
 
+    def temperature_at(time: jax.Array, phase: jax.Array, profile_temperature: jax.Array) -> jax.Array:
+        model = config.temperature
+        if isinstance(model, InfluentTemperature):
+            return profile_temperature
+        return model.mean + model.amplitude * jnp.sin(2.0 * jnp.pi * (time / model.period + phase))
+
     def signals_of(handles: Mapping[str, jax.Array], temperature: jax.Array) -> dict[str, jax.Array]:
         return {
             **{name: handles[name] for name in KLA_HANDLES},
@@ -352,9 +378,16 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         }
 
     def snapshot(state: BSM1State, setpoints: Mapping[str, jax.Array]) -> PlantSnapshot:
-        stream, temperature = tabular_influent.influent(state.influent, influent_params)
+        stream, profile_temperature = tabular_influent.influent(state.influent, influent_params)
+        temperature = temperature_at(state.time, state.temperature_phase, profile_temperature)
         signals = signals_of(state.handles, temperature)
         return take_snapshot(flowsheet, layout, state.plant, stream, signals, state.handles, setpoints)
+
+    def initial_phase(rng_key: jax.Array) -> jax.Array:
+        model = config.temperature
+        if not isinstance(model, SeasonalTemperature):
+            return jnp.zeros(())
+        return jax.random.uniform(rng_key) if model.phase is None else jnp.asarray(model.phase)
 
     def solids_inventory(plant: Mapping[str, jax.Array]) -> jax.Array:
         reactors = jnp.stack([plant[name] for name in layout.reactors])
@@ -369,7 +402,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
 
     def reset(rng_key: jax.Array) -> tuple[BSM1State, jax.Array]:
         require_float64()
-        influent_key, controller_key, observation_key = jax.random.split(rng_key, 3)
+        influent_key, phase_key, controller_key, observation_key = jax.random.split(rng_key, 4)
         operating = config.operating_point.values()
         handles = {name: jnp.asarray(control.value if isinstance(control, Fixed) else operating[name]) for name, control in controls}
         setpoints = {
@@ -379,6 +412,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         unsensed = BSM1State(
             plant=settled_state(layout, jnp.array(config.initial_reactors), jnp.array(config.initial_layer_tss)),
             influent=tabular_influent.reset(influent_params, influent_key),
+            temperature_phase=initial_phase(phase_key),
             time=jnp.zeros(()),
             handles=handles,
             setpoints=setpoints,
@@ -459,6 +493,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         advanced = BSM1State(
             plant=_arrays(plant),
             influent=tabular_influent.advance(state.influent, influent_params, dt, rng_key),
+            temperature_phase=state.temperature_phase,
             time=state.time + dt,
             handles=handles,
             setpoints=setpoints,
