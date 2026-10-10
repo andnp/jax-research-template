@@ -6,11 +6,9 @@ https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
 
 All integrals in the reference are rectangular (constant time step), so a
 time integral divided by the observation period T reduces to a plain mean;
-none of these functions need the step size as an argument. Sludge production
-(SP) and external-carbon consumption (EC) require a solids/dosing inventory
-that most benchmarks here don't track (perfect-clarifier assumption, no
-carbon dosing action), so `operational_cost_index` takes them as optional
-inputs defaulting to zero rather than approximating them.
+only sludge production, which divides an inventory change by T, takes the
+period. `operational_cost_index` requires every term, so a plant without a
+carbon source states EC = 0 rather than inheriting it.
 """
 
 from dataclasses import dataclass
@@ -124,9 +122,9 @@ def sludge_production(solids_start: jax.Array, solids_end: jax.Array, waste_soli
 def operational_cost_index(
     ae: jax.Array,
     pe: jax.Array,
-    sp: jax.Array | float = 0.0,
-    ec: jax.Array | float = 0.0,
-    me: jax.Array | float = 0.0,
+    sp: jax.Array,
+    ec: jax.Array | float,
+    me: jax.Array,
 ) -> jax.Array:
     """Operational Cost Index OCI = AE + PE + 5·SP + 3·EC + ME (Alex et al., 2008, §6)."""
     return ae + pe + 5.0 * sp + 3.0 * ec + me

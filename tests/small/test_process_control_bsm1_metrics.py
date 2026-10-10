@@ -130,10 +130,6 @@ class TestOperationalCostIndex:
         oci = operational_cost_index(ae=jnp.array(100.0), pe=jnp.array(10.0), sp=jnp.array(2.0), ec=jnp.array(1.0), me=jnp.array(5.0))
         assert jnp.allclose(oci, jnp.array(100.0 + 10.0 + 5.0 * 2.0 + 3.0 * 1.0 + 5.0), atol=1e-6)
 
-    def test_defaults_to_energy_terms_only(self) -> None:
-        oci = operational_cost_index(ae=jnp.array(100.0), pe=jnp.array(10.0))
-        assert jnp.allclose(oci, jnp.array(110.0), atol=1e-6)
-
 
 class TestLimitCompliance:
     def test_limits_follow_table_9(self) -> None:

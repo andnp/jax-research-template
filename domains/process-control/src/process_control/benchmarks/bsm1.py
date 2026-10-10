@@ -558,7 +558,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "infeasible_hydraulics": jnp.any(record["split_deficit"] > 0.0),
         }
         info["operational_cost"] = operational_cost_index(
-            info["aeration_energy"], info["pumping_energy"], sp=info["sludge_production"], me=info["mixing_energy"]
+            info["aeration_energy"], info["pumping_energy"], sp=info["sludge_production"], ec=0.0, me=info["mixing_energy"]
         )
         return info
 
