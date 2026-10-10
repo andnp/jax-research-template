@@ -14,6 +14,7 @@ class PIControllerParams:
     output_min: float | jax.Array
     output_max: float | jax.Array
     max_integral: float | jax.Array | None = None
+    tracking_time: float | jax.Array | None = None
 
 
 @jax_dataclass
@@ -71,8 +72,15 @@ def step_with_diagnostics(
     params: PIControllerParams,
     dt: jax.Array,
 ) -> tuple[PIControllerState, PIControllerOutput]:
-    """Advance the PI controller and report raw and saturated outputs."""
+    """Advance the PI controller and report raw and saturated outputs.
+
+    With a `tracking_time` Tt, back-calculation feeds the saturation excess (u_sat − u_raw) / Tt into
+    the integral term instead of conditional integration; it is applied exactly over dt, so it stays
+    stable when dt exceeds Tt.
+    """
     error = setpoint - measurement
+    if params.tracking_time is not None:
+        return _back_calculation_step(state, error, params, params.tracking_time, dt)
     max_integral = integral_limit(params)
     candidate_integral = jnp.clip(state.integral + error * dt, -max_integral, max_integral)
     candidate_output = params.kp * error + params.ki * candidate_integral + params.ff
@@ -92,6 +100,21 @@ def step_with_diagnostics(
         saturated=saturated_output,
         is_saturated=raw_output != saturated_output,
     )
+    return PIControllerState(integral=new_integral), result
+
+
+def _back_calculation_step(
+    state: PIControllerState, error: jax.Array, params: PIControllerParams, tracking_time: float | jax.Array, dt: jax.Array
+) -> tuple[PIControllerState, PIControllerOutput]:
+    current = params.kp * error + params.ki * state.integral + params.ff
+    excess = jnp.clip(current, params.output_min, params.output_max) - current
+    has_integral_action = params.ki != 0.0
+    tracking = excess / jnp.where(has_integral_action, params.ki, 1.0) * -jnp.expm1(-dt / tracking_time)
+    new_integral = jnp.where(has_integral_action, state.integral + error * dt + tracking, state.integral)
+
+    raw_output = params.kp * error + params.ki * new_integral + params.ff
+    saturated_output = jnp.clip(raw_output, params.output_min, params.output_max)
+    result = PIControllerOutput(raw=raw_output, saturated=saturated_output, is_saturated=raw_output != saturated_output)
     return PIControllerState(integral=new_integral), result
 
 
