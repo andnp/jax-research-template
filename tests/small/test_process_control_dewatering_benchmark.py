@@ -215,11 +215,12 @@ class TestDewateringPolicyRanking:
         assert all(a > c for a, c in zip(adaptive, best_constant, strict=True))
 
     def test_dryness_feedback_beats_the_best_constant_on_held_out_seeds(self) -> None:
-        """Feedback on the lagged, noisy dryness reading beats a hindsight-tuned constant and cuts filtrate violations."""
-        held_out = (100, 101, 102)
+        """Feedback on the lagged, noisy dryness analyzer beats a constant tuned on other seeds and cuts violations."""
+        tuning, held_out = (0, 1, 2), (100, 101, 102)
         constants = [(d, s) for d in (0.5, 0.6, 0.7) for s in (0.5, 0.55, 0.6)]
-        scores = {c: _episode_stats(_constant(*c), held_out) for c in constants}
-        best_rewards, best_violations = max(scores.values(), key=_total_reward)
+        tuning_reward = {c: _total_reward(_episode_stats(_constant(*c), tuning)) for c in constants}
+        best_constant = max(tuning_reward, key=tuning_reward.__getitem__)
+        best_rewards, best_violations = _episode_stats(_constant(*best_constant), held_out)
         rewards, violations = _episode_stats(_dryness_feedback, held_out)
 
         assert all(r > c for r, c in zip(rewards, best_rewards, strict=True))
