@@ -137,3 +137,71 @@ class TestCalibratedFouling:
 
         assert _peak_tmp(None, config.steps_per_day) > config.tmp_target
         assert _peak_tmp(300, config.steps_per_day) < config.tmp_target
+
+
+def _fouled_state(r_reversible: float, r_irreversible: float = 0.0, wash_remaining: float = 0.0):
+    config = MembraneFoulingConfig()
+    reset, step = make_membrane_fouling_benchmark(config)
+    state, _ = reset(jax.random.PRNGKey(0))
+    membrane = replace(
+        state.membrane_state,
+        r_reversible=jnp.array(r_reversible),
+        r_irreversible=jnp.array(r_irreversible),
+        is_backwashing=jnp.array(wash_remaining > 0.0),
+        backwash_remaining=jnp.array(wash_remaining),
+    )
+    return config, step, replace(state, membrane_state=membrane)
+
+
+class TestForcedCip:
+    def test_trip_during_partial_wash_step_uses_operating_pressure(self) -> None:
+        """A step that is half wash, half permeating still trips at the limit, charges the CIP, and bills pumping on operating TMP."""
+        config, step, state = _fouled_state(5e13, 1e13, wash_remaining=0.005)
+
+        new_state, _, reward, _, info = step(state, jnp.array([1.0, 0.0, 0.0]), jax.random.PRNGKey(1))
+
+        assert float(info["tmp"]) >= config.membrane.max_tmp
+        assert bool(info["tripped"])
+        assert float(new_state.cip_remaining) == pytest.approx(config.cip_duration)
+        assert float(new_state.membrane_state.r_reversible) == pytest.approx(0.0)
+        assert float(new_state.membrane_state.r_irreversible) < 0.25e13
+        half_step_flow = config.flux_max * config.membrane.area / 2.0
+        joules = float(info["tmp"]) * half_step_flow * config.dt
+        assert float(info["pump_energy_kwh"]) == pytest.approx(joules / config.pump_eff / 3.6e6, rel=1e-5)
+        assert float(reward) < -config.cip_chem_cost / (config.water_value * 5.0 * config.dt)
+
+    def test_membrane_is_offline_for_the_cip_duration_then_resumes(self) -> None:
+        """No flow, scour, or wash happens while the CIP runs; production resumes when it ends."""
+        config, step, state = _fouled_state(0.0)
+        state = replace(state, cip_remaining=jnp.array(config.dt))
+        command = jnp.array([1.0, 1.0, 1.0])
+
+        state, obs, _, _, offline = step(state, command, jax.random.PRNGKey(1))
+        _, _, _, _, resumed = step(state, jnp.array([1.0, 1.0, 0.0]), jax.random.PRNGKey(2))
+
+        assert float(offline["q_permeate"]) == pytest.approx(0.0)
+        assert float(offline["scour_energy_kwh"]) == pytest.approx(0.0)
+        assert float(offline["backwash_water_m3"]) == pytest.approx(0.0)
+        assert float(resumed["q_permeate"]) > 0.0
+        assert float(obs[6]) == pytest.approx(0.0)
+
+    def test_unwashed_membrane_trips_and_timer_prevents_it(self) -> None:
+        """Over five days at mid flux an unwashed membrane trips repeatedly while a 3 h backwash timer never does."""
+        config = MembraneFoulingConfig()
+        reset, step = make_membrane_fouling_benchmark(config)
+        steps = 5 * config.steps_per_day
+
+        def trips(wash_every: int | None) -> int:
+            def body(carry: MembraneFoulingBenchState, inputs: tuple[jax.Array, jax.Array]):
+                key, index = inputs
+                wash = 0.0 if wash_every is None else (index % wash_every == 0) * 1.0
+                new_state, _, _, _, info = step(carry, jnp.array([0.5, 0.0, wash]), key)
+                return new_state, info["tripped"]
+
+            state, _ = reset(jax.random.PRNGKey(0))
+            keys = jax.random.split(jax.random.PRNGKey(1), steps)
+            _, tripped = jax.lax.scan(body, state, (keys, jnp.arange(steps)))
+            return int(tripped.sum())
+
+        assert trips(None) > 0
+        assert trips(300) == 0

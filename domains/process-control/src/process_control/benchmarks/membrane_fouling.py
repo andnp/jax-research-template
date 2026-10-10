@@ -4,16 +4,17 @@ The agent controls membrane flux, air scour, and backwash timing to
 maintain throughput while managing fouling.
 
 Action (3D): [flux position in flux_min..flux_max, air_scour (0-1), backwash_trigger (>0.5 = wash)]
-Observation (6D):
+Observation (7D):
   sensed TMP / max_TMP
   permeate_flow / max_flow
   air_scour
   hours_since_backwash / bw_age_ref (capped at 1)
   feed_tss / feed_tss_max
   water demand / max_flow
+  forced-CIP time left / cip_duration
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import jax
 import jax.numpy as jnp
@@ -35,6 +36,7 @@ class MembraneFoulingBenchState:
     tss_drift: jax.Array
     tmp_sensor: LaggedSensorState
     last_feed_tss: jax.Array
+    cip_remaining: jax.Array  # h of forced cleaning left
 
 
 @dataclass(frozen=True)
@@ -46,8 +48,9 @@ class MembraneFoulingConfig:
     # Calibrated for the benchmark, not measured: alpha_cake sits inside the cited
     # 1e13-1e16 m/kg range and makes TMP rise on a 1-3 h backwash timescale;
     # irr_fraction is raised so irreversible fouling matters within days; the
-    # wash is a 1-minute UF-style backwash.
-    membrane: MembraneParams = MembraneParams(alpha_cake=5e14, irr_fraction=0.1, bw_duration=1.0 / 60.0)
+    # wash is a 1-minute UF-style backwash. The unit's timed CIP is disabled; the
+    # TMP trip below is the only CIP path.
+    membrane: MembraneParams = MembraneParams(alpha_cake=5e14, irr_fraction=0.1, bw_duration=1.0 / 60.0, cip_interval=1e9)
 
     # Operating range
     flux_max: float = 0.05  # m/h (50 LMH — typical UF)
@@ -82,6 +85,11 @@ class MembraneFoulingConfig:
     pump_eff: float = 0.7  # permeate pump wire-to-water efficiency
     scour_kw_per_m2: float = 0.02  # air scour power at full intensity (kW/m2)
     bw_water_price: float = 0.5  # $/m3 of permeate used as backwash water
+
+    # Hard limit: when operating TMP reaches membrane.max_tmp the module trips to a
+    # forced CIP with no production. Duration and chemical cost are assumed values.
+    cip_duration: float = 4.0  # h offline
+    cip_chem_cost: float = 5.0  # $ per forced CIP
     tmp_target: float = 0.8e5  # Pa — target TMP (0.8 bar)
 
 
@@ -122,6 +130,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         hours_since_bw: jax.Array,
         feed_tss: jax.Array,
         demand: jax.Array,
+        cip_remaining: jax.Array,
     ):
         return jnp.array(
             [
@@ -131,6 +140,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
                 jnp.minimum(hours_since_bw / config.bw_age_ref, 1.0),
                 feed_tss / config.feed_tss_max,
                 demand / q_cap,
+                jnp.minimum(cip_remaining / config.cip_duration, 1.0),
             ]
         )
 
@@ -144,6 +154,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             tss_drift=jnp.array(0.0),
             tmp_sensor=tmp_sensor,
             last_feed_tss=jnp.array(config.feed_tss_mean),
+            cip_remaining=jnp.array(0.0),
         )
         obs = _observe(
             tmp_sensor.held_value,
@@ -152,6 +163,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             mem.hours_since_bw,
             jnp.array(config.feed_tss_mean),
             demand_at(jnp.array(0)),
+            jnp.array(0.0),
         )
         return state, obs
 
@@ -164,9 +176,10 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         new_tss_drift, feed_tss = channel_step(state.tss_drift, tss_signal, tss_channel_params, k1)
 
         # 2. Actions
-        flux = flux_min + jnp.clip(action[0], 0.0, 1.0) * (flux_max - flux_min)
-        air_scour = jnp.clip(action[1], 0.0, 1.0)
-        do_backwash = action[2]
+        offline = state.cip_remaining > 0.0
+        flux = jnp.where(offline, 0.0, flux_min + jnp.clip(action[0], 0.0, 1.0) * (flux_max - flux_min))
+        air_scour = jnp.where(offline, 0.0, jnp.clip(action[1], 0.0, 1.0))
+        do_backwash = jnp.where(offline, 0.0, action[2])
 
         # 3. Membrane step
         new_mem, tmp, permeate_tss, q_permeate = membrane_step(
@@ -179,6 +192,17 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             dt,
         )
 
+        # Forced CIP: true operating TMP at the limit, whatever the analyzer reads.
+        tripped = tmp >= max_tmp
+        new_mem = replace(
+            new_mem,
+            r_reversible=jnp.where(tripped, 0.0, new_mem.r_reversible),
+            r_irreversible=jnp.where(
+                tripped, new_mem.r_irreversible * (1.0 - config.membrane.cip_recovery), new_mem.r_irreversible
+            ),
+        )
+        cip_remaining = jnp.where(tripped, config.cip_duration, jnp.maximum(state.cip_remaining - dt, 0.0))
+
         # 4. TMP sensor
         new_tmp_sensor, sensed_tmp = analyzer_step(state.tmp_sensor, tmp, tmp_analyzer_params, k2)
 
@@ -187,10 +211,10 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         perm_ratio = config.membrane.r_membrane / (r_total + 1e-10)
 
         # 6. Observation
-        obs = _observe(sensed_tmp, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss, demand_at(state.step_count + 1))
+        obs = _observe(sensed_tmp, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss, demand_at(state.step_count + 1), cip_remaining)
 
         # 7. Reward: throughput benefit minus costs
-        tmp_violation = jnp.maximum(sensed_tmp - tmp_target, 0.0)
+        tmp_violation = jnp.maximum(tmp - tmp_target, 0.0)
         starts_bw = (
             (do_backwash > 0.5)
             & ~state.membrane_state.is_backwashing
@@ -202,9 +226,9 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         cost = config.elec_price * (pump_energy_kwh + scour_energy_kwh) + config.bw_water_price * backwash_water
         demand = demand_at(state.step_count)
         shortfall_cost = config.water_value * jnp.maximum(demand - q_permeate, 0.0) * config.dt
-        reward = -(
-            shortfall_cost + cost + config.reward_w_tmp * ref_value * (tmp_violation / max_tmp) ** 2
-        ) / ref_value
+        cip_cost = config.cip_chem_cost * tripped
+        tmp_penalty = config.reward_w_tmp * ref_value * (tmp_violation / (max_tmp - tmp_target)) ** 2
+        reward = -(shortfall_cost + cost + cip_cost + tmp_penalty) / ref_value
 
         new_state = MembraneFoulingBenchState(
             step_count=state.step_count + 1,
@@ -212,12 +236,15 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             tss_drift=new_tss_drift,
             tmp_sensor=new_tmp_sensor,
             last_feed_tss=feed_tss,
+            cip_remaining=cip_remaining,
         )
         info: dict[str, jax.Array] = {
             "tmp": tmp,
             "perm_ratio": perm_ratio,
             "q_permeate": q_permeate,
             "demand": demand,
+            "tripped": tripped,
+            "cip_remaining": cip_remaining,
             "feed_tss": feed_tss,
             "permeate_tss": permeate_tss,
             "pump_energy_kwh": pump_energy_kwh,
