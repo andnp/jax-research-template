@@ -205,3 +205,21 @@ class TestForcedCip:
 
         assert trips(None) > 0
         assert trips(300) == 0
+
+
+class TestFeedVariation:
+    def test_feed_drift_wanders_beyond_the_diurnal_amplitude_within_its_clip(self) -> None:
+        """Over days the feed TSS drift exceeds the diurnal amplitude, so feed quality is not fixed, yet stays within its clip."""
+        config = MembraneFoulingConfig()
+        reset, step = make_membrane_fouling_benchmark(config)
+        state, _ = reset(jax.random.PRNGKey(0))
+        action = jnp.array([0.5, 0.0, 0.0])
+
+        def body(carry: MembraneFoulingBenchState, key: jax.Array):
+            new_state, _, _, _, _ = step(carry, action, key)
+            return new_state, new_state.tss_drift
+
+        _, drift = jax.lax.scan(body, state, jax.random.split(jax.random.PRNGKey(1), 5 * config.steps_per_day))
+
+        assert float(jnp.abs(drift).max()) > config.feed_tss_amplitude
+        assert float(jnp.abs(drift).max()) <= config.feed_tss_drift_clip

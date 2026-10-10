@@ -61,7 +61,10 @@ class MembraneFoulingConfig:
     feed_tss_amplitude: float = 20.0
     feed_tss_min: float = 10.0
     feed_tss_max: float = 150.0
-    feed_tss_drift_scale: float = 0.3
+    # Wider wander than the diurnal swing so no single backwash timer or scour
+    # setting is best at every feed quality (assumed level).
+    feed_tss_drift_scale: float = 1.0
+    feed_tss_drift_clip: float = 40.0
 
     bw_age_ref: float = 6.0  # h; backwash-age observation saturates here
 
@@ -100,7 +103,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         min_value=config.feed_tss_min,
         max_value=config.feed_tss_max,
         drift_scale=config.feed_tss_drift_scale,
-        drift_clip=config.feed_tss_amplitude,
+        drift_clip=config.feed_tss_drift_clip,
     )
     tmp_analyzer_params = LaggedSensorParams(
         noise_std=config.tmp_noise_std,
