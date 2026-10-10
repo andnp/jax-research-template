@@ -18,7 +18,7 @@ from process_control.benchmarks.bsm1_flowsheet import (
     bsm1_supervisory_control,
     make_bsm1_benchmark,
 )
-from process_control.scenarios.tabular_influent import NO_RANDOMIZATION
+from process_control.scenarios.tabular_influent import NO_RANDOMIZATION, Uniform
 
 CONSTANT_INFLUENT = dataclasses.replace(NO_RANDOMIZATION, profile_weights=(1.0, 0.0, 0.0, 0.0))
 QUANTITIES = ("s_o_3", "s_o_5", "s_no_2", "effluent_s_nh", "mlss", "underflow_tss", "blanket_height", "temperature")
@@ -87,7 +87,7 @@ class TestCombinedControl:
 
 class TestSludgeControl:
     def test_wastage_and_return_sludge_move_the_solids(self) -> None:
-        """Wasting at the limit draws down the mixed liquor; a weak return flow lets the blanket rise."""
+        """Wasting at the limit draws down the mixed liquor and the blanket; a weak return flow lets the blanket rise."""
         config = bsm1_sludge_control()
         q_w_max = HANDLE_LIMITS["q_w"][1]
         actions = jnp.array([[Q0, q_w_max], [Q0, 0.0], [0.4 * Q0, 0.0]])
@@ -95,7 +95,19 @@ class TestSludgeControl:
 
         assert action_space(config.handles).names == ("q_r", "q_w")
         assert _late_mean(rollout, 0, "mlss") < 0.95 * _late_mean(rollout, 1, "mlss")
+        assert _late_mean(rollout, 0, "blanket_height") < 0.9 * _late_mean(rollout, 1, "blanket_height")
         assert _late_mean(rollout, 2, "blanket_height") > _late_mean(rollout, 1, "blanket_height")
+
+    def test_hydraulic_overload_raises_the_blanket(self) -> None:
+        """Doubling the influent flow at a fixed return flow loads the settler with solids and lifts the blanket."""
+        config = _testable(bsm1_sludge_control())
+        overloaded = dataclasses.replace(config, influent=dataclasses.replace(CONSTANT_INFLUENT, flow_scale=Uniform(2.0, 2.0)))
+        action = jnp.array([[Q0, 0.0]])
+
+        nominal_blanket = _late_mean(_rollout(config, action), 0, "blanket_height")
+        overloaded_blanket = _late_mean(_rollout(overloaded, action), 0, "blanket_height")
+
+        assert overloaded_blanket > 1.5 * nominal_blanket
 
 
 class TestSupervisoryControl:
