@@ -104,6 +104,27 @@ class TestSampledSensors:
 
         assert jnp.allclose(readings, jnp.arange(4.0))
 
+    def test_class_d_with_hourly_steps_reports_the_sample_one_interval_back(self) -> None:
+        """An hour-long step crosses two 30-minute samples, and class D reports the earlier of them."""
+        readings = _run(_noiseless(BSM1_CLASS_D), jnp.array([10.0, 20.0, 30.0]), 1.0, initial=-1.0)
+
+        assert jnp.allclose(readings, jnp.array([10.0, 20.0, 30.0]))
+
+    def test_class_d_reports_the_sample_held_from_before_a_single_crossing(self) -> None:
+        """A 30-minute step crosses one sample, so class D reports the sample taken a step earlier."""
+        readings = _run(_noiseless(BSM1_CLASS_D), jnp.array([10.0, 20.0, 30.0]), 0.5, initial=-1.0)
+
+        assert jnp.allclose(readings, jnp.array([-1.0, 10.0, 20.0]))
+
+    def test_sampled_readings_do_not_depend_on_the_step_length(self) -> None:
+        """A B1 sensor read every 12 minutes reports what one read every minute reports at the same times."""
+        params = _noiseless(BSM1_CLASS_B1)
+
+        fine = _run(params, jnp.full(60, 10.0), MINUTE)
+        coarse = _run(params, jnp.full(5, 10.0), 12.0 * MINUTE)
+
+        assert jnp.allclose(coarse, fine[11::12], atol=1e-5)
+
     def test_previous_sample_needs_a_sampling_sensor(self) -> None:
         """A continuous sensor has no previous sample to report."""
         with pytest.raises(ValueError, match="previous sample"):
