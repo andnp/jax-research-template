@@ -3,7 +3,7 @@
 The agent controls membrane flux, air scour, and backwash timing to
 maintain throughput while managing fouling.
 
-Action (3D): [flux / flux_max, air_scour (0-1), backwash_trigger (>0.5 = wash)]
+Action (3D): [flux position in flux_min..flux_max, air_scour (0-1), backwash_trigger (>0.5 = wash)]
 Observation (6D):
   TMP / max_TMP
   permeability_ratio (current / clean)
@@ -86,6 +86,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
 
     dt = jnp.array(config.dt)
     flux_max = jnp.array(config.flux_max)
+    flux_min = jnp.array(config.flux_min)
     max_tmp = jnp.array(config.membrane.max_tmp)
     tmp_target = jnp.array(config.tmp_target)
     area = jnp.array(config.membrane.area)
@@ -139,7 +140,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         new_tss_drift, feed_tss = channel_step(state.tss_drift, tss_signal, tss_channel_params, k1)
 
         # 2. Actions
-        flux = jnp.clip(action[0], 0.0, 1.0) * flux_max
+        flux = flux_min + jnp.clip(action[0], 0.0, 1.0) * (flux_max - flux_min)
         air_scour = jnp.clip(action[1], 0.0, 1.0)
         do_backwash = action[2]
 
