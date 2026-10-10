@@ -174,7 +174,7 @@ Each environment should support at least two observation profiles:
 | Chlorine residual control | ✅ Done | `benchmarks/chlorine.py` | Single contact basin, 1D action |
 | Two-stage chlorine | Merged into chlorine | `benchmarks/chlorine.py` | Two basins in series is a longer contact chain (`basin_volume`, `basin_segments`) |
 | pH neutralisation | ✅ Done | `benchmarks/ph_neutralization.py` | CSTR with titration |
-| Equalization tank | ✅ Done | `benchmarks/equalization_tank.py` | Level control |
+| Equalization tank | ✅ Done | `benchmarks/equalization_tank.py` | Flow equalization |
 | BSM1 | ✅ Done | `benchmarks/bsm1.py` | Coupled flowsheet, layered Takács settler; handles configurable as fixed, agent or PI (ADR 015) |
 | BSM1 nitrate recycle | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_recycle_control()` configuration |
 | BSM1 combined | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_combined_control()` configuration |
