@@ -597,3 +597,40 @@ def bsm1_reference_closed_loop(weather: str = "dry", sensor_noise: bool = True) 
     )
     weights = tuple(float(name == weather) for name in profiles)
     return BSM1Config(handles=handles, influent=dataclasses.replace(NO_RANDOMIZATION, profile_weights=weights))
+
+
+def bsm1_recycle_control() -> BSM1Config:
+    """The agent sets the internal recycle Qa and the return sludge Qr; aeration follows the BSM1 default strategy."""
+    handles = BSM1Handles(kla_3=Fixed(240.0 / _DAY), kla_4=Fixed(240.0 / _DAY), kla_5=BSM1_OXYGEN_CONTROL, q_a=Agent(), q_r=Agent(), q_w=Fixed(385.0 / _DAY))
+    return BSM1Config(handles=handles, observations=(*DEFAULT_OBSERVATIONS, Observation("q_r", HANDLE_LIMITS["q_r"][1])))
+
+
+def bsm1_combined_control() -> BSM1Config:
+    """The agent sets the shared kLa of reactors 3 and 4, kLa5, Qa and Qr; wastage stays at 385 m³/d."""
+    handles = BSM1Handles(q_a=Agent(), q_r=Agent(), q_w=Fixed(385.0 / _DAY))
+    return BSM1Config(handles=handles, observations=(*DEFAULT_OBSERVATIONS, Observation("q_r", HANDLE_LIMITS["q_r"][1])))
+
+
+def bsm1_long_term() -> BSM1Config:
+    """The default control problem under a seasonal temperature cycle, starting each episode at a random time of year."""
+    return BSM1Config(temperature=SeasonalTemperature())
+
+
+def bsm1_sludge_control() -> BSM1Config:
+    """The agent manages the sludge inventory through Qr and Qw; aeration and Qa follow the BSM1 default strategy."""
+    handles = BSM1Handles(kla_3=Fixed(240.0 / _DAY), kla_4=Fixed(240.0 / _DAY), kla_5=BSM1_OXYGEN_CONTROL, q_a=BSM1_NITRATE_CONTROL, q_r=Agent(), q_w=Agent())
+    observations = (*DEFAULT_OBSERVATIONS, Observation("q_r", HANDLE_LIMITS["q_r"][1]), Observation("sludge_age", 20.0 * _DAY))
+    return BSM1Config(handles=handles, observations=observations)
+
+
+def bsm1_supervisory_control() -> BSM1Config:
+    """The agent chooses the setpoints of the BSM1 oxygen and nitrate controllers; kLa3 and kLa4 stay at 240 d⁻¹."""
+    handles = BSM1Handles(
+        kla_3=Fixed(240.0 / _DAY),
+        kla_4=Fixed(240.0 / _DAY),
+        kla_5=dataclasses.replace(BSM1_OXYGEN_CONTROL, setpoint=AgentSetpoint(0.5, 4.0)),
+        q_a=dataclasses.replace(BSM1_NITRATE_CONTROL, setpoint=AgentSetpoint(0.0, 4.0)),
+        q_w=Fixed(385.0 / _DAY),
+    )
+    observations = (*DEFAULT_OBSERVATIONS, Observation("kla_5_setpoint", 4.0), Observation("q_a_setpoint", 4.0))
+    return BSM1Config(handles=handles, observations=observations)
