@@ -64,7 +64,7 @@ Standardized plant layouts + influent patterns + evaluation criteria:
 ### Tier 2: New Unit Models Required
 
 #### Sludge Blanket Control (Takács Clarifier)
-- **New model needed**: `units/takacs_settler.py` — 10-layer 1D settler with double-exponential flux
+- **Status**: merged into BSM1 as `bsm1_sludge_control()`, on the layered settler `units/layered_settler.py`
 - **Action**: 1–2D `[Q_rs, Q_w]` (return sludge rate, waste sludge rate)
 - **Observation**: ~4D — sludge blanket height, effluent TSS, underflow TSS, inflow
 - **What's interesting**: Integrating dynamics with lag. Failure mode = solids washout during storms. SRT management.
@@ -175,17 +175,17 @@ Each environment should support at least two observation profiles:
 | Two-stage chlorine | Merged into chlorine | `benchmarks/chlorine.py` | Two basins in series is a longer contact chain (`basin_volume`, `basin_segments`) |
 | pH neutralisation | ✅ Done | `benchmarks/ph_neutralization.py` | CSTR with titration |
 | Equalization tank | ✅ Done | `benchmarks/equalization_tank.py` | Level control |
-| BSM1 DO control (13-var ASM1) | ✅ Done | `benchmarks/bsm1.py` | 5 reactors, perfect settler, 2D action |
-| BSM1 nitrate recycle | ✅ Done | `benchmarks/bsm1_recycle.py` | 2D action [Q_a, Q_rs] ratios |
-| BSM1 combined | ✅ Done | `benchmarks/bsm1_combined.py` | 4D action [kla_34, kla_5, Q_a, Q_rs], 11D obs |
+| BSM1 | ✅ Done | `benchmarks/bsm1.py` | Coupled flowsheet, layered Takács settler; handles configurable as fixed, agent or PI (ADR 015) |
+| BSM1 nitrate recycle | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_recycle_control()` configuration |
+| BSM1 combined | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_combined_control()` configuration |
 | H₂S scrubber | ✅ Done | `benchmarks/h2s_scrubber.py` | 3-loop supervisory control, 3D action |
-| Takács clarifier | ✅ Done | `units/takacs_settler.py` | 10-layer 1D settler model |
-| Sludge blanket control | ✅ Done | `benchmarks/sludge_blanket.py` | 1D action [Q_u], 4D obs |
+| Takács clarifier | ✅ Done | `units/layered_settler.py` | 10-layer settler carrying every component; replaced the aggregate-TSS `units/takacs_settler.py` |
+| Sludge blanket control | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_sludge_control()` configuration; standalone clarifier benchmark removed |
 | Chemical P dosing | Merged into combined N+P | `benchmarks/combined_np.py` | FeCl₃ dosing action; standalone benchmark removed |
-| BSM1-LT (seasonal) | ✅ Done | `benchmarks/bsm1_lt.py` | Arrhenius kinetics, 10D obs |
+| BSM1-LT (seasonal) | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_long_term()` configuration |
 | Primary clarifier | ✅ Done | `benchmarks/primary_clarifier.py` | Gravity settling, 1D action [Q_w] |
 | Dewatering control | ✅ Done | `benchmarks/dewatering.py` | Belt press, 2D action [polymer, speed] |
-| BSM1 + Takács settler | ✅ Done | `benchmarks/bsm1_takacs.py` | Realistic sludge dynamics, 3D action [kla_34, kla_5, Q_w] |
+| BSM1 + Takács settler | Merged into BSM1 | `benchmarks/bsm1.py` | The default BSM1 configuration: layered settler, action [kla_34, kla_5, Q_w] |
 | Reject water management | ✅ Done | `benchmarks/reject_water.py` | Timing-dependent NH₄ return, 1D action |
 | Membrane fouling control | ✅ Done | `benchmarks/membrane_fouling.py` | TMP, backwash, air scour, 3D action |
 | Anaerobic digester | ✅ Done | `benchmarks/anaerobic_digester.py` | Reduced-order ADM1, 2D action [Q_feed, T] |

@@ -75,7 +75,7 @@ Keep the breadth, but designate a smaller **gold benchmark set** for serious cla
 3. equalization tank for constraints and disturbance forecasting
 4. membrane fouling for slow drift and hybrid decisions
 5. H2S scrubber for supervisory MIMO control
-6. BSM1-Takács or BSM1-combined for slow biological dynamics and plant-wide interaction
+6. BSM1 (combined-control configuration) for slow biological dynamics and plant-wide interaction
 
 The remaining benchmarks can remain exploratory until they receive calibration and certification artifacts.
 
@@ -172,6 +172,8 @@ Keep the JAX execution path as arrays and pytrees; metadata can remain static Py
 Acceptance criterion: one generic certification runner can discover and execute every registered benchmark without benchmark-specific branching.
 
 ### 7. Extract the shared BSM plant kernel
+
+Status: done by ADR 015. BSM1 is one flowsheet benchmark (`benchmarks/bsm1.py`) whose former variants are named configurations; the separate variant modules were removed.
 
 The BSM1 variants repeat reactor initialization, recycle hydraulics, clarification, sensor updates, observations, and rewards. This increases the chance that variants differ accidentally rather than scientifically.
 
@@ -697,7 +699,7 @@ Acceptance criterion: a reviewer can understand the experiment without reverse-e
 3. equalization tank
 4. membrane fouling
 5. H2S scrubber
-6. BSM1-Takács or BSM1-combined
+6. BSM1 (combined-control configuration)
 
 For each benchmark, create a dossier, fidelity declaration, reference traces, strong baselines, and scenario packs before moving to the next.
 
