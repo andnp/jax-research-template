@@ -88,7 +88,8 @@ class CombinedNPConfig:
     waste_sludge_ratio: float = 0.0123
 
     # Chemical P (FeCl₃)
-    fe_dose_max: float = 30.0
+    # Top of range is the stoichiometric need to capture all influent P (6 mg P/L x 1.8 mol/mol)
+    fe_dose_max: float = 20.0
     precip: PrecipitationParams = PrecipitationParams()
 
     # External carbon
