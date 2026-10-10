@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1State, compute_tss
 
 
@@ -43,3 +43,23 @@ class TestSchemaValidation:
         """A negative or non-finite factor would corrupt every TSS-derived metric."""
         with pytest.raises(ValueError, match="finite and non-negative"):
             ComponentSchema(names=("x",), particulate=(True,), tss_factor=(factor,))
+
+
+class TestComponentBasis:
+    def test_equal_bases_are_interchangeable_as_keys(self) -> None:
+        """A basis is immutable and hashable, so equal bases collapse in sets and dict keys."""
+        assert len({ComponentBasis("g/m3", Quantity.COD, "COD"), ComponentBasis("g/m3", Quantity.COD, "COD")}) == 1
+
+    def test_differing_in_any_field_are_distinct(self) -> None:
+        """Unit, quantity and reference each distinguish a basis."""
+        base = ComponentBasis("g/m3", Quantity.ELEMENT, "N")
+
+        assert base != ComponentBasis("mol/m3", Quantity.ELEMENT, "N")
+        assert base != ComponentBasis("g/m3", Quantity.SPECIES, "N")
+        assert base != ComponentBasis("g/m3", Quantity.ELEMENT, "P")
+
+    @pytest.mark.parametrize(("unit", "reference"), [("", "N"), ("g/m3", "")])
+    def test_rejects_empty_fields(self, unit: str, reference: str) -> None:
+        """An unnamed unit or reference cannot support an exact-match check."""
+        with pytest.raises(ValueError, match="nonempty"):
+            ComponentBasis(unit, Quantity.ELEMENT, reference)

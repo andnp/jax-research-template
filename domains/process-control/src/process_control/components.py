@@ -1,8 +1,30 @@
 import math
 from dataclasses import dataclass
+from enum import StrEnum
 
 import jax
 import jax.numpy as jnp
+
+
+class Quantity(StrEnum):
+    SPECIES = "species"
+    ELEMENT = "element"
+    COD = "cod"
+    EQUIVALENT = "equivalent"
+    PROXY = "proxy"
+
+
+@dataclass(frozen=True)
+class ComponentBasis:
+    """What a component channel's value measures: its unit, kind of quantity and reference species, element or convention."""
+
+    unit: str
+    quantity: Quantity
+    reference: str
+
+    def __post_init__(self) -> None:
+        if not self.unit or not self.reference:
+            raise ValueError(f"basis unit and reference must be nonempty, got {self!r}")
 
 
 @dataclass(frozen=True)
