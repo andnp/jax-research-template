@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import replace
+from functools import cache
 
 import jax
 import jax.numpy as jnp
@@ -20,6 +21,60 @@ _H2SStepFn = Callable[
     [H2SScrubberState, jax.Array, jax.Array],
     tuple[H2SScrubberState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]],
 ]
+
+
+def _rollout_infos(
+    step_fn: _H2SStepFn,
+    state: H2SScrubberState,
+    action_at: Callable[[jax.Array], jax.Array],
+    rng: jax.Array,
+    steps: int,
+) -> tuple[H2SScrubberState, jax.Array, jax.Array, dict[str, jax.Array]]:
+    """Roll the step function under one jitted scan, returning the final state, obs, reward and stacked infos."""
+
+    def body(
+        state: H2SScrubberState, i: jax.Array
+    ) -> tuple[H2SScrubberState, tuple[jax.Array, jax.Array, dict[str, jax.Array]]]:
+        state, obs, reward, _, info = step_fn(state, action_at(i), jax.random.fold_in(rng, i))
+        return state, (obs, reward, info)
+
+    final, (obs, reward, infos) = jax.lax.scan(body, state, jnp.arange(steps))
+    return final, obs[-1], reward[-1], infos
+
+
+def _noise_free_config(scenario: H2SScenario) -> H2SScrubberConfig:
+    return H2SScrubberConfig(
+        scenario=scenario,
+        caustic_sensor_noise=0.0,
+        caustic_sensor_drift=0.0,
+        bleach_sensor_noise=0.0,
+        bleach_sensor_drift=0.0,
+        makeup_sensor_noise=0.0,
+        makeup_sensor_drift=0.0,
+    )
+
+
+@cache
+def _settled_rollout_fn(scenario: H2SScenario) -> Callable[[jax.Array], tuple[jax.Array, jax.Array]]:
+    """Build one compiled 2200-step constant-action rollout per scenario, returning final opex and post-event efficiencies."""
+    rng = jax.random.key(42)
+    reset_fn, step_fn = make_h2s_scrubber_benchmark(_noise_free_config(scenario))
+    state, _ = reset_fn(rng)
+
+    @jax.jit
+    def rollout(action: jax.Array) -> tuple[jax.Array, jax.Array]:
+        _, _, _, infos = _rollout_infos(step_fn, state, lambda _: action, rng, 2200)
+        return infos["opex"][-1], infos["removal_efficiency"][2050:2100]
+
+    return rollout
+
+
+@cache
+def _settled_rollout(scenario: H2SScenario, action: tuple[float, float, float]) -> tuple[float, float]:
+    """Return final opex and mean post-event removal efficiency for a constant-action rollout."""
+    opex, post_event = _settled_rollout_fn(scenario)(jnp.array(action))
+    assert jnp.all(jnp.isfinite(post_event))
+    return float(opex), float(jnp.mean(post_event))
 
 
 @pytest.fixture
@@ -246,59 +301,30 @@ class TestReward:
         assert 0.0 <= float(info["removal_efficiency"]) <= 1.0
 
     @pytest.mark.parametrize("scenario", [H2SScenario.NOMINAL, H2SScenario.LOAD_SHIFT])
-    def test_high_chemical_setpoints_improve_removal(self, rng: jax.Array, scenario: H2SScenario) -> None:
+    def test_high_chemical_setpoints_improve_removal(self, scenario: H2SScenario) -> None:
         """High chemical setpoints improve removal after chemistry settles.
 
         Makeup flow is held at its minimum so this isolates reagent control.
         """
-        config = H2SScrubberConfig(
-            scenario=scenario,
-            caustic_sensor_noise=0.0,
-            caustic_sensor_drift=0.0,
-            bleach_sensor_noise=0.0,
-            bleach_sensor_drift=0.0,
-            makeup_sensor_noise=0.0,
-            makeup_sensor_drift=0.0,
-        )
-        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
+        config = _noise_free_config(scenario)
+        low_action = (config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min)
+        high_action = (config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_min)
 
-        def settled_efficiency(action: jax.Array) -> float:
-            state, _ = reset_fn(rng)
-            efficiencies = []
-            for i in range(2200):
-                state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
-                efficiencies.append(float(info["removal_efficiency"]))
-            post_event = jnp.array(efficiencies[2050:2100])
-            assert jnp.all(jnp.isfinite(post_event))
-            return float(jnp.mean(post_event))
+        _, low_efficiency = _settled_rollout(scenario, low_action)
+        _, high_efficiency = _settled_rollout(scenario, high_action)
 
-        low_action = jnp.array([config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min])
-        high_action = jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_min])
+        assert high_efficiency > low_efficiency
 
-        assert settled_efficiency(high_action) > settled_efficiency(low_action)
-
-    def test_low_cost_control_is_less_compliant(self, rng: jax.Array) -> None:
+    def test_low_cost_control_is_less_compliant(self) -> None:
         """Low dosing costs less while producing a measurable compliance deficit."""
-        config = H2SScrubberConfig(
-            caustic_sensor_noise=0.0,
-            caustic_sensor_drift=0.0,
-            bleach_sensor_noise=0.0,
-            bleach_sensor_drift=0.0,
-            makeup_sensor_noise=0.0,
-            makeup_sensor_drift=0.0,
+        config = _noise_free_config(H2SScenario.NOMINAL)
+
+        low_cost, low_efficiency = _settled_rollout(
+            H2SScenario.NOMINAL, (config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min)
         )
-        reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
-
-        def rollout(action: jax.Array) -> tuple[float, float]:
-            state, _ = reset_fn(rng)
-            efficiencies = []
-            for i in range(2200):
-                state, _, _, _, info = step_fn(state, action, jax.random.fold_in(rng, i))
-                efficiencies.append(float(info["removal_efficiency"]))
-            return float(info["opex"]), sum(efficiencies[2050:2100]) / 50
-
-        low_cost, low_efficiency = rollout(jnp.array([config.ph_sp_min, config.orp_sp_min, config.makeup_flow_sp_min]))
-        high_cost, high_efficiency = rollout(jnp.array([config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_default]))
+        high_cost, high_efficiency = _settled_rollout(
+            H2SScenario.NOMINAL, (config.ph_sp_max, config.orp_sp_max, config.makeup_flow_sp_default)
+        )
 
         assert low_cost < high_cost
         assert low_efficiency < high_efficiency
@@ -339,12 +365,11 @@ class TestStability:
         reset_fn, step_fn = make_h2s_scrubber_benchmark(config)
         state, _ = reset_fn(rng)
 
-        for i in range(500):
-            k = jax.random.fold_in(rng, i)
-            # Vary actions sinusoidally
+        def sinusoidal_action(i: jax.Array) -> jax.Array:
             phase = i / 50.0 * jnp.pi
-            action = jnp.array([jnp.sin(phase) * 0.3, jnp.cos(phase) * 0.3, 0.0])
-            state, obs, reward, _, _ = step_fn(state, action, k)
+            return jnp.array([jnp.sin(phase) * 0.3, jnp.cos(phase) * 0.3, 0.0])
+
+        state, obs, reward, _ = _rollout_infos(step_fn, state, sinusoidal_action, rng, 500)
 
         assert jnp.all(jnp.isfinite(obs)), "Observation has NaN/Inf after 500 steps"
         assert jnp.isfinite(reward), "Reward has NaN/Inf after 500 steps"
