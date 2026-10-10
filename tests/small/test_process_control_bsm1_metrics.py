@@ -1,11 +1,15 @@
 import jax.numpy as jnp
 from process_control.benchmarks.bsm1_metrics import (
+    EffluentLimits,
     EQIWeights,
     aeration_energy,
     effluent_quality_index,
+    limit_violations,
     mixing_energy,
     operational_cost_index,
+    percentile_95,
     pumping_energy,
+    time_above_limit,
 )
 from process_control.units.asm1 import ASM1Params, ASM1State
 
@@ -128,3 +132,40 @@ class TestOperationalCostIndex:
     def test_defaults_to_energy_terms_only(self) -> None:
         oci = operational_cost_index(ae=jnp.array(100.0), pe=jnp.array(10.0))
         assert jnp.allclose(oci, jnp.array(110.0), atol=1e-6)
+
+
+class TestLimitCompliance:
+    def test_limits_follow_table_9(self) -> None:
+        """The default limits are the BSM1 effluent limits."""
+        assert dict(EffluentLimits().items()) == {"n_tot": 18.0, "cod": 100.0, "s_nh": 4.0, "tss": 30.0, "bod5": 10.0}
+
+    def test_time_above_limit_counts_only_exceedance(self) -> None:
+        """Samples at the limit comply; the fraction counts those strictly above it."""
+        ammonia = jnp.array([1.0, 4.0, 5.0, 6.0, 3.0, 4.5, 2.0, 1.0])
+
+        assert jnp.allclose(time_above_limit(ammonia, 4.0), 3.0 / 8.0)
+
+    def test_violations_count_upward_crossings(self) -> None:
+        """Each rise from compliance to exceedance is one violation, however long it lasts."""
+        ammonia = jnp.array([1.0, 4.0, 5.0, 6.0, 3.0, 4.5, 2.0, 1.0])
+
+        assert int(limit_violations(ammonia, 4.0)) == 2
+
+    def test_exceedance_from_the_start_is_not_a_crossing(self) -> None:
+        """A series that begins above the limit has not crossed it until it dips and rises again."""
+        assert int(limit_violations(jnp.array([5.0, 6.0, 5.0]), 4.0)) == 0
+        assert int(limit_violations(jnp.array([5.0, 3.0, 5.0]), 4.0)) == 1
+
+    def test_compliant_series_has_no_violations(self) -> None:
+        """An effluent always within its limit is never reported as violating it."""
+        tss = jnp.full(10, 12.5)
+
+        assert float(time_above_limit(tss, 30.0)) == 0.0
+        assert int(limit_violations(tss, 30.0)) == 0
+
+    def test_percentile_is_exceeded_five_percent_of_the_time(self) -> None:
+        """Over a uniform ramp of 101 samples the 95th percentile is the value five samples exceed."""
+        ramp = jnp.linspace(0.0, 100.0, 101)
+
+        assert jnp.allclose(percentile_95(ramp), 95.0)
+        assert int(jnp.sum(ramp > percentile_95(ramp))) == 5
