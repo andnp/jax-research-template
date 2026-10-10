@@ -23,8 +23,24 @@ import jax.numpy as jnp
 from process_control._jax_dataclass import jax_dataclass
 from process_control.actuators import lagged
 from process_control.actuators.lagged import BSM1_KLA_ACTUATOR, LaggedActuatorState
-from process_control.benchmarks.bsm1_measurements import Measure, PlantSnapshot, asm1_state, measurements, stream_qualities, take_snapshot
-from process_control.benchmarks.bsm1_metrics import aeration_energy, effluent_quality_index, mixing_energy, operational_cost_index, pumping_energy
+from process_control.benchmarks.bsm1_measurements import (
+    Measure,
+    PlantSnapshot,
+    asm1_state,
+    measurements,
+    reactor_solids,
+    settler_solids,
+    stream_qualities,
+    take_snapshot,
+)
+from process_control.benchmarks.bsm1_metrics import (
+    aeration_energy,
+    effluent_quality_index,
+    mixing_energy,
+    operational_cost_index,
+    pumping_energy,
+    sludge_production,
+)
 from process_control.controllers import pi_controller
 from process_control.controllers.pi_controller import BSM1_NITRATE_CONTROLLER, BSM1_OXYGEN_CONTROLLER, PIControllerParams, PIControllerState
 from process_control.plants.activated_sludge import (
@@ -364,7 +380,6 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
     scales = jnp.array([observation.scale for observation in config.observations])
     action_low, action_high = jnp.array(space.low), jnp.array(space.high)
     volumes = jnp.array(layout.volumes)
-    settler = layout.settler
     dt = jnp.array(config.control_interval)
     step_days = config.control_interval * config.intervals_per_step / _DAY
 
@@ -397,8 +412,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
 
     def solids_inventory(plant: Mapping[str, jax.Array]) -> jax.Array:
         reactors = jnp.stack([plant[name] for name in layout.reactors])
-        layer_volume = settler.area * settler.height / settler.n_layers
-        return jnp.sum(ASM1_SCHEMA.tss(reactors) * volumes) + layer_volume * jnp.sum(ASM1_SCHEMA.tss(plant["settler"]))
+        return (reactor_solids(reactors, volumes) + settler_solids(plant["settler"], layout.settler)) / 1000.0
 
     def setpoints_from(actions: Mapping[str, jax.Array]) -> dict[str, jax.Array]:
         return {
@@ -519,8 +533,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         per_interval = stream_qualities(record["effluent"], params)
         kla_per_day = record["kla"] * _DAY
 
-        wastage = jnp.mean(record["waste_solids"]) * _DAY / 1000.0
-        inventory_change = (solids_inventory(end.plant) - solids_inventory(start.plant)) / 1000.0 / step_days
+        waste_solids = record["waste_solids"] * _DAY / 1000.0
         info = {
             "effluent_flow": mean_flow,
             **{f"effluent_{quality}": concentrations[quality] for quality in ("cod", "bod5", "tkn", "n_tot", "tss", "s_nh", "s_no")},
@@ -529,9 +542,9 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "aeration_energy": aeration_energy(kla_per_day, volumes),
             "pumping_energy": pumping_energy(record["q_a"] * _DAY, record["q_r"] * _DAY, record["q_w"] * _DAY),
             "mixing_energy": mixing_energy(volumes, kla_per_day),
-            "sludge_production": inventory_change + wastage,
-            "sludge_wastage": wastage,
-            "solids_inventory": solids_inventory(end.plant) / 1000.0,
+            "sludge_production": sludge_production(solids_inventory(start.plant), solids_inventory(end.plant), waste_solids, step_days),
+            "sludge_wastage": jnp.mean(waste_solids),
+            "solids_inventory": solids_inventory(end.plant),
             "limit_violation": jnp.mean(
                 sum((jnp.maximum(per_interval[quality] / limit - 1.0, 0.0) for quality, limit in EFFLUENT_LIMITS.items()), jnp.zeros(()))
             ),
