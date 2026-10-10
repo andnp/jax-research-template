@@ -112,6 +112,15 @@ def mixing_energy(volumes: jax.Array, kla_per_day: jax.Array, unmixed_threshold:
     return 24.0 * jnp.mean(mixing_load)
 
 
+def sludge_production(solids_start: jax.Array, solids_end: jax.Array, waste_solids: jax.Array, period: float) -> jax.Array:
+    """Sludge production SP (kg SS/d) over `period` days.
+
+    The change in solids held in the reactors and settler (kg SS) from start to end of the period, plus
+    the time-averaged wasted solids flow `waste_solids` (kg SS/d).
+    """
+    return (solids_end - solids_start) / period + jnp.mean(waste_solids)
+
+
 def operational_cost_index(
     ae: jax.Array,
     pe: jax.Array,
