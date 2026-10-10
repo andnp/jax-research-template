@@ -549,6 +549,21 @@ class TestRejectWaterBenchmark:
         )
         assert drained_info["overflow"] == 0.0
 
+    def test_reward_scores_true_nh4_not_sensor_reading(self) -> None:
+        """Reward matches the true NH₄ and overflow even when the sensed NH₄ is dominated by noise."""
+        config = RejectWaterConfig(nh4_baseline=10.0, nh4_noise_std=20.0)
+        reset_fn, step_fn = make_reject_water_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        _, _, reward, _, info = step_fn(state, jnp.array([0.0]), jax.random.PRNGKey(1))
+
+        violation = jnp.maximum(info["main_nh4"] - config.nh4_limit, 0.0)
+        assert float(violation) > 0.0
+        expected = -(
+            config.reward_w_nh4 * (violation / config.nh4_limit) ** 2
+            + config.reward_w_overflow * info["overflow"] / (config.reject_production * config.dt)
+        )
+        assert jnp.allclose(reward, expected)
+
     def test_observed_tank_level_matches_post_step_tank(self) -> None:
         """Observed tank level is the post-step fraction, so a shut valve shows exactly one production increment."""
         config = RejectWaterConfig()
