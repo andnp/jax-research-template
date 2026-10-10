@@ -93,16 +93,15 @@ class TestPerSamplingDistribution:
         batch_size = 4
 
         @jax.jit
-        def _sample(state: PERBufferState, key: jax.Array) -> jax.Array:
-            _, _, idx = per_sample(state, key, batch_size=batch_size, beta=1.0, prototype=proto)
-            return idx
+        def _sample_all(state: PERBufferState, keys: jax.Array) -> jax.Array:
+            def _sample(key: jax.Array) -> jax.Array:
+                _, _, idx = per_sample(state, key, batch_size=batch_size, beta=1.0, prototype=proto)
+                return idx
 
-        key = jax.random.key(42)
-        counts = jnp.zeros(capacity)
-        for _i in range(num_samples):
-            key, subkey = jax.random.split(key)
-            idx = _sample(state, subkey)
-            counts = counts + jnp.bincount(idx.astype(jnp.int32), length=capacity)
+            return jax.vmap(_sample)(keys)
+
+        keys = jax.random.split(jax.random.key(42), num_samples)
+        counts = jnp.bincount(_sample_all(state, keys).astype(jnp.int32).ravel(), length=capacity)
 
         total = counts.sum()
         freq_0 = counts[0] / total
