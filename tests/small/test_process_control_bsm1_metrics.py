@@ -9,6 +9,7 @@ from process_control.benchmarks.bsm1_metrics import (
     operational_cost_index,
     percentile_95,
     pumping_energy,
+    sludge_production,
     time_above_limit,
 )
 from process_control.units.asm1 import ASM1Params, ASM1State
@@ -169,3 +170,23 @@ class TestLimitCompliance:
 
         assert jnp.allclose(percentile_95(ramp), 95.0)
         assert int(jnp.sum(ramp > percentile_95(ramp))) == 5
+
+
+class TestSludgeProduction:
+    def test_steady_inventory_produces_what_is_wasted(self) -> None:
+        """With the plant's solids unchanged, SP is the mean wasted solids flow."""
+        wasted = jnp.array([2400.0, 2500.0, 2600.0])
+
+        assert jnp.allclose(sludge_production(jnp.array(10000.0), jnp.array(10000.0), wasted, 7.0), 2500.0)
+
+    def test_accumulated_solids_count_as_production(self) -> None:
+        """Solids built up in the plant over the week are produced sludge even before they are wasted."""
+        sp = sludge_production(jnp.array(10000.0), jnp.array(10700.0), jnp.zeros(4), 7.0)
+
+        assert jnp.allclose(sp, 100.0)
+
+    def test_inventory_drawdown_offsets_wastage(self) -> None:
+        """Wasting solids the plant already held lowers SP below the wasted flow."""
+        sp = sludge_production(jnp.array(10000.0), jnp.array(9300.0), jnp.full(4, 2500.0), 7.0)
+
+        assert jnp.allclose(sp, 2400.0)
