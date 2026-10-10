@@ -200,7 +200,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             turbidity_drift=jnp.array(0.0),
             membrane_state=mem,
             cl2_residual=initial_cl2_residual,
-            tmp_sensor=analyzer_reset(compute_tmp(operating_flux, mem, config.membrane), k3),
+            tmp_sensor=analyzer_reset(compute_tmp(operating_flux / 3600.0, mem, config.membrane), k3),
             cl2_sensor=analyzer_reset(initial_cl2_residual, k4),
             last_q_in=jnp.array(config.mean_flow),
         )

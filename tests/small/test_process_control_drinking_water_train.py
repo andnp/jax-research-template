@@ -36,3 +36,14 @@ class TestContactTimeTracksFlow:
         expected_contact_time = config.contact_basin_volume / float(info["q_permeate"])
 
         assert jnp.allclose(info["contact_time"], expected_contact_time, rtol=1e-5)
+
+
+class TestResetPressure:
+    def test_clean_membrane_reset_tmp_is_a_small_fraction_of_the_limit(self) -> None:
+        """compute_tmp takes flux in m/s, so a clean membrane must not start far above max TMP."""
+        config = DrinkingWaterTrainConfig()
+        reset_fn, _ = make_drinking_water_train_benchmark(config)
+
+        _, obs = reset_fn(jax.random.PRNGKey(0))
+
+        assert 0.0 < float(obs[2]) < 0.2
