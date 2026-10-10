@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from functools import cache
 
 import jax
 import jax.numpy as jnp
@@ -68,16 +69,20 @@ def _stack_leaves(*leaves: jax.Array):
     return jnp.stack(leaves)
 
 
-def _sweep(arms: list[RainbowHypers]):
+@cache
+def _compiled_sweep():
     agent = RainbowAgent(_config())
-    key = jax.random.key(0)
-    keys = jnp.stack([key] * len(arms))
-    batched = jax.tree_util.tree_map(_stack_leaves, *arms)
 
     def run_hypers_key(hypers: RainbowHypers, k: jax.Array):
         return _run_arm(agent, hypers, k)
 
-    return jax.jit(jax.vmap(run_hypers_key))(batched, keys)
+    return jax.jit(jax.vmap(run_hypers_key))
+
+
+def _sweep(arms: list[RainbowHypers]):
+    keys = jnp.stack([jax.random.key(0)] * len(arms))
+    batched = jax.tree_util.tree_map(_stack_leaves, *arms)
+    return _compiled_sweep()(batched, keys)
 
 
 class TestRainbowVmapZone:
