@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import pytest
 from process_control.benchmarks.bsm1_measurements import PlantSnapshot, blanket_height, measurement, stream_qualities, take_snapshot
-from process_control.plants.activated_sludge import BSM1_LAYOUT, activated_sludge_flowsheet, bsm1_open_loop_state
+from process_control.plants.activated_sludge import BSM1_LAYOUT, BSM1_OPEN_LOOP_LAYER_TSS, activated_sludge_flowsheet, bsm1_open_loop_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1Params
@@ -98,9 +98,17 @@ class TestCatalog:
         """Named quantities read the BSM1 open-loop steady state of Alex et al. (2008), Appendix 4."""
         assert jnp.allclose(_measure(quantity, open_loop), expected, rtol=1e-3)
 
-    def test_sludge_age_matches_the_reference(self, open_loop: PlantSnapshot) -> None:
+    def test_traditional_sludge_age_matches_the_reference(self, open_loop: PlantSnapshot) -> None:
         """Reactor solids over the solids leaving give the 7.3155-day traditional sludge age."""
-        assert jnp.allclose(_measure("sludge_age", open_loop), 7.3155 * 24.0, rtol=1e-3)
+        assert jnp.allclose(_measure("traditional_sludge_age", open_loop), 7.3155 * 24.0, rtol=1e-3)
+
+    def test_plant_sludge_age_adds_the_settler_solids(self, open_loop: PlantSnapshot) -> None:
+        """The measured sludge age also counts the Table 7 settler solids, held over the Table 8 solids losses."""
+        settler_solids = 600.0 * sum(BSM1_OPEN_LOOP_LAYER_TSS)
+        solids_leaving = (18061.0 * 12.4969 + 385.0 * 6393.9599) / 24.0
+
+        expected = 7.3155 * 24.0 + settler_solids / solids_leaving
+        assert jnp.allclose(_measure("plant_sludge_age", open_loop), expected, rtol=1e-3)
 
     def test_reads_realised_handles_and_setpoints(self, open_loop: PlantSnapshot) -> None:
         """Handle and setpoint quantities report the values the snapshot carries."""

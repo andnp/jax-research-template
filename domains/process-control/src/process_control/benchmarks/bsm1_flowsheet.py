@@ -619,7 +619,7 @@ def bsm1_long_term() -> BSM1Config:
 def bsm1_sludge_control() -> BSM1Config:
     """The agent manages the sludge inventory through Qr and Qw; aeration and Qa follow the BSM1 default strategy."""
     handles = BSM1Handles(kla_3=Fixed(240.0 / _DAY), kla_4=Fixed(240.0 / _DAY), kla_5=BSM1_OXYGEN_CONTROL, q_a=BSM1_NITRATE_CONTROL, q_r=Agent(), q_w=Agent())
-    observations = (*DEFAULT_OBSERVATIONS, Observation("q_r", HANDLE_LIMITS["q_r"][1]), Observation("sludge_age", 20.0 * _DAY))
+    observations = (*DEFAULT_OBSERVATIONS, Observation("q_r", HANDLE_LIMITS["q_r"][1]), Observation("plant_sludge_age", 20.0 * _DAY))
     return BSM1Config(handles=handles, observations=observations)
 
 

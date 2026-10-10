@@ -78,6 +78,16 @@ def stream_qualities(components: jax.Array, params: ASM1Params) -> dict[str, jax
     }
 
 
+def reactor_solids(reactors: jax.Array, volumes: jax.Array) -> jax.Array:
+    """Suspended solids held in the reactors (g), from their compositions in flow order and volumes (m³)."""
+    return jnp.sum(ASM1_SCHEMA.tss(reactors) * volumes)
+
+
+def settler_solids(layers: jax.Array, params: SettlerParams) -> jax.Array:
+    """Suspended solids held in the settler (g), from its layer compositions."""
+    return params.area * params.height / params.n_layers * jnp.sum(ASM1_SCHEMA.tss(layers))
+
+
 def blanket_height(layer_tss: jax.Array, params: SettlerParams, threshold: float) -> jax.Array:
     """Height above the floor where solids fall below `threshold`, interpolated linearly between layer centres.
 
@@ -103,9 +113,12 @@ def measurements(
     Reactor quantities are `<quality>_<i>` with reactors counted from 1; stream quantities are
     `influent_`, `effluent_` or `underflow_` followed by a quality or `flow`. Qualities are the ASM1
     components and `tss`, `cod`, `bod5`, `tkn` and `n_tot`. `mlss` is the last reactor's TSS,
-    `blanket_height` the settler's solids blanket, `sludge_age` the reactors' solids over the solids
-    leaving in the waste and effluent, `temperature` the reactors' temperature, each handle name its
-    realised value, and `<handle>_setpoint` the setpoint of a supervised controller.
+    `blanket_height` the settler's solids blanket, `temperature` the reactors' temperature, each handle
+    name its realised value, and `<handle>_setpoint` the setpoint of a supervised controller.
+
+    Both sludge ages divide solids held by the solids leaving in the waste and effluent: the
+    `traditional_sludge_age` holds the reactors' solids, as the BSM1 reference results report it, and the
+    `plant_sludge_age` the reactors' and settler's, as an actual plant measures it (Sec. 2.3.3).
     """
     params = layout.kinetics_params
     volumes = jnp.array(layout.volumes)
@@ -125,10 +138,16 @@ def measurements(
     def setpoint(name: str) -> Measure:
         return lambda snapshot: snapshot.setpoints[name]
 
-    def sludge_age(snapshot: PlantSnapshot) -> jax.Array:
-        held = jnp.sum(ASM1_SCHEMA.tss(snapshot.reactors) * volumes)
+    def solids_leaving(snapshot: PlantSnapshot) -> jax.Array:
         leaving = snapshot.waste.flow * ASM1_SCHEMA.tss(snapshot.waste.components) + snapshot.effluent.flow * ASM1_SCHEMA.tss(snapshot.effluent.components)
-        return held / jnp.maximum(leaving, 1e-9)
+        return jnp.maximum(leaving, 1e-9)
+
+    def traditional_sludge_age(snapshot: PlantSnapshot) -> jax.Array:
+        return reactor_solids(snapshot.reactors, volumes) / solids_leaving(snapshot)
+
+    def plant_sludge_age(snapshot: PlantSnapshot) -> jax.Array:
+        held = reactor_solids(snapshot.reactors, volumes) + settler_solids(snapshot.settler, layout.settler)
+        return held / solids_leaving(snapshot)
 
     qualities = (*ASM1_SCHEMA.names, "tss", "cod", "bod5", "tkn", "n_tot")
     streams: dict[str, Callable[[PlantSnapshot], Stream]] = {
@@ -146,7 +165,8 @@ def measurements(
     catalog.update({f"{name}_setpoint": setpoint(name) for name in setpoints})
     catalog["mlss"] = lambda snapshot: ASM1_SCHEMA.tss(snapshot.reactors[-1])
     catalog["blanket_height"] = lambda snapshot: blanket_height(ASM1_SCHEMA.tss(snapshot.settler), layout.settler, blanket_threshold)
-    catalog["sludge_age"] = sludge_age
+    catalog["traditional_sludge_age"] = traditional_sludge_age
+    catalog["plant_sludge_age"] = plant_sludge_age
     catalog["temperature"] = lambda snapshot: snapshot.temperature
     return catalog
 
