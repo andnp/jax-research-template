@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.scenarios.tabular_influent import (
     NO_RANDOMIZATION,
     InfluentProfile,
@@ -18,7 +18,9 @@ from process_control.scenarios.tabular_influent import (
     reset,
 )
 
-SCHEMA = ComponentSchema(names=("solute", "solids"), particulate=(False, True), tss_factor=(0.0, 0.75))
+TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
+
+SCHEMA = ComponentSchema(names=("solute", "solids"), particulate=(False, True), tss_factor=(0.0, 0.75), bases=(TRACER,) * 2)
 RAMP = InfluentProfile(
     times=np.array([0.0, 1.0, 3.0]),
     components=np.array([[10.0, 100.0], [20.0, 200.0], [40.0, 400.0]]),
@@ -167,7 +169,7 @@ class TestValidation:
 
     def test_profiles_must_match_the_schema(self) -> None:
         """A profile's component columns must follow the schema."""
-        other = ComponentSchema(names=("a",), particulate=(False,), tss_factor=(0.0,))
+        other = ComponentSchema(names=("a",), particulate=(False,), tss_factor=(0.0,), bases=(TRACER,))
 
         with pytest.raises(ValueError, match="do not carry the 1 schema components"):
             TabularInfluentParams(schema=other, profiles={"ramp": RAMP})

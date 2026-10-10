@@ -2,14 +2,16 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.flowsheet import Node, Port, build_flowsheet
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
 from process_control.units.bioreactor import AeratedBioreactor, BioreactorParams
 from process_control.units.contract import step_unit
 
-SCHEMA = ComponentSchema(names=("tracer", "oxygen"), particulate=(False, False), tss_factor=(0.0, 0.0))
+TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
+
+SCHEMA = ComponentSchema(names=("tracer", "oxygen"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER,) * 2)
 SATURATION = 10.0
 
 

@@ -1,11 +1,13 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.streams import Stream, mix, split
 from process_control.units.asm1 import ASM1_SCHEMA
 
-SCHEMA = ComponentSchema(names=("solute", "solids"), particulate=(False, True), tss_factor=(0.0, 0.75))
+TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
+
+SCHEMA = ComponentSchema(names=("solute", "solids"), particulate=(False, True), tss_factor=(0.0, 0.75), bases=(TRACER,) * 2)
 
 
 def _stream(flow: float, solute: float, solids: float, schema: ComponentSchema = SCHEMA) -> Stream:
@@ -38,7 +40,7 @@ class TestMix:
 
     def test_rejects_mismatched_schemas(self) -> None:
         """Component vectors ordered by different schemas cannot be averaged elementwise."""
-        other = ComponentSchema(names=("a", "b"), particulate=(False, True), tss_factor=(0.0, 0.75))
+        other = ComponentSchema(names=("a", "b"), particulate=(False, True), tss_factor=(0.0, 0.75), bases=(TRACER,) * 2)
 
         with pytest.raises(ValueError, match="schemas"):
             mix(_stream(1.0, 1.0, 1.0), _stream(1.0, 1.0, 1.0, schema=other))

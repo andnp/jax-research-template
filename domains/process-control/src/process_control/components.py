@@ -29,17 +29,18 @@ class ComponentBasis:
 
 @dataclass(frozen=True)
 class ComponentSchema:
-    """Static description of a component vector: names, particulate flags and COD-to-TSS factors."""
+    """Static description of a component vector: names, particulate flags, COD-to-TSS factors and value bases."""
 
     names: tuple[str, ...]
     particulate: tuple[bool, ...]
     tss_factor: tuple[float, ...]
+    bases: tuple[ComponentBasis, ...]
 
     def __post_init__(self) -> None:
         if len(set(self.names)) != len(self.names):
             raise ValueError(f"component names must be unique: {self.names}")
-        if not len(self.names) == len(self.particulate) == len(self.tss_factor):
-            raise ValueError("names, particulate and tss_factor must have equal lengths")
+        if not len(self.names) == len(self.particulate) == len(self.tss_factor) == len(self.bases):
+            raise ValueError("names, particulate, tss_factor and bases must have equal lengths")
         for name, particulate, factor in zip(self.names, self.particulate, self.tss_factor, strict=True):
             if not math.isfinite(factor) or factor < 0:
                 raise ValueError(f"TSS factor of {name!r} must be finite and non-negative, got {factor}")

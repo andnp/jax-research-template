@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 
 
 @jax_dataclass
@@ -168,6 +168,14 @@ ASM1_SCHEMA = ComponentSchema(
     names=("s_i", "s_s", "x_i", "x_s", "x_bh", "x_ba", "x_p", "s_o", "s_no", "s_nh", "s_nd", "x_nd", "s_alk"),
     particulate=(False, False, True, True, True, True, True, False, False, False, False, True, False),
     tss_factor=(0.0, 0.0, 0.75, 0.75, 0.75, 0.75, 0.75, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    # Alex et al. (2008), Table 6; alkalinity counts acid-neutralizing equivalents by ASM1 convention,
+    # not bicarbonate concentration or total inorganic carbon.
+    bases=(
+        *(ComponentBasis("g/m3", Quantity.COD, "COD"),) * 7,
+        ComponentBasis("g/m3", Quantity.SPECIES, "O2"),
+        *(ComponentBasis("g/m3", Quantity.ELEMENT, "N"),) * 4,
+        ComponentBasis("mol/m3", Quantity.EQUIVALENT, "HCO3-"),
+    ),
 )
 
 

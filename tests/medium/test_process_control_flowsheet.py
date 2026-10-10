@@ -4,12 +4,14 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 import pytest
-from process_control.components import ComponentSchema
+from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
 from process_control.streams import Stream
 from process_control.units.contract import Outlet, step_unit
 
-SCHEMA = ComponentSchema(names=("c",), particulate=(False,), tss_factor=(0.0,))
+TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
+
+SCHEMA = ComponentSchema(names=("c",), particulate=(False,), tss_factor=(0.0,), bases=(TRACER,))
 FEED_FLOW = 1.0
 FEED_CONCENTRATION = 10.0
 RECYCLE_FLOW = 2.0
@@ -267,8 +269,8 @@ class TestBuildValidation:
 
     def test_connection_between_reordered_schemas_is_rejected(self) -> None:
         """Equal-length schemas in different orders would silently swap components."""
-        forward = ComponentSchema(names=("a", "b"), particulate=(False, False), tss_factor=(0.0, 0.0))
-        backward = ComponentSchema(names=("b", "a"), particulate=(False, False), tss_factor=(0.0, 0.0))
+        forward = ComponentSchema(names=("a", "b"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER,) * 2)
+        backward = ComponentSchema(names=("b", "a"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER,) * 2)
 
         with pytest.raises(ValueError, match=r"schema mismatch: first\.out carries \('a', 'b'\) but second\.x expects \('b', 'a'\)"):
             build_flowsheet(
@@ -280,7 +282,7 @@ class TestBuildValidation:
 
     def test_external_inlet_with_another_schema_is_rejected(self) -> None:
         """An external stream must match the schema its inlet port expects."""
-        other = ComponentSchema(names=("d",), particulate=(False,), tss_factor=(0.0,))
+        other = ComponentSchema(names=("d",), particulate=(False,), tss_factor=(0.0,), bases=(TRACER,))
         influent = {"influent": Stream(flow=jnp.array(1.0), components=jnp.array([1.0]), schema=other)}
 
         with pytest.raises(ValueError, match="external inlet 'influent' carries"):
