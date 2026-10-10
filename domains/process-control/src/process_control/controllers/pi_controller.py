@@ -136,3 +136,23 @@ def track_output(
     )
     max_integral = integral_limit(params)
     return PIControllerState(integral=jnp.clip(tracked_integral, -max_integral, max_integral))
+
+
+def standard_form(
+    gain: float, integral_time: float, offset: float, output_min: float, output_max: float, tracking_time: float | None = None
+) -> PIControllerParams:
+    """PI parameters for u = offset + K (e + (1/Ti) ∫e), the form BSM1 states its controllers in."""
+    return PIControllerParams(
+        kp=gain, ki=gain / integral_time, ff=offset, output_min=output_min, output_max=output_max, tracking_time=tracking_time
+    )
+
+
+# BSM1 default closed-loop controllers, converted from days to hours: kLa in reactor 5 on its DO
+# (h⁻¹ per g/m³) and the internal recycle Qa on reactor 2 nitrate (m³/h per g N/m³). K, Ti and Tt are
+# from Alex et al. (2008), Appendix 3; the offsets are those of the reference BSM1 implementation.
+BSM1_OXYGEN_CONTROLLER = standard_form(
+    gain=25.0 / 24.0, integral_time=0.002 * 24.0, tracking_time=0.001 * 24.0, offset=144.0 / 24.0, output_min=0.0, output_max=360.0 / 24.0
+)
+BSM1_NITRATE_CONTROLLER = standard_form(
+    gain=10000.0 / 24.0, integral_time=0.025 * 24.0, tracking_time=0.015 * 24.0, offset=18500.0 / 24.0, output_min=0.0, output_max=92230.0 / 24.0
+)
