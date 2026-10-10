@@ -7,6 +7,7 @@ https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 
 import jax
 import jax.numpy as jnp
@@ -55,15 +56,27 @@ BSM1_SETTLER = SettlerParams(
 )
 
 
+class ParticulateOutlets(Enum):
+    """How the settler outlets compose their particulates."""
+
+    FEED_FRACTIONS = "feed_fractions"
+    """BSM1: each particulate keeps its feed share of TSS, so outlets are layer TSS × feed fractions."""
+    LAYER_COMPOSITION = "layer_composition"
+    """Outlets carry the particulates transported within their layer."""
+
+
 @dataclass(frozen=True)
 class LayeredSettler:
     """Non-reactive layered settler carrying every component per layer, bottom layer first.
 
     State has shape (n_layers, n_components). Solubles move with the bulk flow only; particulates also
-    settle with their layer's solids flux, each in proportion to its share of the layer's TSS. BSM1
-    instead gives both outlets the feed's particulate fractions, which propagates fraction changes
-    instantly; carrying the components delays them by the settler's retention and keeps the outlets
-    independent of the feed, while agreeing with BSM1 at steady state.
+    settle with their layer's solids flux, each in proportion to its share of the layer's TSS, so layer
+    TSS follows the BSM1 solids balance whatever the particulate mix.
+
+    `particulates` picks how outlets compose their particulates. The BSM1 default gives them the feed's
+    fractions (Alex et al. 2008, Sec. 2.3.3), which makes outlet compositions depend on the feed and
+    propagates fraction changes instantly; the layer composition delays them by the settler's retention.
+    Both agree at steady state.
 
     The underflow takes the `q_underflow` input (m³/h), capped by the feed, and the effluent the rest,
     so the outlets always balance the feed. A draw on the underflow that exceeds it shows up as that
@@ -71,6 +84,7 @@ class LayeredSettler:
     """
 
     schema: ComponentSchema
+    particulates: ParticulateOutlets = ParticulateOutlets.FEED_FRACTIONS
 
     @property
     def inlet_ports(self) -> Mapping[str, ComponentSchema]:
@@ -79,7 +93,8 @@ class LayeredSettler:
     @property
     def outlet_ports(self) -> Mapping[str, Outlet]:
         feed = frozenset({"feed"})
-        return {"effluent": Outlet(self.schema, flow_from=feed), "underflow": Outlet(self.schema, flow_from=feed)}
+        composition = feed if self.particulates is ParticulateOutlets.FEED_FRACTIONS else frozenset()
+        return {name: Outlet(self.schema, flow_from=feed, composition_from=composition) for name in ("effluent", "underflow")}
 
     @property
     def input_ports(self) -> tuple[str, ...]:
@@ -100,7 +115,15 @@ class LayeredSettler:
     def outlet_compositions(
         self, state: jax.Array, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: SettlerParams
     ) -> Mapping[str, jax.Array]:
-        return {"effluent": state[-1], "underflow": state[0]}
+        layers = {"effluent": state[-1], "underflow": state[0]}
+        if self.particulates is ParticulateOutlets.LAYER_COMPOSITION:
+            return layers
+        feed = inlets["feed"].components
+        feed_tss = self.schema.tss(feed)
+        has_solids = feed_tss > 0.0
+        fractions = feed / jnp.where(has_solids, feed_tss, 1.0)
+        replaced = self.schema.particulate_mask & has_solids
+        return {name: jnp.where(replaced, self.schema.tss(layer) * fractions, layer) for name, layer in layers.items()}
 
     def project(self, state: jax.Array, params: SettlerParams) -> jax.Array:
         return jnp.maximum(state, 0.0)
