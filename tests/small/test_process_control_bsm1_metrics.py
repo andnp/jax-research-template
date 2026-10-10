@@ -13,7 +13,7 @@ from process_control.units.asm1 import ASM1Params, ASM1State
 class TestEffluentQualityIndex:
     def test_matches_hand_computed_example(self) -> None:
         """Single-timestep EQI against a hand-computed weighted pollutant load."""
-        params = ASM1Params(volume=1333.0, f_p=0.08, i_xb=0.08, i_xp=0.06)
+        params = ASM1Params(f_p=0.08, i_xb=0.08, i_xp=0.06)
         effluent = ASM1State.create(
             s_i=30.0, s_s=1.0, x_i=5.0, x_s=2.0, x_bh=3.0, x_ba=1.0, x_p=1.0,
             s_no=10.0, s_nh=2.0, s_nd=0.5, x_nd=0.3,
@@ -31,7 +31,7 @@ class TestEffluentQualityIndex:
 
     def test_time_averages_over_trajectory(self) -> None:
         """EQI over a two-step trajectory is the mean of the per-step loads."""
-        params = ASM1Params(volume=1333.0)
+        params = ASM1Params()
         effluent = ASM1State(
             s_i=jnp.array([30.0, 30.0]),
             s_s=jnp.array([1.0, 2.0]),
@@ -69,7 +69,7 @@ class TestEffluentQualityIndex:
         assert jnp.allclose(eqi_traj, (eqi_step0 + eqi_step1) / 2.0, atol=1e-6)
 
     def test_custom_weights_change_result(self) -> None:
-        params = ASM1Params(volume=1333.0)
+        params = ASM1Params()
         effluent = ASM1State.create(s_no=10.0)
         q_e = jnp.array(1000.0)
 

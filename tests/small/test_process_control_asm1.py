@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1Params, apply_arrhenius, asm1_reaction_rates
 
-PARAMS = ASM1Params(volume=1333.0)
+PARAMS = ASM1Params()
 
 
 def _state(**values: float) -> jax.Array:

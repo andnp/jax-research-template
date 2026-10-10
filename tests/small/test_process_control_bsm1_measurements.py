@@ -45,7 +45,7 @@ class TestStreamQualities:
     def test_aggregates_follow_the_bsm1_definitions(self) -> None:
         """TSS, COD, BOD5, TKN and total N match the BSM1 effluent formulas by hand."""
         effluent = jnp.array([30.0, 0.889, 4.39, 0.188, 9.78, 0.573, 1.73, 0.491, 10.4, 1.73, 0.688, 0.0135, 4.13])
-        qualities = stream_qualities(effluent, ASM1Params(volume=1.0))
+        qualities = stream_qualities(effluent, ASM1Params())
 
         biomass = 9.78 + 0.573
         tkn = 1.73 + 0.688 + 0.0135 + 0.08 * biomass + 0.06 * (1.73 + 4.39)

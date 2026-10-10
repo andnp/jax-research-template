@@ -9,7 +9,6 @@ The BSM1 layout follows Alex et al. (2008), Sec. 2:
 https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
 """
 
-import math
 from dataclasses import dataclass
 
 import jax
@@ -48,8 +47,7 @@ class ActivatedSludgeLayout[P]:
 BSM1_LAYOUT = ActivatedSludgeLayout(
     volumes=(1000.0, 1000.0, 1333.0, 1333.0, 1333.0),
     kinetics=ASM1Kinetics(),
-    # ASM1Kinetics never reads the volume; each reactor's volume lives in its BioreactorParams.
-    kinetics_params=ASM1Params(volume=math.nan),
+    kinetics_params=ASM1Params(),
 )
 
 

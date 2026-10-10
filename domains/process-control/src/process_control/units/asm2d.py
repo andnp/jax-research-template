@@ -114,7 +114,7 @@ class ASM2dParams:
     """Parameters for the PAO extension on top of ASM1."""
 
     # Base ASM1 parameters (for the 13 original states)
-    asm1: ASM1Params = ASM1Params(volume=1333.0)
+    asm1: ASM1Params = ASM1Params()
 
     # PAO kinetics. ASM2d (Henze et al. 1999, IWA STR9, Table on p.172) gives these
     # as d⁻¹, but this reactor and its `dt` operate in hours like ASM1 — divide by 24

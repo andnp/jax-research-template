@@ -123,7 +123,7 @@ class TestASM1Conservation:
     """
 
     REACTOR = AeratedBioreactor(ASM1Kinetics())
-    PARAMS = BioreactorParams(volume=1000.0, kinetics=ASM1Params(volume=1000.0))
+    PARAMS = BioreactorParams(volume=1000.0, kinetics=ASM1Params())
     STATE = jnp.array([30.0, 40.0, 50.0, 120.0, 2000.0, 0.0, 400.0, 6.0, 0.0, 20.0, 5.0, 8.0, 5.0])
 
     def _derivatives(self, temperature: float) -> jax.Array:

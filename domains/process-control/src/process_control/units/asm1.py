@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 
 import jax
@@ -17,8 +18,6 @@ class ASM1Params:
       Copp, J.B. (2002). The COST Simulation Benchmark. Office for Official
         Publications of the European Communities, Luxembourg.
     """
-
-    volume: float  # reactor volume (m³)
 
     # --- Heterotrophic kinetics ---
     mu_h: float | jax.Array = 0.16667  # max growth rate (h⁻¹; BSM1 at 15°C: 4.0 /day)
@@ -48,9 +47,6 @@ class ASM1Params:
     # --- Stoichiometric constants ---
     i_xb: float = 0.08  # N content of biomass (g N / g COD)
     i_xp: float = 0.06  # N content of X_P (g N / g COD)
-
-    # --- O₂ saturation ---
-    s_o_sat: float | jax.Array = 8.0  # at 15°C (g O₂/m³)
 
     # --- Reference temperature for Arrhenius correction ---
     t_ref: float = 15.0  # °C (BSM1 default calibration temperature)
@@ -93,7 +89,7 @@ def apply_arrhenius(
     temperature: jax.Array,
     coeffs: ArrheniusCoeffs | None = None,
 ):
-    """Return ASM1Params with rate constants and O₂ saturation corrected to the given temperature."""
+    """Return ASM1Params with rate constants corrected to the given temperature."""
     if coeffs is None:
         coeffs = ArrheniusCoeffs()
     dt = temperature - params.t_ref
@@ -101,29 +97,14 @@ def apply_arrhenius(
     def _corr(base: float | jax.Array, theta: float):
         return base * jnp.exp(theta * dt)
 
-    return ASM1Params(
-        volume=params.volume,
+    return dataclasses.replace(
+        params,
         mu_h=_corr(params.mu_h, coeffs.theta_mu_h),
-        k_s=params.k_s,
-        k_o_h=params.k_o_h,
-        k_no=params.k_no,
-        eta_g=params.eta_g,
         b_h=_corr(params.b_h, coeffs.theta_b_h),
-        y_h=params.y_h,
-        f_p=params.f_p,
         mu_a=_corr(params.mu_a, coeffs.theta_mu_a),
-        k_nh=params.k_nh,
-        k_o_a=params.k_o_a,
         b_a=_corr(params.b_a, coeffs.theta_b_a),
-        y_a=params.y_a,
         k_h=_corr(params.k_h, coeffs.theta_k_h),
-        k_x=params.k_x,
-        eta_h=params.eta_h,
         k_a=_corr(params.k_a, coeffs.theta_k_a),
-        i_xb=params.i_xb,
-        i_xp=params.i_xp,
-        s_o_sat=bsm1_oxygen_saturation(temperature),
-        t_ref=params.t_ref,
     )
 
 
