@@ -17,7 +17,7 @@ import jax.numpy as jnp
 
 from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
 from process_control.kinetics import KineticsModel
-from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params
+from process_control.units.asm1 import ASM1Kinetics, ASM1Params
 from process_control.units.bioreactor import AeratedBioreactor, BioreactorParams
 from process_control.units.layered_settler import BSM1_SETTLER, LayeredSettler, ParticulateOutlets, SettlerParams
 
@@ -81,8 +81,16 @@ def activated_sludge_flowsheet[P](layout: ActivatedSludgeLayout[P]) -> Flowsheet
     )
 
 
-def plant_state[P](layout: ActivatedSludgeLayout[P], reactors: jax.Array, settler: jax.Array) -> dict[str, jax.Array]:
-    """Flowsheet state from reactor compositions in flow order and settler layers bottom first."""
+def settled_state[P](layout: ActivatedSludgeLayout[P], reactors: jax.Array, layer_tss: jax.Array) -> dict[str, jax.Array]:
+    """Flowsheet state from reactor compositions in flow order and settler layer TSS bottom first.
+
+    Settler layers carry the last reactor's solubles and its particulate fractions of TSS, as the BSM1
+    settler outlets do.
+    """
+    schema = layout.kinetics.schema
+    feed = reactors[-1]
+    fractions = jnp.where(schema.particulate_mask, feed / schema.tss(feed), 0.0)
+    settler = jnp.where(schema.particulate_mask, layer_tss[:, None] * fractions, feed)
     return {**dict(zip(layout.reactors, reactors, strict=True)), "settler": settler}
 
 
@@ -99,14 +107,5 @@ BSM1_OPEN_LOOP_LAYER_TSS = (6393.9599, 356.0738, 356.0738, 356.0738, 356.0738, 3
 
 
 def bsm1_open_loop_state() -> dict[str, jax.Array]:
-    """The BSM1 plant at its open-loop steady state.
-
-    Settler layers carry reactor 5's solubles and its particulate fractions of TSS, as the BSM1 settler
-    outlets do.
-    """
-    reactors = jnp.array(BSM1_OPEN_LOOP_REACTORS)
-    feed = reactors[-1]
-    fractions = jnp.where(ASM1_SCHEMA.particulate_mask, feed / ASM1_SCHEMA.tss(feed), 0.0)
-    layer_tss = jnp.array(BSM1_OPEN_LOOP_LAYER_TSS)[:, None]
-    settler = jnp.where(ASM1_SCHEMA.particulate_mask, layer_tss * fractions, feed)
-    return plant_state(BSM1_LAYOUT, reactors, settler)
+    """The BSM1 plant at its open-loop steady state."""
+    return settled_state(BSM1_LAYOUT, jnp.array(BSM1_OPEN_LOOP_REACTORS), jnp.array(BSM1_OPEN_LOOP_LAYER_TSS))
