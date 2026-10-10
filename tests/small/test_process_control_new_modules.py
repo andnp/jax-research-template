@@ -632,10 +632,13 @@ def _headroom_return_policy(config: RejectWaterConfig, cap: float) -> Callable[[
 
 
 def _reject_water_return_per_day(
-    policy: Callable[[jax.Array, jax.Array], jax.Array], warm_steps: int, days: int = 3, seeds: int = 4
+    config: RejectWaterConfig,
+    policy: Callable[[jax.Array, jax.Array], jax.Array],
+    warm_steps: int,
+    days: int,
+    seeds: int = 4,
 ) -> tuple[float, float]:
     """Mean reward and overflow per day, with warm-up steps excluded from scoring."""
-    config = RejectWaterConfig()
     reset_fn, step_fn = make_reject_water_benchmark(config)
     horizon = warm_steps + config.steps_per_day * days
 
@@ -658,6 +661,21 @@ def _reject_water_return_per_day(
     return float(returns.mean()), float(overflows.mean())
 
 
+def _assert_reject_water_ranking(config: RejectWaterConfig, warm_steps: int, days: int) -> None:
+    shut, _ = _reject_water_return_per_day(config, _constant_return_policy(0.0), warm_steps, days)
+    pass_through, _ = _reject_water_return_per_day(
+        config, _constant_return_policy(config.reject_production / config.q_reject_max), warm_steps, days
+    )
+    full_open, _ = _reject_water_return_per_day(config, _constant_return_policy(1.0), warm_steps, days)
+    headroom, headroom_overflow = _reject_water_return_per_day(
+        config, _headroom_return_policy(config, cap=8.0), warm_steps, days
+    )
+    assert shut < pass_through
+    assert full_open < pass_through
+    assert pass_through < headroom
+    assert headroom_overflow == 0.0
+
+
 class TestRejectWaterTimingTradeoff:
     def test_action_sets_return_rate_between_endpoints(self) -> None:
         """Action 0 holds reject water and action 1 returns at the full rate while the reset tank holds enough water."""
@@ -673,19 +691,12 @@ class TestRejectWaterTimingTradeoff:
     @pytest.mark.parametrize("warm_steps", [0, 300], ids=["reset", "quarter_day_warm_start"])
     def test_policy_ranking_holds_across_start_phases(self, warm_steps: int, days: int) -> None:
         """Shut loses most, pass-through beats full-open, and the headroom rule beats pass-through with no overflow."""
-        config = RejectWaterConfig()
-        shut, _ = _reject_water_return_per_day(_constant_return_policy(0.0), warm_steps, days)
-        pass_through, _ = _reject_water_return_per_day(
-            _constant_return_policy(config.reject_production / config.q_reject_max), warm_steps, days
-        )
-        full_open, _ = _reject_water_return_per_day(_constant_return_policy(1.0), warm_steps, days)
-        headroom, headroom_overflow = _reject_water_return_per_day(
-            _headroom_return_policy(config, cap=8.0), warm_steps, days
-        )
-        assert shut < pass_through
-        assert full_open < pass_through
-        assert pass_through < headroom
-        assert headroom_overflow == 0.0
+        _assert_reject_water_ranking(RejectWaterConfig(), warm_steps, days)
+
+    @pytest.mark.parametrize("nitrification_rate", [7.5, 8.5, 9.5, 10.0], ids=lambda rate: f"rate_{rate}")
+    def test_policy_ranking_holds_across_nitrification_band(self, nitrification_rate: float) -> None:
+        """The ranking holds across the band of assumed nitrification rates it was calibrated against."""
+        _assert_reject_water_ranking(RejectWaterConfig(nitrification_rate=nitrification_rate), warm_steps=0, days=3)
 
 # ---------------------------------------------------------------------------
 # Benchmark: Drinking Water Train (3D action, 8D obs)

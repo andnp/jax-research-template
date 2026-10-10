@@ -72,6 +72,9 @@ class RejectWaterConfig:
     # Assumed, calibrated for this benchmark (not a BSM1 kinetic rate). Chosen
     # so the full balance, dilution included, settles near 1.6 mg-N/L with no
     # return and near 3 mg-N/L at mean flow with pass-through return.
+    # Policy ranking (shut < pass-through < headroom, no overflow) holds for r_max
+    # from 7.5 to 10.0 at 3- and 7-day horizons; it fails at 7.0 and at 10.5, where
+    # pass-through already meets the limit and the reward ceiling ties it with headroom.
     nitrification_rate: float = 9.5  # mg-N/L/h max rate (r_max)
     k_nh: float = 1.0  # mg-N/L half-saturation (ASM1 K_NH, Henze et al. 1987)
     nh4_baseline: float = 2.0  # mg-N/L initial main-plant NH₄
