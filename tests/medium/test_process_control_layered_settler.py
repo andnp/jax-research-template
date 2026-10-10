@@ -70,13 +70,13 @@ class TestBSM1SteadyState:
         assert jnp.allclose(outlet_load, feed_load, rtol=1e-3)
 
 
-def _balance(params: SettlerParams) -> tuple[jax.Array, jax.Array]:
+def _balance(params: SettlerParams, underflow: float = UNDERFLOW) -> tuple[jax.Array, jax.Array]:
     """Each component's rate of inventory change and its net inflow, for a non-uniform layer state."""
     layers = jnp.linspace(0.2, 3.0, params.n_layers)[:, None] * REACTOR_5
     layer_volume = params.area * params.height / params.n_layers
 
-    derivatives = SETTLER.derivatives(layers, _feed(), _inputs(), params)
-    outlets = unit_outlets(SETTLER, layers, _feed(), _inputs(), params)
+    derivatives = SETTLER.derivatives(layers, _feed(), _inputs(underflow), params)
+    outlets = unit_outlets(SETTLER, layers, _feed(), _inputs(underflow), params)
 
     net_inflow = FEED_FLOW * REACTOR_5 - sum(stream.flow * stream.components for stream in outlets.values())
     return layer_volume * derivatives.sum(axis=0), net_inflow
@@ -96,12 +96,14 @@ class TestMassBalance:
         assert jnp.allclose(flows["underflow"], UNDERFLOW)
         assert jnp.allclose(flows["effluent"], FEED_FLOW - UNDERFLOW)
 
-    def test_effluent_is_clamped_when_the_underflow_exceeds_the_feed(self) -> None:
-        """An underflow larger than the feed leaves no negative effluent flow."""
-        flows = SETTLER.outlet_flows(jnp.zeros((10, 13)), {"feed": jnp.array(10.0)}, _inputs(12.0), BSM1_SETTLER)
+    def test_overdrawn_underflow_is_capped_by_the_feed(self) -> None:
+        """An underflow request above the feed takes the whole feed, so flow and mass still balance."""
+        flows = SETTLER.outlet_flows(jnp.zeros((10, 13)), {"feed": jnp.array(FEED_FLOW)}, _inputs(2.0 * FEED_FLOW), BSM1_SETTLER)
+        inventory_change, net_inflow = _balance(BSM1_SETTLER, underflow=2.0 * FEED_FLOW)
 
+        assert jnp.allclose(flows["underflow"], FEED_FLOW)
         assert jnp.allclose(flows["effluent"], 0.0)
-        assert jnp.allclose(flows["underflow"], 12.0)
+        assert jnp.allclose(inventory_change, net_inflow, rtol=1e-4, atol=1e-5 * FEED_FLOW * REACTOR_5.max())
 
 
 class TestConfiguration:
