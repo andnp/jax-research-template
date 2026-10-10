@@ -134,8 +134,8 @@ class TestApplication:
     @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
     def test_scatter_add_preserves_the_target_dtype(self, dtype: jnp.dtype) -> None:
         """Gather and scatter do not promote the carrier's dtype."""
-        binding = Binding.resolve(NamedAccess(writes=(Requirement("c", TRACER),)), _schema(("c", TRACER)))
-
+        tracer = Requirement("c", TRACER)
+        binding = Binding.resolve(NamedAccess(reads=(tracer,), writes=(tracer,)), _schema(("c", TRACER)))
         target = jnp.zeros(1, dtype=dtype)
 
         assert binding.scatter_add(target, binding.gather(target)).dtype == dtype
