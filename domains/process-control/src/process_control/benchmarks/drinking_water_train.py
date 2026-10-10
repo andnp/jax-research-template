@@ -181,6 +181,9 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
     mean_flow = jnp.array(config.mean_flow)
     area = jnp.array(config.membrane.area)
     operating_flux = mean_flow / area
+    # Wash water is drawn from product at the nominal wash flux, a multiple of
+    # the rated flux (same convention as membrane_fouling), for the wash duration.
+    backwash_water_m3 = config.membrane.bw_flux_ratio * config.flux_max * config.membrane.area * config.membrane.bw_duration
 
     def _observe(
         raw_turbidity: jax.Array,
@@ -307,6 +310,15 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         obs = _observe(raw_turbidity, post_coag_tss, sensed_tmp, q_permeate, sensed_cl2, new_mem.hours_since_bw, coag_dose, q_in)
 
         # 8. Reward
+        # Throughput is net product: gross permeate minus the wash water drawn
+        # from it, charged once at the wash start.
+        starts_bw = (
+            (do_backwash > 0.5)
+            & ~state.membrane_state.is_backwashing
+            & ~state.membrane_state.backwash_trigger_latched
+        )
+        backwash_water = backwash_water_m3 * starts_bw
+        q_net = q_permeate - backwash_water / dt
         # Scored on true plant state: analyzers only feed the observation, so a
         # lagged/held sensor cannot hide a bad action from the objective.
         cl2_low = jnp.maximum(config.cl2_target - new_cl2_residual, 0.0)
@@ -314,7 +326,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         tmp_violation = jnp.clip((tmp - config.tmp_alarm) / (max_tmp - config.tmp_alarm), 0.0, 1.0)
 
         reward = (
-            config.reward_w_throughput * (q_permeate / (flux_max * area))
+            config.reward_w_throughput * (q_net / (flux_max * area))
             - config.reward_w_cl2_low * cl2_low**2
             - config.reward_w_cl2_high * cl2_high**2
             - config.reward_w_tmp * tmp_violation**2
@@ -340,6 +352,7 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
             "cl2_residual": new_cl2_residual,
             "q_in": q_in,
             "q_permeate": q_permeate,
+            "q_net": q_net,
             "coag_dose": coag_dose,
             "cl2_dose": cl2_dose,
             "permeate_doc": permeate_doc,
