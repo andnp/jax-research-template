@@ -62,6 +62,15 @@ class TestRewardUsesTrueState:
         assert float(vfa.max()) > quiet.vfa_limit
         assert jnp.allclose(reward_quiet, reward_noisy)
 
+    def test_biogas_analyzer_noise_does_not_change_reward(self) -> None:
+        """Production reward follows true biogas flow, so the biogas meter cannot alter reward."""
+        quiet = AnaerobicDigesterConfig(biogas_noise_std=0.0)
+        noisy = AnaerobicDigesterConfig(biogas_noise_std=500.0)
+        action = jnp.array([0.5, 0.75])
+        reward_quiet, _ = _rollout(quiet, action, days=10)
+        reward_noisy, _ = _rollout(noisy, action, days=10)
+        assert jnp.allclose(reward_quiet, reward_noisy)
+
 
 class TestHeatingCost:
     def test_heating_a_larger_feed_costs_more_at_equal_temperature(self) -> None:

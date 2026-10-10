@@ -222,14 +222,14 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         )
 
         # 6. Reward
-        # Process-health penalties use the true state; analyzer error only affects the observation.
+        # Production and process-health terms use the true state; analyzer error only affects the observation.
         vfa_violation = jnp.clip(new_dig.s_vfa - vfa_limit, 0.0, config.vfa_violation_cap * vfa_limit)
         ph_low_viol = jnp.maximum(config.ph_safe_low - ph, 0.0)
         ph_high_viol = jnp.maximum(ph - config.ph_safe_high, 0.0)
         heating_cost = (q_feed / q_max) * (new_temp - config.feed_temperature) / 20.0  # ~ q*cp*dT, normalised
 
         reward = (
-            config.reward_w_biogas * (sensed_biogas / 2000.0)
+            config.reward_w_biogas * (q_biogas / 2000.0)
             + config.reward_w_ch4 * ch4_frac
             - config.reward_w_vfa * (vfa_violation / vfa_limit) ** 2
             - config.reward_w_ph * (ph_low_viol + ph_high_viol) ** 2
