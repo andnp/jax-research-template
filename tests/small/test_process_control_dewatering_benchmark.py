@@ -151,6 +151,10 @@ def _episode_stats(
     return [r for r, _ in stats], [v for _, v in stats]
 
 
+def _total_reward(stats: tuple[list[float], list[float]]) -> float:
+    return sum(stats[0])
+
+
 def _mean_reward(policy: Policy, seeds: tuple[int, ...], n_steps: int = 960):
     return _episode_stats(policy, seeds, n_steps)[0]
 
@@ -207,7 +211,7 @@ class TestDewateringPolicyRanking:
         held_out = (100, 101, 102)
         constants = [(d, s) for d in (0.5, 0.6, 0.7) for s in (0.5, 0.55, 0.6)]
         scores = {c: _episode_stats(_constant(*c), held_out) for c in constants}
-        best_rewards, best_violations = max(scores.values(), key=lambda stats: sum(stats[0]))
+        best_rewards, best_violations = max(scores.values(), key=_total_reward)
         rewards, violations = _episode_stats(_dryness_feedback, held_out)
 
         assert all(r > c for r, c in zip(rewards, best_rewards, strict=True))
