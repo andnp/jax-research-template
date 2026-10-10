@@ -65,8 +65,9 @@ class LayeredSettler:
     instantly; carrying the components delays them by the settler's retention and keeps the outlets
     independent of the feed, while agreeing with BSM1 at steady state.
 
-    The underflow flow is the `q_underflow` input (m³/h) and the effluent takes the rest of the feed,
-    clamped at zero.
+    The underflow takes the `q_underflow` input (m³/h), capped by the feed, and the effluent the rest,
+    so the outlets always balance the feed. A draw on the underflow that exceeds it shows up as that
+    splitter's deficit.
     """
 
     schema: ComponentSchema
@@ -77,7 +78,8 @@ class LayeredSettler:
 
     @property
     def outlet_ports(self) -> Mapping[str, Outlet]:
-        return {"effluent": Outlet(self.schema, flow_from=frozenset({"feed"})), "underflow": Outlet(self.schema)}
+        feed = frozenset({"feed"})
+        return {"effluent": Outlet(self.schema, flow_from=feed), "underflow": Outlet(self.schema, flow_from=feed)}
 
     @property
     def input_ports(self) -> tuple[str, ...]:
@@ -92,8 +94,8 @@ class LayeredSettler:
     def outlet_flows(
         self, state: jax.Array, inlet_flows: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array], params: SettlerParams
     ) -> Mapping[str, jax.Array]:
-        underflow = jnp.maximum(inputs["q_underflow"], 0.0)
-        return {"effluent": jnp.maximum(inlet_flows["feed"] - underflow, 0.0), "underflow": underflow}
+        underflow = jnp.clip(inputs["q_underflow"], 0.0, inlet_flows["feed"])
+        return {"effluent": inlet_flows["feed"] - underflow, "underflow": underflow}
 
     def outlet_compositions(
         self, state: jax.Array, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: SettlerParams
