@@ -54,3 +54,16 @@ class TestCSTR:
         result = jax.jit(f)(jnp.array(10.0), jnp.array(2.0), jnp.array(0.5), jnp.array(1.0))
 
         assert jnp.isfinite(result.concentration)
+
+    def test_stacked_invariants_mix_independently_with_per_component_sources(self) -> None:
+        """A [S, Ct]-style vector state reaches each component's own steady state, so reaction invariants can share one CSTR."""
+        params = CSTRParams(volume=10.0)
+        state = CSTRState(concentration=jnp.array([0.0, 4.0]))
+        inlet_concentration = jnp.array([-3.0, 5.0])
+        addition_rate = jnp.array([2.0, 0.0])
+        flow = jnp.array(5.0)
+
+        result = step(state, flow, inlet_concentration, addition_rate, params, dt=jnp.array(1000.0))
+
+        assert result.concentration.shape == (2,)
+        assert jnp.allclose(result.concentration, inlet_concentration + addition_rate / flow, atol=1e-6)
