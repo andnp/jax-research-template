@@ -198,9 +198,10 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         )
 
         # 6. Reward
-        vfa_violation = jnp.clip(sensed_vfa - vfa_limit, 0.0, config.vfa_violation_cap * vfa_limit)
-        ph_low_viol = jnp.maximum(config.ph_safe_low - sensed_ph, 0.0)
-        ph_high_viol = jnp.maximum(sensed_ph - config.ph_safe_high, 0.0)
+        # Process-health penalties use the true state; analyzer error only affects the observation.
+        vfa_violation = jnp.clip(new_dig.s_vfa - vfa_limit, 0.0, config.vfa_violation_cap * vfa_limit)
+        ph_low_viol = jnp.maximum(config.ph_safe_low - ph, 0.0)
+        ph_high_viol = jnp.maximum(ph - config.ph_safe_high, 0.0)
         heating_cost = jnp.abs(new_temp - 20.0) / 25.0  # normalised heating above ambient
 
         reward = (

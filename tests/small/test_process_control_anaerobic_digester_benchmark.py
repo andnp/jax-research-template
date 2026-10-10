@@ -49,3 +49,15 @@ class TestOverload:
         assert float(vfa.max()) > config.vfa_violation_cap * config.vfa_limit
         floor = -config.reward_w_vfa * config.vfa_violation_cap**2 - config.reward_w_ph * 2.0**2
         assert float(reward.min()) > floor - 5.0
+
+
+class TestRewardUsesTrueState:
+    def test_vfa_and_ph_analyzer_noise_does_not_change_reward(self) -> None:
+        """Process-health penalties follow the true state, so analyzer noise cannot alter reward."""
+        quiet = AnaerobicDigesterConfig(vfa_noise_std=0.0, ph_noise_std=0.0)
+        noisy = AnaerobicDigesterConfig(vfa_noise_std=400.0, ph_noise_std=0.5)
+        action = jnp.array([1.0, 1.0])
+        reward_quiet, vfa = _rollout(quiet, action, days=60)
+        reward_noisy, _ = _rollout(noisy, action, days=60)
+        assert float(vfa.max()) > quiet.vfa_limit
+        assert jnp.allclose(reward_quiet, reward_noisy)
