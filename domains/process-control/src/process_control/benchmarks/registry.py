@@ -81,16 +81,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         requires_x64=True,
     ),
     BenchmarkEntry(
-        "bsm1_recycle",
-        "process_control.benchmarks.bsm1_recycle",
-        "BSM1RecycleConfig",
-        "make_bsm1_recycle_benchmark",
-        2,
-        "BSM1 nitrate recycle",
-        action_low_config=("q_a_ratio_min", "q_rs_ratio_min"),
-        action_high_config=("q_a_ratio_max", "q_rs_ratio_max"),
-    ),
-    BenchmarkEntry(
         "bsm1_combined",
         "process_control.benchmarks.bsm1_combined",
         "BSM1CombinedConfig",

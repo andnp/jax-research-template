@@ -8,10 +8,6 @@ from process_control.benchmarks.bsm1_combined import (
     BSM1CombinedConfig,
     make_bsm1_combined_benchmark,
 )
-from process_control.benchmarks.bsm1_recycle import (
-    BSM1RecycleConfig,
-    make_bsm1_recycle_benchmark,
-)
 from process_control.benchmarks.bsm1_takacs import (
     BSM1TakacsConfig,
     BSM1TakacsPlantState,
@@ -192,7 +188,6 @@ class TestBSM1Benchmark:
         "factory, config, action",
         [
             (make_bsm1_benchmark, BSM1BenchmarkConfig(), jnp.array([5.0, 5.0])),
-            (make_bsm1_recycle_benchmark, BSM1RecycleConfig(), jnp.array([3.0, 1.0])),
             (make_bsm1_combined_benchmark, BSM1CombinedConfig(), jnp.array([5.0, 5.0, 3.0, 1.0])),
         ],
     )
