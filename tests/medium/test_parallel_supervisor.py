@@ -205,30 +205,33 @@ class TestCompletion:
 
 
 class TestShutdown:
-    @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGKILL], ids=["sigterm", "sigkill"])
-    def test_stopping_the_supervisor_leaves_no_worker(
-        self, launch: Callable[..., _Supervisor], tmp_path: Path, signum: signal.Signals
-    ) -> None:
-        """SIGTERM stops the workers through their process groups; SIGKILL through the parent-death signal."""
+    def test_sigterm_stops_every_worker_and_fails_their_executions(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
+        """SIGTERM stops the workers through their process groups.
+
+        Executions the supervisor planned for a terminated worker become FAILED, so a relaunch replans them.
+        """
         supervisor = launch(sleep=600.0)
         _wait_until(lambda: _running_count(tmp_path) == 3, "three running executions")
         workers = supervisor.worker_pids()
 
-        supervisor.process.send_signal(signum)
+        supervisor.process.send_signal(signal.SIGTERM)
 
         assert supervisor.wait() != 0
         _wait_until(lambda: not any(_alive(pid) for pid in workers), "every worker to exit")
         assert len(workers) == 3
+        assert [e.status for e in _executions(tmp_path)] == ["FAILED"] * 3
 
-    def test_sigterm_fails_the_stopped_workers_executions(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
-        """Executions the supervisor planned for a terminated worker become FAILED, so a relaunch replans them."""
+    def test_sigkill_of_the_supervisor_leaves_no_worker(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
+        """SIGKILL, which cannot be handled, stops the workers through the parent-death signal."""
         supervisor = launch(sleep=600.0)
         _wait_until(lambda: _running_count(tmp_path) == 3, "three running executions")
+        workers = supervisor.worker_pids()
 
-        supervisor.process.send_signal(signal.SIGTERM)
+        supervisor.process.send_signal(signal.SIGKILL)
 
         assert supervisor.wait() != 0
-        assert [e.status for e in _executions(tmp_path)] == ["FAILED"] * 3
+        _wait_until(lambda: not any(_alive(pid) for pid in workers), "every worker to exit")
+        assert len(workers) == 3
 
     def test_groups_not_yet_admitted_are_never_planned(self, launch: Callable[..., _Supervisor], tmp_path: Path) -> None:
         """With room for one worker, stopping the supervisor leaves one FAILED execution and nothing PENDING."""
