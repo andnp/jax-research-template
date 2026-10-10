@@ -1,12 +1,12 @@
-"""Numerical stability of the ASM2d-based bio-P benchmarks across the action space.
+"""Numerical stability of the ASM2d-based combined N+P benchmark across its action space.
 
 units/asm2d.reactor_step sub-steps its RK4 integration (see the module for the
 stiffness derivation): the O2-Monod terms make the reaction Jacobian's S_O
 entry huge near S_O=0, which put a single dt=0.02 h RK4 step outside the
 integrator's stability region and let dissolved oxygen overshoot its physical
-ceiling (s_o_sat) by 10x or more. These tests sweep the corners of each
-benchmark's action space over a multi-day rollout and assert every reactor
-state stays finite and physically bounded.
+ceiling (s_o_sat) by 10x or more. These tests sweep the corners of the
+action space over a multi-day rollout and assert every reactor state stays
+finite and physically bounded.
 """
 
 import itertools
@@ -14,7 +14,6 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from process_control.benchmarks.bio_p import BioPConfig, make_bio_p_benchmark
 from process_control.benchmarks.combined_np import CombinedNPConfig, make_combined_np_benchmark
 
 _DO_INDEX = 7
@@ -45,32 +44,6 @@ def _assert_finite_and_bounded(zones: jax.Array, s_o_sat: float) -> None:
     assert bool(jnp.all(zones >= -_TOL))
     do = zones[..., _DO_INDEX]
     assert bool(jnp.all(do <= s_o_sat + _TOL))
-
-
-class TestBioPStabilityAcrossActionSpace:
-    def test_states_stay_finite_and_bounded_at_action_corners(self) -> None:
-        """At BSM1's kLa=10 h⁻¹, every corner of the 2D action space (recycle,
-        carbon dose) must integrate a multi-day rollout without DO exceeding
-        s_o_sat or any state going negative or non-finite."""
-        config = BioPConfig()
-        reset, step = make_bio_p_benchmark(config)
-        n_steps = 2 * config.steps_per_day
-
-        for action in _action_corners(2):
-            zones = _rollout_zone_states(reset, step, action, n_steps, seed=0)
-            _assert_finite_and_bounded(zones, config.s_o_sat)
-
-    def test_states_stay_bounded_across_seeds(self) -> None:
-        """The most aggressive corner (both recycles maxed) previously showed
-        seed-dependent DO blow-ups (up to ~700 mg/L); check several seeds."""
-        config = BioPConfig()
-        reset, step = make_bio_p_benchmark(config)
-        n_steps = config.steps_per_day
-        action = jnp.array([1.0, 1.0])
-
-        for seed in range(5):
-            zones = _rollout_zone_states(reset, step, action, n_steps, seed)
-            _assert_finite_and_bounded(zones, config.s_o_sat)
 
 
 class TestCombinedNPStabilityAcrossActionSpace:

@@ -207,16 +207,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         action_high=(1.0, 1.0, 1.0),
     ),
     BenchmarkEntry(
-        "bio_p",
-        "process_control.benchmarks.bio_p",
-        "BioPConfig",
-        "make_bio_p_benchmark",
-        2,
-        "Biological P removal (ASM2d)",
-        action_low=(0.0, 0.0),
-        action_high=(1.0, 1.0),
-    ),
-    BenchmarkEntry(
         "combined_np",
         "process_control.benchmarks.combined_np",
         "CombinedNPConfig",

@@ -7,7 +7,6 @@ from process_control.benchmarks.anaerobic_digester import (
     AnaerobicDigesterConfig,
     make_anaerobic_digester_benchmark,
 )
-from process_control.benchmarks.bio_p import BioPConfig, make_bio_p_benchmark
 from process_control.benchmarks.bsm1_takacs import BSM1TakacsConfig, make_bsm1_takacs_benchmark
 from process_control.benchmarks.combined_np import CombinedNPConfig, make_combined_np_benchmark
 from process_control.benchmarks.dewatering import DewateringConfig, make_dewatering_benchmark
@@ -574,14 +573,6 @@ class TestRejectWaterBenchmark:
 class TestDrinkingWaterTrainBenchmark:
     def test_shapes_jit_stability(self) -> None:
         _run_benchmark_suite(make_drinking_water_train_benchmark, DrinkingWaterTrainConfig(), action_dim=3, obs_dim=8)
-
-
-# ---------------------------------------------------------------------------
-# Benchmark: Bio-P (2D action, 7D obs)
-# ---------------------------------------------------------------------------
-class TestBioPBenchmark:
-    def test_shapes_jit_stability(self) -> None:
-        _run_benchmark_suite(make_bio_p_benchmark, BioPConfig(), action_dim=2, obs_dim=7)
 
 
 # ---------------------------------------------------------------------------
