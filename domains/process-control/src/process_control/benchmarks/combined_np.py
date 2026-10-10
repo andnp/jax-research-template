@@ -105,16 +105,20 @@ class CombinedNPConfig:
     sensor_lag: float = 0.7
     sensor_sample_period: int = 5
 
-    # Reward
-    reward_w_po4: float = 1.0
-    reward_w_nh4: float = 1.0
-    reward_w_no3: float = 0.3
-    reward_w_fe_cost: float = 0.05
-    reward_w_carbon_cost: float = 0.03
-    reward_w_aeration: float = 0.02
+    # Reward in euros per step. Prices and fines are benchmark utility
+    # assumptions, not statutory charges; compliance limits are calibrated
+    # component limits (NH4 and NO3 separately, not a total-nitrogen permit).
+    price_kwh: float = 0.15  # EUR/kWh, assumed EU industrial tariff
+    kwh_per_kg_o2: float = 1.0 / 1.8  # BSM1 aeration energy: 1.8 kg O2/kWh (Copp 2002); zero-DO proxy
+    kwh_per_m3_recycle: float = 0.004  # BSM1 internal-recycle pumping energy (Copp 2002)
+    price_fe_kg: float = 2.0  # EUR/kg Fe, assumed: 40% FeCl3 solution at ~0.30 EUR/kg
+    price_cod_kg: float = 1.0  # EUR/kg COD, assumed external carbon (acetate/methanol class)
+    fine_po4_kg: float = 50.0  # EUR/kg P exceeding the limit, calibrated so compliance beats paying
+    fine_nh4_kg: float = 10.0  # EUR/kg N exceeding the limit, calibrated
+    fine_no3_kg: float = 10.0  # EUR/kg N exceeding the limit, calibrated
     po4_limit: float = 1.0
     nh4_limit: float = 4.0
-    no3_limit: float = 10.0
+    no3_limit: float = 8.0
 
 
 def make_combined_np_benchmark(config: CombinedNPConfig):
@@ -303,18 +307,21 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         # 10. Observation
         obs = _observe(sensed_po4, sensed_nh4, sensed_no3, sensed_ana_po4, aerobic_do, pha_pao_ratio, q_in, fe_dose, carbon_dose)
 
-        # 11. Reward
-        po4_v = jnp.maximum(sensed_po4 - config.po4_limit, 0.0)
-        nh4_v = jnp.maximum(sensed_nh4 - config.nh4_limit, 0.0)
-        no3_v = jnp.maximum(sensed_no3 - config.no3_limit, 0.0)
-        reward = -(
-            config.reward_w_po4 * po4_v**2
-            + config.reward_w_nh4 * nh4_v**2
-            + config.reward_w_no3 * no3_v**2
-            + config.reward_w_fe_cost * (fe_dose / fe_max)
-            + config.reward_w_carbon_cost * (carbon_dose / carbon_max)
-            + config.reward_w_aeration * (kla / kla_max)
+        # 11. Reward: euros per step, fines on true effluent exceedance load
+        vol_kg = q_in * config.dt / 1000.0  # m3 x mg/L -> kg
+        aeration_kwh = config.s_o_sat * config.kwh_per_kg_o2 * config.v_aerobic * kla * config.dt / 1000.0
+        pumping_kwh = config.kwh_per_m3_recycle * q_recycle * config.dt  # m3/h x h = m3
+        cost = (
+            config.price_kwh * (aeration_kwh + pumping_kwh)
+            + config.price_fe_kg * fe_dose * vol_kg
+            + config.price_cod_kg * carbon_dose * vol_kg
         )
+        fines = vol_kg * (
+            config.fine_po4_kg * jnp.maximum(final_po4 - config.po4_limit, 0.0)
+            + config.fine_nh4_kg * jnp.maximum(eff_nh4 - config.nh4_limit, 0.0)
+            + config.fine_no3_kg * jnp.maximum(eff_no3 - config.no3_limit, 0.0)
+        )
+        reward = -(cost + fines)
 
         new_state = CombinedNPState(
             step_count=state.step_count + 1,
