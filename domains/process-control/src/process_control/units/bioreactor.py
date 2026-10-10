@@ -4,11 +4,13 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from process_control.binding import Binding
 from process_control.components import ComponentSchema
 from process_control.kinetics import KineticsModel
 from process_control.streams import Stream
 from process_control.units.asm1 import bsm1_oxygen_saturation
 from process_control.units.contract import Outlet
+from process_control.units.exchange import OxygenExchange, OxygenExchangeParams
 
 
 @dataclass(frozen=True)
@@ -53,12 +55,13 @@ class AeratedBioreactor[P]:
     def derivatives(self, state: jax.Array, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: BioreactorParams[P]) -> jax.Array:
         feed = inlets["in"]
         temperature = inputs["temperature"] if self.temperature_input else jnp.asarray(params.temperature)
-        oxygen = self.kinetics.schema.index(self.kinetics.oxygen)
+        exchange = OxygenExchange(self.oxygen_saturation)
+        exchange_params = OxygenExchangeParams(params.kla_theta, params.kla_reference_temperature)
+        binding = Binding.resolve(exchange.access, self.kinetics.schema, {"O2": self.kinetics.oxygen})
 
-        kla = inputs["kla"] * params.kla_theta ** (temperature - params.kla_reference_temperature)
-        transfer = kla * (self.oxygen_saturation(temperature) - state[oxygen])
+        transfer = exchange.source(binding.gather(state), inputs["kla"], temperature, exchange_params)
         reactions = self.kinetics.rates(state, self.kinetics.at_temperature(params.kinetics, temperature))
-        return feed.flow / params.volume * (feed.components - state) + reactions.at[oxygen].add(transfer)
+        return feed.flow / params.volume * (feed.components - state) + binding.scatter_add(reactions, transfer)
 
     def outlet_flows(
         self, state: jax.Array, inlet_flows: Mapping[str, jax.Array], inputs: Mapping[str, jax.Array], params: BioreactorParams[P]

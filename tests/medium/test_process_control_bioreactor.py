@@ -10,8 +10,9 @@ from process_control.units.bioreactor import AeratedBioreactor, BioreactorParams
 from process_control.units.contract import step_unit
 
 TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
+OXYGEN = ComponentBasis("g/m3", Quantity.SPECIES, "O2")
 
-SCHEMA = ComponentSchema(names=("tracer", "oxygen"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER,) * 2)
+SCHEMA = ComponentSchema(names=("tracer", "oxygen"), particulate=(False, False), tss_factor=(0.0, 0.0), bases=(TRACER, OXYGEN))
 SATURATION = 10.0
 
 
