@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.actuators.dosing_system import SUPERVISORY
+from process_control.benchmarks.bsm1_flowsheet import bsm1_recycle_control
 from rl_components.action_normalization import make_action_normalization_wrapper
 from rl_components.env_protocol import EnvProtocol
 from rl_envs.process_control_bridge import make_process_control_env
@@ -89,14 +90,24 @@ def test_h2s_normalized_extremes_reach_distinct_physical_controls() -> None:
     )
 
 
-def test_bsm1_exposes_configured_action_bounds() -> None:
-    spec = make_process_control_env("bsm1").spec()
+def test_bsm1_exposes_its_configured_action_space() -> None:
+    """The BSM1 action layout follows its handle configuration, in the Table 15 limits per hour."""
+    with jax.enable_x64(True):
+        default = make_process_control_env("bsm1").spec()
+        recycle = make_process_control_env("bsm1", handles=bsm1_recycle_control().handles).spec()
 
-    assert spec.action_shape == (2,)
-    assert spec.action_low is not None
-    assert spec.action_high is not None
-    assert jnp.array_equal(spec.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
-    assert jnp.array_equal(spec.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
+    assert default.action_shape == (3,)
+    assert default.action_low is not None
+    assert default.action_high is not None
+    assert jnp.array_equal(default.action_low, jnp.zeros(3, dtype=jnp.float32))
+    assert jnp.allclose(default.action_high, jnp.array([15.0, 15.0, 1844.6 / 24.0], dtype=jnp.float32))
+    assert recycle.action_shape == (2,)
+
+
+def test_bsm1_needs_float64() -> None:
+    """Building BSM1 without x64 fails loudly instead of stalling its slow states in float32."""
+    with jax.enable_x64(False), pytest.raises(RuntimeError, match="float64"):
+        make_process_control_env("bsm1")
 
 
 def test_chlorine_env_tracks_configured_action_bounds() -> None:
@@ -158,17 +169,6 @@ def test_spec_reports_registry_shapes_and_native_action_bounds() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([8.0], dtype=jnp.float32))
 
 
-def test_spec_exposes_bsm1_action_bounds() -> None:
-    spec = make_process_control_env("bsm1").spec()
-
-    assert spec.observation_shape == (9,)
-    assert spec.action_shape == (2,)
-    assert spec.action_low is not None
-    assert spec.action_high is not None
-    assert jnp.array_equal(spec.action_low, jnp.array([0.0, 0.0], dtype=jnp.float32))
-    assert jnp.array_equal(spec.action_high, jnp.array([10.0, 10.0], dtype=jnp.float32))
-
-
 def test_spec_tracks_configured_action_bounds() -> None:
     spec = make_process_control_env("chlorine", pump_min_dose=1.0, pump_max_dose=10.0).spec()
 
@@ -178,15 +178,16 @@ def test_spec_tracks_configured_action_bounds() -> None:
     assert jnp.array_equal(spec.action_high, jnp.array([10.0], dtype=jnp.float32))
 
 
-@pytest.mark.parametrize("benchmark_name", ["chlorine", "bsm1"])
-def test_reset_and_step_return_identically_structured_pytrees(benchmark_name: str) -> None:
-    env = make_process_control_env(benchmark_name)
-    reset = env.reset(jax.random.PRNGKey(0))
-    step = env.step(
-        jax.random.PRNGKey(1),
-        reset.state,
-        jnp.zeros(env.spec().action_shape, dtype=jnp.float32),
-    )
+@pytest.mark.parametrize(("benchmark_name", "x64"), [("chlorine", False), ("bsm1", True)])
+def test_reset_and_step_return_identically_structured_pytrees(benchmark_name: str, x64: bool) -> None:
+    with jax.enable_x64(x64):
+        env = make_process_control_env(benchmark_name)
+        reset = env.reset(jax.random.PRNGKey(0))
+        step = env.step(
+            jax.random.PRNGKey(1),
+            reset.state,
+            jnp.zeros(env.spec().action_shape, dtype=jnp.float32),
+        )
 
     reset_leaves, reset_structure = jax.tree.flatten((reset.observation, reset.state))
     step_leaves, step_structure = jax.tree.flatten((step.observation, step.state))

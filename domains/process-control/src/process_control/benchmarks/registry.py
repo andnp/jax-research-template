@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -28,6 +29,9 @@ class BenchmarkEntry:
     action_high_config: ConfigBound | None = None
     action_control_mode_config: str | None = None
     action_control_mode: int | None = None
+    action_space_fn: str | None = None
+    """Function of the entry's module mapping a config to its (low, high) action bounds; their length is the action dimension."""
+    requires_x64: bool = False
 
 
 BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
@@ -68,13 +72,13 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
     ),
     BenchmarkEntry(
         "bsm1",
-        "process_control.benchmarks.bsm1",
-        "BSM1BenchmarkConfig",
+        "process_control.benchmarks.bsm1_flowsheet",
+        "BSM1Config",
         "make_bsm1_benchmark",
-        2,
-        "BSM1 DO control (ASM1)",
-        action_low_config=("kla_34_min", "kla_5_min"),
-        action_high_config=("kla_34_max", "kla_5_max"),
+        3,
+        "BSM1 activated sludge plant (ASM1, layered settler)",
+        action_space_fn="bsm1_action_bounds",
+        requires_x64=True,
     ),
     BenchmarkEntry(
         "bsm1_recycle",
@@ -223,10 +227,19 @@ def get_observation_dim(reset_fn: Callable[[jax.Array], tuple[object, jax.Array]
     return shape.shape[0]
 
 
+def get_action_dim(entry: BenchmarkEntry, config: object) -> int:
+    if entry.action_space_fn is None:
+        return entry.action_dim
+    low, _ = _configured_space(entry, config)
+    return len(low)
+
+
 def get_action_bounds(
     entry: BenchmarkEntry,
     config: object,
 ) -> tuple[ActionBound | None, ActionBound | None]:
+    if entry.action_space_fn is not None:
+        return _configured_space(entry, config)
     if entry.action_control_mode is not None:
         mode_config = entry.action_control_mode_config
         if mode_config is not None and _config_value(config, mode_config) != entry.action_control_mode:
@@ -238,6 +251,12 @@ def get_action_bounds(
     if entry.action_high_config is not None:
         high = _configured_bound(config, entry.action_high_config)
     return low, high
+
+
+def _configured_space(entry: BenchmarkEntry, config: object) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    assert entry.action_space_fn is not None
+    low, high = vars(importlib.import_module(entry.module))[entry.action_space_fn](config)
+    return tuple(float(value) for value in low), tuple(float(value) for value in high)
 
 
 def _configured_bound(config: object, fields: ConfigBound) -> ActionBound:

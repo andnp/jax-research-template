@@ -2,9 +2,10 @@ from types import SimpleNamespace
 
 import pytest
 from process_control.actuators.dosing_system import DIRECT, SUPERVISORY
+from process_control.benchmarks.bsm1_flowsheet import BSM1Config, bsm1_recycle_control
 from process_control.benchmarks.chlorine import ChlorineBenchmarkConfig
 from process_control.benchmarks.h2s_scrubber import H2SScrubberConfig
-from process_control.benchmarks.registry import get_action_bounds, get_benchmark_entry
+from process_control.benchmarks.registry import get_action_bounds, get_action_dim, get_benchmark_entry
 
 
 def test_get_benchmark_entry_returns_known_metadata() -> None:
@@ -44,6 +45,17 @@ def test_get_action_bounds_reads_vector_configured_values() -> None:
     )
 
     assert get_action_bounds(entry, config) == ((8.5, 450.0, 12.0), (10.5, 750.0, 28.0))
+
+
+def test_bsm1_action_space_follows_its_handle_configuration() -> None:
+    """BSM1 bounds and dimension come from its handles, so a preset with other agent handles changes both."""
+    entry = get_benchmark_entry("bsm1")
+    recycle = bsm1_recycle_control()
+
+    assert entry.requires_x64
+    assert get_action_dim(entry, BSM1Config()) == 3
+    assert get_action_dim(entry, recycle) == 2
+    assert get_action_bounds(entry, recycle) == ((0.0, 0.0), (92230.0 / 24.0, 36892.0 / 24.0))
 
 
 def test_get_action_bounds_omits_non_direct_chlorine_bounds() -> None:

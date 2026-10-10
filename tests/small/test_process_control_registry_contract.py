@@ -7,6 +7,7 @@ from process_control.benchmarks.registry import (
     BENCHMARK_REGISTRY,
     BenchmarkEntry,
     get_action_bounds,
+    get_action_dim,
     get_observation_dim,
 )
 
@@ -32,13 +33,15 @@ def _mid_range_action(entry: BenchmarkEntry, config: object):
 @pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
 def test_registry_resets_are_jit_traceable(entry: BenchmarkEntry):
     """Every registered reset compiles, returns its declared observation, and batches."""
-    (reset, _), _config = _make_benchmark(entry)
-    keys = jax.random.split(jax.random.PRNGKey(0), 2)
+    with jax.enable_x64(entry.requires_x64):
+        (reset, _), _config = _make_benchmark(entry)
+        keys = jax.random.split(jax.random.PRNGKey(0), 2)
 
-    state, obs = jax.jit(reset)(keys[0])
-    batched_states, batched_obs = jax.vmap(reset)(keys)
+        state, obs = jax.jit(reset)(keys[0])
+        batched_states, batched_obs = jax.vmap(reset)(keys)
 
-    obs_dim = get_observation_dim(reset)
+        obs_dim = get_observation_dim(reset)
+
     assert obs.shape == (obs_dim,)
     assert batched_obs.shape == (2, obs_dim)
     assert jax.tree.leaves(state)
@@ -47,11 +50,12 @@ def test_registry_resets_are_jit_traceable(entry: BenchmarkEntry):
 
 @pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
 def test_registry_entries_declare_action_bounds(entry: BenchmarkEntry) -> None:
-    """Every registered benchmark exposes finite action bounds."""
+    """Every registered benchmark exposes finite action bounds, one pair per action."""
     module = importlib.import_module(entry.module)
     config = getattr(module, entry.config_cls)()
     low, high = get_action_bounds(entry, config)
 
+    assert get_action_dim(entry, config) == entry.action_dim
     assert low is not None
     assert high is not None
     if isinstance(low, tuple) and isinstance(high, tuple):
@@ -64,6 +68,11 @@ def test_registry_entries_declare_action_bounds(entry: BenchmarkEntry) -> None:
 @pytest.mark.parametrize("entry", BENCHMARK_REGISTRY, ids=lambda entry: entry.name)
 def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
     """Every registered benchmark stays finite during a compiled short rollout."""
+    with jax.enable_x64(entry.requires_x64):
+        _assert_rollout_finite(entry)
+
+
+def _assert_rollout_finite(entry: BenchmarkEntry) -> None:
     (reset, step), config = _make_benchmark(entry)
     action = _mid_range_action(entry, config)
     state, _ = reset(jax.random.PRNGKey(1))
@@ -88,7 +97,8 @@ def test_registry_rollouts_stay_finite(entry: BenchmarkEntry):
 def test_selected_registry_resets_report_initial_observation(name: str) -> None:
     """Selected benchmark resets expose their initialized observation."""
     entry = next(item for item in BENCHMARK_REGISTRY if item.name == name)
-    (reset, _), _config = _make_benchmark(entry)
-    _state, obs = reset(jax.random.PRNGKey(3))
+    with jax.enable_x64(entry.requires_x64):
+        (reset, _), _config = _make_benchmark(entry)
+        _state, obs = reset(jax.random.PRNGKey(3))
 
     assert jnp.any(obs != 0.0)

@@ -19,7 +19,7 @@ from typing import Any
 import chex
 import jax
 import jax.numpy as jnp
-from process_control.benchmarks.registry import BenchmarkEntry, get_action_bounds, get_benchmark_entry, get_observation_dim
+from process_control.benchmarks.registry import BenchmarkEntry, get_action_bounds, get_action_dim, get_benchmark_entry, get_observation_dim
 from rl_components.env_protocol import EnvReset, EnvSpec, EnvStep
 
 
@@ -124,8 +124,8 @@ class ProcessControlEnv[StateT]:
 def _build_benchmark(
     name: str,
     config_overrides: dict[str, Any],
-) -> tuple[BenchmarkEntry, Callable, Callable, jax.Array | float | tuple[float, ...] | None, jax.Array | float | tuple[float, ...] | None]:
-    """Resolve a registry entry into its ``(reset, step)`` pair and action bounds."""
+) -> tuple[BenchmarkEntry, Callable, Callable, int, jax.Array | float | tuple[float, ...] | None, jax.Array | float | tuple[float, ...] | None]:
+    """Resolve a registry entry into its ``(reset, step)`` pair, action dimension and action bounds."""
     import importlib
 
     entry = get_benchmark_entry(name)
@@ -136,7 +136,7 @@ def _build_benchmark(
     config = config_cls(**config_overrides) if config_overrides else config_cls()
     reset_fn, step_fn = make_fn(config)
     action_low, action_high = get_action_bounds(entry, config)
-    return entry, reset_fn, step_fn, action_low, action_high
+    return entry, reset_fn, step_fn, get_action_dim(entry, config), action_low, action_high
 
 
 def make_process_control_env(name: str, **config_overrides: Any) -> ProcessControlEnv[object]:
@@ -149,7 +149,7 @@ def make_process_control_env(name: str, **config_overrides: Any) -> ProcessContr
     Returns:
         ProcessControlEnv wrapping the named benchmark.
     """
-    entry, reset_fn, step_fn, action_low, action_high = _build_benchmark(name, config_overrides)
+    entry, reset_fn, step_fn, action_dim, action_low, action_high = _build_benchmark(name, config_overrides)
 
     scenario = config_overrides.get("scenario")
     env_id = f"process_control:{entry.name}"
@@ -160,7 +160,7 @@ def make_process_control_env(name: str, **config_overrides: Any) -> ProcessContr
         reset_fn=reset_fn,
         step_fn=step_fn,
         obs_dim=get_observation_dim(reset_fn),
-        action_dim=entry.action_dim,
+        action_dim=action_dim,
         env_id=env_id,
         scalar_action=entry.scalar_action,
         action_low=action_low,
