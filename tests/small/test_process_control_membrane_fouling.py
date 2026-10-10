@@ -1,5 +1,7 @@
 """Behavioural tests for the membrane_fouling benchmark."""
 
+from dataclasses import replace
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -16,6 +18,12 @@ def _first_step_info(action: list[float]):
     reset, step = make_membrane_fouling_benchmark(config)
     state, _ = reset(jax.random.PRNGKey(0))
     return config, step(state, jnp.array(action), jax.random.PRNGKey(1))[4]
+
+
+def _first_step_reward(action: list[float]):
+    reset, step = make_membrane_fouling_benchmark(MembraneFoulingConfig())
+    state, _ = reset(jax.random.PRNGKey(0))
+    return float(step(state, jnp.array(action), jax.random.PRNGKey(1))[2])
 
 
 class TestFluxAction:
@@ -78,3 +86,29 @@ class TestOperatingCosts:
 
         assert float(first["backwash_water_m3"]) == pytest.approx(0.3)
         assert float(held["backwash_water_m3"]) == pytest.approx(0.0)
+
+
+class TestDemandReward:
+    def test_surplus_production_earns_nothing_and_shortfall_is_penalised(self) -> None:
+        """Producing above demand costs only energy; producing below it loses the unmet water value."""
+        _, info = _first_step_info([0.0, 0.0, 0.0])
+        # Step 0 demand is the diurnal trough: 0.45 of the 5 m3/h capacity.
+        assert float(info["demand"]) == pytest.approx(2.25)
+
+        surplus = _first_step_reward([1.0, 0.0, 0.0])
+        shortfall = _first_step_reward([0.0, 0.0, 0.0])
+
+        # 1.0 m3/h produced against 2.25 m3/h demanded: (1.25 * 0.5 * 0.01) / (0.5 * 5 * 0.01)
+        assert shortfall == pytest.approx(-0.25, abs=0.01)
+        assert -0.01 < surplus <= 0.0
+
+    def test_demand_observation_follows_the_diurnal_cycle(self) -> None:
+        """The demand observation is the next step's fraction of capacity: trough at day start, peak mid-day."""
+        config = MembraneFoulingConfig()
+        reset, step = make_membrane_fouling_benchmark(config)
+        state, obs = reset(jax.random.PRNGKey(0))
+        assert float(obs[5]) == pytest.approx(config.demand_mean - config.demand_amp)
+
+        before_noon = replace(state, step_count=jnp.array(config.steps_per_day // 2 - 1, dtype=jnp.int32))
+        _, noon_obs, _, _, _ = step(before_noon, jnp.array([0.5, 0.0, 0.0]), jax.random.PRNGKey(1))
+        assert float(noon_obs[5]) == pytest.approx(config.demand_mean + config.demand_amp)

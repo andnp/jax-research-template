@@ -4,12 +4,13 @@ The agent controls membrane flux, air scour, and backwash timing to
 maintain throughput while managing fouling.
 
 Action (3D): [flux position in flux_min..flux_max, air_scour (0-1), backwash_trigger (>0.5 = wash)]
-Observation (5D):
+Observation (6D):
   sensed TMP / max_TMP
   permeate_flow / max_flow
   air_scour
   hours_since_backwash / bw_age_ref (capped at 1)
   feed_tss / feed_tss_max
+  water demand / max_flow
 """
 
 from dataclasses import dataclass
@@ -62,9 +63,13 @@ class MembraneFoulingConfig:
     tmp_lag: float = 0.9
     tmp_sample_period: int = 5
 
+    # Diurnal water demand as a fraction of full capacity (flux_max * area); the
+    # trough is at step 0. Assumed levels: peak demand exceeds the critical flux.
+    demand_mean: float = 0.65
+    demand_amp: float = 0.2
+
     # Reward
     reward_w_tmp: float = 1.0  # penalty for high TMP
-    reward_w_throughput: float = 0.5  # reward for permeate production
 
     # Operating economics. Nominal assumptions for the benchmark, not sourced
     # from a specific plant; scour energy is the main trade-off knob.
@@ -96,11 +101,15 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
     flux_min = jnp.array(config.flux_min)
     max_tmp = jnp.array(config.membrane.max_tmp)
     tmp_target = jnp.array(config.tmp_target)
-    area = jnp.array(config.membrane.area)
+    q_cap = config.flux_max * config.membrane.area
     # Reward is expressed per step of full-capacity production value.
-    ref_value = config.water_value * config.flux_max * config.membrane.area * config.dt
+    ref_value = config.water_value * q_cap * config.dt
     # Nominal wash flux is a multiple of the maximum operating flux.
-    backwash_water_m3 = config.membrane.bw_flux_ratio * config.flux_max * config.membrane.area * config.membrane.bw_duration
+    backwash_water_m3 = config.membrane.bw_flux_ratio * q_cap * config.membrane.bw_duration
+
+    def demand_at(step_count: jax.Array):
+        phase = (step_count % config.steps_per_day) / config.steps_per_day
+        return q_cap * (config.demand_mean + config.demand_amp * jnp.sin(2.0 * jnp.pi * phase - jnp.pi / 2.0))
 
     def _observe(
         sensed_tmp: jax.Array,
@@ -108,14 +117,16 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         air_scour: jax.Array,
         hours_since_bw: jax.Array,
         feed_tss: jax.Array,
+        demand: jax.Array,
     ):
         return jnp.array(
             [
                 sensed_tmp / max_tmp,
-                q_permeate / (flux_max * area),
+                q_permeate / q_cap,
                 air_scour,
                 jnp.minimum(hours_since_bw / config.bw_age_ref, 1.0),
                 feed_tss / config.feed_tss_max,
+                demand / q_cap,
             ]
         )
 
@@ -136,6 +147,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             jnp.array(0.0),
             mem.hours_since_bw,
             jnp.array(config.feed_tss_mean),
+            demand_at(jnp.array(0)),
         )
         return state, obs
 
@@ -171,7 +183,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         perm_ratio = config.membrane.r_membrane / (r_total + 1e-10)
 
         # 6. Observation
-        obs = _observe(sensed_tmp, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss)
+        obs = _observe(sensed_tmp, q_permeate, air_scour, new_mem.hours_since_bw, feed_tss, demand_at(state.step_count + 1))
 
         # 7. Reward: throughput benefit minus costs
         tmp_violation = jnp.maximum(sensed_tmp - tmp_target, 0.0)
@@ -184,11 +196,11 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
         scour_energy_kwh = config.scour_kw_per_m2 * config.membrane.area * air_scour * config.dt
         backwash_water = backwash_water_m3 * starts_bw
         cost = config.elec_price * (pump_energy_kwh + scour_energy_kwh) + config.bw_water_price * backwash_water
-        reward = (
-            config.reward_w_throughput * (q_permeate / (flux_max * area))
-            - config.reward_w_tmp * (tmp_violation / max_tmp) ** 2
-            - cost / ref_value
-        )
+        demand = demand_at(state.step_count)
+        shortfall_cost = config.water_value * jnp.maximum(demand - q_permeate, 0.0) * config.dt
+        reward = -(
+            shortfall_cost + cost + config.reward_w_tmp * ref_value * (tmp_violation / max_tmp) ** 2
+        ) / ref_value
 
         new_state = MembraneFoulingBenchState(
             step_count=state.step_count + 1,
@@ -201,6 +213,7 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
             "tmp": tmp,
             "perm_ratio": perm_ratio,
             "q_permeate": q_permeate,
+            "demand": demand,
             "feed_tss": feed_tss,
             "permeate_tss": permeate_tss,
             "pump_energy_kwh": pump_energy_kwh,
