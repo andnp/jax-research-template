@@ -1,7 +1,7 @@
 # ADR 015: Continuous-Time Flowsheets for Process Control
 
 ## Status
-Accepted
+Accepted. Schema/stream metadata amended by ADR 016; outlet resolution amended by ADR 017.
 
 ## Context
 The BSM1 family in `process_control` deviates from the benchmark as specified in
