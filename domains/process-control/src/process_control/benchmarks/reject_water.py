@@ -6,10 +6,8 @@ timed reject water return causes NH₄ spikes that overload nitrification.
 
 The agent must learn to spread reject water return over low-load periods.
 
-Action (2D): [Q_reject / Q_max, unused]
+Action (1D): [Q_reject / Q_max]
   - Q_reject controls the instantaneous return rate.
-  - The second component is reserved (not read by step()); kept for a
-    fixed action dimensionality rather than removed.
 
 Observation (6D):
   main_plant_nh4 / 35

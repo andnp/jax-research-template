@@ -181,10 +181,10 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "process_control.benchmarks.reject_water",
         "RejectWaterConfig",
         "make_reject_water_benchmark",
-        2,
+        1,
         "Reject water management",
-        action_low=(0.0, 0.0),
-        action_high=(1.0, 1.0),
+        action_low=(0.0,),
+        action_high=(1.0,),
     ),
     BenchmarkEntry(
         "drinking_water_train",

@@ -91,7 +91,7 @@ Standardized plant layouts + influent patterns + evaluation criteria:
 - **What's interesting**: Biogas optimisation. ADM1 has 32 internal states but the control interface is small. Failure = digester upset (pH crash, foaming).
 
 #### Reject Water Management
-- **Action**: 1–2D `[Q_reject, return_timing]`
+- **Action**: 1D `[Q_reject]`
 - **Observation**: ~4D — reject water NH₄ load, main-plant NH₄, time-of-day, influent flow
 - **What's interesting**: High-NH₄ reject water from dewatering must be returned to plant headworks. Timing matters — returning during low-load periods avoids ammonia spikes.
 
@@ -186,7 +186,7 @@ Each environment should support at least two observation profiles:
 | Primary clarifier | ✅ Done | `benchmarks/primary_clarifier.py` | Gravity settling, 1D action [Q_w] |
 | Dewatering control | ✅ Done | `benchmarks/dewatering.py` | Belt press, 2D action [polymer, speed] |
 | BSM1 + Takács settler | ✅ Done | `benchmarks/bsm1_takacs.py` | Realistic sludge dynamics, 3D action [kla_34, kla_5, Q_w] |
-| Reject water management | ✅ Done | `benchmarks/reject_water.py` | Timing-dependent NH₄ return, 2D action |
+| Reject water management | ✅ Done | `benchmarks/reject_water.py` | Timing-dependent NH₄ return, 1D action |
 | Membrane fouling control | ✅ Done | `benchmarks/membrane_fouling.py` | TMP, backwash, air scour, 3D action |
 | Anaerobic digester | ✅ Done | `benchmarks/anaerobic_digester.py` | Reduced-order ADM1, 2D action [Q_feed, T] |
 | Drinking water train | ✅ Done | `benchmarks/drinking_water_train.py` | Coag→membrane→Cl₂ cascade, 3D action |
