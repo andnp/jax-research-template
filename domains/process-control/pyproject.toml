@@ -13,3 +13,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+process_control = ["data/bsm1/*.csv"]
