@@ -59,7 +59,15 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --frozen
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/jax-cache
+          key: jax-small-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
+          restore-keys: jax-small-${{ hashFiles('uv.lock') }}-
       - run: uv run pytest tests/small/ -x -q
+        env:
+          JAX_COMPILATION_CACHE_DIR: ${{ runner.temp }}/jax-cache
+          JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0.5"
 
   test-medium:
     needs: [warm-uv-cache]
@@ -73,7 +81,15 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --frozen
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/jax-cache
+          key: jax-medium-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
+          restore-keys: jax-medium-${{ hashFiles('uv.lock') }}-
       - run: uv run pytest tests/medium/ -x -q
+        env:
+          JAX_COMPILATION_CACHE_DIR: ${{ runner.temp }}/jax-cache
+          JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0.5"
 
   test-ale-atari-smoke:
     needs: [warm-uv-cache]
