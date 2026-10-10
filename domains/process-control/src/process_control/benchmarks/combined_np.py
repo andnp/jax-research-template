@@ -6,6 +6,12 @@ biological + chemical P removal in a single plant. Conflicting requirements:
   - Denitrification needs anoxic conditions but NO₃ intrusion kills bio-P
   - Chemical P backup (FeCl₃) can compensate but costs money
 
+FeCl₃ is dosed into the aerobic zone (simultaneous precipitation). Captured P
+is removed from the reactor state immediately, as if wasted with the sludge
+(reduced-order: no metal-phosphate solids state), and the reduced PO₄
+recirculates to the anaerobic zone with the RAS. Rates are per hour (ASM time
+unit): dt = 0.02 h and steps_per_day = 1200, so a 10-day horizon is 12000 steps.
+
 Action (4D): [kla / kla_max, Q_recycle / Q_max, FeCl₃ dose / dose_max, carbon_dose / carbon_max]
 Observation (9D):
   effluent PO₄ / 10
@@ -144,7 +150,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
     mean_flow = jnp.array(config.mean_flow)
     influent = make_default_influent_asm2d()
     zero_kla = jnp.array(0.0)
-    initial_po4, _ = precipitate(influent[13], jnp.array(0.0), config.precip)
+    initial_po4 = influent[13]
 
     def _observe(
         sensed_po4: jax.Array,
@@ -268,13 +274,15 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             jnp.array(config.dt),
         )
 
-        # 7. Chemical P removal on effluent PO₄, consuming alkalinity
-        bio_po4_eff = new_aerobic[13]
-        final_po4, fe_consumed = precipitate(bio_po4_eff, fe_dose, config.precip)
-        alk_consumed = config.precip.alk_per_fe * fe_consumed / config.precip.mw_fe
-        # Sustained max FeCl3 dosing can request more alkalinity than the
-        # reactor holds; clamp at 0 rather than letting S_ALK go negative,
-        # matching reactor_step's own non-negative convention (asm2d.py).
+        # 7. Simultaneous precipitation in the aerobic zone. fe_dose is mg Fe per
+        # L of influent; alkalinity is consumed by all dosed Fe (hydrolysis),
+        # not only the Fe that captures P.
+        fe_conc = fe_dose * q_in * config.dt / config.v_aerobic
+        final_po4, fe_consumed = precipitate(new_aerobic[13], fe_conc, config.precip)
+        alk_consumed = config.precip.alk_per_fe * fe_conc / config.precip.mw_fe
+        p_captured_kg = (new_aerobic[13] - final_po4) * config.v_aerobic / 1000.0
+        new_aerobic = new_aerobic.at[13].set(final_po4)
+        # Non-negative concentration invariant, as in reactor_step (asm2d.py)
         new_aerobic = new_aerobic.at[12].set(jnp.maximum(new_aerobic[12] - alk_consumed, 0.0))
 
         # 8. Effluent quality
@@ -328,6 +336,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             "x_pha": new_aerobic[15],
             "x_pp": new_aerobic[16],
             "fe_consumed": fe_consumed,
+            "p_captured_kg": p_captured_kg,
             "q_in": q_in,
         }
         done = jnp.array(False)
