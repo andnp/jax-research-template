@@ -60,10 +60,7 @@ _ASM2D_PARTICULATE = jnp.array([2, 3, 4, 5, 6, 11, 14, 15, 16])
 
 
 def perfect_clarifier(state: jax.Array, q_in: jax.Array, q_underflow: jax.Array, q_waste: jax.Array):
-    """Ideal clarifier: soluble fractions leave in the overflow, particulates concentrate in the underflow.
-
-    Mirrors ``units/bsm1_plant.perfect_clarifier`` for the 17-component ASM2d vector.
-    """
+    """Ideal clarifier: soluble fractions leave in the overflow, particulates concentrate in the underflow."""
     concentration_factor = q_in / jnp.maximum(q_underflow + q_waste, 1.0)
     effluent = state.at[_ASM2D_PARTICULATE].set(0.0)
     return_sludge = state.at[_ASM2D_PARTICULATE].multiply(concentration_factor)
