@@ -103,10 +103,16 @@ class DrinkingWaterTrainConfig:
     # per Edwards, JAWWA 89:5:78, 1997, saturating with dose. UF passes DOC
     # unchanged (it only rejects particulates), so it reaches the chlorine
     # stage regardless of membrane performance.
-    raw_doc: float = 4.0  # mg/L
+    raw_doc: float = 4.0  # mg/L at mean turbidity
+    # Storm runoff raises DOC together with turbidity. ASSUMED linear,
+    # reduced-order coupling for the benchmark; plausible range ~0.1-0.5
+    # mg/L per NTU. Result is clipped to the 2-10 mg/L source-water range.
+    doc_per_ntu: float = 0.25  # mg/L DOC per NTU above/below turb_mean
     doc_removal_max: float = 0.4  # fractional DOC removal at saturating dose
     doc_removal_half_dose: float = 15.0  # mg/L coag dose at half-max removal
-    cl2_demand_per_doc: float = 0.8  # mg Cl2 demand / mg DOC, reduced-order
+    # ASSUMED reduced-order value (the former 0.8 was equally unsourced);
+    # plausible range ~0.2-0.8. 0.4 keeps the needed dose inside 0-cl2_dose_max.
+    cl2_demand_per_doc: float = 0.4  # mg Cl2 demand / mg DOC
 
     # Sensors
     tmp_noise_std: float = 500.0
@@ -274,7 +280,8 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         # Coagulation removes a saturating fraction of DOC with dose (Edwards
         # 1997); UF passes whatever DOC remains straight through, unlike TSS.
         doc_removal = config.doc_removal_max * coag_dose / (coag_dose + config.doc_removal_half_dose)
-        permeate_doc = raw_doc * (1.0 - doc_removal)
+        raw_doc_now = jnp.clip(raw_doc + config.doc_per_ntu * (raw_turbidity - config.turb_mean), 2.0, 10.0)
+        permeate_doc = raw_doc_now * (1.0 - doc_removal)
         # Chlorine demand depends on permeate quality: residual particulate
         # (TSS, now tiny post-membrane) plus dissolved organics (DOC, which
         # the membrane does not reject).

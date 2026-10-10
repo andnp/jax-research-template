@@ -122,3 +122,21 @@ class TestRewardUsesTrueState:
         assert float(info_fouled["tmp"]) > config.tmp_alarm
         assert float(obs_fouled[2]) < config.tmp_alarm / config.membrane.max_tmp
         assert float(reward_fouled) < float(reward_clean)
+
+
+class TestDOCTracksTurbidity:
+    def test_permeate_doc_rises_with_turbidity_within_source_water_range(self) -> None:
+        """At a fixed coagulant dose, stormier water carries more DOC, bounded to 2-10 mg/L."""
+        config = DrinkingWaterTrainConfig()
+        reset_fn, step_fn = make_drinking_water_train_benchmark(config)
+        step_fn = jax.jit(step_fn)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+
+        turbidity, doc = [], []
+        for i in range(config.steps_per_day):
+            state, _, _, _, info = step_fn(state, jnp.array([0.3, 0.0, 0.5]), jax.random.PRNGKey(i))
+            turbidity.append(float(info["raw_turbidity"]))
+            doc.append(float(info["permeate_doc"]))
+
+        assert float(jnp.corrcoef(jnp.array(turbidity), jnp.array(doc))[0, 1]) > 0.9
+        assert min(doc) > 0.0 and max(doc) <= 10.0
