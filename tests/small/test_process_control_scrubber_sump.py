@@ -16,6 +16,29 @@ from process_control.units.scrubber_sump import (
 )
 
 
+@jax.jit
+def _scan(
+    state: ScrubberSumpState,
+    flows: tuple[jax.Array, jax.Array, jax.Array, jax.Array],
+    params: ScrubberSumpParams,
+    dt: jax.Array,
+    n_steps: jax.Array | int,
+) -> ScrubberSumpState:
+    inputs = SumpInputs(*flows)
+
+    def body(_step: jax.Array, state: ScrubberSumpState) -> ScrubberSumpState:
+        return step(state, inputs, params, dt)[0]
+
+    return jax.lax.fori_loop(0, n_steps, body, state)
+
+
+def _run(
+    state: ScrubberSumpState, inputs: SumpInputs, params: ScrubberSumpParams, dt: jax.Array, n_steps: int
+) -> ScrubberSumpState:
+    flows = (inputs.bleach_flow, inputs.caustic_flow, inputs.makeup_flow, inputs.sulfide_load)
+    return _scan(state, flows, params, dt, n_steps)
+
+
 @pytest.fixture
 def params() -> ScrubberSumpParams:
     return ScrubberSumpParams()
@@ -53,18 +76,18 @@ def test_zero_inputs_oxidant_decays(params: ScrubberSumpParams, rng: jax.Array):
     state = reset(rng, params)
     dt = jnp.array(1.0 / 12.0)  # 5-minute step in hours
 
-    for _ in range(100):
-        state, _ = step(
-            state,
-            SumpInputs(
-                bleach_flow=jnp.array(0.0),
-                caustic_flow=jnp.array(0.0),
-                makeup_flow=jnp.array(0.0),
-                sulfide_load=jnp.array(0.0),
-            ),
-            params,
-            dt,
-        )
+    state = _run(
+        state,
+        SumpInputs(
+            bleach_flow=jnp.array(0.0),
+            caustic_flow=jnp.array(0.0),
+            makeup_flow=jnp.array(0.0),
+            sulfide_load=jnp.array(0.0),
+        ),
+        params,
+        dt,
+        100,
+    )
 
     assert state.oxidant < 5.0, "Oxidant should decay from initial 5.0"
     assert state.oxidant >= 0.0, "Oxidant should not go negative"
@@ -218,8 +241,7 @@ def test_volume_overflow(params: ScrubberSumpParams, rng: jax.Array):
         sulfide_load=jnp.array(0.0),
     )
 
-    for _ in range(50):
-        state, _ = step(state, high_makeup, params, dt)
+    state = _run(state, high_makeup, params, dt, 50)
 
     # Volume should stay near max, not grow to infinity
     assert state.volume <= params.volume_max * 1.5 + 0.1
@@ -250,8 +272,7 @@ def test_non_negative_concentrations(params: ScrubberSumpParams, rng: jax.Array)
         sulfide_load=jnp.array(0.0),
     )
 
-    for _ in range(200):
-        state, _ = step(state, zero, params, dt)
+    state = _run(state, zero, params, dt, 200)
 
     assert state.oxidant >= 0.0
     assert state.alkalinity >= 0.0
@@ -346,8 +367,7 @@ def test_temperature_relaxes_to_ambient(params: ScrubberSumpParams, rng: jax.Arr
         sulfide_load=jnp.array(0.0),
     )
 
-    for _ in range(500):
-        state, _ = step(state, zero, params, dt)
+    state = _run(state, zero, params, dt, 500)
 
     assert abs(float(state.temperature) - params.ambient_temp) < 1.0
 
