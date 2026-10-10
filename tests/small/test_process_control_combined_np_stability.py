@@ -57,3 +57,14 @@ class TestCombinedNPStabilityAcrossActionSpace:
         for action in _action_corners(4):
             zones = _rollout_zone_states(reset, step, action, n_steps, seed=0)
             _assert_finite_and_bounded(zones, config.s_o_sat)
+
+    def test_worst_corner_stays_finite_and_bounded_across_seeds(self) -> None:
+        """Full aeration and recycle with no dosing (the corner that previously overshot DO)
+        stays finite and physically bounded for every noise seed over one day."""
+        config = CombinedNPConfig()
+        reset, step = make_combined_np_benchmark(config)
+        action = jnp.array([1.0, 1.0, 0.0, 0.0])
+
+        for seed in range(5):
+            zones = _rollout_zone_states(reset, step, action, config.steps_per_day, seed=seed)
+            _assert_finite_and_bounded(zones, config.s_o_sat)
