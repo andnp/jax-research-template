@@ -31,13 +31,18 @@ from process_control.units.tank import step_with_result as tank_step
 
 @dataclass(frozen=True)
 class EqualizationTankBenchmarkConfig:
-    target_level_fraction: float = 0.7  # fraction of max_level
+    target_level_fraction: float = 0.5  # fraction of max_level; centre of the level band
     dt: float = 0.25  # time step (same units as flow / area)
 
     # Tank geometry
     tank_max_level: float = 5.0
     tank_min_level: float = 0.0
-    tank_area: float = 300.0  # level changes as flow / area * dt
+    # Assumed benchmark size, not a plant design: 60 m2 x 5 m = 300 m3, 16.7% of the
+    # 1800 m3/day mean inflow (mean_flow 75 m3/h x 24 h). EPA's flow-equalization report
+    # gives 10-20% of daily flow as a screening range for diurnal equalization basins
+    # (https://nepis.epa.gov/Exe/ZyPURL.cgi?Dockey=300007H3.TXT); a real design would
+    # integrate an inflow mass curve.
+    tank_area: float = 60.0  # level changes as flow / area * dt
 
     # Outlet pump (action = desired outlet flow set point)
     pump_max_flow: float = 150.0
@@ -48,13 +53,21 @@ class EqualizationTankBenchmarkConfig:
     # Reverse-acting: raising the outlet flow *drains* the tank, so a
     # too-high level (positive measurement, negative error) must *increase*
     # output, and a too-low level must decrease it — hence negative gains.
-    pi_kp: float = -5.0
-    pi_ki: float = -0.5
+    # Gains are per raw level unit and tuned (assumed, benchmark-specific) for averaging
+    # level control: loose enough to buffer the diurnal wave, tight enough to hold the
+    # sustained-rain stress case inside the level band.
+    pi_kp: float = -20.0
+    pi_ki: float = -0.1
     pi_ff: float = 75.0  # steady-state outlet ≈ mean inlet
     pi_output_min: float = 0.0
     pi_output_max: float = 150.0
 
-    tracking_reward_scale: float = 1.0
+    # Reward weights (all terms are dimensionless; assumed/calibrated for the benchmark).
+    flow_rate_weight: float = 1.0  # outlet change per step / (max ramp * dt)
+    flow_deviation_weight: float = 1.0  # outlet deviation from mean_flow / mean_flow
+    level_band_weight: float = 20.0  # squared excursion outside the band, fraction of range
+    level_band_low: float = 0.15  # band edges as fractions of the level range
+    level_band_high: float = 0.85
     overflow_penalty: float = 10.0
     unmet_outlet_penalty: float = 10.0
 
@@ -89,12 +102,29 @@ class EqualizationPlantState:
     disturbance_schedule: DisturbanceSchedule
 
 
+def _validate_reward_config(config: EqualizationTankBenchmarkConfig) -> None:
+    weights = (
+        config.flow_rate_weight,
+        config.flow_deviation_weight,
+        config.level_band_weight,
+        config.overflow_penalty,
+        config.unmet_outlet_penalty,
+    )
+    if min(weights) < 0.0:
+        raise ValueError("reward weights must be non-negative")
+    if not 0.0 <= config.level_band_low < config.level_band_high <= 1.0:
+        raise ValueError("level band must satisfy 0 <= low < high <= 1")
+    if config.pump_max_ramp_rate * config.dt <= 0.0 or config.mean_flow <= 0.0:
+        raise ValueError("pump ramp rate, dt and mean_flow must be positive")
+
+
 def make_equalization_tank_benchmark(
     config: EqualizationTankBenchmarkConfig,
 ) -> tuple[
     Callable[[jax.Array], tuple[EqualizationPlantState, jax.Array]],
     Callable[[EqualizationPlantState, jax.Array, jax.Array], tuple[EqualizationPlantState, jax.Array, jax.Array, jax.Array, dict[str, jax.Array]]],
 ]:
+    _validate_reward_config(config)
     max_disturbance_events = validate_disturbance_events(
         config.max_disturbance_events,
         config.disturbance_events,
@@ -135,6 +165,8 @@ def make_equalization_tank_benchmark(
     target_level = jnp.array(config.target_level_fraction * config.tank_max_level)
     pump_max_flow = jnp.array(config.pump_max_flow)
     tank_max_level = jnp.array(config.tank_max_level)
+    min_level = jnp.array(config.tank_min_level)
+    rate_scale = jnp.array(config.pump_max_ramp_rate * config.dt)
 
     def reset(rng_key: jax.Array) -> tuple[EqualizationPlantState, jax.Array]:
         k1, k2, k3, k4 = jax.random.split(rng_key, 4)
@@ -244,14 +276,27 @@ def make_equalization_tank_benchmark(
             ]
         )
 
-        # 7. Reward: track level while penalizing physical constraint violations
-        tracking_penalty = config.tracking_reward_scale * (measured_level - target_level) ** 2
+        # 7. Reward: equalize the outlet flow, keep the true level inside its band
+        # and avoid physical constraint violations
+        flow_rate_penalty = config.flow_rate_weight * (
+            (realized_outlet - state.last_outlet_flow) / rate_scale
+        ) ** 2
+        flow_deviation_penalty = config.flow_deviation_weight * (
+            (realized_outlet - config.mean_flow) / config.mean_flow
+        ) ** 2
+        level_fraction = (true_level - min_level) / (tank_max_level - min_level)
+        band_excursion = jnp.maximum(config.level_band_low - level_fraction, 0.0) + jnp.maximum(
+            level_fraction - config.level_band_high, 0.0
+        )
+        level_band_penalty = config.level_band_weight * band_excursion**2
         overflow_penalty = config.overflow_penalty * (tank_result.overflow_flow / pump_max_flow) ** 2
         unmet_outlet_penalty = config.unmet_outlet_penalty * (
             tank_result.unmet_outlet_flow / pump_max_flow
         ) ** 2
         constraint_penalty = overflow_penalty + unmet_outlet_penalty
-        reward = -(tracking_penalty + constraint_penalty)
+        reward = -(
+            flow_rate_penalty + flow_deviation_penalty + level_band_penalty + constraint_penalty
+        )
 
         new_state = EqualizationPlantState(
             step_count=state.step_count + 1,
@@ -272,7 +317,9 @@ def make_equalization_tank_benchmark(
             "overflow_flow": tank_result.overflow_flow,
             "unmet_outlet_flow": tank_result.unmet_outlet_flow,
             "tank_constraint_status": tank_result.constraint_status,
-            "tracking_penalty": tracking_penalty,
+            "flow_rate_penalty": flow_rate_penalty,
+            "flow_deviation_penalty": flow_deviation_penalty,
+            "level_band_penalty": level_band_penalty,
             "overflow_penalty": overflow_penalty,
             "unmet_outlet_penalty": unmet_outlet_penalty,
             "constraint_penalty": constraint_penalty,

@@ -1,7 +1,9 @@
 from dataclasses import replace
+from typing import Any
 
 import jax
 import jax.numpy as jnp
+import pytest
 from process_control.benchmarks.equalization_tank import (
     EqualizationTankBenchmarkConfig,
     make_equalization_tank_benchmark,
@@ -136,7 +138,9 @@ class TestEqualizationTankBenchmark:
         assert "overflow_flow" in info
         assert "unmet_outlet_flow" in info
         assert "tank_constraint_status" in info
-        assert "tracking_penalty" in info
+        assert "flow_rate_penalty" in info
+        assert "flow_deviation_penalty" in info
+        assert "level_band_penalty" in info
         assert "constraint_penalty" in info
         assert "inlet_flow" in info
 
@@ -155,8 +159,8 @@ class TestEqualizationTankBenchmark:
             assert level <= config.tank_max_level
             assert level >= config.tank_min_level
 
-    def test_reward_contains_tracking_and_constraint_penalties(self) -> None:
-        """Reward exposes level tracking and physical constraint costs."""
+    def test_reward_sums_named_penalty_components(self) -> None:
+        """Reward is the negated sum of the flow, level-band and constraint costs."""
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
         key = jax.random.PRNGKey(3)
@@ -165,13 +169,15 @@ class TestEqualizationTankBenchmark:
         _, _, reward, _, info = step_fn(state, jnp.array(75.0), k2)
 
         expected = -(
-            info["tracking_penalty"]
+            info["flow_rate_penalty"]
+            + info["flow_deviation_penalty"]
+            + info["level_band_penalty"]
             + info["overflow_penalty"]
             + info["unmet_outlet_penalty"]
         )
         assert jnp.allclose(reward, expected)
 
-    def test_overflow_worsens_reward_beyond_tracking_cost(self) -> None:
+    def test_overflow_worsens_reward_beyond_flow_and_band_cost(self) -> None:
         """Overflow contributes a negative cost when the tank reaches capacity."""
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
@@ -184,12 +190,16 @@ class TestEqualizationTankBenchmark:
             state, _, reward, _, info = step_fn(state, jnp.array(0.0), step_key)
             if float(info["overflow_flow"]) > 0.0:
                 assert float(info["constraint_penalty"]) > 0.0
-                assert float(reward) < -float(info["tracking_penalty"])
+                assert float(reward) < -float(
+                    info["flow_rate_penalty"]
+                    + info["flow_deviation_penalty"]
+                    + info["level_band_penalty"]
+                )
                 return
 
         raise AssertionError("zero outlet did not produce an overflow constraint violation")
 
-    def test_unmet_outlet_flow_worsens_reward_beyond_tracking_cost(self) -> None:
+    def test_unmet_outlet_flow_worsens_reward_beyond_flow_and_band_cost(self) -> None:
         """Unmet requested outlet flow contributes a negative cost."""
         config = EqualizationTankBenchmarkConfig()
         reset_fn, step_fn = make_equalization_tank_benchmark(config)
@@ -210,7 +220,11 @@ class TestEqualizationTankBenchmark:
             )
             if float(info["unmet_outlet_flow"]) > 0.0:
                 assert float(info["constraint_penalty"]) > 0.0
-                assert float(reward) < -float(info["tracking_penalty"])
+                assert float(reward) < -float(
+                    info["flow_rate_penalty"]
+                    + info["flow_deviation_penalty"]
+                    + info["level_band_penalty"]
+                )
                 return
 
         raise AssertionError("maximum outlet did not produce an unmet-flow violation")
@@ -229,3 +243,42 @@ class TestEqualizationTankBenchmark:
         assert obs2.shape == (4,)
         assert reward.shape == ()
 
+    def test_outlet_change_is_penalized_and_steady_outlet_is_not(self) -> None:
+        """Only a change in realized outlet flow incurs the rate penalty."""
+        config = EqualizationTankBenchmarkConfig()
+        reset_fn, step_fn = make_equalization_tank_benchmark(config)
+        k1, k2, k3 = jax.random.split(jax.random.PRNGKey(19), 3)
+        state, _ = reset_fn(k1)
+        state, _, _, _, first = step_fn(state, jnp.array(75.0), k2)
+        _, _, _, _, steady = step_fn(state, first["realized_outlet"], k3)
+        _, _, _, _, stepped = step_fn(state, first["realized_outlet"] + 20.0, k3)
+
+        assert float(steady["flow_rate_penalty"]) == 0.0
+        assert float(stepped["flow_rate_penalty"]) > 0.0
+
+    def test_level_band_penalty_applies_only_outside_the_band(self) -> None:
+        config = EqualizationTankBenchmarkConfig()
+        reset_fn, step_fn = make_equalization_tank_benchmark(config)
+        k1, k2 = jax.random.split(jax.random.PRNGKey(23))
+        state, _ = reset_fn(k1)
+        _, _, _, _, centred = step_fn(state, jnp.array(75.0), k2)
+        crowded_level = jnp.array(0.97 * config.tank_max_level)
+        crowded = replace(state, tank_state=replace(state.tank_state, level=crowded_level))
+        _, _, _, _, high = step_fn(crowded, jnp.array(75.0), k2)
+
+        assert float(centred["level_band_penalty"]) == 0.0
+        assert float(high["level_band_penalty"]) > 0.0
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"flow_rate_weight": -1.0},
+            {"level_band_weight": -0.1},
+            {"level_band_low": 0.9, "level_band_high": 0.1},
+            {"level_band_high": 1.5},
+            {"pump_max_ramp_rate": 0.0},
+        ],
+    )
+    def test_invalid_reward_config_is_rejected(self, overrides: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            make_equalization_tank_benchmark(EqualizationTankBenchmarkConfig(**overrides))

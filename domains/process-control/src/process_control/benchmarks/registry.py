@@ -61,7 +61,7 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         "EqualizationTankBenchmarkConfig",
         "make_equalization_tank_benchmark",
         1,
-        "Equalization tank level control",
+        "Flow equalization",
         scalar_action=True,
         action_low_config="pump_min_flow",
         action_high_config="pump_max_flow",
