@@ -1,3 +1,5 @@
+import math
+
 import jax.numpy as jnp
 import pytest
 from process_control.controllers.pi_controller import (
@@ -208,6 +210,27 @@ class TestBackCalculation:
         _, raw = self._hold(params, error=1.0, steps=50, dt=1.0)
 
         assert all(10.0 <= value <= 10.0 + 2.0 + 4.0 * 1.0 * 1.0 for value in raw[1:])
+
+    def test_saturated_step_holds_the_tracking_equilibrium_exactly(self) -> None:
+        """At the equilibrium of du/dt = ki·e + (u_sat − u)/Tt a whole finite step leaves the integral unchanged."""
+        params = PIControllerParams(kp=1.0, ki=1.0, ff=0.0, output_min=0.0, output_max=10.0, tracking_time=1.0)
+
+        state, result = step_with_diagnostics(PIControllerState(integral=jnp.array(10.0)), jnp.array(0.0), jnp.array(1.0), params, jnp.array(1.0))
+
+        assert float(state.integral) == pytest.approx(10.0)
+        assert float(result.raw) == pytest.approx(11.0)
+
+    def test_step_leaving_saturation_follows_the_piecewise_solution(self) -> None:
+        """A reversed error relaxes the raw output to the limit, then integrates linearly inside the range."""
+        params = PIControllerParams(kp=1.0, ki=1.0, ff=0.0, output_min=0.0, output_max=10.0, tracking_time=1.0)
+        start = PIControllerState(integral=jnp.array(20.0))
+
+        state, result = step_with_diagnostics(start, jnp.array(3.0), jnp.array(0.0), params, jnp.array(2.0))
+
+        # u relaxes from 17 toward 7 and reaches the limit 10 after ln(10/3), then falls at 3 per unit time.
+        expected_raw = 10.0 - 3.0 * (2.0 - math.log(10.0 / 3.0))
+        assert float(result.raw) == pytest.approx(expected_raw, rel=1e-5)
+        assert float(state.integral) == pytest.approx(expected_raw + 3.0, rel=1e-5)
 
     def test_zero_integral_gain_keeps_the_integral(self) -> None:
         """A proportional-only controller has no integral to unwind."""
