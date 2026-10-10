@@ -47,11 +47,12 @@ class RejectWaterConfig:
     dt: float = 0.02
     steps_per_day: int = 1200
 
-    # Main plant flow
+    # Main plant flow. Assumed benchmark regime, not a sourced series: a wide
+    # swing makes return timing matter at peak load.
     mean_flow: float = 769.0
-    diurnal_amplitude: float = 150.0
-    min_flow: float = 500.0
-    max_flow: float = 1050.0
+    diurnal_amplitude: float = 400.0
+    min_flow: float = 400.0
+    max_flow: float = 1200.0
     drift_scale: float = 0.05
 
     # Reject water characteristics. Digester centrate ammonia is typically
@@ -64,17 +65,16 @@ class RejectWaterConfig:
     reject_tank_max: float = 200.0  # m³ buffer tank
     q_reject_max: float = 30.0  # m³/h max return rate
 
-    # Simplified main plant NH₄ model. Nitrification is Monod-limited rather
-    # than a constant sink (ASM1; Henze et al. 1987, "Activated Sludge Model
-    # No. 1", IAWPRC), so it saturates near r_max at high NH₄ but self-limits
-    # near baseline — a constant sink instead pins the plant permanently
-    # above alarm regardless of load. r_max is sized so the no-reject
-    # pseudo-steady-state settles near nh4_baseline (compliant); a reject
-    # surge can still push the sink into saturation and violate the alarm.
-    influent_nh4: float = 31.56  # mg-N/L (BSM1)
-    nitrification_rate: float = 22.0  # mg-N/L/h max rate (r_max) at 15°C
+    # Reduced CSTR for the nitrifying zone. Volume is the BSM1 aerobic volume
+    # (three 1333 m³ reactors; Alex et al. 2008, BSM1 technical report).
+    plant_volume: float = 4000.0  # m³
+    influent_nh4: float = 31.56  # mg-N/L (BSM1 dry-weather mean)
+    # Assumed, calibrated for this benchmark (not a BSM1 kinetic rate). Chosen
+    # so the full balance, dilution included, settles near 1.6 mg-N/L with no
+    # return and near 3 mg-N/L at mean flow with pass-through return.
+    nitrification_rate: float = 9.5  # mg-N/L/h max rate (r_max)
     k_nh: float = 1.0  # mg-N/L half-saturation (ASM1 K_NH, Henze et al. 1987)
-    nh4_baseline: float = 2.0  # mg-N/L typical effluent NH₄
+    nh4_baseline: float = 2.0  # mg-N/L initial main-plant NH₄
 
     # Sensors
     nh4_noise_std: float = 0.5
@@ -89,7 +89,7 @@ class RejectWaterConfig:
     # penalising level directly pushed immediate draining instead of holding.
     reward_w_timing: float = 0.1  # penalty for tank level approaching capacity
     tank_risk_threshold: float = 0.8  # fraction of capacity where risk penalty starts
-    nh4_limit: float = 10.0  # mg-N/L alarm
+    nh4_limit: float = 4.0  # mg-N/L effluent limit (BSM1 S_NH,e = 4 g N/m³)
 
 
 def make_reject_water_benchmark(config: RejectWaterConfig):
@@ -159,17 +159,12 @@ def make_reject_water_benchmark(config: RejectWaterConfig):
         overflow = jnp.maximum(new_tank - tank_max, 0.0)
         new_tank = jnp.clip(new_tank, 0.0, tank_max)
 
-        # 4. Simplified main plant NH₄ model
-        # NH₄ from influent + reject, minus nitrification
-        nh4_load_from_reject = q_reject * config.reject_nh4 / (q_main + 1e-10)
-        diurnal_nh4 = config.influent_nh4 * q_main / config.mean_flow
-        total_nh4_in = diurnal_nh4 + nh4_load_from_reject
-
-        # Simple first-order approach to pseudo-steady-state (dilution term),
-        # minus a Monod nitrification sink that saturates at r_max instead of
-        # being a constant drain regardless of concentration.
+        # 4. Main plant NH₄: CSTR balance with Monod nitrification
+        dilution = (
+            q_main * (config.influent_nh4 - state.main_nh4) + q_reject * (config.reject_nh4 - state.main_nh4)
+        ) / config.plant_volume
         nitrification_sink = config.nitrification_rate * state.main_nh4 / (config.k_nh + state.main_nh4)
-        new_main_nh4 = state.main_nh4 + (0.5 * (total_nh4_in - state.main_nh4) - nitrification_sink) * config.dt
+        new_main_nh4 = state.main_nh4 + (dilution - nitrification_sink) * config.dt
         new_main_nh4 = jnp.maximum(new_main_nh4, 0.0)
 
         # 5. Sensors
