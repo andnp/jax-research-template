@@ -562,7 +562,7 @@ unaffected.
 | Driven adapters (world) | `gymnax_bridge`, `brax`, `mujoco_playground_bridge`, `atari_ale`, `python_env_bridge`, `frame_stack` (decorator) |
 | Driven adapters (policy) | `rl_agents.dqn.DQNAgent`, `.ppo.PPOAgent`, ... |
 | Application | `rl_components.loop.run` |
-| Composition root | the project's `train_fn(ExecutionContext) -> ExecutionResult` |
+| Composition root | the project's `train(config, key) -> (state, metrics)` |
 
 `process_control_bridge` is deliberately absent: it fills no `EnvStep` and is not an
 `EnvProtocol` adapter. `frame_stack` is a decorator over an adapter rather than an adapter
