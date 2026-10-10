@@ -1,7 +1,7 @@
 # ADR 017: Phase-Aware Streams and Field-Dependency Flowsheet Resolution
 
 ## Status
-Proposed. Amends the outlet-resolution part of ADR 015 (the two-pass scheduler and
+Accepted. Amends the outlet-resolution part of ADR 015 (the two-pass scheduler and
 outlet contract). Keeps ADR 015's joint plant dynamics and its cycle rules for
 holdups and pumps.
 
