@@ -116,6 +116,11 @@ _SPECIES = (
     Species("CO2", 0, 44.009, (("C", 1), ("O", 2)), (_ATOMIC_WEIGHTS,)),
     Species("O2", 0, 31.998, (("O", 2),), (_ATOMIC_WEIGHTS,)),
     Species("CH4", 0, 16.043, (("C", 1), ("H", 4)), (_ATOMIC_WEIGHTS,)),
+    Species("H2O", 0, 18.015, (("H", 2), ("O", 1)), (_ATOMIC_WEIGHTS,)),
+    Species("ClO3-", -1, 83.45, (("Cl", 1), ("O", 3)), (_ATOMIC_WEIGHTS,)),
+    # Molecular S8 (8 x 32.06 g/mol), the rhombic solid form. A transported channel
+    # counting mol S holds eight times the S8 amount, so reactions write 1/8 S8 per mol S.
+    Species("S8(s)", 0, 256.48, (("S", 8),), (_ATOMIC_WEIGHTS,)),
 )
 
 _POOLS = (
