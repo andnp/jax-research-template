@@ -9,8 +9,8 @@ Observation (6D):
   permeability_ratio (current / clean)
   permeate_flow / max_flow
   air_scour
-  hours_since_backwash / 1.0
-  feed_tss / 1000
+  hours_since_backwash / bw_age_ref (capped at 1)
+  feed_tss / feed_tss_max
 """
 
 from dataclasses import dataclass
@@ -55,6 +55,8 @@ class MembraneFoulingConfig:
     feed_tss_min: float = 10.0
     feed_tss_max: float = 150.0
     feed_tss_drift_scale: float = 0.3
+
+    bw_age_ref: float = 6.0  # h; backwash-age observation saturates here
 
     # TMP sensor
     tmp_noise_std: float = 500.0  # Pa
@@ -105,8 +107,8 @@ def make_membrane_fouling_benchmark(config: MembraneFoulingConfig):
                 perm_ratio,
                 q_permeate / (flux_max * area),
                 air_scour,
-                hours_since_bw,
-                feed_tss / 1000.0,
+                jnp.minimum(hours_since_bw / config.bw_age_ref, 1.0),
+                feed_tss / config.feed_tss_max,
             ]
         )
 
