@@ -85,7 +85,9 @@ class DrinkingWaterTrainConfig:
         # Coagulated floc particles are much larger than raw colloidal TSS,
         # which lowers specific cake resistance (Carman-Kozeny: alpha ~ 1/r²);
         # reduced-order tuning, not calibrated to a specific measured cake.
-        alpha_cake=5e13,
+        # 5e15 sits inside the 1e13-1e16 m/kg range cited in MembraneParams and
+        # makes backwash necessary within about a day (assumed for the benchmark).
+        alpha_cake=5e15,
     )
     flux_max: float = 0.06  # m/h
 
@@ -124,7 +126,9 @@ class DrinkingWaterTrainConfig:
     # Reward
     reward_w_cl2_low: float = 2.0  # penalty for residual < target
     reward_w_cl2_high: float = 0.5  # penalty for residual > ceiling
-    reward_w_tmp: float = 1.0
+    # Loss per step once TMP reaches max_tmp (the damage limit); ramps up
+    # quadratically from tmp_alarm and is capped there. Assumed benchmark value.
+    reward_w_tmp: float = 5.0
     reward_w_coag_cost: float = 0.05
     reward_w_cl2_cost: float = 0.1
     reward_w_throughput: float = 0.3
@@ -307,13 +311,13 @@ def make_drinking_water_train_benchmark(config: DrinkingWaterTrainConfig):
         # lagged/held sensor cannot hide a bad action from the objective.
         cl2_low = jnp.maximum(config.cl2_target - new_cl2_residual, 0.0)
         cl2_high = jnp.maximum(new_cl2_residual - config.cl2_ceiling, 0.0)
-        tmp_violation = jnp.maximum(tmp - config.tmp_alarm, 0.0)
+        tmp_violation = jnp.clip((tmp - config.tmp_alarm) / (max_tmp - config.tmp_alarm), 0.0, 1.0)
 
         reward = (
             config.reward_w_throughput * (q_permeate / (flux_max * area))
             - config.reward_w_cl2_low * cl2_low**2
             - config.reward_w_cl2_high * cl2_high**2
-            - config.reward_w_tmp * (tmp_violation / max_tmp) ** 2
+            - config.reward_w_tmp * tmp_violation**2
             - config.reward_w_coag_cost * (coag_dose / dose_max)
             - config.reward_w_cl2_cost * (cl2_dose / cl2_max)
         )

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
@@ -140,3 +141,77 @@ class TestDOCTracksTurbidity:
 
         assert float(jnp.corrcoef(jnp.array(turbidity), jnp.array(doc))[0, 1]) > 0.9
         assert min(doc) > 0.0 and max(doc) <= 10.0
+
+
+def _rollout(policy: Callable[[jax.Array, jax.Array], jax.Array], n_steps: int):
+    """Scan a closed-loop policy over the plant; returns per-step (reward, true TMP, obs TMP)."""
+    config = DrinkingWaterTrainConfig()
+    reset_fn, step_fn = make_drinking_water_train_benchmark(config)
+
+    def body(carry: tuple, i: jax.Array):
+        state, obs, integ = carry
+        err = 1.0 - obs[4] * 5.0
+        integ = jnp.clip(integ + 0.003 * err, 0.0, 1.0)
+        action = policy(obs, jnp.clip(integ + 0.15 * err, 0.0, 1.0))
+        state, obs, reward, _, info = step_fn(state, action, jax.random.PRNGKey(i))
+        return (state, obs, integ), (reward, info["tmp"], obs[2] * config.membrane.max_tmp)
+
+    state, obs = reset_fn(jax.random.PRNGKey(0))
+    _, out = jax.lax.scan(body, (state, obs, jnp.array(0.0)), jnp.arange(n_steps))
+    return out
+
+
+class TestBackwashTradeOff:
+    def test_backwash_is_necessary_within_a_day_and_keeps_tmp_below_alarm(self) -> None:
+        """Without backwash TMP passes the alarm in a day; a TMP-threshold backwash holds it below."""
+        config = DrinkingWaterTrainConfig()
+        steps = config.steps_per_day
+
+        def no_backwash(obs: jax.Array, cl2: jax.Array):
+            return jnp.array([0.2, 0.0, cl2])
+
+        def threshold_backwash(obs: jax.Array, cl2: jax.Array):
+            return jnp.array([0.2, jnp.where(obs[2] > 0.3, 1.0, 0.0), cl2])
+
+        _, tmp_idle, _ = _rollout(no_backwash, steps)
+        reward, tmp_managed, _ = _rollout(threshold_backwash, steps)
+
+        assert float(tmp_idle.max()) > config.tmp_alarm
+        assert float(tmp_managed.max()) < config.tmp_alarm
+        assert float(reward.mean()) > 0.0
+
+    def test_constant_policies_score_below_a_tuned_controller(self) -> None:
+        """Do-nothing and maximum-everything constants fail where PI chlorine plus backwash succeeds."""
+        steps = DrinkingWaterTrainConfig().steps_per_day
+
+        def tuned(obs: jax.Array, cl2: jax.Array):
+            return jnp.array([0.2, jnp.where(obs[2] > 0.3, 1.0, 0.0), cl2])
+
+        tuned_score = float(_rollout(tuned, steps)[0].mean())
+        for constant in ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]):
+            fixed = jnp.array(constant)
+            score = float(_rollout(lambda obs, cl2, fixed=fixed: fixed, steps)[0].mean())
+            assert score < tuned_score - 1.0
+
+
+class TestTmpFailureLoss:
+    def test_loss_is_finite_past_the_damage_limit_while_true_tmp_stays_visible(self) -> None:
+        """Reward penalty saturates at the damage limit but reported TMP keeps showing the fouling."""
+        config = DrinkingWaterTrainConfig()
+        reset_fn, step_fn = make_drinking_water_train_benchmark(config)
+        key = jax.random.PRNGKey(0)
+        clean, _ = reset_fn(key)
+        action = jnp.array([0.3, 0.0, 1.0])
+
+        rewards, tmps = [], []
+        for resistance in (1e15, 1e16):
+            membrane = dataclasses.replace(clean.membrane_state, r_irreversible=jnp.array(resistance))
+            fouled = dataclasses.replace(clean, membrane_state=membrane)
+            _, _, reward, _, info = step_fn(fouled, action, key)
+            rewards.append(float(reward))
+            tmps.append(float(info["tmp"]))
+
+        assert tmps[0] > config.membrane.max_tmp
+        assert tmps[1] > tmps[0]
+        assert rewards[0] == rewards[1]
+        assert rewards[1] > -config.reward_w_tmp - 1.0
