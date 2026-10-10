@@ -9,25 +9,37 @@ The BSM1 layout follows Alex et al. (2008), Sec. 2:
 https://www2.iea.lth.se/publications/Reports/LTH-IEA-7229.pdf
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
 
+from process_control.components import ComponentSchema
 from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
-from process_control.kinetics import KineticsModel
-from process_control.units.asm1 import ASM1Kinetics, ASM1Params
-from process_control.units.bioreactor import AeratedBioreactor, BioreactorParams
+from process_control.kinetics import KineticsModel, KineticSource
+from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
+from process_control.units.exchange import ExchangeSource, OxygenExchange, OxygenExchangeParams
 from process_control.units.layered_settler import BSM1_SETTLER, LayeredSettler, ParticulateOutlets, SettlerParams
+from process_control.units.reactive_cstr import ReactiveCSTR, ReactiveCSTRParams, nonnegative, unchanged
 
 
 @dataclass(frozen=True)
 class ActivatedSludgeLayout[P]:
-    """Reactor volumes in flow order (m³), the kinetics every reactor shares, and the secondary settler."""
+    """Reactor volumes in flow order (m³), the carrier schema, what every reactor shares, and the secondary settler.
+
+    Each reactor runs the kinetics and the aeration, whose oxygen binds to `oxygen_channel`, and
+    `projection` keeps each integration substep's reactor state admissible.
+    """
 
     volumes: tuple[float, ...]
+    schema: ComponentSchema
     kinetics: KineticsModel[P]
     kinetics_params: P
+    aeration: OxygenExchange
+    oxygen_channel: str
+    aeration_params: OxygenExchangeParams
+    projection: Callable[[jax.Array], jax.Array] = unchanged
     settler: SettlerParams = BSM1_SETTLER
     particulates: ParticulateOutlets = ParticulateOutlets.FEED_FRACTIONS
 
@@ -46,18 +58,27 @@ class ActivatedSludgeLayout[P]:
 
 BSM1_LAYOUT = ActivatedSludgeLayout(
     volumes=(1000.0, 1000.0, 1333.0, 1333.0, 1333.0),
+    schema=ASM1_SCHEMA,
     kinetics=ASM1Kinetics(),
     kinetics_params=ASM1Params(),
+    aeration=OxygenExchange(bsm1_oxygen_saturation),
+    oxygen_channel="s_o",
+    aeration_params=OxygenExchangeParams(kla_theta=1.024, kla_reference_temperature=15.0),
+    projection=nonnegative,
 )
 
 
 def activated_sludge_flowsheet[P](layout: ActivatedSludgeLayout[P]) -> Flowsheet:
     """The plant with external inlet `influent` and external outlets `effluent` and `waste`."""
-    schema = layout.kinetics.schema
-    reactor = AeratedBioreactor(layout.kinetics)
+    schema = layout.schema
+    sources = (
+        KineticSource.bind(layout.kinetics, layout.kinetics_params, schema),
+        ExchangeSource.bind(layout.aeration, layout.aeration_params, schema, {"O2": layout.oxygen_channel}),
+    )
+    reactor = ReactiveCSTR(schema, sources, projection=layout.projection)
     nodes: dict[str, Node] = {"inlet": Node(Mixer(schema, ("influent", "internal_recycle", "return_sludge")), None)}
     for name, signal, volume in zip(layout.reactors, layout.kla_signals, layout.volumes, strict=True):
-        nodes[name] = Node(reactor, BioreactorParams(volume=volume, kinetics=layout.kinetics_params), {"kla": signal})
+        nodes[name] = Node(reactor, ReactiveCSTRParams(volume=volume), {"kla": signal})
     nodes["recycle_split"] = Node(Splitter(schema, ("internal_recycle",), "settler_feed"), None, {"internal_recycle": "q_a"})
     nodes["settler"] = Node(LayeredSettler(schema, layout.particulates), layout.settler)
     nodes["sludge_split"] = Node(Splitter(schema, ("return_sludge",), "waste"), None, {"return_sludge": "q_r"})
@@ -85,7 +106,7 @@ def settled_state[P](layout: ActivatedSludgeLayout[P], reactors: jax.Array, laye
     Settler layers carry the last reactor's solubles and its particulate fractions of TSS, as the BSM1
     settler outlets do.
     """
-    schema = layout.kinetics.schema
+    schema = layout.schema
     feed = reactors[-1]
     fractions = jnp.where(schema.particulate_mask, feed / schema.tss(feed), 0.0)
     settler = jnp.where(schema.particulate_mask, layer_tss[:, None] * fractions, feed)

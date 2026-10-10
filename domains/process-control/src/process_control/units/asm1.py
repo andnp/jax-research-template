@@ -5,7 +5,9 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
+from process_control.binding import NamedAccess, Requirement
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
+from process_control.kinetics import ZERO_CELSIUS
 
 
 @jax_dataclass
@@ -179,6 +181,16 @@ ASM1_SCHEMA = ComponentSchema(
 )
 
 
+def _asm1_requirements(*names: str) -> tuple[Requirement, ...]:
+    return tuple(Requirement(name, ASM1_SCHEMA.bases[ASM1_SCHEMA.index(name)]) for name in names)
+
+
+# s_i and x_i take part in no reaction; x_p and s_alk are produced but never limit a rate.
+ASM1_ACCESS = NamedAccess(
+    reads=_asm1_requirements("s_s", "x_s", "x_bh", "x_ba", "s_o", "s_no", "s_nh", "s_nd", "x_nd"),
+    writes=_asm1_requirements("s_s", "x_s", "x_bh", "x_ba", "x_p", "s_o", "s_no", "s_nh", "s_nd", "x_nd", "s_alk"),
+)
+
 def compute_tss(state: ASM1State) -> jax.Array:
     """Total suspended solids (g TSS/m³). Uses BSM1 conversion factors."""
     return 0.75 * (state.x_i + state.x_s + state.x_bh + state.x_ba + state.x_p)
@@ -214,11 +226,9 @@ def compute_tn(state: ASM1State, params: ASM1Params) -> jax.Array:
     return compute_tkn(state, params) + state.s_no
 
 
-def asm1_reaction_rates(state: jax.Array, params: ASM1Params) -> jax.Array:
-    """Compute full ASM1 biological reaction rates for the 13 ASM1 states."""
-    s_s, x_s, x_bh, x_ba = state[1], state[3], state[4], state[5]
-    s_o, s_no, s_nh = state[7], state[8], state[9]
-    s_nd, x_nd = state[10], state[11]
+def asm1_reaction_rates(reads: jax.Array, params: ASM1Params):
+    """ASM1 biological reaction rates per hour of the `ASM1_ACCESS` writes, from its reads along the last axis."""
+    s_s, x_s, x_bh, x_ba, s_o, s_no, s_nh, s_nd, x_nd = jnp.unstack(reads, axis=-1)
 
     def monod(s: jax.Array, k: float) -> jax.Array:
         return s / (k + s)
@@ -236,39 +246,35 @@ def asm1_reaction_rates(state: jax.Array, params: ASM1Params) -> jax.Array:
     rho_7 = params.k_h * x_ratio / (params.k_x + x_ratio) * (monod(s_o, params.k_o_h) + params.eta_h * inhibition(s_o, params.k_o_h) * monod(s_no, params.k_no)) * x_bh
     rho_8 = rho_7 * (x_nd / (x_s + 1e-10))
 
-    dc = jnp.zeros(13)
-    dc = dc.at[1].add(-rho_1 / params.y_h - rho_2 / params.y_h + rho_7)
-    dc = dc.at[3].add((1.0 - params.f_p) * rho_4 + (1.0 - params.f_p) * rho_5 - rho_7)
-    dc = dc.at[4].add(rho_1 + rho_2 - rho_4)
-    dc = dc.at[5].add(rho_3 - rho_5)
-    dc = dc.at[6].add(params.f_p * rho_4 + params.f_p * rho_5)
-    dc = dc.at[7].add(-(1.0 - params.y_h) / params.y_h * rho_1 - (4.57 - params.y_a) / params.y_a * rho_3)
-    dc = dc.at[8].add(-(1.0 - params.y_h) / (2.86 * params.y_h) * rho_2 + rho_3 / params.y_a)
-    dc = dc.at[9].add(-params.i_xb * rho_1 - params.i_xb * rho_2 - (params.i_xb + 1.0 / params.y_a) * rho_3 + rho_6)
-    dc = dc.at[10].add(-rho_6 + rho_8)
-    dc = dc.at[11].add((params.i_xb - params.f_p * params.i_xp) * rho_4 + (params.i_xb - params.f_p * params.i_xp) * rho_5 - rho_8)
     alk_anox = (1.0 - params.y_h) / (14.0 * 2.86 * params.y_h) - params.i_xb / 14.0
     alk_aer = params.i_xb / 14.0 + 1.0 / (7.0 * params.y_a)
-    dc = dc.at[12].add(-params.i_xb / 14.0 * rho_1 + alk_anox * rho_2 - alk_aer * rho_3 + rho_6 / 14.0)
-    return dc
+    return jnp.stack(
+        [
+            -rho_1 / params.y_h - rho_2 / params.y_h + rho_7,
+            (1.0 - params.f_p) * rho_4 + (1.0 - params.f_p) * rho_5 - rho_7,
+            rho_1 + rho_2 - rho_4,
+            rho_3 - rho_5,
+            params.f_p * rho_4 + params.f_p * rho_5,
+            -(1.0 - params.y_h) / params.y_h * rho_1 - (4.57 - params.y_a) / params.y_a * rho_3,
+            -(1.0 - params.y_h) / (2.86 * params.y_h) * rho_2 + rho_3 / params.y_a,
+            -params.i_xb * rho_1 - params.i_xb * rho_2 - (params.i_xb + 1.0 / params.y_a) * rho_3 + rho_6,
+            -rho_6 + rho_8,
+            (params.i_xb - params.f_p * params.i_xp) * rho_4 + (params.i_xb - params.f_p * params.i_xp) * rho_5 - rho_8,
+            -params.i_xb / 14.0 * rho_1 + alk_anox * rho_2 - alk_aer * rho_3 + rho_6 / 14.0,
+        ],
+        axis=-1,
+    )
 
 
 @dataclass(frozen=True)
 class ASM1Kinetics:
-    """ASM1 kinetics with Arrhenius-corrected rate constants."""
+    """ASM1 kinetics with rate constants Arrhenius-corrected from their `t_ref` (°C) values on every call."""
 
     arrhenius: ArrheniusCoeffs = ArrheniusCoeffs()
 
     @property
-    def schema(self) -> ComponentSchema:
-        return ASM1_SCHEMA
+    def access(self) -> NamedAccess:
+        return ASM1_ACCESS
 
-    @property
-    def oxygen(self) -> str:
-        return "s_o"
-
-    def at_temperature(self, params: ASM1Params, temperature: jax.Array) -> ASM1Params:
-        return apply_arrhenius(params, temperature, self.arrhenius)
-
-    def rates(self, components: jax.Array, params: ASM1Params) -> jax.Array:
-        return asm1_reaction_rates(components, params)
+    def rates(self, reads: jax.Array, temperature_k: jax.Array, params: ASM1Params) -> jax.Array:
+        return asm1_reaction_rates(reads, apply_arrhenius(params, temperature_k - ZERO_CELSIUS, self.arrhenius))

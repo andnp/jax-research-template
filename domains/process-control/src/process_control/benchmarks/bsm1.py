@@ -314,6 +314,8 @@ class BSM1Config:
     def __post_init__(self) -> None:
         if len(self.layout.volumes) != len(KLA_HANDLES):
             raise ValueError(f"BSM1 aerates {len(KLA_HANDLES)} reactors, the layout has {len(self.layout.volumes)}")
+        if self.layout.schema != ASM1_SCHEMA:
+            raise ValueError("BSM1 observations read ASM1 channels by position, so the layout must carry ASM1_SCHEMA")
         if self.control_interval <= 0 or self.intervals_per_step < 1 or self.substeps < 1:
             raise ValueError("the control interval must be positive, with at least one interval per step and one substep")
 

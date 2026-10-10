@@ -90,9 +90,9 @@ Units no longer own their stepping. `step_unit` integrates one unit standalone w
 
 - baffling geometry details beyond what affects effective delay
 
-### Aerated bioreactor (implemented)
+### Reactive CSTR (implemented)
 
-`AeratedBioreactor` in [`units/bioreactor.py`](../../../domains/process-control/src/process_control/units/bioreactor.py) is a constant-volume CSTR whose reaction terms come from a pluggable `KineticsModel` ([`kinetics.py`](../../../domains/process-control/src/process_control/kinetics.py)): a component schema, the name of the oxygen component, `at_temperature`, and `rates` per hour. ASM1 is the BSM1 kinetics. Aeration transfers kLa (corrected by 1.024^(T-15)) times the oxygen deficit into the oxygen component. Inputs are `kla` and optionally `temperature`.
+`ReactiveCSTR` in [`units/reactive_cstr.py`](../../../domains/process-control/src/process_control/units/reactive_cstr.py) is a constant-volume CSTR over a schema supplied by assembly. Its composition changes by dilution plus the rates of bound sources, all evaluated on the same state: a `KineticSource` binds a `KineticsModel` ([`kinetics.py`](../../../domains/process-control/src/process_control/kinetics.py)), which declares its local reads and writes and returns `rates(reads, temperature_k, params)` per hour, and an `ExchangeSource` binds a volumetric exchange such as `OxygenExchange` ([`units/exchange.py`](../../../domains/process-control/src/process_control/units/exchange.py)), whose kLa is corrected by 1.024^(T-15). Inputs are the sources' declared signals and optionally `temperature` (°C, passed to sources in K). A reactor without aeration has no `kla` input. Projection is identity unless the plant injects one; the BSM1 activated-sludge layout binds ASM1, aeration of `s_o` and non-negative clipping.
 
 ### Mixer
 

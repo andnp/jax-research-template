@@ -44,10 +44,14 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
+from process_control.binding import Binding
 from process_control.integration import rk4_substeps
-from process_control.units.asm1 import ASM1Params, asm1_reaction_rates
+from process_control.units.asm1 import ASM1_ACCESS, ASM1_SCHEMA, ASM1Params, asm1_reaction_rates
 
 N_COMPONENTS_ASM2D = 17
+
+# The first 13 ASM2d channels are the ASM1 schema, so its ASM1 indices address the ASM2d vector.
+_ASM1_BINDING = Binding.resolve(ASM1_ACCESS, ASM1_SCHEMA)
 
 
 def mix(state_a: jax.Array, q_a: jax.Array, state_b: jax.Array, q_b: jax.Array):
@@ -183,8 +187,8 @@ def reactions_asm2d(state: jax.Array, params: ASM2dParams):
 
     p = params.asm1
 
-    asm1_dc = asm1_reaction_rates(state, p)
-    dc = jnp.zeros(N_COMPONENTS_ASM2D).at[:13].set(asm1_dc)
+    asm1_dc = _ASM1_BINDING.scatter_add(jnp.zeros(N_COMPONENTS_ASM2D), asm1_reaction_rates(_ASM1_BINDING.gather(state), p))
+    dc = asm1_dc
 
     # ===================== PAO REACTIONS (processes 9-14) =====================
 
