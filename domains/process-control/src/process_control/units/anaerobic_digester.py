@@ -1,7 +1,15 @@
-"""Reduced-order anaerobic digestion model (ADM1-inspired).
+"""Reduced-order anaerobic digestion model (not ADM1).
 
-Simplified from the full 32-state IWA ADM1 to a ~10-state model
-that captures the essential dynamics for control:
+Hydrolysis plus a single Monod methanogenic step on VFA, with an AM2-style
+alkalinity/inorganic-carbon pH state (Bernard et al. 2001). There is no
+acidogenesis/acetogenesis split and no VFA inhibition term; the ADM1 reference
+below is the source of the Henry's-law and pKa constants only.
+
+Overload is buffer depletion: dilution and incomplete hydrolysis drain
+alkalinity, pH falls, methanogens are throttled and VFA accumulates. Collapse is
+absorbing: once biomass is washed out, lowering the feed does not recover it.
+
+Dynamics:
 
 1. Hydrolysis: X_sub -> S_VFA + X_inert + S_IN (first-order, COD-conserving)
 2. Methanogenesis: S_VFA -> biomass + CH4 + CO2 (Monod, COD-conserving;

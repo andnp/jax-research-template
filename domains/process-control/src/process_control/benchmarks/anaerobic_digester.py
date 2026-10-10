@@ -2,7 +2,8 @@
 
 The agent controls feed rate and temperature setpoint to optimise
 biogas production while preventing digester upset (VFA accumulation,
-pH drop, biomass washout).
+pH drop, biomass washout). Collapse is absorbing in this model: lowering the
+feed afterwards does not recover the digester, so the penalty persists.
 
 Action (2D): [Q_feed / Q_max, T_setpoint / 45]
 Observation (7D):
