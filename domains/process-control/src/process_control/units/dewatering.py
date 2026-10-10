@@ -49,20 +49,12 @@ class DewateringParams:
 class DewateringState:
     cake_produced: jax.Array  # cumulative cake mass (kg dry solids)
     filtrate_volume: jax.Array  # cumulative filtrate volume (m³)
-    # Feed above belt/centrifuge capacity (q_feed - q_actual) is neither
-    # processed nor discarded here — it accumulates as backlog so the unit
-    # doesn't silently destroy mass; a caller decides what to do with it
-    # (hold it, alarm on it, etc.).
-    backlog_volume: jax.Array  # cumulative unprocessed feed volume (m³)
-    backlog_solids: jax.Array  # cumulative unprocessed solids mass (kg)
 
 
 def reset(params: DewateringParams, rng_key: jax.Array):
     return DewateringState(
         cake_produced=jnp.array(0.0),
         filtrate_volume=jnp.array(0.0),
-        backlog_volume=jnp.array(0.0),
-        backlog_solids=jnp.array(0.0),
     )
 
 
@@ -87,8 +79,8 @@ def step(
     Returns:
         (new_state, cake_dryness, filtrate_tss, q_filtrate, bypass_flow)
     """
-    # Actual throughput limited by belt speed; anything above that bypasses
-    # the unit untreated rather than vanishing (see DewateringState.backlog_*).
+    # Actual throughput limited by belt speed; the remainder is returned as bypass_flow
+    # for the caller to hold.
     q_actual = jnp.minimum(q_feed, belt_speed * params.max_throughput)
     bypass_flow = q_feed - q_actual
 
@@ -135,13 +127,9 @@ def step(
         0.0,
     )
 
-    bypass_solids = feed_tss * bypass_flow * dt / 1e3  # kg, unprocessed
-
     new_state = DewateringState(
         cake_produced=state.cake_produced + solids_captured,
         filtrate_volume=state.filtrate_volume + q_filtrate * dt,
-        backlog_volume=state.backlog_volume + bypass_flow * dt,
-        backlog_solids=state.backlog_solids + bypass_solids,
     )
 
     return new_state, dryness, filtrate_tss, q_filtrate, bypass_flow
