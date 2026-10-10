@@ -1,7 +1,7 @@
 """Cost-compliance trade-off of the combined N+P benchmark.
 
-Rewards are euros per step, averaged over the last three days of a six-day
-rollout (nitrifier washout makes shorter horizons unrepresentative) on shared
+Rewards are euros per step, averaged over the last three days of a ten-day
+rollout (nitrifier washout makes shorter horizons unrepresentative) on six shared
 seeds, so policies are compared on identical noise.
 """
 
@@ -12,8 +12,8 @@ import jax
 import jax.numpy as jnp
 from process_control.benchmarks.combined_np import CombinedNPConfig, CombinedNPState, make_combined_np_benchmark
 
-_SEEDS = jnp.arange(3)
-_DAYS = 6
+_SEEDS = jnp.arange(6)
+_DAYS = 10
 _AVERAGED_DAYS = 3
 
 # Best constant action [kla, recycle, Fe, carbon] from a grid search over
