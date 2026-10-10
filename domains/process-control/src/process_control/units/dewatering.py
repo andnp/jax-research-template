@@ -114,6 +114,9 @@ def step(
     capture = jnp.clip(capture - params.speed_penalty * speed_excess, 0.0, 1.0)
     dryness = jnp.clip(dryness - params.dryness_speed_penalty * speed_excess, 0.0, params.max_dryness)
 
+    # No cake is made when the belt is idle, so there is no dryness to report.
+    dryness = jnp.where(q_actual > 1e-6, dryness, 0.0)
+
     # Mass balance
     solids_in = feed_tss * q_actual * dt / 1e3  # kg (feed_tss in g/m³)
     solids_captured = solids_in * capture

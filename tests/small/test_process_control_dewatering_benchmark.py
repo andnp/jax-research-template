@@ -18,3 +18,15 @@ class TestDewateringUnitCapture:
 
         solids_in = float(feed_tss) * 20.0 * 0.05 / 1e3
         assert abs(float(new_state.cake_produced) / solids_in - params.max_capture) < 1e-4
+
+    def test_idle_belt_reports_zero_dryness(self) -> None:
+        """With no throughput there is no cake, so dryness must not report a phantom value."""
+        params = DewateringParams()
+        state = dw_reset(params, jax.random.PRNGKey(0))
+
+        _, dryness, filtrate_tss, *_ = dw_step(
+            state, jnp.array(10000.0), jnp.array(20.0), jnp.array(50.0), jnp.array(0.0), params, jnp.array(0.05)
+        )
+
+        assert float(dryness) == 0.0
+        assert float(filtrate_tss) == 0.0
