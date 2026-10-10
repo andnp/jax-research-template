@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
-from process_control.fields import Phase
+from process_control.fields import Phase, PortSpec
 from process_control.streams import Stream, mix, split
 from process_control.units.asm1 import ASM1_SCHEMA
 
@@ -63,6 +63,49 @@ class TestMix:
         assert mixed.components.shape == (3, 13)
         assert jnp.allclose(mixed.flow, 3.0 * flows)
         assert jnp.allclose(mixed.components[0], 3.0)
+
+
+
+GAS_SCHEMA = ComponentSchema(
+    names=("n2", "o2"),
+    particulate=(False, False),
+    tss_factor=(0.0, 0.0),
+    bases=(ComponentBasis("mol/mol", Quantity.SPECIES, "N2"), ComponentBasis("mol/mol", Quantity.SPECIES, "O2")),
+)
+
+
+def _gas(flow: float, n2: float, o2: float) -> Stream:
+    return Stream(flow=jnp.array(flow), components=jnp.array([n2, o2]), schema=GAS_SCHEMA, phase=Phase.GAS, **CONTEXT)
+
+
+class TestGasMix:
+    def test_mixes_species_molar_amounts(self) -> None:
+        """Total molar flow adds and each species' molar flow F·y is conserved, so the fractions stay complete."""
+        streams = (_gas(2.0, 0.8, 0.2), _gas(1.0, 0.5, 0.5))
+
+        mixed = _mix(*streams)
+
+        assert jnp.allclose(mixed.flow, 3.0)
+        assert jnp.allclose(mixed.flow * mixed.components, sum(stream.flow * stream.components for stream in streams))
+        assert jnp.allclose(mixed.components, jnp.array([0.7, 0.3]))
+        assert mixed.phase is Phase.GAS
+
+    def test_zero_total_flow_averages_the_inlet_fractions(self) -> None:
+        """With no gas flowing the mixture carries no material, and its placeholder fractions are the inlets' mean, still summing to one."""
+        mixed = _mix(_gas(0.0, 1.0, 0.0), _gas(0.0, 0.0, 1.0))
+
+        assert jnp.allclose(mixed.flow, 0.0)
+        assert jnp.allclose(mixed.components, jnp.array([0.5, 0.5]))
+
+    def test_rejects_mixing_across_phases(self) -> None:
+        """Liquid and gas carry different flow and composition bases, so mixing them needs an explicit interphase model."""
+        with pytest.raises(ValueError, match="different phases"):
+            _mix(_stream(1.0, 1.0, 1.0), _gas(1.0, 0.8, 0.2))
+
+    def test_gas_ports_require_molecular_mole_fractions(self) -> None:
+        """A gas port refuses proxy or other non-species coordinates, which mole fractions cannot describe."""
+        with pytest.raises(ValueError, match="molecular species in mol/mol"):
+            PortSpec(SCHEMA, Phase.GAS)
 
 
 class TestSplit:

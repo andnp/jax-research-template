@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -399,3 +400,162 @@ class TestBuildValidation:
                 inlets={"influent": Port("t1", "in")},
                 outlets={"effluent": Port("t1", "out")},
             )
+
+
+GAS_SCHEMA = ComponentSchema(
+    names=("n2", "o2"),
+    particulate=(False, False),
+    tss_factor=(0.0, 0.0),
+    bases=(ComponentBasis("mol/mol", Quantity.SPECIES, "N2"), ComponentBasis("mol/mol", Quantity.SPECIES, "O2")),
+)
+SEPARATOR_FIELDS = tuple(StreamField)
+
+
+@dataclass(frozen=True, eq=False)
+class Separator:
+    """Stateless unit whose single solve sends a cut of its feed to `light` and the rest to `heavy`.
+
+    Records each group it evaluates, so tests can count solves.
+    """
+
+    calls: list[str]
+    input_ports: tuple[str, ...] = ("cut",)
+
+    @property
+    def inlet_ports(self) -> Mapping[str, PortSpec]:
+        return {"in": LIQUID}
+
+    @property
+    def outlet_ports(self) -> Mapping[str, PortSpec]:
+        return {"light": LIQUID, "heavy": LIQUID}
+
+    @property
+    def evaluation_groups(self) -> tuple[EvaluationGroup, ...]:
+        return (
+            EvaluationGroup(
+                "solve",
+                outputs=tuple(LocalField(port, kind) for port in ("light", "heavy") for kind in SEPARATOR_FIELDS),
+                reads=tuple(LocalField("in", kind) for kind in SEPARATOR_FIELDS),
+                input_names=("cut",),
+                diagnostic_names=("cut_used",),
+            ),
+        )
+
+    @property
+    def stateful(self) -> bool:
+        return False
+
+    def evaluate_group(
+        self, group_name: str, state: None, reads: Mapping[LocalField, jax.Array], inputs: Mapping[str, jax.Array], params: None
+    ) -> GroupResult:
+        self.calls.append(group_name)
+        feed = {kind: reads[LocalField("in", kind)] for kind in SEPARATOR_FIELDS}
+        cut = jnp.clip(inputs["cut"], 0.0, 1.0)
+        light = {**feed, StreamField.FLOW: cut * feed[StreamField.FLOW]}
+        heavy = {**feed, StreamField.FLOW: (1.0 - cut) * feed[StreamField.FLOW]}
+        return GroupResult(tuple(outlet[kind] for outlet in (light, heavy) for kind in SEPARATOR_FIELDS), (cut,))
+
+    def derivatives(self, state: None, inlets: Mapping[str, Stream], inputs: Mapping[str, jax.Array], params: None) -> None:
+        return None
+
+    def project(self, state: None, params: None) -> None:
+        return None
+
+
+def _separator_plant(separator: Separator) -> Flowsheet:
+    return build_flowsheet(
+        nodes={"separator": Node(separator, None), "tank": Node(DecayTank(), TANK_PARAMS)},
+        connections=[(Port("separator", "light"), Port("tank", "in"))],
+        inlets={"influent": Port("separator", "in")},
+        outlets={"heavy": Port("separator", "heavy"), "effluent": Port("tank", "out")},
+    )
+
+
+class TestPhaseAndContext:
+    def test_connection_between_phases_is_rejected(self) -> None:
+        """A gas outlet cannot feed a liquid inlet even when both carry the same component schema."""
+        with pytest.raises(ValueError, match=r"phase mismatch: first\.out carries gas but second\.x expects liquid"):
+            build_flowsheet(
+                nodes={
+                    "first": Node(Mixer(PortSpec(GAS_SCHEMA, Phase.GAS), ("x",), CONTEXT), None),
+                    "second": Node(Mixer(PortSpec(GAS_SCHEMA, Phase.LIQUID), ("x",), CONTEXT), None),
+                },
+                connections=[(Port("first", "out"), Port("second", "x"))],
+                inlets={"influent": Port("first", "x")},
+                outlets={"effluent": Port("second", "out")},
+            )
+
+    def test_external_inlet_of_another_phase_is_rejected(self) -> None:
+        """An external stream must arrive in the phase its inlet port expects."""
+        influent = {"influent": dataclasses.replace(_liquid(1.0, [FEED_CONCENTRATION]), phase=Phase.GAS)}
+
+        with pytest.raises(ValueError, match="external inlet 'influent' is gas"):
+            _recycle_plant().report(_steady_state(), influent, _inputs())
+
+    def test_prescribed_context_reaches_every_stream(self) -> None:
+        """The mixer stamps the context temperature and pressure whatever its inlets carry, and the tanks and splitter pass them on."""
+        inputs = {**_inputs(), "temperature_k": jnp.array(300.0)}
+
+        report = _recycle_plant().report(_steady_state(), _feed(), inputs)
+
+        assert len(report.streams) == 5
+        for stream in report.streams.values():
+            assert jnp.allclose(stream.temperature_k, 300.0)
+            assert jnp.allclose(stream.pressure_pa, CONTEXT.pressure_pa)
+
+    def test_splitter_forwards_each_inlet_field(self) -> None:
+        """Every splitter outlet carries its inlet's composition, temperature and pressure; only flow is divided."""
+        plant = build_flowsheet(
+            nodes={"split": Node(Splitter(LIQUID, draws=("waste",), remainder="rest"), None)},
+            connections=[],
+            inlets={"influent": Port("split", "in")},
+            outlets={"waste": Port("split", "waste"), "rest": Port("split", "rest")},
+        )
+        influent = dataclasses.replace(_liquid(4.0, [6.0]), temperature_k=jnp.array(310.0), pressure_pa=jnp.array(2.0e5))
+
+        report = plant.report({}, {"influent": influent}, {"waste": jnp.array(1.0)})
+
+        for stream in report.outlets.values():
+            assert jnp.allclose(stream.components, 6.0)
+            assert jnp.allclose(stream.temperature_k, 310.0)
+            assert jnp.allclose(stream.pressure_pa, 2.0e5)
+        assert jnp.allclose(report.outlets["rest"].flow, 3.0)
+
+
+class TestAtomicResolution:
+    def test_coupled_group_is_solved_once_per_resolution(self) -> None:
+        """One group owning both outlets' fields runs once per resolution, not once per field or outlet, and runs afresh each time."""
+        calls: list[str] = []
+        plant = _separator_plant(Separator(calls))
+        state = {"tank": jnp.array([1.0])}
+
+        first = plant.report(state, _feed(flow=4.0), {"cut": jnp.array(0.25)})
+        assert calls == ["solve"]
+        second = plant.report(state, _feed(flow=4.0), {"cut": jnp.array(0.75)})
+
+        assert calls == ["solve", "solve"]
+        assert jnp.allclose(first.outlets["heavy"].flow, 3.0)
+        assert jnp.allclose(second.outlets["heavy"].flow, 1.0)
+
+    def test_stateless_unit_needs_no_state_entry(self) -> None:
+        """A stateless unit is declared so, not inferred from its type: the plant state holds only the tank, and derivatives read the separator's light outlet."""
+        plant = _separator_plant(Separator([]))
+
+        derivatives = plant.derivatives({"tank": jnp.array([1.0])}, _feed(flow=4.0), {"cut": jnp.array(0.5)})
+
+        assert plant.stateful_nodes == ("tank",)
+        light_flow = 2.0
+        assert jnp.allclose(_array(derivatives["tank"]), light_flow * (FEED_CONCENTRATION - 1.0) - DECAY_RATE * 1.0)
+        with pytest.raises(ValueError, match="exactly the nodes"):
+            plant.derivatives({"tank": jnp.array([1.0]), "separator": jnp.zeros(1)}, _feed(), {"cut": jnp.array(0.5)})
+
+    def test_report_diagnostics_come_from_the_same_solve(self) -> None:
+        """The report's diagnostic is the one returned with the outlet fields, without solving the group again."""
+        calls: list[str] = []
+        plant = _separator_plant(Separator(calls))
+
+        report = plant.report({"tank": jnp.array([1.0])}, _feed(flow=4.0), {"cut": jnp.array(1.5)})
+
+        assert calls == ["solve"]
+        assert jnp.allclose(report.diagnostics[("separator", "cut_used")], 1.0)
+        assert jnp.allclose(report.streams[Port("separator", "light")].flow, 4.0)
