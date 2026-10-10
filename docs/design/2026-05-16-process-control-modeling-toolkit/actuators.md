@@ -76,6 +76,10 @@ Every actuator should define:
 - lag between requested and realized transfer effect
 - optional energy penalty signals
 
+## Implemented: lagged actuators
+
+[`actuators/lagged.py`](../../../domains/process-control/src/process_control/actuators/lagged.py) clips the command to bounds and passes it through a chain of first-order lags reaching 90 % of a step after `t90`. `BSM1_KLA_ACTUATOR` is the BSM1 aeration preset (second order, 4 min, 0-360 d^-1). It runs at the inner control interval ahead of the flowsheet step ([ADR 015](../../adrs/015-continuous-time-flowsheets.md), [scheduler](scheduler-and-execution-phase-contract.md)). Other BSM1 handles are clipped to their limits without a lag.
+
 ## Realistic principles to capture across all actuators
 
 - controllers should not directly overwrite latent plant state
