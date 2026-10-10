@@ -1,4 +1,4 @@
-"""BSM1 performance indices: effluent quality and operating cost.
+"""BSM1 performance indices: effluent quality, limit compliance and operating cost.
 
 Pure functions over trajectories (arrays indexed by time), following the
 performance-assessment definitions in Alex et al. (2008) §6:
@@ -52,6 +52,36 @@ def effluent_quality_index(
         weights.b_ss * ss + weights.b_cod * cod + weights.b_nkj * tkn + weights.b_no * effluent.s_no + weights.b_bod5 * bod5
     ) * q_e
     return jnp.mean(pollution_load) / 1000.0
+
+
+@dataclass(frozen=True)
+class EffluentLimits:
+    """Effluent quality limits (g/m³), Alex et al. (2008) Table 9."""
+
+    n_tot: float = 18.0
+    cod: float = 100.0
+    s_nh: float = 4.0
+    tss: float = 30.0
+    bod5: float = 10.0
+
+    def items(self) -> tuple[tuple[str, float], ...]:
+        return (("n_tot", self.n_tot), ("cod", self.cod), ("s_nh", self.s_nh), ("tss", self.tss), ("bod5", self.bod5))
+
+
+def time_above_limit(concentration: jax.Array, limit: float) -> jax.Array:
+    """Fraction of the evaluation time an effluent concentration, sampled at a constant step, exceeds its limit."""
+    return jnp.mean(concentration > limit)
+
+
+def limit_violations(concentration: jax.Array, limit: float) -> jax.Array:
+    """Number of violations: crossings of the limit from below to above, along the leading time axis."""
+    above = concentration > limit
+    return jnp.sum(above[1:] & ~above[:-1])
+
+
+def percentile_95(concentration: jax.Array) -> jax.Array:
+    """The concentration exceeded 5 % of the evaluation time, as BSM1 reports for S_NH, N_tot and TSS."""
+    return jnp.percentile(concentration, 95.0)
 
 
 def aeration_energy(kla_per_day: jax.Array, volumes: jax.Array, s_o_sat: float = 8.0) -> jax.Array:
