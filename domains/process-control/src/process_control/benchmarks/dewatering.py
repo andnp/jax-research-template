@@ -78,13 +78,16 @@ class DewateringConfig:
     filtrate_lag: float = 0.6
     filtrate_sample_period: int = 3
 
-    # Reward
-    target_dryness: float = 0.25
-    reward_w_dryness: float = 1.0
-    reward_w_cost: float = 0.05
-    reward_w_filtrate: float = 0.3
-    reward_w_overflow: float = 0.5  # penalty on tank overflow relative to mean inflow
-    filtrate_limit: float = 200.0  # g/m³
+    # Reward: operating cost in $/h plus a quadratic penalty on true filtrate above the limit.
+    # Prices describe a nominal benchmark scenario (assumed, not site accounting data).
+    polymer_cost: float = 5.0  # $/kg active polymer
+    disposal_cost: float = 80.0  # $/wet tonne of cake
+    haul_cost: float = 15.0  # $/m³ of overflowed liquid sludge
+    recycle_cost: float = 1.0  # $/kg TSS returned to the plant in filtrate
+    cost_scale: float = 50.0  # $/h normalising the cost term
+    reward_w_filtrate: float = 1.0
+    # ~95% capture at 1% feed solids, reachable at peak polymer dose (assumed)
+    filtrate_limit: float = 500.0  # g/m³
 
 
 def make_dewatering_benchmark(config: DewateringConfig):
@@ -113,7 +116,6 @@ def make_dewatering_benchmark(config: DewateringConfig):
     dt = jnp.array(config.dt)
     dose_max = jnp.array(config.dose_max)
     tank_volume_max = jnp.array(config.tank_volume_max)
-    target_dryness = jnp.array(config.target_dryness)
     filtrate_limit = jnp.array(config.filtrate_limit)
 
     def _select_if(condition: jax.Array):
@@ -213,15 +215,17 @@ def make_dewatering_benchmark(config: DewateringConfig):
         obs = _observe(dryness, sensed_filtrate, throughput, polymer_dose, tank_tss, volume)
 
         # 7. Reward: the quality penalty uses the true filtrate, not the analyzer reading
-        dryness_gap = jnp.maximum(target_dryness - dryness, 0.0)
-        filtrate_violation = jnp.maximum(filtrate_tss - filtrate_limit, 0.0)
-        overflow_fraction = overflow_volume / dt / config.q_in_mean
-        reward = -(
-            config.reward_w_dryness * dryness_gap**2
-            + config.reward_w_cost * (polymer_dose / dose_max)
-            + config.reward_w_filtrate * (filtrate_violation / filtrate_limit) ** 2
-            + config.reward_w_overflow * overflow_fraction**2
+        polymer_kg_h = polymer_dose * throughput / 1e3
+        cake_solids = new_dw.cake_produced - state.dewatering_state.cake_produced
+        wet_cake_tonnes_h = jnp.where(running, cake_solids / dt / (dryness + 1e-10) / 1e3, 0.0)
+        cost = (
+            config.polymer_cost * polymer_kg_h
+            + config.disposal_cost * wet_cake_tonnes_h
+            + config.haul_cost * overflow_volume / dt
+            + config.recycle_cost * filtrate_tss * q_filtrate / 1e3
         )
+        filtrate_violation = jnp.maximum(filtrate_tss - filtrate_limit, 0.0)
+        reward = -(cost / config.cost_scale + config.reward_w_filtrate * (filtrate_violation / filtrate_limit) ** 2)
 
         new_state = DewateringBenchState(
             step_count=state.step_count + 1,
@@ -244,7 +248,8 @@ def make_dewatering_benchmark(config: DewateringConfig):
             "inflow_tss": inflow_tss,
             "overflow_volume": overflow_volume,
             "overflow_solids": overflow_solids,
-            "cake_solids": new_dw.cake_produced - state.dewatering_state.cake_produced,
+            "cake_solids": cake_solids,
+            "cost": cost,
             "filtrate_solids": filtrate_tss * q_filtrate * dt / 1e3,
         }
         done = jnp.array(False)

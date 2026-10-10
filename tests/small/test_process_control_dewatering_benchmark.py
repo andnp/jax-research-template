@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -120,3 +122,71 @@ class TestDewateringAnalyzer:
 
         assert any(abs(float(q[0][1]) - float(n[0][1])) > 1e-3 for q, n in zip(quiet, noisy, strict=True))
         assert all(float(q[1]) == float(n[1]) for q, n in zip(quiet, noisy, strict=True))
+
+
+Policy = Callable[[jax.Array], jax.Array]
+
+
+def _mean_reward(policy: Policy, seeds: tuple[int, ...], n_steps: int = 960):
+    reset_fn, step_fn = make_dewatering_benchmark(DewateringConfig())
+
+    def episode(seed: int):
+        state, obs = reset_fn(jax.random.PRNGKey(seed))
+
+        def body(carry: tuple, key: jax.Array):
+            state, obs = carry
+            state, obs, reward, _, _ = step_fn(state, policy(obs), key)
+            return (state, obs), reward
+
+        keys = jax.random.split(jax.random.PRNGKey(seed + 1000), n_steps)
+        _, rewards = jax.lax.scan(body, (state, obs), keys)
+        return float(rewards.mean())
+
+    return [episode(seed) for seed in seeds]
+
+
+def _constant(dose: float, speed: float) -> Policy:
+    def policy(obs: jax.Array):
+        return jnp.array([dose, speed])
+
+    return policy
+
+
+def _dose_per_solids(obs: jax.Array):
+    """Dose proportional to tank solids (ratio feedforward) with belt speed raised as the tank fills."""
+    return jnp.clip(jnp.array([8.0 * obs[4] * 15.0 / 150.0, 0.4 + 0.5 * (obs[5] - 0.5)]), 0.0, 1.0)
+
+
+class TestDewateringPolicyRanking:
+    SEEDS = (0, 1, 2)
+
+    def test_idle_and_full_throttle_lose_to_a_moderate_policy(self) -> None:
+        """Doing nothing overflows the tank and maxing everything blows the filtrate limit."""
+        moderate = _mean_reward(_constant(0.6, 0.55), self.SEEDS)
+        idle = _mean_reward(_constant(0.0, 0.0), self.SEEDS)
+        full = _mean_reward(_constant(1.0, 1.0), self.SEEDS)
+
+        assert all(m > i + 1.0 for m, i in zip(moderate, idle, strict=True))
+        assert all(m > f + 1.0 for m, f in zip(moderate, full, strict=True))
+
+    def test_observation_driven_dosing_beats_the_best_constant_on_every_seed(self) -> None:
+        """Scaling dose with measured tank solids beats a hindsight-tuned constant dose and speed."""
+        constants = [(d, s) for d in (0.5, 0.6, 0.7, 0.8) for s in (0.5, 0.55, 0.6)]
+        best_constant = max(
+            (_mean_reward(_constant(d, s), self.SEEDS) for d, s in constants), key=sum
+        )
+        adaptive = _mean_reward(_dose_per_solids, self.SEEDS)
+
+        assert all(a > c for a, c in zip(adaptive, best_constant, strict=True))
+
+    def test_filtrate_limit_is_reachable_at_peak_polymer(self) -> None:
+        """At the optimum dose ratio and a moderate belt speed, true filtrate stays under the limit."""
+        config = DewateringConfig()
+        reset_fn, step_fn = make_dewatering_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        optimum_ratio = (config.dewatering.k_polymer_capture * config.dewatering.ki_polymer_capture) ** 0.5
+        dose = optimum_ratio * config.feed_tss_mean / 1000.0 / config.dose_max
+
+        _, _, _, _, info = step_fn(state, jnp.array([dose, 0.5]), jax.random.PRNGKey(1))
+
+        assert float(info["filtrate_tss"]) < config.filtrate_limit
