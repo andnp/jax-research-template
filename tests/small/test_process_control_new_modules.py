@@ -585,12 +585,12 @@ class TestRejectWaterBenchmark:
         step_fn = jax.jit(step_fn)
         state, _ = reset_fn(jax.random.PRNGKey(0))
         for index in range(2000):
-            state, _, _, _, info = step_fn(state, jnp.array([0.0, 0.0]), jax.random.PRNGKey(index))
+            state, _, _, _, info = step_fn(state, jnp.array([0.0]), jax.random.PRNGKey(index))
         assert float(info["main_nh4"]) < RejectWaterConfig.nh4_limit
 
         peak = 0.0
         for index in range(300):
-            state, _, _, _, info = step_fn(state, jnp.array([1.0, 0.0]), jax.random.PRNGKey(3000 + index))
+            state, _, _, _, info = step_fn(state, jnp.array([1.0]), jax.random.PRNGKey(3000 + index))
             peak = max(peak, float(info["main_nh4"]))
         assert peak > RejectWaterConfig.nh4_limit
 
