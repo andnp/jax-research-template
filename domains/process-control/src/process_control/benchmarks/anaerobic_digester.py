@@ -54,10 +54,13 @@ class AnaerobicDigesterConfig:
     feed_cod_amplitude: float = 8000.0
     feed_cod_min: float = 15000.0
     feed_cod_max: float = 50000.0
-    feed_cod_drift_scale: float = 0.2
+    # ASSUMED (no source): random-walk step standing in for weekly/weather variation of sludge strength.
+    feed_cod_drift_scale: float = 250.0  # mg/L per step
 
     # Feed flow range
-    q_feed_max: float = 200.0  # m³/d
+    # Chosen so the buffer-depletion cliff (about 500 m3/d at 35 C, 30 g/L) is reachable at every
+    # temperature in range; OLR up to about 7 kgCOD/m3/d at the nominal feed.
+    q_feed_max: float = 800.0  # m³/d
     q_feed_min: float = 50.0
 
     # Temperature range
@@ -81,6 +84,7 @@ class AnaerobicDigesterConfig:
     reward_w_ph: float = 3.0  # penalty for pH outside safe range
     reward_w_heat: float = 0.05  # penalty for heating energy
     vfa_limit: float = 500.0  # mg-COD/L — alarm threshold
+    vfa_violation_cap: float = 4.0  # ASSUMED: VFA excess is scored up to this multiple of vfa_limit
     ph_safe_low: float = 6.5
     ph_safe_high: float = 7.8
 
@@ -194,7 +198,7 @@ def make_anaerobic_digester_benchmark(config: AnaerobicDigesterConfig):
         )
 
         # 6. Reward
-        vfa_violation = jnp.maximum(sensed_vfa - vfa_limit, 0.0)
+        vfa_violation = jnp.clip(sensed_vfa - vfa_limit, 0.0, config.vfa_violation_cap * vfa_limit)
         ph_low_viol = jnp.maximum(config.ph_safe_low - sensed_ph, 0.0)
         ph_high_viol = jnp.maximum(sensed_ph - config.ph_safe_high, 0.0)
         heating_cost = jnp.abs(new_temp - 20.0) / 25.0  # normalised heating above ambient
