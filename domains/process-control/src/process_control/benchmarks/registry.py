@@ -91,16 +91,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         action_high_config=("ph_sp_max", "orp_sp_max", "makeup_flow_sp_max"),
     ),
     BenchmarkEntry(
-        "sludge_blanket",
-        "process_control.benchmarks.sludge_blanket",
-        "SludgeBlanketConfig",
-        "make_sludge_blanket_benchmark",
-        1,
-        "Sludge blanket control",
-        action_low=0.0,
-        action_high=1.0,
-    ),
-    BenchmarkEntry(
         "primary_clarifier",
         "process_control.benchmarks.primary_clarifier",
         "PrimaryClarifierConfig",
