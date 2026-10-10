@@ -102,3 +102,14 @@ class TestCombinedNPChemicalPhosphorusSink:
         _, info_fe = _rollout(reset, step, jnp.array([0.5, 0.5, 0.5, 0.3]), n_steps, seed=20)
 
         assert float(info_fe["po4_anaerobic"][-1]) < float(info_no_fe["po4_anaerobic"][-1])
+
+    def test_maximum_iron_lowers_final_effluent_phosphate(self) -> None:
+        """With everything else fixed, the maximum FeCl3 dose ends a day with lower effluent PO4 than none."""
+        config = CombinedNPConfig()
+        reset, step = make_combined_np_benchmark(config)
+        n_steps = config.steps_per_day
+
+        _, info_no_fe = _rollout(reset, step, jnp.array([0.5, 0.5, 0.0, 0.3]), n_steps, seed=20)
+        _, info_max_fe = _rollout(reset, step, jnp.array([0.5, 0.5, 1.0, 0.3]), n_steps, seed=20)
+
+        assert float(info_max_fe["po4_eff"][-1]) < float(info_no_fe["po4_eff"][-1])
