@@ -128,22 +128,31 @@ class TestDewateringAnalyzer:
 Policy = Callable[[jax.Array], jax.Array]
 
 
-def _mean_reward(policy: Policy, seeds: tuple[int, ...], n_steps: int = 960):
-    reset_fn, step_fn = make_dewatering_benchmark(DewateringConfig())
+def _episode_stats(
+    policy: Policy, seeds: tuple[int, ...], n_steps: int = 960
+) -> tuple[list[float], list[float]]:
+    """Per-seed mean reward and fraction of steps whose true filtrate exceeds the limit."""
+    config = DewateringConfig()
+    reset_fn, step_fn = make_dewatering_benchmark(config)
 
     def episode(seed: int):
         state, obs = reset_fn(jax.random.PRNGKey(seed))
 
         def body(carry: tuple, key: jax.Array):
             state, obs = carry
-            state, obs, reward, _, _ = step_fn(state, policy(obs), key)
-            return (state, obs), reward
+            state, obs, reward, _, info = step_fn(state, policy(obs), key)
+            return (state, obs), (reward, info["filtrate_tss"] > config.filtrate_limit)
 
         keys = jax.random.split(jax.random.PRNGKey(seed + 1000), n_steps)
-        _, rewards = jax.lax.scan(body, (state, obs), keys)
-        return float(rewards.mean())
+        _, (rewards, violating) = jax.lax.scan(body, (state, obs), keys)
+        return float(rewards.mean()), float(violating.mean())
 
-    return [episode(seed) for seed in seeds]
+    stats = [episode(seed) for seed in seeds]
+    return [r for r, _ in stats], [v for _, v in stats]
+
+
+def _mean_reward(policy: Policy, seeds: tuple[int, ...], n_steps: int = 960):
+    return _episode_stats(policy, seeds, n_steps)[0]
 
 
 def _constant(dose: float, speed: float) -> Policy:
@@ -156,6 +165,19 @@ def _constant(dose: float, speed: float) -> Policy:
 def _dose_per_solids(obs: jax.Array):
     """Dose proportional to tank solids (ratio feedforward) with belt speed raised as the tank fills."""
     return jnp.clip(jnp.array([8.0 * obs[4] * 15.0 / 150.0, 0.4 + 0.5 * (obs[5] - 0.5)]), 0.0, 1.0)
+
+
+def _dryness_feedback(obs: jax.Array):
+    """Integral action on measured cake dryness, in dose-per-tank-solids space, using only observations.
+
+    The previous dose is read back from the observation, so the policy is stateless. The 0.26 target
+    is the dryness at the capture-optimal dose ratio of the default unit; the gain is tuned for the benchmark.
+    """
+    running = obs[0] > 0.0
+    dose_per_solids = obs[3] / jnp.maximum(obs[4], 1e-3)
+    dose_per_solids = jnp.where(running, dose_per_solids + 2.0 * (0.26 - obs[0]), dose_per_solids)
+    dose_per_solids = jnp.where(obs[3] == 0.0, 0.8, dose_per_solids)
+    return jnp.clip(jnp.array([dose_per_solids * obs[4], 0.4 + 0.5 * (obs[5] - 0.5)]), 0.0, 1.0)
 
 
 class TestDewateringPolicyRanking:
@@ -179,6 +201,17 @@ class TestDewateringPolicyRanking:
         adaptive = _mean_reward(_dose_per_solids, self.SEEDS)
 
         assert all(a > c for a, c in zip(adaptive, best_constant, strict=True))
+
+    def test_dryness_feedback_beats_the_best_constant_on_held_out_seeds(self) -> None:
+        """Feedback on the lagged, noisy dryness reading beats a hindsight-tuned constant and cuts filtrate violations."""
+        held_out = (100, 101, 102)
+        constants = [(d, s) for d in (0.5, 0.6, 0.7) for s in (0.5, 0.55, 0.6)]
+        scores = {c: _episode_stats(_constant(*c), held_out) for c in constants}
+        best_rewards, best_violations = max(scores.values(), key=lambda stats: sum(stats[0]))
+        rewards, violations = _episode_stats(_dryness_feedback, held_out)
+
+        assert all(r > c for r, c in zip(rewards, best_rewards, strict=True))
+        assert sum(violations) < 0.5 * sum(best_violations)
 
     def test_filtrate_limit_is_reachable_at_peak_polymer(self) -> None:
         """At the optimum dose ratio and a moderate belt speed, true filtrate stays under the limit."""
