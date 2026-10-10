@@ -32,6 +32,13 @@ A first-generation implementation can represent composition either as:
 
 The contract matters more than the initial storage type.
 
+**Implemented** ([ADR 015](../../adrs/015-continuous-time-flowsheets.md)): the fixed-order array plus schema option.
+
+- `ComponentSchema` ([`components.py`](../../../domains/process-control/src/process_control/components.py)) is a static, hashable description of a component vector: ordered `names`, a `particulate` flag per component, and a COD-to-TSS factor per component (soluble components cannot contribute to TSS).
+- `Stream` ([`streams.py`](../../../domains/process-control/src/process_control/streams.py)) is a pytree of `flow` and a `components` vector; the schema is static metadata, not a leaf.
+- `mix` is flow-weighted and safe at zero total flow; `split` divides by fractions or absolute flows and gives the remainder the rest, conserving flow.
+- Unit ports declare the schema they carry, and the flowsheet builder rejects connections between mismatched schemas. Optional scalar properties such as temperature travel as signals, not stream fields.
+
 ### Signal port contract
 
 A signal port should support:
