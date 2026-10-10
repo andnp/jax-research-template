@@ -4,10 +4,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.benchmarks.bsm1 import BSM1BenchmarkConfig, make_bsm1_benchmark
-from process_control.benchmarks.bsm1_combined import (
-    BSM1CombinedConfig,
-    make_bsm1_combined_benchmark,
-)
 from process_control.benchmarks.bsm1_takacs import (
     BSM1TakacsConfig,
     BSM1TakacsPlantState,
@@ -188,7 +184,6 @@ class TestBSM1Benchmark:
         "factory, config, action",
         [
             (make_bsm1_benchmark, BSM1BenchmarkConfig(), jnp.array([5.0, 5.0])),
-            (make_bsm1_combined_benchmark, BSM1CombinedConfig(), jnp.array([5.0, 5.0, 3.0, 1.0])),
         ],
     )
     def test_mid_range_aeration_keeps_effluent_ammonium_bounded(

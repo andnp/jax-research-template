@@ -81,16 +81,6 @@ BENCHMARK_REGISTRY: tuple[BenchmarkEntry, ...] = (
         requires_x64=True,
     ),
     BenchmarkEntry(
-        "bsm1_combined",
-        "process_control.benchmarks.bsm1_combined",
-        "BSM1CombinedConfig",
-        "make_bsm1_combined_benchmark",
-        4,
-        "BSM1 combined control",
-        action_low_config=("bsm1.kla_34_min", "bsm1.kla_5_min", "recycle.q_a_ratio_min", "recycle.q_rs_ratio_min"),
-        action_high_config=("bsm1.kla_34_max", "bsm1.kla_5_max", "recycle.q_a_ratio_max", "recycle.q_rs_ratio_max"),
-    ),
-    BenchmarkEntry(
         "bsm1_lt",
         "process_control.benchmarks.bsm1_lt",
         "BSM1LTConfig",
