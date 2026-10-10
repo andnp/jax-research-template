@@ -183,7 +183,7 @@ Each environment should support at least two observation profiles:
 | Sludge blanket control | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_sludge_control()` configuration; standalone clarifier benchmark removed |
 | Chemical P dosing | Merged into combined N+P | `benchmarks/combined_np.py` | FeCl₃ dosing action; standalone benchmark removed |
 | BSM1-LT (seasonal) | Merged into BSM1 | `benchmarks/bsm1.py` | `bsm1_long_term()` configuration |
-| Primary clarifier | ✅ Done | `benchmarks/primary_clarifier.py` | Gravity settling, 1D action [Q_w] |
+| Primary clarifier | Removed | n/a | No control problem: effluent TSS depends only on flow and the wasting action only moves sludge inventory |
 | Dewatering control | ✅ Done | `benchmarks/dewatering.py` | Belt press, 2D action [polymer, speed] |
 | BSM1 + Takács settler | Merged into BSM1 | `benchmarks/bsm1.py` | The default BSM1 configuration: layered settler, action [kla_34, kla_5, Q_w] |
 | Reject water management | ✅ Done | `benchmarks/reject_water.py` | Timing-dependent NH₄ return, 1D action |
@@ -197,7 +197,6 @@ Each environment should support at least two observation profiles:
 
 | Unit model | Module | Notes |
 |-----------|--------|-------|
-| Primary clarifier | `units/primary_clarifier.py` | Monod SLR-dependent removal, sludge inventory |
 | Dewatering (belt press) | `units/dewatering.py` | Polymer dose-response, belt speed trade-off |
 | Membrane filtration | `units/membrane.py` | Resistance-in-series, reversible + irreversible fouling |
 | Coagulation chemistry | `chemistry/coagulation.py` | Peaked dose-response with re-stabilisation |
