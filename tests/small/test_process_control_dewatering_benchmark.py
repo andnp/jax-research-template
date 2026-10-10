@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -190,3 +191,34 @@ class TestDewateringPolicyRanking:
         _, _, _, _, info = step_fn(state, jnp.array([dose, 0.5]), jax.random.PRNGKey(1))
 
         assert float(info["filtrate_tss"]) < config.filtrate_limit
+
+
+class TestDewateringPolymerDemand:
+    @staticmethod
+    def _filtrate(log_demand: float, dose_fraction: float) -> float:
+        config = DewateringConfig(polymer_demand_drift_scale=0.0)
+        reset_fn, step_fn = make_dewatering_benchmark(config)
+        state, _ = reset_fn(jax.random.PRNGKey(0))
+        state = replace(state, log_polymer_demand=jnp.array(log_demand))
+        _, _, _, _, info = step_fn(state, jnp.array([dose_fraction, 0.5]), jax.random.PRNGKey(1))
+        return float(info["filtrate_tss"])
+
+    def test_dose_optimum_scales_with_polymer_demand(self) -> None:
+        """A sludge that needs twice the polymer is underdosed by the dose that suits nominal sludge."""
+        nominal_optimum = 0.63
+        nominal = self._filtrate(0.0, nominal_optimum)
+        demanding_underdosed = self._filtrate(float(jnp.log(2.0)), nominal_optimum)
+        demanding_matched = self._filtrate(float(jnp.log(2.0)), 2 * nominal_optimum)
+
+        assert demanding_underdosed > 1.2 * nominal
+        assert abs(demanding_matched - nominal) < 0.05 * nominal
+
+    def test_demand_stays_within_its_bounds(self) -> None:
+        """The latent demand random walk is clipped so the optimum dose stays within a bounded range."""
+        config = DewateringConfig(polymer_demand_drift_scale=1.0)
+        _, _, steps = _rollout(config, (0.6, 0.5), 200)
+        demands = [float(info["polymer_demand"]) for _, _, info in steps]
+
+        bound = float(jnp.exp(config.polymer_demand_clip))
+        assert max(demands) <= bound + 1e-4
+        assert min(demands) >= 1 / bound - 1e-4
