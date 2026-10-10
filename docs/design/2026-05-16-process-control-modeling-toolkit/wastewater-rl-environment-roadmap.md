@@ -92,7 +92,7 @@ Standardized plant layouts + influent patterns + evaluation criteria:
 
 #### Reject Water Management
 - **Action**: 1D `[Q_reject]`
-- **Observation**: ~4D — reject water NH₄ load, main-plant NH₄, time-of-day, influent flow
+- **Observation**: 6D — main-plant NH₄ (sensed), reject tank level, time-of-day, main flow ratio, reject flow ratio, dQ_main/dt
 - **What's interesting**: High-NH₄ reject water from dewatering must be returned to plant headworks. Timing matters — returning during low-load periods avoids ammonia spikes.
 
 #### Dewatering Control
