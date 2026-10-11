@@ -9,10 +9,16 @@ from process_control.integration_records import CheckResult, check_result
 
 @dataclass(frozen=True)
 class ValidityRequirement:
-    """A group diagnostic that must be truthy for the group's outputs to be used downstream."""
+    """A group diagnostic that must be truthy for the group's outputs to be used downstream.
+
+    When it is not, a stage evaluation hands downstream groups `placeholder(outputs)`, domain-safe values
+    that keep their arithmetic finite while the failed stage is rejected; with none the outputs pass as
+    computed, which suits outputs that are already safe.
+    """
 
     group: str
     diagnostic: str
+    placeholder: Callable[[tuple[jax.Array, ...]], tuple[jax.Array, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -24,7 +30,8 @@ class IntegrationPolicy[S, P]:
     cross them, since the physics stays evaluable just beyond, but an accepted state may not. `witness`
     maps a state failing any other check to a domain-safe one evaluated in its place, solely so masked
     lanes stay finite. `modes` maps each persistent mode name to the input port that carries it.
-    `finite_rhs` asks for the post-derivative finiteness check. `events` are the node's surfaces that change `modes`.
+    `finite_rhs` checks this node's derivative at every stage; without it a nonfinite rate still fails the
+    whole-state finiteness check of the trial endpoint. `events` are the node's surfaces that change `modes`.
     """
 
     check_names: tuple[str, ...]
@@ -61,9 +68,9 @@ class IntegrationPolicy[S, P]:
 
 
 def legacy_policy[S, P]() -> IntegrationPolicy[S, P]:
-    """The policy of a unit with no declared numerical domain: no state checks and no modes."""
+    """The policy of a unit with no declared numerical domain: no state checks and no modes, only endpoint finiteness."""
 
     def no_checks(state: S, inputs: Mapping[str, jax.Array], params: P, modes: Mapping[str, jax.Array]) -> CheckResult:
         return check_result(())
 
-    return IntegrationPolicy((), no_checks)
+    return IntegrationPolicy((), no_checks, finite_rhs=False)

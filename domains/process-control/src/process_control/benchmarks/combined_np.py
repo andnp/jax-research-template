@@ -36,6 +36,7 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.chemistry.precipitation import PrecipitationParams, precipitate
+from process_control.integration_records import AdvanceStatus, first_failure, unless_failed
 from process_control.scenarios.diurnal_source import DiurnalSourceParams, DiurnalSourceState
 from process_control.scenarios.diurnal_source import reset as source_reset
 from process_control.scenarios.diurnal_source import step as source_step
@@ -256,7 +257,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         loaded_influent = influent.at[9].set(influent[9] * load).at[13].set(influent[13] * load)
         inf_with_carbon = loaded_influent.at[1].set(loaded_influent[1] + carbon_dose)
         anaerobic_inlet = mix(inf_with_carbon, q_in, return_sludge, q_ras)
-        new_anaerobic = reactor_step(
+        anaerobic = reactor_step(
             state.anaerobic_state,
             anaerobic_inlet,
             q_in + q_ras,
@@ -266,11 +267,12 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             config.asm2d,
             jnp.array(config.dt),
         )
+        new_anaerobic = anaerobic.state
 
         # 5. Anoxic zone: anaerobic effluent + internal nitrate recycle from
         # aerobic (A2O: the recycle carrying NO3/DO goes here, not anaerobic)
         anoxic_inlet = mix(new_anaerobic, q_in + q_ras, state.aerobic_state, q_recycle)
-        new_anoxic = reactor_step(
+        anoxic = reactor_step(
             state.anoxic_state,
             anoxic_inlet,
             q_in + q_ras + q_recycle,
@@ -280,10 +282,11 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             config.asm2d,
             jnp.array(config.dt),
         )
+        new_anoxic = anoxic.state
 
         # 6. Aerobic zone (with variable aeration); carries the internal
         # recycle flow, which splits off again at this outlet
-        new_aerobic = reactor_step(
+        aerobic = reactor_step(
             state.aerobic_state,
             new_anoxic,
             q_in + q_ras + q_recycle,
@@ -293,6 +296,8 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             config.asm2d,
             jnp.array(config.dt),
         )
+        new_aerobic = aerobic.state
+        status = first_failure(jnp.stack([anaerobic.status, anoxic.status, aerobic.status]))
 
         # 7. Simultaneous precipitation in the aerobic zone. fe_dose is mg Fe per
         # L of influent; alkalinity is consumed by all dosed Fe (hydrolysis),
@@ -337,7 +342,7 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
         )
         reward = -(cost + fines)
 
-        new_state = CombinedNPState(
+        advanced = CombinedNPState(
             step_count=state.step_count + 1,
             source_state=new_source,
             anaerobic_state=new_anaerobic,
@@ -349,6 +354,8 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             po4_ana_sensor=new_po4a_s,
             last_q_in=q_in,
         )
+        # A reactor that could not complete the step holds the whole plant: nothing advances by dt.
+        new_state = unless_failed(status, advanced, state)
         info: dict[str, jax.Array] = {
             "po4_eff": final_po4,
             "nh4_eff": eff_nh4,
@@ -361,8 +368,9 @@ def make_combined_np_benchmark(config: CombinedNPConfig):
             "fe_consumed": fe_consumed,
             "p_captured_kg": p_captured_kg,
             "q_in": q_in,
+            "integration_status": status,
         }
-        done = jnp.array(False)
+        done = status != AdvanceStatus.SUCCESS
         return new_state, obs, reward, done, info
 
     return reset, step

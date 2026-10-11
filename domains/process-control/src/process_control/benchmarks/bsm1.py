@@ -7,7 +7,8 @@ Each control handle of Table 15 is driven by the agent, by a PI controller on a 
 (whose setpoint may itself be an agent action), or held fixed. Sensors, controllers, actuators, the
 influent and the plant advance every control interval; the agent acts every `intervals_per_step`
 intervals. Times are in hours, flows in m³/h and kLa in h⁻¹ throughout, actions included; the
-performance indices in `info` keep the BSM1 per-day units.
+performance indices in `info` keep the BSM1 per-day units. An interval whose plant advance fails holds the
+whole benchmark state; `info["integration_status"]` reports the first failure and the episode terminates.
 
 The benchmark needs float64 (`jax_enable_x64`): in float32 the slow particulate states stop moving after
 weeks of simulated time. Observations and rewards are returned as float32.
@@ -44,6 +45,7 @@ from process_control.benchmarks.bsm1_metrics import (
 )
 from process_control.controllers import pi_controller
 from process_control.controllers.pi_controller import BSM1_NITRATE_CONTROLLER, BSM1_OXYGEN_CONTROLLER, PIControllerParams, PIControllerState
+from process_control.integration_records import AdvanceStatus, first_failure, unless_failed
 from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import (
     BSM1_LAYOUT,
@@ -363,6 +365,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
     require_float64()
     layout = config.layout
     flowsheet = activated_sludge_flowsheet(layout)
+    modes = flowsheet.initial_context({})
     influent_params = bsm1_influent(config.influent)
     space = action_space(config.handles)
     controls = config.handles.items()
@@ -488,7 +491,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         for name in HANDLES[len(KLA_HANDLES) :]:
             handles[name] = jnp.clip(commands[name], *HANDLE_LIMITS[name])
 
-        plant = flowsheet.step(state.plant, {"influent": plant_now.influent}, signals_of(handles, temperature), dt, config.substeps)
+        plant = flowsheet.advance(state.plant, {"influent": plant_now.influent}, signals_of(handles, temperature), dt, config.substeps, modes)
         observation_sensors: dict[str, SensorState] = {}
         readings = []
         for index, measure in enumerate(observation_measures):
@@ -511,9 +514,10 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "q_w": plant_now.handles["q_w"],
             "temperature": temperature,
             "split_deficit": plant_now.split_deficit,
+            "integration_status": plant.status,
         }
         advanced = BSM1State(
-            plant=_arrays(plant),
+            plant=_arrays(plant.state),
             influent=tabular_influent.advance(state.influent, influent_params, dt, rng_key),
             temperature_phase=state.temperature_phase,
             time=state.time + dt,
@@ -524,7 +528,8 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             controller_sensors=controller_sensors,
             observation_sensors=observation_sensors,
         )
-        return advanced, record
+        # A partial plant advance moves nothing, so influent, sensors and clocks never run a full interval ahead of the plant.
+        return unless_failed(plant.status, advanced, state), record
 
     def summarize(record: Mapping[str, jax.Array], start: BSM1State, end: BSM1State) -> dict[str, jax.Array]:
         params = layout.kinetics_params
@@ -558,6 +563,7 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
             "temperature": jnp.mean(record["temperature"]),
             "split_deficit": jnp.max(record["split_deficit"]),
             "infeasible_hydraulics": jnp.any(record["split_deficit"] > 0.0),
+            "integration_status": first_failure(record["integration_status"]),
         }
         info["operational_cost"] = operational_cost_index(
             info["aeration_energy"], info["pumping_energy"], sp=info["sludge_production"], ec=0.0, me=info["mixing_energy"]
@@ -588,7 +594,8 @@ def make_bsm1_benchmark(config: BSM1Config) -> tuple[ResetFn, StepFn]:
         end, record = jax.lax.scan(scan_interval, state, jax.random.split(rng_key, config.intervals_per_step))
         info = summarize(record, state, end)
         observation = (record["readings"][-1] / scales).astype(jnp.float32)
-        return end, observation, reward_of(info).astype(jnp.float32), jnp.array(False), info
+        failed = info["integration_status"] != AdvanceStatus.SUCCESS
+        return end, observation, reward_of(info).astype(jnp.float32), failed, info
 
     return reset, step
 

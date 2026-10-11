@@ -14,11 +14,12 @@ from process_control.chemistry.fast_closure import FastReactionClosure
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.events import Continuation
 from process_control.fields import LocalField, Phase, PortSpec, PrescribedContext, StreamField
-from process_control.flowsheet import Mixer, Node, Port, build_flowsheet
+from process_control.flowsheet import Mixer, Node, Port, advance_unit, build_flowsheet
+from process_control.integration_records import AdvanceStatus
 from process_control.inventory import HoldupState
 from process_control.kinetics import KineticSource
 from process_control.streams import Stream
-from process_control.units.contract import step_unit, unit_outlets
+from process_control.units.contract import unit_outlets
 from process_control.units.holdup import (
     CAPACITY_ACTIVE,
     DRAW_INTERLOCK,
@@ -165,7 +166,9 @@ class TestBalances:
         derivative = unit.derivatives(state, feed, signals, PLAIN_PARAMS)
         assert float(derivative.amount_coordinates[0]) == pytest.approx(-0.3 * 8.0)
 
-        final = step_unit(unit, state, feed, signals, PLAIN_PARAMS, jnp.asarray(1.0), 20)
+        result = advance_unit(unit, state, feed, signals, PLAIN_PARAMS, jnp.asarray(1.0), 20)
+        assert int(result.status) == AdvanceStatus.SUCCESS
+        final = result.state
         assert float(final.volume_m3) == pytest.approx(4.0 + 2.0)
         assert float(final.amount_coordinates[0]) == pytest.approx(8.0 * np.exp(-0.3), rel=1e-6)
         assert float(final.amount_coordinates[1]) == pytest.approx(2.0)

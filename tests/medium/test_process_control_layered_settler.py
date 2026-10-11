@@ -4,9 +4,11 @@ import jax
 import jax.numpy as jnp
 import pytest
 from process_control.fields import LocalField, Phase, PrescribedContext, StreamField
+from process_control.flowsheet import advance_unit
+from process_control.integration_records import AdvanceStatus
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA
-from process_control.units.contract import step_unit, unit_outlets
+from process_control.units.contract import unit_outlets
 from process_control.units.layered_settler import BSM1_SETTLER, LayeredSettler, ParticulateOutlets, SettlerParams
 
 # Alex et al. (2008) BSM1 open-loop steady state: reactor 5 (Table 6) feeds the settler.
@@ -44,16 +46,19 @@ def _inputs(underflow: float = UNDERFLOW) -> dict[str, jax.Array]:
 
 
 @jax.jit
-def _settle(state: jax.Array) -> jax.Array:
-    def hour(_: int, current: jax.Array) -> jax.Array:
-        return step_unit(SETTLER, current, _feed(), _inputs(), BSM1_SETTLER, jnp.array(1.0), 60)
+def _settle(state: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def hour(_: int, carry: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+        result = advance_unit(SETTLER, carry[0], _feed(), _inputs(), BSM1_SETTLER, jnp.array(1.0), 60)
+        return result.state, carry[1] & (result.status == AdvanceStatus.SUCCESS)
 
-    return jax.lax.fori_loop(0, 20 * 24, hour, state)
+    return jax.lax.fori_loop(0, 20 * 24, hour, (state, jnp.array(True)))
 
 
 @pytest.fixture(scope="module")
 def steady_state() -> jax.Array:
-    return _settle(jnp.tile(REACTOR_5, (BSM1_SETTLER.n_layers, 1)))
+    state, succeeded = _settle(jnp.tile(REACTOR_5, (BSM1_SETTLER.n_layers, 1)))
+    assert bool(succeeded)
+    return state
 
 
 class TestBSM1SteadyState:

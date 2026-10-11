@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import pytest
 from process_control.fields import Phase
 from process_control.flowsheet import FlowsheetReport
+from process_control.integration_records import AdvanceStatus
 from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import BSM1_LAYOUT, activated_sludge_flowsheet, bsm1_open_loop_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
@@ -73,13 +74,16 @@ def _signals() -> dict[str, jax.Array]:
 def _run(state: Mapping[str, object], days: float) -> Mapping[str, object]:
     steps = round(days * 24.0 / STEP_HOURS)
 
-    def step(_: int, current: Mapping[str, object]) -> Mapping[str, object]:
-        return FLOWSHEET.step(current, _inlets(), _signals(), jnp.array(STEP_HOURS), SUBSTEPS)
+    def step(_: int, carry: tuple[Mapping[str, object], jax.Array]) -> tuple[Mapping[str, object], jax.Array]:
+        result = FLOWSHEET.advance(carry[0], _inlets(), _signals(), jnp.array(STEP_HOURS), SUBSTEPS, FLOWSHEET.initial_context({}))
+        return result.state, carry[1] & (result.status == AdvanceStatus.SUCCESS)
 
-    def run(start: Mapping[str, object]) -> Mapping[str, object]:
-        return jax.lax.fori_loop(0, steps, step, start)
+    def run(start: Mapping[str, object]) -> tuple[Mapping[str, object], jax.Array]:
+        return jax.lax.fori_loop(0, steps, step, (start, jnp.array(True)))
 
-    return jax.jit(run)(state)
+    end, succeeded = jax.jit(run)(state)
+    assert bool(succeeded)
+    return end
 
 
 def _array(value: object) -> jax.Array:

@@ -7,11 +7,10 @@ import jax.numpy as jnp
 import pytest
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.fields import EvaluationGroup, GroupResult, LocalField, Phase, PortSpec, PrescribedContext, StreamField
-from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
+from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, advance_unit, build_flowsheet
 from process_control.integration_policy import IntegrationPolicy, ValidityRequirement, legacy_policy
-from process_control.integration_records import check_result
+from process_control.integration_records import AdvanceStatus, check_result
 from process_control.streams import Stream
-from process_control.units.contract import step_unit
 
 TRACER = ComponentBasis("g/m3", Quantity.PROXY, "tracer")
 
@@ -179,11 +178,14 @@ def _array(value: object) -> jax.Array:
     return value
 
 
-def _settle(plant: Flowsheet, inputs: dict[str, jax.Array]) -> Mapping[str, object]:
-    def advance(_: int, state: Mapping[str, object]) -> Mapping[str, object]:
-        return plant.step(state, _feed(), inputs, jnp.array(1.0), 10)
+def _settle(plant: Flowsheet, inputs: dict[str, jax.Array]) -> tuple[Mapping[str, object], jax.Array]:
+    """Settle for 100 h; also returns whether every hourly advance succeeded."""
 
-    return jax.lax.fori_loop(0, 100, advance, _empty_state())
+    def advance(_: int, carry: tuple[Mapping[str, object], jax.Array]) -> tuple[Mapping[str, object], jax.Array]:
+        result = plant.advance(carry[0], _feed(), inputs, jnp.array(1.0), 10, plant.initial_context({}))
+        return result.state, carry[1] & (result.status == AdvanceStatus.SUCCESS)
+
+    return jax.lax.fori_loop(0, 100, advance, (_empty_state(), jnp.array(True)))
 
 
 class TestRhsEvaluation:
@@ -231,8 +233,9 @@ class TestJointIntegration:
         """Stepping from empty tanks reaches the recycle steady state."""
         plant = _recycle_plant()
 
-        state = jax.jit(_settle, static_argnums=0)(plant, _inputs())
+        state, succeeded = jax.jit(_settle, static_argnums=0)(plant, _inputs())
 
+        assert bool(succeeded)
         expected = _steady_state()
         assert jnp.allclose(_array(state["t1"]), expected["t1"], rtol=1e-4)
         assert jnp.allclose(_array(state["t2"]), expected["t2"], rtol=1e-4)
@@ -252,13 +255,15 @@ class TestJointIntegration:
         plant = _recycle_plant()
         recycles = jnp.array([0.5, 2.0, 4.0])
 
-        def settle(recycle: jax.Array) -> Mapping[str, object]:
+        def settle(recycle: jax.Array) -> tuple[Mapping[str, object], jax.Array]:
             return _settle(plant, {**_inputs(), "q_recycle": recycle})
 
-        batched = _array(jax.jit(jax.vmap(settle))(recycles)["t2"])
+        states, succeeded = jax.jit(jax.vmap(settle))(recycles)
+        batched = _array(states["t2"])
 
+        assert bool(jnp.all(succeeded))
         assert batched.shape == (3, 1)
-        single = _array(_settle(plant, _inputs(4.0))["t2"])
+        single = _array(_settle(plant, _inputs(4.0))[0]["t2"])
         assert jnp.allclose(batched[2], single, rtol=1e-5)
 
     def test_rejects_state_for_the_wrong_nodes(self) -> None:
@@ -308,15 +313,16 @@ class TestFlowConservation:
 
 
 class TestStandaloneUnit:
-    def test_step_unit_follows_the_exponential_solution(self) -> None:
+    def test_advance_unit_follows_the_exponential_solution(self) -> None:
         """A single tank with a constant feed relaxes exponentially to Q c_in / (Q + k V)."""
         feed = {"in": _liquid(2.0, [4.0])}
         rate = 2.0 / TANK_PARAMS.volume + DECAY_RATE
         steady = 2.0 * 4.0 / (2.0 + DECAY_RATE * TANK_PARAMS.volume)
 
-        state = step_unit(DecayTank(), jnp.zeros(1), feed, {}, TANK_PARAMS, jnp.array(1.0), 20)
+        result = advance_unit(DecayTank(), jnp.zeros(1), feed, {}, TANK_PARAMS, jnp.array(1.0), 20)
 
-        assert jnp.allclose(state, steady * (1.0 - jnp.exp(-rate)), rtol=1e-5)
+        assert int(result.status) == AdvanceStatus.SUCCESS
+        assert jnp.allclose(result.state, steady * (1.0 - jnp.exp(-rate)), rtol=1e-5)
 
 
 class TestBuildValidation:

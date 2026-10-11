@@ -21,6 +21,7 @@ from process_control.benchmarks.bsm1 import (
 )
 from process_control.benchmarks.bsm1_metrics import evaluate
 from process_control.fields import Phase
+from process_control.integration_records import AdvanceStatus
 from process_control.kinetics import ZERO_CELSIUS
 from process_control.plants.activated_sludge import BSM1_LAYOUT, BSM1_OPEN_LOOP_REACTORS, activated_sludge_flowsheet, settled_state
 from process_control.scenarios.tabular_influent import bsm1_influent_profiles
@@ -186,13 +187,16 @@ class TestOpenLoop:
         uniform = jnp.tile(jnp.array([30.0, 5.0, 1000.0, 100.0, 2000.0, 100.0, 400.0, 1.0, 5.0, 5.0, 1.0, 5.0, 5.0]), (5, 1))
         start = settled_state(BSM1_LAYOUT, uniform, jnp.full(10, 1000.0))
 
-        def hour(_: int, state: Mapping[str, object]) -> Mapping[str, object]:
-            return flowsheet.step(state, inlets, signals, jnp.array(1.0), 240)
+        def hour(_: int, carry: tuple[Mapping[str, object], jax.Array]) -> tuple[Mapping[str, object], jax.Array]:
+            result = flowsheet.advance(carry[0], inlets, signals, jnp.array(1.0), 240, flowsheet.initial_context({}))
+            return result.state, carry[1] & (result.status == AdvanceStatus.SUCCESS)
 
-        def settle(state: Mapping[str, object]) -> Mapping[str, object]:
-            return jax.lax.fori_loop(0, 150 * 24, hour, state)
+        def settle(state: Mapping[str, object]) -> tuple[Mapping[str, object], jax.Array]:
+            return jax.lax.fori_loop(0, 150 * 24, hour, (state, jnp.array(True)))
 
-        end = jax.jit(settle)(start)
+        end, succeeded = jax.jit(settle)(start)
+
+        assert bool(succeeded)
 
         reactors = jnp.stack([_array(end[name]) for name in BSM1_LAYOUT.reactors])
         assert jnp.allclose(reactors, jnp.array(BSM1_OPEN_LOOP_REACTORS), rtol=0.002, atol=1e-4)

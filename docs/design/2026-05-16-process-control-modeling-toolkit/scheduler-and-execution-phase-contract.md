@@ -120,9 +120,9 @@ Plants built with `build_flowsheet` ([`flowsheet.py`](../../../domains/process-c
 1. **Flow pass.** Outlet flows are resolved for the whole graph in a static topological order built from each outlet's `flow_from` dependency set.
 2. **Composition pass.** Outlet compositions are then resolved the same way from `composition_from`.
 3. **Derivatives.** Every unit's `derivatives` is evaluated from the resolved inlet streams.
-4. **Joint RK4.** `Flowsheet.step` integrates all unit states together with `rk4_substeps`, projecting onto physical bounds after each substep, with external inlets and input signals held constant over `dt`.
+4. **Joint RK4.** `Flowsheet.advance` integrates all unit states together with the one guarded RK4 integrator, projecting onto physical bounds after each nominal substep, with external inlets and input signals held constant over `dt`; it returns an `AdvanceResult` whose status must be checked before its state is used.
 
-Recycles therefore carry no one-step lag. Algebraic loops in either pass are rejected when the flowsheet is built, in plain Python, so the compiled `step` is a fixed, jit- and vmap-able graph. Phase 5 for such a plant is a single `Flowsheet.step` call.
+Recycles therefore carry no one-step lag. Algebraic loops in either pass are rejected when the flowsheet is built, in plain Python, so the compiled `advance` is a fixed, jit- and vmap-able graph. Phase 5 for such a plant is a single `Flowsheet.advance` call.
 
 ### Control interval versus agent step
 

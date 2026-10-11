@@ -4,7 +4,6 @@ from typing import Protocol
 import jax
 
 from process_control.fields import EvaluationGroup, GroupResult, LocalField, PortSpec, StreamField
-from process_control.integration import rk4_substeps
 from process_control.streams import Stream
 
 
@@ -87,22 +86,3 @@ def unit_outlets[S, P](
         values.update(zip(group.outputs, result.values, strict=True))
     return outlet_streams(unit.outlet_ports, values)
 
-
-def step_unit[S, P](
-    unit: ContinuousUnit[S, P],
-    state: S,
-    inlets: Mapping[str, Stream],
-    inputs: Mapping[str, jax.Array],
-    params: P,
-    dt: jax.Array,
-    substeps: int,
-) -> S:
-    """Integrate one unit on its own, holding its inlets and inputs constant over dt."""
-
-    def derivatives(current: S) -> S:
-        return unit.derivatives(current, inlets, inputs, params)
-
-    def project(current: S) -> S:
-        return unit.project(current, params)
-
-    return rk4_substeps(derivatives, project, state, dt, substeps)

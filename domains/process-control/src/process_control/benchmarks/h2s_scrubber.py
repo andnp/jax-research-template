@@ -45,6 +45,8 @@ from process_control.actuators.dosing_system import (
 )
 from process_control.actuators.dosing_system import reset as dosing_reset
 from process_control.actuators.dosing_system import step as dosing_step
+from process_control.integration import PROJECTION
+from process_control.integration_records import AdvanceStatus, unless_failed
 from process_control.scenarios.gas_source import (
     GasSourceParams,
     GasSourceState,
@@ -59,6 +61,7 @@ from process_control.units.gas_liquid_contactor import (
     compute_removal,
 )
 from process_control.units.scrubber_sump import (
+    CLAMP_OVERFLOW,
     ScrubberSumpParams,
     ScrubberSumpState,
     SumpInputs,
@@ -474,9 +477,11 @@ def make_h2s_scrubber_benchmark(
             makeup_flow=makeup_pump,
             sulfide_load=contactor_result.sulfide_load,
         )
-        new_sump, sump_overflow = sump_step(
+        sump = sump_step(
             state.sump, sump_inputs, dynamic.sump, dt,
         )
+        new_sump = sump.state
+        sump_overflow = sump.quadratures[PROJECTION][CLAMP_OVERFLOW]
 
         # ── 6. Observation ────────────────────────────────────────
         obs = _build_obs(
@@ -504,7 +509,7 @@ def make_h2s_scrubber_benchmark(
         reward = -(eff_penalty + cost_w * opex)
 
         # ── 8. New state ──────────────────────────────────────────
-        new_state = H2SScrubberState(
+        advanced = H2SScrubberState(
             step_count=state.step_count + 1,
             gas_source=new_gas,
             sump=new_sump,
@@ -512,8 +517,10 @@ def make_h2s_scrubber_benchmark(
             bleach_loop=new_bleach,
             makeup_loop=new_makeup,
         )
+        # A sump that could not complete the step holds the whole plant: nothing advances by dt.
+        new_state = unless_failed(sump.status, advanced, state)
 
-        done = jnp.array(False)
+        done = sump.status != AdvanceStatus.SUCCESS
         info: dict[str, jax.Array] = {
             "removal_efficiency": contactor_result.removal_efficiency,
             "outlet_h2s_ppm": contactor_result.outlet_h2s_ppm,
@@ -530,6 +537,7 @@ def make_h2s_scrubber_benchmark(
             "bleach_pi": bleach_pi,
             "makeup_pi": makeup_pi,
             "sump_volume_overflow": sump_overflow,
+            "integration_status": sump.status,
             "opex": opex,
             "eff_penalty": eff_penalty,
         }

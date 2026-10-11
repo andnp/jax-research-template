@@ -33,7 +33,7 @@ Dynamic units follow the continuous-time contract of [ADR 015](../../adrs/015-co
 
 The flow and composition dependency sets are separate and name specific inlets. A constant-volume reactor passes its inlet flow straight through (`flow_from={"in"}`) while its composition comes from state (`composition_from=∅`), so it breaks composition loops. An outlet must not read an inlet it does not declare: the flowsheet evaluates it with placeholders there.
 
-Units no longer own their stepping. `step_unit` integrates one unit standalone with `rk4_substeps`; plants integrate all units jointly (see [scheduler](scheduler-and-execution-phase-contract.md), phase 5). Units not yet migrated, such as the other benchmarks' units, keep their sequential `step`-style contract until moved.
+Units no longer own their stepping. `advance_unit` integrates one unit standalone with the guarded integrator (`integration.advance`); plants integrate all units jointly (see [scheduler](scheduler-and-execution-phase-contract.md), phase 5). Units not yet migrated, such as the other benchmarks' units, keep their sequential `step`-style contract until moved.
 
 ## Recommended first-generation unit types
 

@@ -8,12 +8,13 @@ from process_control.benchmarks.bsm1 import BSM1Config
 from process_control.binding import NamedAccess, Requirement
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.fields import Phase, PrescribedContext
-from process_control.flowsheet import Node, Port, build_flowsheet
+from process_control.flowsheet import Node, Port, advance_unit, build_flowsheet
+from process_control.integration_records import AdvanceResult, AdvanceStatus
 from process_control.kinetics import KineticSource
 from process_control.plants.activated_sludge import BSM1_LAYOUT
 from process_control.streams import Stream
 from process_control.units.asm1 import ASM1_SCHEMA, ASM1Kinetics, ASM1Params, bsm1_oxygen_saturation
-from process_control.units.contract import step_unit, unit_outlets
+from process_control.units.contract import unit_outlets
 from process_control.units.exchange import OXYGEN_BASIS, ExchangeSource, OxygenExchange, OxygenExchangeParams
 from process_control.units.reactive_cstr import ReactiveCSTR, ReactiveCSTRParams, nonnegative
 
@@ -91,6 +92,11 @@ def _array(value: object) -> jax.Array:
     return value
 
 
+
+def _advanced(result: AdvanceResult[jax.Array]) -> jax.Array:
+    assert int(result.status) == AdvanceStatus.SUCCESS
+    return result.state
+
 class TestTransport:
     def test_dilution_drives_the_state_toward_the_feed(self) -> None:
         """Without reactions or aeration the state moves toward the feed at rate Q/V."""
@@ -114,7 +120,7 @@ class TestTransport:
         reactor = ReactiveCSTR(SIGNED_SCHEMA, temperature_input=False, context=CONTEXT)
         feed = _feed(25.0, jnp.array([0.0, -3.0]), SIGNED_SCHEMA)
 
-        state = step_unit(reactor, jnp.array([1.0, -1.0]), feed, {}, INERT_PARAMS, jnp.array(2.0), 40)
+        state = _advanced(advance_unit(reactor, jnp.array([1.0, -1.0]), feed, {"temperature_k": jnp.array(288.15)}, INERT_PARAMS, jnp.array(2.0), 40))
 
         decay = jnp.exp(-25.0 / 100.0 * 2.0)
         assert jnp.allclose(reactor.project(jnp.array([1.0, -1.0]), INERT_PARAMS), jnp.array([1.0, -1.0]))
@@ -296,28 +302,30 @@ class TestASM1Conservation:
 class TestStandaloneIntegration:
     def test_washout_follows_the_exponential_solution(self) -> None:
         """A tracer step relaxes as c_in (1 − e^(−Qt/V)) and unaerated oxygen is washed out by oxygen-free feed."""
-        state = step_unit(INERT, jnp.array([0.0, 4.0]), _feed(25.0, jnp.array([8.0, 0.0])), _signals(0.0), INERT_PARAMS, jnp.array(2.0), 40)
+        state = _advanced(advance_unit(INERT, jnp.array([0.0, 4.0]), _feed(25.0, jnp.array([8.0, 0.0])), _signals(0.0), INERT_PARAMS, jnp.array(2.0), 40))
 
         decay = jnp.exp(-25.0 / 100.0 * 2.0)
         assert jnp.allclose(state, jnp.array([8.0 * (1.0 - decay), 4.0 * decay]), rtol=1e-5)
 
     def test_aeration_without_flow_approaches_saturation(self) -> None:
         """A closed aerated tank fills with oxygen as S_O,sat (1 − e^(−kLa t))."""
-        state = step_unit(INERT, jnp.zeros(2), _feed(0.0, jnp.zeros(2)), _signals(1.5), INERT_PARAMS, jnp.array(1.0), 40)
+        state = _advanced(advance_unit(INERT, jnp.zeros(2), _feed(0.0, jnp.zeros(2)), _signals(1.5), INERT_PARAMS, jnp.array(1.0), 40))
 
         assert jnp.allclose(state[1], SATURATION * (1.0 - jnp.exp(-1.5)), rtol=1e-5)
 
     def test_vmap_over_kla(self) -> None:
         """A batch of aeration rates integrates in one jitted call, each matching its unbatched run."""
 
-        def aerate(kla: jax.Array) -> jax.Array:
-            return step_unit(INERT, jnp.zeros(2), _feed(0.0, jnp.zeros(2)), _signals(kla), INERT_PARAMS, jnp.array(1.0), 40)
+        def aerate(kla: jax.Array) -> AdvanceResult[jax.Array]:
+            return advance_unit(INERT, jnp.zeros(2), _feed(0.0, jnp.zeros(2)), _signals(kla), INERT_PARAMS, jnp.array(1.0), 40)
 
-        batched = jax.jit(jax.vmap(aerate))(jnp.array([0.0, 1.5, 3.0]))
+        results = jax.jit(jax.vmap(aerate))(jnp.array([0.0, 1.5, 3.0]))
+        batched = results.state
 
+        assert bool(jnp.all(results.status == AdvanceStatus.SUCCESS))
         assert batched.shape == (3, 2)
         assert jnp.allclose(batched[0], 0.0)
-        assert jnp.allclose(batched[1], aerate(jnp.array(1.5)), rtol=1e-6)
+        assert jnp.allclose(batched[1], _advanced(aerate(jnp.array(1.5))), rtol=1e-6)
 
 
 class TestFlowsheet:

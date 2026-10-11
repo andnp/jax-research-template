@@ -5,7 +5,10 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 import pytest
+from process_control.integration import PROJECTION
+from process_control.integration_records import AdvanceResult, AdvanceStatus
 from process_control.units.scrubber_sump import (
+    CLAMP_OVERFLOW,
     ScrubberSumpParams,
     ScrubberSumpState,
     SumpInputs,
@@ -16,6 +19,11 @@ from process_control.units.scrubber_sump import (
 )
 
 
+def _accepted(result: AdvanceResult[ScrubberSumpState]) -> ScrubberSumpState:
+    assert int(result.status) == AdvanceStatus.SUCCESS
+    return result.state
+
+
 @jax.jit
 def _scan(
     state: ScrubberSumpState,
@@ -23,20 +31,23 @@ def _scan(
     params: ScrubberSumpParams,
     dt: jax.Array,
     n_steps: jax.Array | int,
-) -> ScrubberSumpState:
+) -> tuple[ScrubberSumpState, jax.Array]:
     inputs = SumpInputs(*flows)
 
-    def body(_step: jax.Array, state: ScrubberSumpState) -> ScrubberSumpState:
-        return step(state, inputs, params, dt)[0]
+    def body(_step: jax.Array, carry: tuple[ScrubberSumpState, jax.Array]) -> tuple[ScrubberSumpState, jax.Array]:
+        result = step(carry[0], inputs, params, dt)
+        return result.state, carry[1] | (result.status != AdvanceStatus.SUCCESS)
 
-    return jax.lax.fori_loop(0, n_steps, body, state)
+    return jax.lax.fori_loop(0, n_steps, body, (state, jnp.array(False)))
 
 
 def _run(
     state: ScrubberSumpState, inputs: SumpInputs, params: ScrubberSumpParams, dt: jax.Array, n_steps: int
 ) -> ScrubberSumpState:
     flows = (inputs.bleach_flow, inputs.caustic_flow, inputs.makeup_flow, inputs.sulfide_load)
-    return _scan(state, flows, params, dt, n_steps)
+    final, failed = _scan(state, flows, params, dt, n_steps)
+    assert not bool(failed)
+    return final
 
 
 @pytest.fixture
@@ -106,7 +117,7 @@ def test_bleach_raises_oxidant(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(10):
-        state, _ = step(state, dosing_inputs, params, dt)
+        state = _accepted(step(state, dosing_inputs, params, dt))
 
     assert state.oxidant > 1.0, "Bleach should raise oxidant"
 
@@ -124,7 +135,7 @@ def test_caustic_raises_alkalinity(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(10):
-        state, _ = step(state, dosing_inputs, params, dt)
+        state = _accepted(step(state, dosing_inputs, params, dt))
 
     assert state.alkalinity > 1.0, "Caustic should raise alkalinity"
 
@@ -142,7 +153,7 @@ def test_sulfide_load_increases_sulfide(params: ScrubberSumpParams, rng: jax.Arr
     )
 
     for _ in range(10):
-        state, _ = step(state, loading_inputs, params, dt)
+        state = _accepted(step(state, loading_inputs, params, dt))
 
     assert state.sulfide > 0.1, "Sulfide load should increase dissolved sulfide"
 
@@ -161,8 +172,8 @@ def test_stripping_throttled_at_high_ph(params: ScrubberSumpParams, rng: jax.Arr
     low_ph_state = ScrubberSumpState.create(sulfide=5.0, alkalinity=0.0, oxidant=0.0)
     high_ph_state = ScrubberSumpState.create(sulfide=5.0, alkalinity=50.0, oxidant=0.0)
     for _ in range(20):
-        low_ph_state, _ = step(low_ph_state, zero, no_oxidation, dt)
-        high_ph_state, _ = step(high_ph_state, zero, no_oxidation, dt)
+        low_ph_state = _accepted(step(low_ph_state, zero, no_oxidation, dt))
+        high_ph_state = _accepted(step(high_ph_state, zero, no_oxidation, dt))
 
     assert low_ph_state.sulfide < high_ph_state.sulfide, (
         "Low-pH (more un-ionized H2S) sulfide should strip out faster than high-pH sulfide"
@@ -182,8 +193,8 @@ def test_oxidation_consumes_alkalinity_independent_of_absorption(params: Scrubbe
     oxidizing = ScrubberSumpState.create(oxidant=10.0, sulfide=5.0, alkalinity=10.0)
     not_oxidizing = ScrubberSumpState.create(oxidant=0.0, sulfide=5.0, alkalinity=10.0)
     for _ in range(20):
-        oxidizing, _ = step(oxidizing, zero_load, params, dt)
-        not_oxidizing, _ = step(not_oxidizing, zero_load, params, dt)
+        oxidizing = _accepted(step(oxidizing, zero_load, params, dt))
+        not_oxidizing = _accepted(step(not_oxidizing, zero_load, params, dt))
 
     assert oxidizing.alkalinity < not_oxidizing.alkalinity, (
         "Active oxidation must consume more alkalinity than absorption alone"
@@ -203,7 +214,7 @@ def test_oxidant_consumes_sulfide(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     for _ in range(50):
-        state, _ = step(state, zero, params, dt)
+        state = _accepted(step(state, zero, params, dt))
 
     assert state.sulfide < 5.0, "Oxidation should consume sulfide"
     assert state.oxidant < 10.0, "Oxidation should consume oxidant"
@@ -222,7 +233,7 @@ def test_makeup_dilutes_concentrations(params: ScrubberSumpParams, rng: jax.Arra
     )
 
     for _ in range(20):
-        state, _ = step(state, makeup_inputs, params, dt)
+        state = _accepted(step(state, makeup_inputs, params, dt))
 
     # All concentrations should decrease due to dilution
     assert state.oxidant < 10.0, "Makeup should dilute oxidant"
@@ -246,17 +257,17 @@ def test_volume_overflow(params: ScrubberSumpParams, rng: jax.Array):
     # Volume should stay near max, not grow to infinity
     assert state.volume <= params.volume_max * 1.5 + 0.1
 
-    _, overflow = step(
+    overflow = step(
         ScrubberSumpState.create(volume=params.volume_max * 1.5), high_makeup, params, dt,
-    )
+    ).quadratures[PROJECTION][CLAMP_OVERFLOW]
     assert overflow > 0.0
 
-    _, no_overflow = step(
+    no_overflow = step(
         ScrubberSumpState.create(volume=params.volume_max), SumpInputs(
             bleach_flow=jnp.array(0.0), caustic_flow=jnp.array(0.0),
             makeup_flow=jnp.array(0.0), sulfide_load=jnp.array(0.0),
         ), params, dt,
-    )
+    ).quadratures[PROJECTION][CLAMP_OVERFLOW]
     assert no_overflow == 0.0
 
 
@@ -292,8 +303,8 @@ def test_more_substeps_refines_without_changing_a_well_behaved_answer(
     dt = jnp.array(1.0 / 12.0)
     initial = reset(rng, params)
 
-    coarse, _ = step(initial, inputs, params, dt, substeps=1)
-    fine, _ = step(initial, inputs, params, dt, substeps=50)
+    coarse = _accepted(step(initial, inputs, params, dt, substeps=1))
+    fine = _accepted(step(initial, inputs, params, dt, substeps=50))
 
     assert jnp.allclose(coarse.alkalinity, fine.alkalinity, atol=1e-2)
     # oxidant_sulfide_rate's corrected (sulfate-route) value makes oxidant
@@ -384,10 +395,9 @@ def test_jit_compatible(params: ScrubberSumpParams, rng: jax.Array):
     )
 
     def step_fn(s: ScrubberSumpState):
-        return step(s, inputs, params, dt)[0]
+        return step(s, inputs, params, dt)
 
-    jit_step = jax.jit(step_fn)
-    result = jit_step(state)
+    result = _accepted(jax.jit(step_fn)(state))
 
     # Should produce valid output
     assert jnp.isfinite(result.oxidant)

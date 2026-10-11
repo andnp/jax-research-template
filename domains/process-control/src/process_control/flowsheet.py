@@ -1,11 +1,13 @@
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
+from process_control.event_registry import compile_registry
+from process_control.events import EventPoint
 from process_control.field_graph import CompiledGroups, External, GroupId, Source, compile_groups
 from process_control.fields import (
     CONTEXT_TEMPERATURE,
@@ -18,9 +20,11 @@ from process_control.fields import (
     StreamField,
     validate_groups,
 )
-from process_control.integration import rk4_substeps
+from process_control.integration import DEFAULT_BUDGET, NONFINITE_STATE, PROJECTION, AdvanceBudget, GuardedSystem, StageResult, StateCheck, state_check
+from process_control.integration import advance as advance_system
 from process_control.integration_policy import IntegrationPolicy, legacy_policy
-from process_control.integration_records import IntegrationContext
+from process_control.integration_records import AdvanceResult, IntegrationContext, check_result, nonfinite_check
+from process_control.ledger import LedgerSpec
 from process_control.streams import Stream, mix_components
 from process_control.units.contract import ContinuousUnit, evaluate, outlet_streams
 
@@ -178,6 +182,13 @@ class Splitter:
         return {name: jnp.maximum(inputs[name], 0.0) for name in self.draws}
 
 
+def _select[T](condition: jax.Array, on_true: T, on_false: T) -> T:
+    def pick(a: jax.Array, b: jax.Array) -> jax.Array:
+        return jnp.where(condition, a, b)
+
+    return jax.tree.map(pick, on_true, on_false)
+
+
 def _total(flows: Iterable[jax.Array]) -> jax.Array:
     return sum(flows, jnp.zeros(()))
 
@@ -231,14 +242,19 @@ class Flowsheet:
     routes: Mapping[str, Mapping[str, str]]
     groups: Mapping[GroupId, EvaluationGroup]
     plan: CompiledGroups
+    ledgers: tuple[LedgerSpec[Mapping[str, object], "RhsEvaluation"], ...] = ()
 
     @property
     def stateful_nodes(self) -> tuple[str, ...]:
         return tuple(name for name, node in self.nodes.items() if node.unit.stateful)
 
     def evaluate_rhs(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> RhsEvaluation:
-        """Resolve once at `state` and return the derivative with the streams and diagnostics it was computed from."""
-        streams, diagnostics = self._resolve(state, inlets, inputs)
+        """Resolve once at `state` and return the derivative with the streams and diagnostics it was computed from.
+
+        A group failing a declared validity requirement hands downstream groups its declared placeholder
+        outputs instead of its own, so invalid constitutive results never feed further physics.
+        """
+        streams, diagnostics = self._resolve(state, inlets, inputs, gated=True)
         derivative = {
             name: self.nodes[name].unit.derivatives(
                 state[name], self._inlets_of(name, streams, inlets), self._inputs_of(name, inputs), self.nodes[name].params
@@ -264,16 +280,36 @@ class Flowsheet:
     def project(self, state: Mapping[str, object]) -> Mapping[str, object]:
         return {name: self.nodes[name].unit.project(state[name], self.nodes[name].params) for name in self.stateful_nodes}
 
-    def step(
+    @property
+    def check_names(self) -> tuple[str, ...]:
+        """Every guard flag in reason-id order (reason i names entry i - 1): state checks first, then post-evaluation checks."""
+        pre = (NONFINITE_STATE, *(f"{name}.{check}" for name, node in self.nodes.items() for check in node.policy.check_names))
+        finite = tuple(f"{name}.finite_rhs" for name in self.stateful_nodes if self.nodes[name].policy.finite_rhs)
+        validity = tuple(f"{name}.{req.group}.{req.diagnostic}" for name, node in self.nodes.items() for req in node.policy.validity)
+        return (*pre, *finite, *validity)
+
+    def advance(
         self,
         state: Mapping[str, object],
         inlets: Mapping[str, Stream],
         inputs: Signals,
-        dt: jax.Array,
+        dt: jax.Array | float,
         substeps: int,
-    ) -> Mapping[str, object]:
-        """Integrate the whole plant over dt, holding external inlets and input signals constant."""
-        return rk4_substeps(self.derivatives, self.project, state, dt, substeps, inlets, inputs)
+        context: IntegrationContext,
+        budget: AdvanceBudget = DEFAULT_BUDGET,
+    ) -> AdvanceResult[Mapping[str, object]]:
+        """Advance the whole plant over dt with the guarded integrator, holding external inlets and input signals constant.
+
+        `context` carries the persistent modes, which reach their units' input ports and stay frozen within
+        each smooth segment; pass the returned context to the next call. `report` and `derivatives` read
+        the same modes when given `inputs | context.modes`.
+        """
+        if set(context.modes) != set(self.mode_ports):
+            raise ValueError(f"context must hold exactly the modes {sorted(self.mode_ports)}, got {sorted(context.modes)}")
+        clash = sorted(set(inputs) & set(self.mode_ports))
+        if clash:
+            raise ValueError(f"signals {clash} collide with persistent modes")
+        return advance_system(self._guarded_system(inlets, inputs), state, context, dt, substeps, budget)
 
     def report(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> FlowsheetReport:
         streams, diagnostics = self._resolve(state, inlets, inputs)
@@ -285,7 +321,7 @@ class Flowsheet:
         )
 
     def _resolve(
-        self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals
+        self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals, gated: bool = False
     ) -> tuple[dict[Port, Stream], dict[tuple[str, str], jax.Array]]:
         if set(state) != set(self.stateful_nodes):
             raise ValueError(f"plant state must hold exactly the nodes {sorted(self.stateful_nodes)}, got {sorted(state)}")
@@ -308,7 +344,12 @@ class Flowsheet:
             }
             group_inputs = {name: inputs[self.routes[gid.node][name]] for name in group.input_names}
             result = evaluate(node.unit, group, state.get(gid.node), reads, group_inputs, node.params)
-            values[gid.node].update(zip(group.outputs, result.values, strict=True))
+            outputs = result.values
+            for requirement in node.policy.validity if gated else ():
+                if requirement.group == group.name and requirement.placeholder is not None:
+                    valid = jnp.all(result.diagnostics[group.diagnostic_names.index(requirement.diagnostic)] != 0)
+                    outputs = tuple(jnp.where(valid, value, safe) for value, safe in zip(outputs, requirement.placeholder(outputs), strict=True))
+            values[gid.node].update(zip(group.outputs, outputs, strict=True))
             diagnostics.update(((gid.node, name), value) for name, value in zip(group.diagnostic_names, result.diagnostics, strict=True))
 
         streams = {
@@ -335,19 +376,133 @@ class Flowsheet:
     def _inputs_of(self, name: str, inputs: Signals) -> dict[str, jax.Array]:
         return {port: inputs[signal] for port, signal in self.routes[name].items()}
 
+    def _guarded_system(self, inlets: Mapping[str, Stream], inputs: Signals) -> GuardedSystem[Mapping[str, object]]:
+        """The plant as the integrator sees it: node checks in fixed order, witnesses for failing nodes, gated stages, ledgers and events."""
+        registry = compile_registry({name: node.policy for name, node in self.nodes.items()})
+        pre_mask = (False, *(check in node.policy.continuation for node in self.nodes.values() for check in node.policy.check_names))
+        stage_mask = pre_mask + (False,) * (len(self.check_names) - len(pre_mask))
+        stage_reads = {name: tuple(read for event in node.policy.events for read in event.stage_reads) for name, node in self.nodes.items()}
+
+        def signals(context: IntegrationContext) -> dict[str, jax.Array]:
+            return {**inputs, **context.modes}
+
+        def check(state: Mapping[str, object], context: IntegrationContext) -> StateCheck:
+            flags, _ = self._state_flags(state, signals(context), context)
+            return state_check(check_result((nonfinite_check({NONFINITE_STATE: state}).failed[0], *flags)), pre_mask)
+
+        def stage(state: Mapping[str, object], context: IntegrationContext) -> StageResult[Mapping[str, object]]:
+            # Whole-state finiteness is left to the trial endpoint, which any nonfinite stage poisons.
+            current = signals(context)
+            flags, failed = self._state_flags(state, current, context)
+            flags = (jnp.zeros((), bool), *flags)
+            safe = self._sanitize(state, failed)
+            evaluation = self.evaluate_rhs(safe, inlets, current)
+            rates = {ledger.name: ledger.evaluate(safe, evaluation, current, context) for ledger in self.ledgers}
+            return StageResult(evaluation.derivative, rates, state_check(check_result((*flags, *self._evaluation_flags(evaluation))), stage_mask))
+
+        def surfaces(state: Mapping[str, object], context: IntegrationContext) -> jax.Array:
+            current = signals(context)
+            safe = self._sanitize(state, self._state_flags(state, current, context)[1])
+            fields: dict[str, dict[LocalField, jax.Array]] = {name: {} for name in self.nodes}
+            if any(stage_reads.values()):
+                streams, _ = self._resolve(safe, inlets, current, gated=True)
+                for name, reads in stage_reads.items():
+                    resolved = self._inlets_of(name, streams, inlets) if reads else {}
+                    fields[name] = {read: resolved[read.port].value(read.field) for read in reads}
+            point = EventPoint(
+                state={name: safe.get(name) for name in self.nodes},
+                params={name: node.params for name, node in self.nodes.items()},
+                context=context,
+                inputs={name: self._inputs_of(name, current) for name in self.nodes},
+                fields=fields,
+            )
+            return registry.surfaces(point)
+
+        return GuardedSystem(stage, check, self.project, registry, surfaces if registry.events else None)
+
+    def _state_flags(
+        self, state: Mapping[str, object], signals: Signals, context: IntegrationContext
+    ) -> tuple[tuple[jax.Array, ...], dict[str, jax.Array]]:
+        """Every node's declared checks in node order, and which nodes fail a hard check."""
+        flags: list[jax.Array] = []
+        failed: dict[str, jax.Array] = {}
+        for name, node in self.nodes.items():
+            policy = node.policy
+            if not policy.check_names:
+                continue
+            modes = {mode: context.modes[f"{name}.{mode}"] for mode in policy.modes}
+            result = policy.check(state.get(name), self._inputs_of(name, signals), node.params, modes)
+            hard = jnp.asarray([check not in policy.continuation for check in policy.check_names], dtype=bool)
+            flags.extend(result.failed)
+            failed[name] = jnp.any(result.failed & hard)
+        return tuple(flags), failed
+
+    def _sanitize(self, state: Mapping[str, object], failed: Mapping[str, jax.Array]) -> dict[str, object]:
+        """Swap each hard-failing node's state for its policy's witness, so masked lanes never evaluate outside the domain."""
+        safe = dict(state)
+        for name, flag in failed.items():
+            witness = self.nodes[name].policy.witness
+            if witness is None or name not in safe:
+                continue
+            safe[name] = _select(flag, witness(safe[name], self.nodes[name].params), safe[name])
+        return safe
+
+    def _evaluation_flags(self, evaluation: RhsEvaluation) -> tuple[jax.Array, ...]:
+        finite = (
+            nonfinite_check({name: evaluation.derivative[name]}).failed[0] for name in self.stateful_nodes if self.nodes[name].policy.finite_rhs
+        )
+        validity = (
+            ~jnp.all(evaluation.diagnostics[(name, req.diagnostic)] != 0) for name, node in self.nodes.items() for req in node.policy.validity
+        )
+        return (*finite, *validity)
+
+
+UNIT = "unit"
+
+
+def advance_unit[S, P](
+    unit: ContinuousUnit[S, P],
+    state: S,
+    inlets: Mapping[str, Stream],
+    inputs: Signals,
+    params: P,
+    dt: jax.Array | float,
+    substeps: int,
+    policy: IntegrationPolicy[S, P] | None = None,
+    budget: AdvanceBudget = DEFAULT_BUDGET,
+) -> AdvanceResult[S]:
+    """Advance one unit on its own with the guarded integrator, holding its inlets and inputs constant over dt.
+
+    The unit runs as a one-node plant whose inlets and outlets are all external, so it is the same
+    algorithm as a flowsheet advance. A policy declaring modes needs a flowsheet to carry them.
+    """
+    node = Node(unit, params, policy=policy if policy is not None else legacy_policy())
+    plant = build_flowsheet(
+        {UNIT: node}, [], {port: Port(UNIT, port) for port in unit.inlet_ports}, {port: Port(UNIT, port) for port in unit.outlet_ports}
+    )
+    result = plant.advance({UNIT: state}, inlets, inputs, dt, substeps, plant.initial_context({}), budget)
+    # The plant state erases node types; its only node holds this unit's S.
+    unit_state = cast(S, result.state[UNIT])
+    return AdvanceResult(unit_state, result.completed_time_h, result.status, result.quadratures, result.context, result.checks)
+
 
 def build_flowsheet(
     nodes: Mapping[str, Node],
     connections: Sequence[tuple[Port, Port]],
     inlets: Mapping[str, Port],
     outlets: Mapping[str, Port],
+    ledgers: Sequence[LedgerSpec[Mapping[str, object], RhsEvaluation]] = (),
 ) -> Flowsheet:
     """Validate a plant graph and compile the dependency order of its evaluation groups.
 
     `connections` are (outlet, inlet) pairs; `inlets` and `outlets` name the external streams and the
     node ports they feed or leave from. Every node inlet must be fed once and every node outlet consumed
-    once, so the graph conserves flow. Connected ports must agree on schema and phase.
+    once, so the graph conserves flow. Connected ports must agree on schema and phase. `ledgers` declare
+    the plant-level rates whose accepted quadratures an advance returns, keyed by ledger name.
     """
+    names = [ledger.name for ledger in ledgers]
+    if len(set(names)) != len(names) or PROJECTION in names:
+        raise ValueError(f"ledger names must be unique and not {PROJECTION!r}: {names}")
     routes = {name: _route(name, node) for name, node in nodes.items()}
     for name, node in nodes.items():
         _check_groups(name, node)
@@ -384,14 +539,17 @@ def build_flowsheet(
         routes=routes,
         groups=groups,
         plan=plan,
+        ledgers=tuple(ledgers),
     )
 
 
 def _route(name: str, node: Node) -> dict[str, str]:
+    """Each input port's plant signal; a mode-owned port reads its `node.mode` context entry instead."""
     unknown = set(node.inputs) - set(node.unit.input_ports)
     if unknown:
         raise ValueError(f"node {name!r} has no input ports {sorted(unknown)}; it has {list(node.unit.input_ports)}")
-    return {port: node.inputs.get(port, port) for port in node.unit.input_ports}
+    modes = {port: f"{name}.{mode}" for mode, port in node.policy.modes.items()}
+    return {port: modes.get(port, node.inputs.get(port, port)) for port in node.unit.input_ports}
 
 
 def _check_groups(name: str, node: Node) -> None:
@@ -419,6 +577,10 @@ def _check_policy(name: str, node: Node) -> None:
             raise ValueError(f"node {name!r}: mode {mode!r} names input port {port!r}; the unit has {list(unit.input_ports)}")
         if port in node.inputs:
             raise ValueError(f"node {name!r}: mode {mode!r} owns input port {port!r}, which is also routed to signal {node.inputs[port]!r}")
+    for event in policy.events:
+        foreign = [str(read) for read in event.stage_reads if read.port not in unit.inlet_ports]
+        if foreign:
+            raise ValueError(f"node {name!r}: event {event.name!r} reads {foreign}, which are not inlet fields")
 
 
 def _check_compatible(source: Port, carried: PortSpec, target: Port, expected: PortSpec) -> None:

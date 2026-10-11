@@ -74,12 +74,28 @@ class AdvanceChecks:
 
 
 @jax_dataclass
-class AdvanceResult:
+class AdvanceResult[S]:
     """Outcome of an advance: the last accepted state and how far it got, never a rejected trial."""
 
-    state: Mapping[str, object]
+    state: S
     completed_time_h: jax.Array
     status: jax.Array
-    quadratures: Mapping[str, object]
+    quadratures: Mapping[str, Mapping[str, jax.Array]]
     context: IntegrationContext
     checks: AdvanceChecks
+
+
+def first_failure(statuses: jax.Array) -> jax.Array:
+    """The first non-success status along the last axis, or SUCCESS when every advance succeeded."""
+    failing = statuses != AdvanceStatus.SUCCESS
+    first = jnp.take_along_axis(statuses, jnp.argmax(failing, axis=-1)[..., None], axis=-1)[..., 0]
+    return jnp.where(jnp.any(failing, axis=-1), first, AdvanceStatus.SUCCESS).astype(statuses.dtype)
+
+
+def unless_failed[T](status: jax.Array, advanced: T, previous: T) -> T:
+    """`advanced` when the advance succeeded, else `previous`: a partial advance must not move anything by the full step."""
+
+    def pick(new: jax.Array, old: jax.Array) -> jax.Array:
+        return jnp.where(status == AdvanceStatus.SUCCESS, new, old)
+
+    return jax.tree.map(pick, advanced, previous)

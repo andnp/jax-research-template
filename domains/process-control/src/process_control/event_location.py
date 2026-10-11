@@ -111,7 +111,7 @@ def locate_crossing(
 
         return jax.lax.cond(active, bisect, hold, None)
 
-    start = (jnp.zeros(()), upper_h, surface_start, upper_g, jnp.zeros((), bool), jnp.zeros((), jnp.int32))
+    start = (jnp.zeros_like(h_max), upper_h, surface_start, upper_g, jnp.zeros((), bool), jnp.zeros((), jnp.int32))
     lower_h, upper_h, lower_g, upper_g, failed, iterations = jax.lax.fori_loop(0, max_iterations, refine, start)
 
     status = jnp.select(
@@ -159,7 +159,7 @@ def _admissible_upper(trial: Callable[[jax.Array], Trial], h_max: jax.Array, max
 
         return jax.lax.cond(found, keep, probe, None)
 
-    start = (h_max, jnp.zeros(()), jnp.zeros((), bool))
+    start = (h_max, jnp.zeros_like(h_max), jnp.zeros((), bool))
     return jax.lax.fori_loop(0, max_halvings + 1, halve, start)
 
 

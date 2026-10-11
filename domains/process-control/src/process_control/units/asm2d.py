@@ -45,7 +45,8 @@ import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
 from process_control.binding import Binding
-from process_control.integration import rk4_substeps
+from process_control.integration import advance_ode
+from process_control.integration_records import AdvanceResult
 from process_control.units.asm1 import ASM1_ACCESS, ASM1_SCHEMA, ASM1Params, asm1_reaction_rates
 
 N_COMPONENTS_ASM2D = 17
@@ -93,20 +94,21 @@ def reactor_step(
     s_o_sat: float,
     params: "ASM2dParams",
     dt: jax.Array,
-):
-    """Advance one ASM2d reactor with fourth-order Runge–Kutta sub-stepping.
+) -> AdvanceResult[jax.Array]:
+    """Advance one ASM2d reactor with the guarded integrator's fourth-order Runge–Kutta sub-stepping.
 
     Splits `dt` into `_REACTOR_SUBSTEPS` RK4 sub-steps with physical-bound
     clamping after each one (same pattern as units/scrubber_sump.step), which
     keeps the O2-Monod stiffness described above inside RK4's stability
-    region without shrinking the external step.
+    region without shrinking the external step. The result's status says
+    whether the whole step was accepted.
     """
     def derivative(current_state: jax.Array) -> jax.Array:
         dilution = q_total / volume
         result = reactions_asm2d(current_state, params) + dilution * (inlet - current_state)
         return result.at[7].add(kla * (s_o_sat - current_state[7]))
 
-    return rk4_substeps(derivative, _non_negative, state, dt, _REACTOR_SUBSTEPS)
+    return advance_ode(derivative, _non_negative, state, dt, _REACTOR_SUBSTEPS)
 
 
 def _non_negative(state: jax.Array):

@@ -17,7 +17,7 @@ enough to reproduce the real couplings that make scrubber control hard:
   - makeup dilutes everything but refreshes volume
   - temperature affects reaction rates
 
-Uses RK4 integration for numerical stability.
+Integrated by the guarded RK4 advance for numerical stability.
 """
 
 from dataclasses import dataclass
@@ -26,7 +26,8 @@ import jax
 import jax.numpy as jnp
 
 from process_control._jax_dataclass import jax_dataclass
-from process_control.integration import rk4_step
+from process_control.integration import advance_ode
+from process_control.integration_records import AdvanceResult
 
 # ── Parameters ────────────────────────────────────────────────────────
 
@@ -253,14 +254,17 @@ def _clamp(state: ScrubberSumpState, params: ScrubberSumpParams) -> ScrubberSump
     )
 
 
+CLAMP_OVERFLOW = "clamp_overflow_m3"
+
+
 def step(
     state: ScrubberSumpState,
     inputs: SumpInputs,
     params: ScrubberSumpParams,
     dt: jax.Array,
     substeps: int = 10,
-) -> tuple[ScrubberSumpState, jax.Array]:
-    """Advance sump state by one timestep using RK4 integration.
+) -> AdvanceResult[ScrubberSumpState]:
+    """Advance sump state by one timestep with the guarded RK4 integrator.
 
     Splits `dt` into `substeps` RK4 sub-steps, clamping physical bounds after
     each one. At extreme (e.g. miscalibrated) reaction-rate parameters, a
@@ -271,22 +275,21 @@ def step(
     negative concentration to a term with a pole there (e.g. the contactor's
     Monod-saturation factors).
 
-    Args:
-        state: current sump state
-        inputs: external flows (held constant over the step)
-        params: sump parameters
-        dt: timestep in hours
-        substeps: number of RK4 sub-steps per call
+    The result's `quadratures["projection"][CLAMP_OVERFLOW]` sums, over the
+    sub-steps, the raw volume the clamp removed above 1.5 * volume_max. That
+    is a record of numerical clipping, not a conservative overflow.
     """
-    sub_dt = dt / substeps
 
-    new_state = state
-    total_overflow = jnp.array(0.0)
-    for _ in range(substeps):
-        raw_state = rk4_step(_derivatives, new_state, sub_dt, inputs, params)
-        total_overflow += jnp.maximum(raw_state.volume - params.volume_max * 1.5, 0.0)
-        new_state = _clamp(raw_state, params)
-    return new_state, total_overflow
+    def derivatives(current: ScrubberSumpState) -> ScrubberSumpState:
+        return _derivatives(current, inputs, params)
+
+    def clamp(current: ScrubberSumpState) -> ScrubberSumpState:
+        return _clamp(current, params)
+
+    def clipped(raw: ScrubberSumpState, projected: ScrubberSumpState) -> dict[str, jax.Array]:
+        return {CLAMP_OVERFLOW: jnp.maximum(raw.volume - params.volume_max * 1.5, 0.0)}
+
+    return advance_ode(derivatives, clamp, state, dt, substeps, observe_projection=clipped)
 
 
 # ── Derived quantities ────────────────────────────────────────────────
