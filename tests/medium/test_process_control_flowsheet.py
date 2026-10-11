@@ -184,6 +184,36 @@ def _settle(plant: Flowsheet, inputs: dict[str, jax.Array]) -> Mapping[str, obje
     return jax.lax.fori_loop(0, 100, advance, _empty_state())
 
 
+class TestRhsEvaluation:
+    def test_evaluation_carries_the_report_streams_and_diagnostics_at_the_same_state(self) -> None:
+        """A stage evaluation exposes exactly what a report resolves at that state."""
+        plant = _recycle_plant()
+        state = _empty_state()
+
+        evaluation = plant.evaluate_rhs(state, _feed(), _inputs())
+        report = plant.report(state, _feed(), _inputs())
+
+        assert evaluation.streams.keys() == report.streams.keys()
+        for port, stream in report.streams.items():
+            assert jnp.array_equal(evaluation.streams[port].flow, stream.flow)
+            assert jnp.array_equal(evaluation.streams[port].components, stream.components)
+        assert evaluation.diagnostics.keys() == report.diagnostics.keys()
+        for key, value in report.diagnostics.items():
+            assert jnp.array_equal(evaluation.diagnostics[key], value)
+
+    def test_derivatives_are_the_evaluation_derivative(self) -> None:
+        """The derivative contract returns the stage evaluation's derivative unchanged, under jit as well."""
+        plant = _recycle_plant()
+        state = _steady_state()
+
+        evaluation = jax.jit(plant.evaluate_rhs)(state, _feed(), _inputs())
+        derivatives = plant.derivatives(state, _feed(), _inputs())
+
+        assert tuple(evaluation.derivative) == plant.stateful_nodes
+        for name in plant.stateful_nodes:
+            assert jnp.allclose(_array(evaluation.derivative[name]), _array(derivatives[name]))
+
+
 class TestJointIntegration:
     def test_recycle_steady_state_has_zero_derivatives(self) -> None:
         """The analytic recycle steady state is a fixed point of the joint ODE.

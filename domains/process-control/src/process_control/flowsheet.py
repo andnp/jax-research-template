@@ -202,6 +202,15 @@ class FlowsheetReport:
     diagnostics: dict[tuple[str, str], jax.Array]
 
 
+@jax_dataclass
+class RhsEvaluation:
+    """One transient stage evaluation: the plant derivative with the streams and diagnostics resolved for it."""
+
+    derivative: Mapping[str, object]
+    streams: dict[Port, Stream]
+    diagnostics: dict[tuple[str, str], jax.Array]
+
+
 @dataclass(frozen=True, eq=False)
 class Flowsheet:
     """A validated plant graph integrated as one coupled ODE over a mapping of node states.
@@ -223,14 +232,19 @@ class Flowsheet:
     def stateful_nodes(self) -> tuple[str, ...]:
         return tuple(name for name, node in self.nodes.items() if node.unit.stateful)
 
-    def derivatives(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> Mapping[str, object]:
-        streams, _ = self._resolve(state, inlets, inputs)
-        return {
+    def evaluate_rhs(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> RhsEvaluation:
+        """Resolve once at `state` and return the derivative with the streams and diagnostics it was computed from."""
+        streams, diagnostics = self._resolve(state, inlets, inputs)
+        derivative = {
             name: self.nodes[name].unit.derivatives(
                 state[name], self._inlets_of(name, streams, inlets), self._inputs_of(name, inputs), self.nodes[name].params
             )
             for name in self.stateful_nodes
         }
+        return RhsEvaluation(derivative, streams, diagnostics)
+
+    def derivatives(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> Mapping[str, object]:
+        return self.evaluate_rhs(state, inlets, inputs).derivative
 
     def project(self, state: Mapping[str, object]) -> Mapping[str, object]:
         return {name: self.nodes[name].unit.project(state[name], self.nodes[name].params) for name in self.stateful_nodes}
