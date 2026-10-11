@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 import jax
 
+from process_control.events import EventSpec
 from process_control.integration_records import CheckResult, check_result
 
 
@@ -20,7 +21,7 @@ class IntegrationPolicy[S, P]:
 
     `check_state` returns one failure flag per name in `check_names`, in that order, before any group is
     evaluated. `modes` maps each persistent mode name to the input port that carries it. `finite_rhs` asks for
-    the post-derivative finiteness check.
+    the post-derivative finiteness check. `events` are the node's surfaces that change `modes`.
     """
 
     check_names: tuple[str, ...]
@@ -28,6 +29,7 @@ class IntegrationPolicy[S, P]:
     validity: tuple[ValidityRequirement, ...] = ()
     modes: Mapping[str, str] = field(default_factory=dict)
     finite_rhs: bool = True
+    events: tuple[EventSpec[S, P], ...] = ()
 
     def __post_init__(self) -> None:
         if len(set(self.check_names)) != len(self.check_names):
@@ -35,6 +37,13 @@ class IntegrationPolicy[S, P]:
         owners = list(self.modes.values())
         if len(set(owners)) != len(owners):
             raise ValueError(f"each mode must own its own input port: {dict(self.modes)}")
+        names = [event.name for event in self.events]
+        if len(set(names)) != len(names):
+            raise ValueError(f"event names must be unique: {names}")
+        for event in self.events:
+            undeclared = sorted(set(event.sets_modes) - set(self.modes))
+            if undeclared:
+                raise ValueError(f"event {event.name!r} sets undeclared modes {undeclared}")
 
     def check(self, state: S, inputs: Mapping[str, jax.Array], params: P, modes: Mapping[str, jax.Array]) -> CheckResult:
         result = self.check_state(state, inputs, params, modes)
