@@ -20,8 +20,11 @@ class IntegrationPolicy[S, P]:
     """Static numerical declarations of one node.
 
     `check_state` returns one failure flag per name in `check_names`, in that order, before any group is
-    evaluated. `modes` maps each persistent mode name to the input port that carries it. `finite_rhs` asks for
-    the post-derivative finiteness check. `events` are the node's surfaces that change `modes`.
+    evaluated. `continuation` names the checks bounding a domain an event locates: a location trial may
+    cross them, since the physics stays evaluable just beyond, but an accepted state may not. `witness`
+    maps a state failing any other check to a domain-safe one evaluated in its place, solely so masked
+    lanes stay finite. `modes` maps each persistent mode name to the input port that carries it.
+    `finite_rhs` asks for the post-derivative finiteness check. `events` are the node's surfaces that change `modes`.
     """
 
     check_names: tuple[str, ...]
@@ -30,10 +33,15 @@ class IntegrationPolicy[S, P]:
     modes: Mapping[str, str] = field(default_factory=dict)
     finite_rhs: bool = True
     events: tuple[EventSpec[S, P], ...] = ()
+    continuation: tuple[str, ...] = ()
+    witness: Callable[[S, P], S] | None = None
 
     def __post_init__(self) -> None:
         if len(set(self.check_names)) != len(self.check_names):
             raise ValueError(f"check names must be unique: {self.check_names}")
+        unknown = sorted(set(self.continuation) - set(self.check_names))
+        if unknown:
+            raise ValueError(f"continuation names undeclared checks {unknown}")
         owners = list(self.modes.values())
         if len(set(owners)) != len(owners):
             raise ValueError(f"each mode must own its own input port: {dict(self.modes)}")

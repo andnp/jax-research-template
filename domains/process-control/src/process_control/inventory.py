@@ -25,6 +25,10 @@ class InventoryChart(Protocol):
         """Stored-coordinate rate from the physical non-fast amount rate."""
         ...
 
+    def reconstructable(self, coordinates: jax.Array) -> jax.Array:
+        """Whether `amounts` accepts these coordinates, under the same roundoff tolerance; never raises."""
+        ...
+
 
 class IdentityChart:
     """Store the full transported inventories."""
@@ -37,6 +41,9 @@ class IdentityChart:
 
     def coordinate_rate(self, amount_rate: jax.Array) -> jax.Array:
         return amount_rate
+
+    def reconstructable(self, coordinates: jax.Array) -> jax.Array:
+        return jnp.all(jnp.isfinite(coordinates))
 
 
 @jax_dataclass
@@ -75,14 +82,14 @@ def reject_unless(valid: jax.Array, values: jax.Array, message: str) -> jax.Arra
     return jnp.where(valid, values, jnp.nan)
 
 
-def reconstruct(chart: InventoryChart, state: HoldupState, v_min_m3: jax.Array | float) -> Inventory:
-    """Reconstruct inventories and concentrations, rejecting volumes at or below `v_min_m3` and nonfinite state.
+def reconstruct(chart: InventoryChart, state: HoldupState) -> Inventory:
+    """Reconstruct inventories and concentrations, rejecting a nonpositive or nonfinite volume before dividing by it.
 
-    `v_min_m3` is a declared physical operating boundary, which must be positive.
+    The wet operating boundary `V >= V_min` is not checked here: it is a declared domain of the holdup's
+    integration policy, located as an event, and smooth trials slightly beyond it stay evaluable.
     """
     volume = state.volume_m3
-    wet = jnp.isfinite(volume) & (v_min_m3 > 0) & (volume > v_min_m3)
-    volume = reject_unless(wet, volume, f"holdup volume must exceed the declared minimum {v_min_m3} m3 (finite and positive)")
+    volume = reject_unless(jnp.isfinite(volume) & (volume > 0), volume, "holdup volume must be finite and positive")
     amounts = chart.amounts(state.amount_coordinates)
     amounts = reject_unless(jnp.all(jnp.isfinite(amounts)), amounts, "holdup inventories must be finite")
     return Inventory(amounts, amounts / volume)

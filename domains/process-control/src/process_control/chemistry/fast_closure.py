@@ -104,18 +104,29 @@ class FastReactionClosure:
         return jnp.asarray(self.invariants, dtype=amounts.dtype) @ amounts
 
     def amounts(self, coordinates: jax.Array) -> jax.Array:
+        full, admissible = self._reconstruct(coordinates)
+        return reject_unless(admissible, full, "reconstructed fast-closure products must be non-negative")
+
+    def reconstructable(self, coordinates: jax.Array) -> jax.Array:
+        return jnp.all(jnp.isfinite(coordinates)) & self._reconstruct(coordinates)[1]
+
+    def _reconstruct(self, coordinates: jax.Array) -> tuple[jax.Array, jax.Array]:
+        """Physical inventories, and whether every product is non-negative up to the roundoff of the subtraction that forms it."""
         nu = len(self.untouched)
         invariant = coordinates[nu]
         reactant = jnp.maximum(-invariant / self.demand, 0.0)
         oxidant = jnp.maximum(invariant, 0.0)
         dtype = coordinates.dtype
-        products = coordinates[nu + 1 :] - jnp.asarray(self._from_reactant, dtype) * reactant - jnp.asarray(self._from_oxidant, dtype) * oxidant
+        from_reactant = jnp.asarray(self._from_reactant, dtype) * reactant
+        from_oxidant = jnp.asarray(self._from_oxidant, dtype) * oxidant
+        products = coordinates[nu + 1 :] - from_reactant - from_oxidant
+        scale = jnp.abs(coordinates[nu + 1 :]) + jnp.abs(from_reactant) + jnp.abs(from_oxidant)
 
         full = jnp.zeros(len(self.schema.names), dtype=dtype)
         full = full.at[jnp.array(self.untouched, dtype=int)].set(coordinates[:nu])
         full = full.at[self.reactant].set(reactant).at[self.oxidant].set(oxidant)
         full = full.at[jnp.array(self.products, dtype=int)].set(products)
-        return reject_unless(jnp.all(products >= 0.0), full, "reconstructed fast-closure products must be non-negative")
+        return full, jnp.all(products >= -_TOLERANCE * scale)
 
     def coordinate_rate(self, amount_rate: jax.Array) -> jax.Array:
         return jnp.asarray(self.invariants, dtype=amount_rate.dtype) @ amount_rate

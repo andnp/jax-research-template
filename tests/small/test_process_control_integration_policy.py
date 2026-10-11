@@ -88,6 +88,11 @@ class TestIntegrationPolicy:
         with pytest.raises(ValueError, match="own input port"):
             IntegrationPolicy[None, None]((), lambda state, inputs, params, modes: check_result(()), modes={"a": "p", "b": "p"})
 
+    def test_continuation_must_name_declared_checks(self) -> None:
+        """Only a declared check can bound a domain that location trials may cross."""
+        with pytest.raises(ValueError, match="continuation"):
+            IntegrationPolicy[None, None](("a",), lambda state, inputs, params, modes: check_result((jnp.array(False),)), continuation=("b",))
+
 
 class TestAdvanceResult:
     def test_result_is_a_fixed_structure_pytree(self) -> None:

@@ -1,4 +1,4 @@
-"""Inventory balances of a well-mixed holdup: transport, volume accounting, wet-domain rejection."""
+"""Inventory balances of a well-mixed holdup: transport, volume accounting, division guard."""
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +7,6 @@ import pytest
 from process_control.inventory import HoldupState, IdentityChart, InventoryBalance, inventory_balance, reconstruct
 
 CHART = IdentityChart()
-V_MIN = 0.5
 
 
 def _balance(
@@ -20,7 +19,7 @@ def _balance(
     source: list[float] | None = None,
 ):
     state = HoldupState(jnp.asarray(volume), jnp.asarray(amounts))
-    inventory = reconstruct(CHART, state, V_MIN)
+    inventory = reconstruct(CHART, state)
     channels = len(amounts)
     return inventory_balance(
         CHART,
@@ -73,7 +72,7 @@ class TestVolumeBalance:
     def test_volume_rate_is_inflow_minus_draws_minus_overflow(self):
         """The volume balance is linear in the flows, with a volume source adding to it."""
         state = HoldupState(jnp.asarray(10.0), jnp.asarray([1.0]))
-        inventory = reconstruct(CHART, state, V_MIN)
+        inventory = reconstruct(CHART, state)
         balance = inventory_balance(
             CHART,
             state,
@@ -103,24 +102,28 @@ class TestSources:
         assert float(balance.volume_rate) == 0.0
 
 
-class TestWetDomain:
-    @pytest.mark.parametrize("volume", [V_MIN, 0.1, 0.0, -1.0, float("nan"), float("inf")])
-    def test_volume_at_or_below_the_minimum_or_nonfinite_is_rejected(self, volume: float):
-        """The wet-domain boundary is a physical limit, not an epsilon used in division."""
+class TestDivisionGuard:
+    @pytest.mark.parametrize("volume", [0.0, -1.0, float("nan"), float("inf")])
+    def test_nonpositive_or_nonfinite_volume_is_rejected(self, volume: float):
+        """Reconstruction never divides by a volume that is not finite and positive."""
         with pytest.raises(ValueError, match="holdup volume"):
-            reconstruct(CHART, HoldupState(jnp.asarray(volume), jnp.asarray([1.0])), V_MIN)
+            reconstruct(CHART, HoldupState(jnp.asarray(volume), jnp.asarray([1.0])))
+
+    def test_small_positive_volume_is_still_evaluable(self):
+        """The wet operating boundary belongs to the integration policy, so a trial just past it can still be evaluated."""
+        assert np.allclose(reconstruct(CHART, HoldupState(jnp.asarray(0.1), jnp.asarray([1.0]))).concentrations, [10.0])
 
     def test_nonfinite_inventory_is_rejected(self):
         """A NaN inventory is rejected rather than propagated into concentrations."""
         with pytest.raises(ValueError, match="finite"):
-            reconstruct(CHART, HoldupState(jnp.asarray(5.0), jnp.asarray([jnp.nan])), V_MIN)
+            reconstruct(CHART, HoldupState(jnp.asarray(5.0), jnp.asarray([jnp.nan])))
 
     def test_traced_invalid_volume_poisons_concentrations_with_nan(self):
         """Under jit an invalid stage cannot raise, so it returns NaN instead of a plausible number."""
 
         @jax.jit
         def concentrations(volume: jax.Array):
-            return reconstruct(CHART, HoldupState(volume, jnp.asarray([1.0])), V_MIN).concentrations
+            return reconstruct(CHART, HoldupState(volume, jnp.asarray([1.0]))).concentrations
 
         assert np.isnan(concentrations(jnp.asarray(0.0))).all()
         assert np.allclose(concentrations(jnp.asarray(2.0)), [0.5])
