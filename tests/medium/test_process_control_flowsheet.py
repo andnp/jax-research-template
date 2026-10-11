@@ -8,6 +8,8 @@ import pytest
 from process_control.components import ComponentBasis, ComponentSchema, Quantity
 from process_control.fields import EvaluationGroup, GroupResult, LocalField, Phase, PortSpec, PrescribedContext, StreamField
 from process_control.flowsheet import Flowsheet, Mixer, Node, Port, Splitter, build_flowsheet
+from process_control.integration_policy import IntegrationPolicy, ValidityRequirement, legacy_policy
+from process_control.integration_records import check_result
 from process_control.streams import Stream
 from process_control.units.contract import step_unit
 
@@ -430,6 +432,90 @@ class TestBuildValidation:
                 inlets={"influent": Port("t1", "in")},
                 outlets={"effluent": Port("t1", "out")},
             )
+
+
+def _single_node_plant(node: Node, port: str, outlet: str) -> Flowsheet:
+    return build_flowsheet(nodes={"n": node}, connections=[], inlets={"influent": Port("n", port)}, outlets={"out": Port("n", outlet)})
+
+
+def _modal_policy(modes: Mapping[str, str]) -> IntegrationPolicy[jax.Array, DecayParams]:
+    return IntegrationPolicy(("never",), lambda state, inputs, params, current: check_result((jnp.array(False),)), modes=modes)
+
+
+class TestIntegrationPolicies:
+    def test_declared_validity_diagnostic_is_accepted(self) -> None:
+        """A requirement naming a diagnostic its group declares builds."""
+        splitter = Splitter(LIQUID, draws=("waste",), remainder="rest")
+        policy = IntegrationPolicy[None, None](
+            (), legacy_policy().check_state, validity=(ValidityRequirement("remainder_flow", "split_deficit"),)
+        )
+
+        plant = build_flowsheet(
+            nodes={"n": Node(splitter, None, policy=policy)},
+            connections=[],
+            inlets={"influent": Port("n", "in")},
+            outlets={"waste": Port("n", "waste"), "rest": Port("n", "rest")},
+        )
+
+        assert plant.nodes["n"].policy is policy
+
+    @pytest.mark.parametrize(
+        ("requirement", "message"),
+        [
+            (ValidityRequirement("missing", "split_deficit"), "unknown group"),
+            (ValidityRequirement("remainder_flow", "missing"), "declares no diagnostic"),
+        ],
+    )
+    def test_undeclared_validity_diagnostic_is_rejected(self, requirement: ValidityRequirement, message: str) -> None:
+        """Validity is never inferred from diagnostic names, so a requirement must match a declaration."""
+        policy = IntegrationPolicy[None, None]((), legacy_policy().check_state, validity=(requirement,))
+
+        with pytest.raises(ValueError, match=message):
+            build_flowsheet(
+                nodes={"n": Node(Splitter(LIQUID, draws=("waste",), remainder="rest"), None, policy=policy)},
+                connections=[],
+                inlets={"influent": Port("n", "in")},
+                outlets={"waste": Port("n", "waste"), "rest": Port("n", "rest")},
+            )
+
+    def test_mode_ports_are_keyed_by_node_and_mode(self) -> None:
+        """A mode maps to the input port that carries it, qualified by its node."""
+        node = Node(DecayTank(input_ports=("capacity_active",)), TANK_PARAMS, policy=_modal_policy({"capacity": "capacity_active"}))
+
+        plant = _single_node_plant(node, "in", "out")
+
+        assert plant.mode_ports == {"n.capacity": Port("n", "capacity_active")}
+
+    def test_mode_on_an_unknown_port_is_rejected(self) -> None:
+        """A mode must be carried by a port the unit reads."""
+        node = Node(DecayTank(), TANK_PARAMS, policy=_modal_policy({"capacity": "capacity_active"}))
+
+        with pytest.raises(ValueError, match="names input port"):
+            _single_node_plant(node, "in", "out")
+
+    def test_mode_port_cannot_also_carry_an_ordinary_signal(self) -> None:
+        """A routed plant signal on a mode-owned port would collide with the mode."""
+        node = Node(
+            DecayTank(input_ports=("capacity_active",)),
+            TANK_PARAMS,
+            inputs={"capacity_active": "operator_flag"},
+            policy=_modal_policy({"capacity": "capacity_active"}),
+        )
+
+        with pytest.raises(ValueError, match="also routed to signal"):
+            _single_node_plant(node, "in", "out")
+
+    def test_initial_context_holds_integer_modes_for_exactly_the_declared_set(self) -> None:
+        """The context is built from explicit initial values and rejects missing or unknown modes."""
+        node = Node(DecayTank(input_ports=("capacity_active",)), TANK_PARAMS, policy=_modal_policy({"capacity": "capacity_active"}))
+        plant = _single_node_plant(node, "in", "out")
+
+        context = plant.initial_context({"n.capacity": True})
+
+        assert context.modes["n.capacity"].dtype == jnp.int32
+        assert int(context.modes["n.capacity"]) == 1
+        with pytest.raises(ValueError, match="initial modes must be exactly"):
+            plant.initial_context({})
 
 
 GAS_SCHEMA = ComponentSchema(

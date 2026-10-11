@@ -19,6 +19,8 @@ from process_control.fields import (
     validate_groups,
 )
 from process_control.integration import rk4_substeps
+from process_control.integration_policy import IntegrationPolicy, legacy_policy
+from process_control.integration_records import IntegrationContext
 from process_control.streams import Stream, mix_components
 from process_control.units.contract import ContinuousUnit, evaluate, outlet_streams
 
@@ -184,12 +186,14 @@ def _total(flows: Iterable[jax.Array]) -> jax.Array:
 class Node[S, P]:
     """A unit placed in a flowsheet, with its parameters and the plant signals routed to its input ports.
 
-    Input ports missing from `inputs` read the plant signal of the same name.
+    Input ports missing from `inputs` read the plant signal of the same name. `policy` declares the node's
+    numerical domain; the default declares none.
     """
 
     unit: ContinuousUnit[S, P]
     params: P
     inputs: Mapping[str, str] = field(default_factory=dict)
+    policy: IntegrationPolicy[S, P] = field(default_factory=legacy_policy)
 
 
 @jax_dataclass
@@ -245,6 +249,17 @@ class Flowsheet:
 
     def derivatives(self, state: Mapping[str, object], inlets: Mapping[str, Stream], inputs: Signals) -> Mapping[str, object]:
         return self.evaluate_rhs(state, inlets, inputs).derivative
+
+    @property
+    def mode_ports(self) -> dict[str, Port]:
+        """The input port carrying each persistent mode, keyed `node.mode` in declaration order."""
+        return {f"{name}.{mode}": Port(name, port) for name, node in self.nodes.items() for mode, port in node.policy.modes.items()}
+
+    def initial_context(self, modes: Mapping[str, bool | int]) -> IntegrationContext:
+        """Build the persistent context from explicit initial values for exactly the declared modes."""
+        if set(modes) != set(self.mode_ports):
+            raise ValueError(f"initial modes must be exactly {sorted(self.mode_ports)}, got {sorted(modes)}")
+        return IntegrationContext({name: jnp.asarray(modes[name], dtype=jnp.int32) for name in self.mode_ports})
 
     def project(self, state: Mapping[str, object]) -> Mapping[str, object]:
         return {name: self.nodes[name].unit.project(state[name], self.nodes[name].params) for name in self.stateful_nodes}
@@ -336,6 +351,7 @@ def build_flowsheet(
     routes = {name: _route(name, node) for name, node in nodes.items()}
     for name, node in nodes.items():
         _check_groups(name, node)
+        _check_policy(name, node)
 
     sources: dict[Port, Port | str] = {}
     consumers: dict[Port, str] = {}
@@ -388,6 +404,21 @@ def _check_groups(name: str, node: Node) -> None:
         unknown = sorted(set(group.input_names) - set(unit.input_ports))
         if unknown:
             raise ValueError(f"node {name!r}: group {group.name!r} reads undeclared input ports {unknown}")
+
+
+def _check_policy(name: str, node: Node) -> None:
+    unit, policy = node.unit, node.policy
+    groups = {group.name: group for group in unit.evaluation_groups}
+    for requirement in policy.validity:
+        if requirement.group not in groups:
+            raise ValueError(f"node {name!r}: validity requirement names unknown group {requirement.group!r}")
+        if requirement.diagnostic not in groups[requirement.group].diagnostic_names:
+            raise ValueError(f"node {name!r}: group {requirement.group!r} declares no diagnostic {requirement.diagnostic!r}")
+    for mode, port in policy.modes.items():
+        if port not in unit.input_ports:
+            raise ValueError(f"node {name!r}: mode {mode!r} names input port {port!r}; the unit has {list(unit.input_ports)}")
+        if port in node.inputs:
+            raise ValueError(f"node {name!r}: mode {mode!r} owns input port {port!r}, which is also routed to signal {node.inputs[port]!r}")
 
 
 def _check_compatible(source: Port, carried: PortSpec, target: Port, expected: PortSpec) -> None:
