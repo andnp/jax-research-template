@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788478682589,
+  "lastUpdate": 1792044139612,
   "repoUrl": "https://github.com/andnp/jax-research-template",
   "entries": {
     "Env Seam Benchmark": [
@@ -3538,6 +3538,107 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.00001611934022917474",
             "extra": "mean: 36.86900000161586 usec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "committer": {
+            "email": "andnpatterson@gmail.com",
+            "name": "Andy Patterson",
+            "username": "andnp"
+          },
+          "distinct": true,
+          "id": "3d4614d882de229ef997268759e2fca59a4c14d9",
+          "message": "refactor(process-control): advance flowsheets with one guarded integrator\n\nHoldups with wet boundaries, capacity modes and fast charts need guarded\nstages, transactional retry, located events and accepted-stage ledgers;\nkeeping the unguarded RK4 beside that would leave two solvers. Every\ncaller now uses one advance that reproduces BSM1's float64 trajectory\nexactly and reports a status instead of returning a partial state as\nif it had completed.\n\nCo-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01MdSzDbo9Vyrnb4AZYaiCgZ",
+          "timestamp": "2026-10-10T20:33:54-06:00",
+          "tree_id": "7f3ab40063dc841076153e6abd556fbb572f6ee6",
+          "url": "https://github.com/andnp/jax-research-template/commit/3d4614d882de229ef997268759e2fca59a4c14d9"
+        },
+        "date": 1792044138974,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tests/performance/test_all_bench.py::test_ppo_speed",
+            "value": 6.728601243099717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017119221916126366",
+            "extra": "mean: 148.61929899999873 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_dqn_speed",
+            "value": 0.8758603921136816,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007379197733031516",
+            "extra": "mean: 1.1417344693333338 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_all_bench.py::test_sac_speed",
+            "value": 0.04214296969191895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12423516976119275",
+            "extra": "mean: 23.728750188 sec\nrounds: 2"
+          },
+          {
+            "name": "tests/performance/test_ppo_bench.py::test_ppo_speed",
+            "value": 0.5266852015398349,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01182564973720155",
+            "extra": "mean: 1.8986673578000022 sec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_env_only_rollout_speed",
+            "value": 1928.1828996987829,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001055453285998048",
+            "extra": "mean: 518.6230000049363 usec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_policy_and_env_rollout_speed",
+            "value": 21.40240683334184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0014384434737827673",
+            "extra": "mean: 46.72371700000326 msec\nrounds: 5"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_micro_train_replay_and_update_speed",
+            "value": 0.5358484782486959,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01541821903211057",
+            "extra": "mean: 1.8661991973333254 sec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_replay_sampling_only_speed",
+            "value": 931.5803888691004,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015235756506066164",
+            "extra": "mean: 1.0734446666636661 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_without_learning_speed",
+            "value": 233.9871662725715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000408459501034024",
+            "extra": "mean: 4.273738666654481 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_agents_dqn_atari_env_loop_bench.py::test_fake_agent_step_with_learning_speed",
+            "value": 3.3172455328678674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008351204533866416",
+            "extra": "mean: 301.45492399999324 msec\nrounds: 3"
+          },
+          {
+            "name": "tests/performance/test_rl_components_env_rollout_bench.py::test_canonical_env_rollout_speed",
+            "value": 11588.291191472881,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001539507968332346",
+            "extra": "mean: 86.29399999335874 usec\nrounds: 5"
           }
         ]
       }
